@@ -19,6 +19,7 @@ pnpm-debug.log*
 
 # Local production deployment config (contains account resource IDs)
 wrangler.production.jsonc
+wrangler.staff.production.jsonc
 
 # OS files
 .DS_Store
