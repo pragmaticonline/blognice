@@ -525,9 +525,10 @@ triggers paid AI work. Every request is checked against the account's
 
 ## Notes for going further
 
-- **Sanitize Markdown before you allow untrusted authors.** `marked` does not
-  strip HTML, which is fine while authors only edit their own blog, but run the
-  output through a sanitizer (e.g. `sanitize-html`) before opening it up.
+- **Markdown is sanitized at render time.** `marked` output passes through a
+  dependency-free HTML allowlist that removes executable/embed elements, event
+  attributes, unsafe URL schemes, and protocol-relative URLs before it reaches
+  a public page. Keep extending the security tests when adding Markdown features.
 - **Harden before a public launch.** Add rate limiting on `/admin/login` and
   `/signup`, email verification on signup (send a confirm link, gate the blog
   until confirmed), and CSRF tokens on the forms (the `SameSite=Lax` cookie

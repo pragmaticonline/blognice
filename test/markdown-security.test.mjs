@@ -10,4 +10,7 @@ test("Markdown rendering uses an HTML allowlist and strips executable blocks", (
   assert.match(source, /const safeTags = new Set/);
   assert.match(source, /attr === "href" \|\| attr === "src"/);
   assert.match(source, /https\?:/);
+  assert.match(source, /protocol-relative URLs/);
+  assert.match(source, /mailto:/);
+  assert.match(source, /noopener noreferrer/);
 });

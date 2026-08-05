@@ -158,11 +158,23 @@ function sanitizeRenderedHtml(html: string): string {
       const attr = match[1].toLowerCase();
       if (!safeAttrs.has(attr)) continue;
       const value = match[2] ?? match[3] ?? match[4] ?? "";
-      if ((attr === "href" || attr === "src") && !/^(?:https?:\/\/|\/|#|mailto:)/i.test(value.trim())) continue;
+      if (attr === "href" || attr === "src") {
+        // Reject protocol-relative URLs and control-character obfuscation.
+        // Relative paths, fragments, HTTPS/HTTP, and mail links are the only
+        // schemes needed by the editor (mailto is valid for href, not src).
+        const compact = value.trim().replace(/[\u0000-\u0020\u007f]/g, "");
+        const allowed = attr === "href"
+          ? /^(?:https?:\/\/|\/(?!\/)|#|mailto:)/i
+          : /^(?:https?:\/\/|\/(?!\/))/i;
+        if (!allowed.test(compact)) continue;
+      }
       if (attr === "target" && value !== "_blank") continue;
       if ((attr === "colspan" || attr === "rowspan") && !/^\d{1,3}$/.test(value)) continue;
       const escaped = esc(value);
       rendered.push(` ${attr}="${escaped}"`);
+    }
+    if (name === "a" && rendered.some((attr) => attr === ' target="_blank"') && !rendered.some((attr) => attr.startsWith(" rel="))) {
+      rendered.push(' rel="noopener noreferrer"');
     }
     return `<${name}${rendered.join("")}>`;
   });
@@ -3168,9 +3180,6 @@ app.get("/:slug", async (c) => {
         headers: { "content-type": "text/html; charset=utf-8" },
       });
 
-    // NOTE: marked does not sanitize HTML. Authors edit only their own blog,
-    // so this is acceptable for a starter, but before you let untrusted users
-    // in, run the output through a sanitizer (e.g. sanitize-html / DOMPurify).
     const htmlBody = renderMarkdown(post.body_md);
 
     return new Response(renderPost(tenant, post, htmlBody, originOf(c), adminOriginOf(c)), {
