@@ -9,9 +9,9 @@ fast, server-rendered pages.
 ## What's in the box
 
 - **One Worker** ([Hono](https://hono.dev)) that routes every request to the
-  right tenant based on the `Host` header, renders Markdown to HTML, and serves
-  it server-side (good for SEO, with only small progressive scripts for editor,
-  audio, and metrics behavior).
+  right tenant based on the `Host` header, renders Markdown through a
+  dependency-free HTML allowlist, and serves it server-side (good for SEO, with
+  only small progressive scripts for editor, audio, and metrics behavior).
 - **One D1 database** (Cloudflare's SQLite) holding two tables: `tenants` and
   `posts`. All queries filter by `tenant_id`.
 - **Edge caching** via the Cache API. Reads are cached at the edge; publishing a
@@ -525,10 +525,6 @@ triggers paid AI work. Every request is checked against the account's
 
 ## Notes for going further
 
-- **Markdown is sanitized at render time.** `marked` output passes through a
-  dependency-free HTML allowlist that removes executable/embed elements, event
-  attributes, unsafe URL schemes, and protocol-relative URLs before it reaches
-  a public page. Keep extending the security tests when adding Markdown features.
 - **Harden before a public launch.** Add rate limiting on `/admin/login` and
   `/signup`, email verification on signup (send a confirm link, gate the blog
   until confirmed), and CSRF tokens on the forms (the `SameSite=Lax` cookie
