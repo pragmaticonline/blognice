@@ -109,7 +109,7 @@ export async function currentAccount(c: any): Promise<Account | null> {
   const row = (await c.env.DB.prepare(
     `SELECT a.id, a.email
        FROM sessions s JOIN accounts a ON a.id = s.account_id
-      WHERE s.token = ? AND s.expires_at > ?`
+      WHERE s.token = ? AND s.expires_at > ? AND COALESCE(a.status, 'active') = 'active'`
   )
     .bind(token, now)
     .first()) as Account | null;
@@ -168,7 +168,7 @@ export async function accountFromApiKey(
   if (!key || !key.startsWith("bnk_")) return null;
   const hash = await sha256hex(key);
   return (await db
-    .prepare("SELECT id, email FROM accounts WHERE api_key_hash = ?")
+    .prepare("SELECT id, email FROM accounts WHERE api_key_hash = ? AND COALESCE(status, 'active') = 'active'")
     .bind(hash)
     .first()) as Account | null;
 }

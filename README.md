@@ -212,6 +212,31 @@ via `wrangler secret put`, not in either configuration file.
    `*.blognice.com` (a wildcard) so every tenant subdomain hits this Worker, and
    set `ROOT_DOMAIN` in `wrangler.jsonc` to match your domain.
 
+## Staff administration (phase 1)
+
+Staff administration is a separate Worker at `staff.blognice.com`; it does not
+reuse customer sessions or `API_TOKEN`. Put the hostname behind a Cloudflare
+Access application with an email allowlist and mandatory MFA. The Worker also
+validates the Access JWT and maps its immutable subject to `staff_users`.
+
+Apply the index migration before deploying it:
+
+    npx wrangler d1 execute blognice --remote --file=./migrations/014-staff-administration.sql --config wrangler.production.jsonc
+
+Copy `wrangler.staff.production.example.jsonc` to the ignored local file
+`wrangler.staff.production.jsonc`, then set the Access team domain, Access
+application audience tag, index database ID, and an initial
+`STAFF_ALLOWED_EMAILS` address. Deploy with:
+
+    npm run deploy:staff:production
+
+Phase 1 provides account/blog search, read-only account details, account
+suspension/reactivation, session revocation, API-key revocation, and an indexed
+application audit trail. Mutations require a `support` or `admin` staff role,
+a same-origin request, and a reason. Passwords, subscriber contents, drafts,
+media, billing, impersonation, and permanent deletion are intentionally out of
+scope.
+
 ## Metrics
 
 Public home and post pages include a small same-origin beacon. It stores the
