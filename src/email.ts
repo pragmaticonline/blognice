@@ -1,20 +1,37 @@
-// Optional transactional email via Resend (https://resend.com).
+// Optional transactional email via MailNice's server API.
 //
 // Everything else in Blog Nice works without this. Email turns on only when
-// both secrets are set:
-//   RESEND_API_KEY   your Resend API key (wrangler secret put RESEND_API_KEY)
-//   EMAIL_FROM       a verified from-address, e.g. "The Blog <hello@blognice.com>"
-//
-// Sending from your own domain requires verifying it in Resend (SPF/DKIM), or
-// deliverability will suffer. See the README.
+// both secrets/configuration values are set:
+//   MAILNICE_API_KEY  server API key (wrangler secret put MAILNICE_API_KEY)
+//   EMAIL_FROM        verified sender address, e.g. "The Blog <hello@blognice.com>"
 
 export type EmailEnv = {
-  RESEND_API_KEY?: string;
+  MAILNICE_API_KEY?: string;
   EMAIL_FROM?: string;
+  MAILNICE_API_URL?: string;
 };
 
+const DEFAULT_MAILNICE_API_URL = "https://api.mailnice.net/api/v1/send/message";
+
 export function emailEnabled(env: EmailEnv): boolean {
-  return !!(env.RESEND_API_KEY && env.EMAIL_FROM);
+  return !!(env.MAILNICE_API_KEY?.trim() && env.EMAIL_FROM?.trim());
+}
+
+function htmlToPlainText(html: string): string {
+  return html
+    .replace(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, "$2 ($1)")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p\s*>/gi, "\n\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 export async function sendEmail(
@@ -28,18 +45,17 @@ export async function sendEmail(
 ): Promise<boolean> {
   if (!emailEnabled(env)) return false;
   try {
-    const res = await fetch("https://api.resend.com/emails", {
+    const res = await fetch(env.MAILNICE_API_URL?.trim() || DEFAULT_MAILNICE_API_URL, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${env.RESEND_API_KEY}`,
+        "X-Server-API-Key": env.MAILNICE_API_KEY!.trim(),
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        from: env.EMAIL_FROM,
-        to: msg.to,
+        to: [msg.to],
+        from: env.EMAIL_FROM!.trim(),
         subject: msg.subject,
-        html: msg.html,
-        headers: msg.headers,
+        plain_body: htmlToPlainText(msg.html),
       }),
     });
     return res.ok;

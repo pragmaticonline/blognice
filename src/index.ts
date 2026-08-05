@@ -91,9 +91,10 @@ type Bindings = {
   CF_ACCOUNT_ID?: string; // var; required to query metrics
   CF_ANALYTICS_TOKEN?: string; // secret; Account Analytics Read
 
-  // Optional email (Resend). See src/email.ts. Unset = subscriptions still
+  // Optional email (MailNice). See src/email.ts. Unset = subscriptions still
   // work as capture-only (no emails sent).
-  RESEND_API_KEY?: string; // secret
+  MAILNICE_API_KEY?: string; // secret
+  MAILNICE_API_URL?: string; // optional override for testing
   EMAIL_FROM?: string; // var, e.g. "Blog Nice <hello@blognice.com>"
 };
 
