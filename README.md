@@ -35,7 +35,7 @@ fast, server-rendered pages.
   browser and stored in R2 like other images.
 - **Subscriptions** — readers subscribe from a box on the home page and under
   every post; authors see the list at `/admin/b/<public-id>/subscribers` with CSV
-  export. Capture and unsubscribe work with no dependencies. Add a Resend API
+  export. Capture and unsubscribe work with no dependencies. Add a MailNice API
   key to also send a welcome email and notify subscribers on each new post.
 - **Image uploads** — drag, paste, or pick images in the editor. They're
   downscaled and recompressed to WebP in the browser, stored in an R2 bucket,
@@ -75,7 +75,7 @@ fast, server-rendered pages.
     src/auth.ts       Password hashing, sessions, cookies
     src/db.ts         The data split + sharding seam (index vs posts database)
     src/cloudflare.ts Cloudflare for SaaS custom-hostname API wrapper
-    src/email.ts      Optional transactional email via Resend
+    src/email.ts      Optional transactional email via MailNice
     src/metrics.ts    Analytics Engine writes/queries + daily R2 rollups
     schema.sql        Index database: accounts, memberships, tenants, sessions, domains
     schema-posts.sql  Posts database: post bodies
@@ -304,18 +304,20 @@ one-click `List-Unsubscribe` support in emails.
 subscribe box collects addresses (export them to any newsletter tool via CSV).
 
 **To actually send email** — a welcome note on subscribe and a notification when
-a post first goes live — connect [Resend](https://resend.com):
+ a post first goes live — connect MailNice:
 
-1. Verify your sending domain in Resend (SPF/DKIM) for deliverability.
-2. Set the from-address as a var and the key as a secret:
+1. Verify `mailer.blognice.com` (or the domain you use in `EMAIL_FROM`) with
+   MailNice and complete its SPF/DKIM setup for deliverability.
+2. Set the from-address as a var and the MailNice server key as a secret:
 
        # in wrangler.jsonc vars:  "EMAIL_FROM": "Your Blog <hello@blognice.com>"
-       npx wrangler secret put RESEND_API_KEY
+       npx wrangler secret put MAILNICE_API_KEY
 
-Once both are set, `src/email.ts` starts sending; until then it's a silent no-op.
+Once both are set, `src/email.ts` sends through
+`https://api.mailnice.net/api/v1/send/message`; until then it's a silent no-op.
 Notifications fire on the draft→published transition, so re-saving a live post
-won't re-send. Note Resend's free tier caps (100/day, 3000/month) — fine to
-start; add batching/queueing before large lists.
+won't re-send. MailNice receives a plain-text body generated from the existing
+HTML email, including the destination links and unsubscribe link.
 
 ## How tenants and domains work
 

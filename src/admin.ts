@@ -1401,7 +1401,7 @@ export function subscribersPage(
         emailOn
           ? ""
           : `<div class="notice" style="background:color-mix(in srgb, var(--ink) 6%, transparent);color:var(--muted)">
-               Email Integration TODO
+               Email integration is not configured
              </div>`
       }
       ${list}
