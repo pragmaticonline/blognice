@@ -1,0 +1,80 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "blognice",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-06-20",
+	"rules": [
+		{ "type": "Text", "globs": ["**/*.html", "**/*.svg"], "fallthrough": false }
+	],
+	"vars": {
+		"ROOT_DOMAIN": "blognice.com",
+		// Cloudflare for SaaS (custom domains).
+		// CF_ZONE_ID is the zone id of your platform domain (blognice.com).
+		"CF_ZONE_ID": "your-zone-id",
+		// What customers point their CNAME at. Configure this hostname as your
+		// SaaS fallback origin in the Cloudflare dashboard.
+		"CNAME_TARGET": "fallback.blognice.com"
+	},
+	// Run the Worker for every tenant subdomain (and the apex).
+	"routes": [
+		{
+			"pattern": "*.blognice.com/*",
+			"zone_name": "blognice.com"
+		},
+		{
+			"pattern": "blognice.com/*",
+			"zone_name": "blognice.com"
+		}
+	],
+	// Two databases. `DB` is the index (tenants, users, sessions, domains);
+	// `POSTS` holds every post body.
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "blognice",
+			"database_id": "your-blognice-database-id"
+		},
+		{
+			"binding": "POSTS",
+			"database_name": "blognice-posts",
+			"database_id": "your-blognice-posts-database-id"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "MEDIA",
+			"bucket_name": "blognice-media"
+		},
+		{
+			"binding": "METRICS_ARCHIVE",
+			"bucket_name": "blognice-metrics"
+		}
+	],
+	"analytics_engine_datasets": [
+		{
+			"binding": "METRICS",
+			"dataset": "blognice_pageviews"
+		},
+		{
+			"binding": "EVENTS",
+			"dataset": "blognice_events"
+		}
+	],
+	"triggers": {
+		"crons": [
+			"15 2 * * *"
+		]
+	},
+	"ai": {
+		"binding": "AI"
+	},
+	"queues": {
+		"producers": [{ "binding": "AUDIO_QUEUE", "queue": "blognice-audio" }],
+		"consumers": [{ "queue": "blognice-audio", "max_batch_size": 1, "max_batch_timeout": 5, "max_retries": 5 }]
+	}
+	// Secrets (set with `wrangler secret put <NAME>`, not stored here):
+	//   API_TOKEN     authorizes the /api routes
+	//   CF_API_TOKEN  a Cloudflare token scoped to edit SSL / custom hostnames
+	//   CF_ANALYTICS_TOKEN  a token with Account Analytics Read permission
+	// Set CF_ACCOUNT_ID as a non-secret var in production to enable reports.
+}

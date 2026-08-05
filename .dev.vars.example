@@ -1,0 +1,8 @@
+# Copy this file to .dev.vars for local development (it is gitignored).
+
+# Authorizes the /api routes.
+API_TOKEN = "choose-a-long-random-string"
+
+# Only needed if you want to exercise the custom-domain endpoints locally.
+CF_API_TOKEN = "your-cloudflare-api-token"
+CF_ZONE_ID = "your-zone-id"

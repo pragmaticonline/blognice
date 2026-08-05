@@ -1,0 +1,1 @@
+ALTER TABLE tenants ADD COLUMN accent_color TEXT NOT NULL DEFAULT '#1a8917';

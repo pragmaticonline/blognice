@@ -1,0 +1,1518 @@
+// Server-rendered admin UI. Utilitarian but styled to match the public theme.
+import { accentTextColor, esc, formatDate, normalizeAccentColor, type Post, type Tenant } from "./render";
+import type { Account } from "./auth";
+import type { MetricsReport } from "./metrics";
+
+const ACCENT_PRESETS = [
+  ["Blog Nice green", "#1a8917"],
+  ["Ocean blue", "#2563eb"],
+  ["Deep teal", "#0f766e"],
+  ["Indigo", "#4f46e5"],
+  ["Berry", "#9f1239"],
+  ["Terracotta", "#c2412d"],
+  ["Amber", "#b7791f"],
+  ["Slate", "#475569"],
+] as const;
+
+function tenantTopics(tenant: Tenant): string[] {
+  try {
+    const value = JSON.parse(tenant.topics_json || "[]");
+    return Array.isArray(value) ? value.filter((topic): topic is string => typeof topic === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+const ADMIN_STYLES = /* css */ `
+  :root {
+    --bg: #fdfdfc; --panel: #ffffff; --ink: #1a1a18; --muted: #6a6a66;
+    --rule: #e4e3de; --accent: #146b54; --accent-ink: #ffffff;
+    --danger: #a3352b; --field: #ffffff;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161614; --panel: #1e1e1b; --ink: #e9e8e3; --muted: #9a9a93;
+      --rule: #302f2b; --accent: #6fc9a9; --accent-ink: #10241d;
+      --danger: #e8897f; --field: #14140f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--sans); font-size: 15px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); }
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.8rem 1.2rem; border-bottom: 1px solid var(--rule);
+  }
+  .globalbar { background: var(--bg); }
+  .topbar .brand { font-weight: 600; }
+  .topbar .right { display: flex; gap: 1.2rem; align-items: center; font-size: 0.9rem; }
+  .topbar form { margin: 0; }
+  .linkbtn {
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    font: inherit; font-size: 0.9rem; padding: 0; text-decoration: underline;
+  }
+  .linkbtn:hover { color: var(--accent); }
+  .contextbar { border-bottom: 1px solid var(--rule); background: var(--panel); }
+  .context-inner { max-width: 78rem; margin: 0 auto; padding: 0.65rem 1.2rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+  .context-title { display: flex; align-items: center; min-width: 0; position: relative; }
+  .context-label { color: var(--muted); font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; }
+  .context-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .blog-switcher { position: relative; }
+  .blog-switcher-toggle { display:inline-flex; align-items:center; gap:.45rem; max-width:20rem; border:1px solid var(--rule); border-radius:7px; padding:.42rem .65rem; background:var(--field); color:var(--ink); font:inherit; font-weight:600; cursor:pointer; }
+  .blog-switcher-toggle:hover { border-color:var(--accent); }
+  .blog-switcher-toggle svg { width:1rem; height:1rem; flex:0 0 auto; }
+  .blog-switcher-menu { position:absolute; z-index:20; top:calc(100% + .5rem); left:0; width:min(21rem, calc(100vw - 2rem)); padding:.45rem; background:var(--panel); border:1px solid var(--rule); border-radius:8px; box-shadow:0 12px 30px rgb(0 0 0 / .14); }
+  .blog-switcher-menu[hidden] { display:none; }
+  .blog-switcher-heading { color:var(--muted); font-size:.72rem; letter-spacing:.06em; text-transform:uppercase; padding:.45rem .55rem .3rem; }
+  .blog-switcher-list { display:grid; gap:.15rem; }
+  .blog-switcher-item, .blog-switcher-new { display:flex; align-items:center; gap:.5rem; padding:.55rem; border-radius:5px; color:var(--ink); text-decoration:none; font-size:.9rem; }
+  .blog-switcher-item:hover, .blog-switcher-new:hover { background:color-mix(in srgb, var(--accent) 10%, transparent); }
+  .blog-switcher-item.current { background:color-mix(in srgb, var(--accent) 13%, transparent); font-weight:600; }
+  .blog-switcher-item small { margin-left:auto; color:var(--muted); font-size:.75rem; }
+  .blog-switcher-new { border-top:1px solid var(--rule); margin-top:.35rem; color:var(--accent); }
+  .context-links { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+  .context-links a { color: var(--muted); font-size: .88rem; text-decoration: none; }
+  .context-links a:hover { color: var(--accent); }
+  .breadcrumb { color: var(--muted); font-size: .8rem; margin: 0 0 .8rem; }
+  .breadcrumb a { color: inherit; text-decoration: none; }
+  .breadcrumb a:hover { color: var(--accent); }
+
+  .page { max-width: 62rem; margin: 0 auto; padding: 2rem 1.2rem 4rem; }
+  .page.narrow { max-width: 24rem; }
+  h1 { font-size: 1.4rem; margin: 0 0 1.4rem; }
+
+  .row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.4rem; }
+  .btn {
+    display: inline-block; background: var(--accent); color: var(--accent-ink);
+    border: none; border-radius: 6px; padding: 0.5rem 0.9rem; font: inherit;
+    font-weight: 500; cursor: pointer; text-decoration: none;
+  }
+  .btn:hover { filter: brightness(1.05); }
+  .btn.ghost { background: none; color: var(--muted); border: 1px solid var(--rule); }
+  .btn.danger { background: none; color: var(--danger); border: 1px solid var(--rule); }
+
+  ul.posts { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
+  ul.posts li {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 1rem; padding: 0.85rem 0; border-bottom: 1px solid var(--rule);
+  }
+  ul.posts .t { font-weight: 500; }
+  ul.posts .t a { color: inherit; text-decoration: none; }
+  ul.posts .t a:hover { color: var(--accent); }
+  ul.posts .sub { font-size: 0.82rem; color: var(--muted); margin-top: 0.15rem; }
+  ul.posts .acts { display: flex; gap: 0.6rem; align-items: center; white-space: nowrap; }
+  .icon-btn { width: 2.25rem; height: 2.25rem; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+  .icon-btn svg { width: 1.05rem; height: 1.05rem; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .post-summary { display:flex; align-items:center; gap:.8rem; min-width:0; }
+  .post-thumb { width:4.5rem; height:3.4rem; flex:0 0 auto; object-fit:cover; border-radius:4px; background:var(--rule); }
+  .tag {
+    font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em;
+    padding: 0.1rem 0.4rem; border-radius: 4px; border: 1px solid var(--rule);
+    color: var(--muted);
+  }
+  .tag.live { color: var(--accent); border-color: var(--accent); }
+
+  label { display: block; font-size: 0.82rem; color: var(--muted); margin: 0 0 0.3rem; }
+  input[type=text], input[type=email], input[type=password], textarea, select {
+    width: 100%; background: var(--field); color: var(--ink);
+    border: 1px solid var(--rule); border-radius: 6px; padding: 0.55rem 0.65rem;
+    font: inherit; margin-bottom: 1rem;
+  }
+  textarea { font-family: var(--mono); font-size: 13.5px; line-height: 1.55; resize: vertical; }
+  input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+  .check { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.2rem; }
+  .check input { width: auto; margin: 0; }
+  .check label { margin: 0; color: var(--ink); }
+
+  /* Editor: a full-width writing area with a Write / Preview toggle. */
+  .tabs { display: flex; gap: 0.3rem; border-bottom: 1px solid var(--rule); margin-bottom: 0.9rem; }
+  .tab {
+    background: none; border: none; border-bottom: 2px solid transparent;
+    color: var(--muted); font: inherit; font-size: 0.9rem; font-weight: 500;
+    padding: 0.45rem 0.3rem; margin-bottom: -1px; cursor: pointer;
+  }
+  .tab:hover { color: var(--ink); }
+  .tab.active { color: var(--ink); border-bottom-color: var(--accent); }
+  .img-btn { color: var(--accent); border-bottom-color: transparent !important; font-weight: 500; }
+  .img-btn:hover { color: var(--accent); filter: brightness(1.1); }
+  .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1rem; }
+  .media-card { min-width: 0; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+  .media-card img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: var(--rule); }
+  .media-card-body { padding: 0.65rem; }
+  .media-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.82rem; }
+  .media-meta { color: var(--muted); font-size: 0.75rem; margin: 0.15rem 0 0.55rem; }
+  dialog.media-dialog { width: min(58rem, calc(100% - 2rem)); max-height: 85vh; color: var(--ink); background: var(--bg); border: 1px solid var(--rule); border-radius: 10px; padding: 0; }
+  dialog.media-dialog::backdrop { background: rgb(0 0 0 / 0.55); }
+  .media-dialog-head { display:flex; align-items:center; gap:0.7rem; padding:1rem; border-bottom:1px solid var(--rule); }
+  .media-dialog-body { padding:1rem; overflow:auto; max-height:calc(85vh - 4rem); }
+  .media-pick { cursor:pointer; text-align:left; color:var(--ink); padding:0; }
+  .featured-picker { display:flex; align-items:center; gap:1rem; margin:0 0 1.2rem; }
+  .featured-preview-button { display:block; border:0; padding:0; border-radius:6px; background:var(--rule); cursor:zoom-in; overflow:hidden; }
+  .featured-preview-button:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+  .featured-preview { display:block; width:10rem; aspect-ratio:4/3; object-fit:cover; }
+  dialog.image-lightbox { width:min(72rem, calc(100% - 2rem)); max-width:none; max-height:90vh; padding:0; border:0; border-radius:10px; background:#111; }
+  dialog.image-lightbox::backdrop { background:rgb(0 0 0 / .78); }
+  .image-lightbox-body { position:relative; display:flex; align-items:center; justify-content:center; min-height:8rem; }
+  .image-lightbox-body img { display:block; max-width:100%; max-height:86vh; width:auto; height:auto; object-fit:contain; }
+  .image-lightbox-close { position:absolute; top:.65rem; right:.65rem; z-index:1; color:#fff; background:rgb(0 0 0 / .65); border:1px solid rgb(255 255 255 / .35); border-radius:999px; padding:.35rem .65rem; }
+  .audio-picker { margin:0 0 1.2rem; padding:0.85rem 1rem; border:1px solid var(--rule); border-radius:8px; background:var(--panel); }
+  .audio-picker audio { display:block; width:100%; height:2.5rem; margin-bottom:0.7rem; }
+  .audio-picker .actions { margin-top:0; }
+  .ai-result { display:flex; gap:1rem; align-items:center; margin-top:1rem; }
+  .ai-result img { width:12rem; max-width:45%; aspect-ratio:4/3; object-fit:cover; border-radius:6px; }
+  .generation-status { display:inline-flex; align-items:center; gap:.45rem; }
+  .generation-spinner { width:.9rem; height:.9rem; border:2px solid color-mix(in srgb, currentColor 25%, transparent); border-top-color:currentColor; border-radius:50%; animation: generation-spin .75s linear infinite; flex:0 0 auto; }
+  @keyframes generation-spin { to { transform:rotate(360deg); } }
+  button:disabled, select:disabled, textarea:disabled { cursor:wait; opacity:.55; }
+  textarea.dragover { outline: 2px dashed var(--accent); outline-offset: -4px; }
+  .avatar-row { display: flex; align-items: center; gap: 1.1rem; margin: 0.3rem 0 0.2rem; }
+  .accent-presets { display:flex; flex-wrap:wrap; gap:.55rem; margin:.2rem 0 1rem; }
+  .accent-preset { display:inline-flex; align-items:center; gap:.4rem; border:1px solid var(--rule); border-radius:999px; padding:.35rem .6rem .35rem .4rem; background:var(--field); color:var(--ink); font:inherit; font-size:.8rem; cursor:pointer; }
+  .accent-preset:hover, .accent-preset.selected { border-color:var(--accent); background:color-mix(in srgb, var(--accent) 9%, var(--field)); }
+  .accent-swatch { width:1.15rem; height:1.15rem; border-radius:50%; border:1px solid rgb(0 0 0 / .16); flex:0 0 auto; }
+  .avatar-lg {
+    width: 5rem; height: 5rem; border-radius: 50%; flex: 0 0 auto;
+    background: var(--accent); color: #fff; object-fit: cover; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--sans); font-weight: 700; font-size: 2rem;
+  }
+  img.avatar-lg { display: block; }
+  .editor textarea { width: 100%; min-height: 32rem; margin: 0; }
+  .preview {
+    background: var(--panel); border: 1px solid var(--rule); border-radius: 6px;
+    padding: 1.4rem 1.7rem; min-height: 32rem; overflow-wrap: anywhere;
+  }
+  .preview > *:first-child { margin-top: 0; }
+  .preview img { max-width: 100%; height: auto; border-radius: 4px; margin: 1.5rem 0; }
+  .preview h2 { font-size: 1.3rem; } .preview h3 { font-size: 1.1rem; }
+  .preview pre { background: color-mix(in srgb, var(--ink) 7%, transparent); padding: 0.8rem; border-radius: 6px; overflow-x: auto; }
+  .preview code { font-family: var(--mono); font-size: 0.9em; }
+  .preview blockquote { border-left: 3px solid var(--rule); margin: 1rem 0; padding-left: 1rem; color: var(--muted); }
+  .preview table { border-collapse: collapse; width: 100%; margin: 1.1rem 0; font-size: 0.95em; }
+  .preview th, .preview td { border: 1px solid var(--rule); padding: 0.4rem 0.7rem; text-align: left; }
+  .preview th { background: color-mix(in srgb, var(--ink) 5%, transparent); font-weight: 600; }
+  [hidden] { display: none !important; }
+  .actions { display: flex; gap: 0.7rem; margin-top: 1.4rem; align-items: center; }
+  .spacer { flex: 1; }
+  .error { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); border-radius: 6px; padding: 0.6rem 0.8rem; margin-bottom: 1.2rem; font-size: 0.9rem; }
+  .notice { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); border-radius: 6px; padding: 0.6rem 0.8rem; margin-bottom: 1.2rem; font-size: 0.9rem; }
+  .panel-block { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 1rem 1.2rem; margin: 0 0 1.6rem; }
+  .metric-cards { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; margin-bottom:1.5rem; }
+  .metric-card { background:var(--panel); border:1px solid var(--rule); border-radius:8px; padding:1rem 1.2rem; }
+  .metric-value { font-size:2rem; font-weight:650; line-height:1.15; }
+  .metric-label { color:var(--muted); font-size:.82rem; margin-top:.2rem; }
+  .metric-chart { display:flex; align-items:end; gap:3px; height:10rem; padding-top:1rem; border-bottom:1px solid var(--rule); }
+  .metric-bar { flex:1; min-width:2px; max-width:2rem; background:var(--accent); border-radius:3px 3px 0 0; opacity:.82; }
+  .metrics-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1.2rem; }
+  table.metrics { width:100%; border-collapse:collapse; font-size:.86rem; }
+  table.metrics th, table.metrics td { padding:.5rem .25rem; border-bottom:1px solid var(--rule); text-align:left; }
+  table.metrics th { color:var(--muted); font-weight:500; }
+  table.metrics td.num, table.metrics th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  table.dns { width: 100%; border-collapse: collapse; margin: 0.3rem 0; font-size: 0.85rem; }
+  table.dns th { text-align: left; color: var(--muted); font-weight: 500; width: 4.5rem; padding: 0.2rem 0.6rem 0.2rem 0; vertical-align: top; }
+  table.dns td { padding: 0.2rem 0; overflow-wrap: anywhere; }
+  table.dns code { font-family: var(--mono); font-size: 0.85em; background: color-mix(in srgb, var(--ink) 7%, transparent); padding: 0.1rem 0.35rem; border-radius: 4px; }
+  @media (max-width: 900px) { .context-inner { align-items: flex-start; flex-direction: column; } .context-links { justify-content: flex-start; gap: .7rem 1rem; } }
+  @media (max-width: 720px) { .page { padding: 1.4rem 1rem 3rem; } .metrics-grid { grid-template-columns:1fr; } .topbar { align-items: flex-start; gap: .5rem; flex-direction: column; } .topbar .right { gap: .7rem 1rem; flex-wrap: wrap; } }
+`;
+
+export function shell(
+  title: string,
+  inner: string,
+  account?: Account,
+  tenant?: Tenant
+) {
+  let bar = "";
+  if (account && tenant) {
+    // Keep account navigation persistent, then make the current blog context explicit.
+    bar = `<div class="topbar globalbar">
+        <a class="brand" href="/admin?list=1">Blog Nice</a>
+        <div class="right">
+          <span style="color:var(--muted);font-size:0.85rem">${esc(account.email)}</span>
+          <a href="/admin?list=1">Blogs</a>
+          <a href="/admin/api-key">API</a>
+          <form method="post" action="/admin/logout">
+            <button class="linkbtn" type="submit">Log out</button>
+          </form>
+        </div>
+      </div>
+      <div class="contextbar"><div class="context-inner">
+        <div class="context-title"><div class="blog-switcher">
+          <button class="blog-switcher-toggle" type="button" id="blog-switcher-toggle" aria-label="Current blog: ${esc(tenant.title)}" aria-expanded="false" aria-controls="blog-switcher-menu">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15.5A2.5 2.5 0 0 0 17.5 16H4z"/><path d="M4 5.5V19a2 2 0 0 0 2 2h11.5A2.5 2.5 0 0 0 20 18.5V3"/></svg>
+            <span class="context-name">${esc(tenant.title)}</span><span aria-hidden="true">⌄</span>
+          </button>
+          <div class="blog-switcher-menu" id="blog-switcher-menu" hidden><div class="blog-switcher-heading">Switch blog</div><div class="blog-switcher-list" id="blog-switcher-list"><span style="padding:.55rem;color:var(--muted);font-size:.85rem">Loading…</span></div><a class="blog-switcher-new" href="/admin/new-blog">＋ Create new blog</a></div>
+        </div></div>
+        <nav class="context-links" aria-label="Blog navigation">
+          <a href="/admin/b/${tenant.public_id}">Posts</a>
+          <a href="/admin/b/${tenant.public_id}/media">Media</a>
+          <a href="/admin/b/${tenant.public_id}/subscribers">Subscribers</a>
+          <a href="/admin/b/${tenant.public_id}/authors">Collaborators</a>
+          <a href="/admin/b/${tenant.public_id}/metrics">Metrics</a>
+          <a href="/admin/b/${tenant.public_id}/domains">Domains</a>
+          <a href="/admin/b/${tenant.public_id}/settings">Settings</a>
+        </nav>
+      </div></div>`;
+  } else if (account) {
+    // Account-level pages (blog list, new blog).
+    bar = `<div class="topbar">
+        <span class="brand">Blog Nice</span>
+        <div class="right">
+          <span style="color:var(--muted);font-size:0.85rem">${esc(account.email)}</span>
+          <a href="/admin?list=1">Blogs</a>
+          <a href="/admin/api-key">API</a>
+          <form method="post" action="/admin/logout">
+            <button class="linkbtn" type="submit">Log out</button>
+          </form>
+        </div>
+      </div>`;
+  }
+  const switcherScript = account && tenant ? `<script>
+    (function () {
+      var toggle = document.getElementById("blog-switcher-toggle");
+      var menu = document.getElementById("blog-switcher-menu");
+      var list = document.getElementById("blog-switcher-list");
+      if (!toggle || !menu || !list) return;
+      var loaded = false;
+      toggle.addEventListener("click", function () {
+        var open = menu.hidden;
+        menu.hidden = !open;
+        toggle.setAttribute("aria-expanded", String(open));
+        if (open && !loaded) {
+          fetch("/admin/blogs.json").then(function (response) { if (!response.ok) throw new Error(); return response.json(); }).then(function (data) {
+            loaded = true;
+            list.innerHTML = "";
+            (data.blogs || []).forEach(function (blog) {
+              var link = document.createElement("a");
+              link.className = "blog-switcher-item" + (String(blog.public_id) === "${tenant.public_id}" ? " current" : "");
+              link.href = "/admin/b/" + encodeURIComponent(blog.public_id);
+              link.textContent = blog.title || "Untitled blog";
+              var address = document.createElement("small");
+              address.textContent = blog.slug || "";
+              link.appendChild(address); list.appendChild(link);
+            });
+          }).catch(function () { list.innerHTML = '<span style="padding:.55rem;color:var(--danger);font-size:.85rem">Could not load blogs.</span>'; });
+        }
+      });
+      document.addEventListener("click", function (event) { if (!menu.contains(event.target) && !toggle.contains(event.target)) { menu.hidden = true; toggle.setAttribute("aria-expanded", "false"); } });
+    })();
+  </script>` : "";
+  const brandingStyle = account && tenant
+    ? `<style>:root { --accent: ${normalizeAccentColor(tenant.accent_color)}; --accent-ink: ${accentTextColor(normalizeAccentColor(tenant.accent_color))}; }</style>`
+    : "";
+  return `<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>${esc(title)}</title><style>${ADMIN_STYLES}</style>${brandingStyle}</head>
+<body>${bar}${inner}${switcherScript}</body></html>`;
+}
+
+export function loginPage(error?: string): string {
+  return shell(
+    "Sign in",
+    `<div class="page narrow">
+      <h1>Sign in</h1>
+      ${error ? `<div class="error">${esc(error)}</div>` : ""}
+      <form method="post" action="/admin/login">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" autocomplete="username" required>
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+        <button class="btn" type="submit">Sign in</button>
+      </form>
+      <p style="margin-top:1.4rem;color:var(--muted);font-size:0.9rem">
+        Don't have a blog yet? <a href="/signup">Create one</a>.
+      </p>
+    </div>`
+  );
+}
+
+export function signupPage(
+  rootDomain: string,
+  values?: { slug?: string; title?: string; email?: string },
+  error?: string,
+  inviteToken?: string
+): string {
+  const slug = esc(values?.slug ?? "");
+  const title = esc(values?.title ?? "");
+  const email = esc(values?.email ?? "");
+  return shell(
+    inviteToken ? "Join a blog" : "Create your blog",
+    `<div class="page narrow">
+      <h1>${inviteToken ? "Join a blog" : "Create your blog"}</h1>
+      ${inviteToken ? `<p style="color:var(--muted)">Create your BlogNice account to accept this invitation.</p>` : ""}
+      ${error ? `<div class="error">${esc(error)}</div>` : ""}
+      <form method="post" action="/signup">
+        ${inviteToken ? `<input type="hidden" name="invite" value="${esc(inviteToken)}">` : ""}
+        ${inviteToken ? "" : `<label for="slug">Blog address</label>
+        <input id="slug" name="slug" type="text" value="${slug}" placeholder="yourname"
+               autocapitalize="none" autocorrect="off" spellcheck="false" required>
+        <div style="margin:-0.6rem 0 1rem;color:var(--muted);font-size:0.82rem">
+          <span id="preview">yourname</span>.${esc(rootDomain)}
+        </div>
+        <label for="title">Blog title</label>
+        <input id="title" name="title" type="text" value="${title}" placeholder="My Blog" required>`}
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" value="${email}" autocomplete="username" required>
+        <label for="password">Password <span style="color:var(--muted)">(8+ characters)</span></label>
+        <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" required>
+        <button class="btn" type="submit">${inviteToken ? "Create account and join" : "Create blog"}</button>
+      </form>
+      <p style="margin-top:1.4rem;color:var(--muted);font-size:0.9rem">
+        Already have a blog? <a href="/admin/login">Sign in</a>.
+      </p>
+    </div>
+    <script>
+      (function () {
+        var s = document.getElementById("slug"), p = document.getElementById("preview");
+        if (!s || !p) return;
+        function clean(v){ return v.toLowerCase().replace(/[^a-z0-9-]/g,"").replace(/^-+|-+$/g,""); }
+        s.addEventListener("input", function () { p.textContent = clean(s.value) || "yourname"; });
+      })();
+    </script>`
+  );
+}
+
+type DomainRow = { hostname: string; status: string };
+type DomainInstructions = {
+  hostname: string;
+  active: boolean;
+  status: string;
+  ssl_status: string;
+  dns: { type: string; name: string; value: string };
+  ssl_validation: Array<{ txt_name?: string; txt_value?: string }>;
+  errors: string[];
+};
+
+export function domainsPage(
+  account: Account,
+  tenant: Tenant,
+  domains: DomainRow[],
+  cfg: { cnameTarget: string; rootDomain: string },
+  opts?: { notice?: string; error?: string; instructions?: DomainInstructions }
+): string {
+  const base = `/admin/b/${tenant.public_id}`;
+  const inst = opts?.instructions;
+  const instBlock = inst
+    ? `<div class="panel-block">
+        <div class="row" style="margin-bottom:0.6rem">
+          <strong>${esc(inst.hostname)}</strong>
+          <span class="tag ${inst.active ? "live" : ""}">${inst.active ? "Active" : "Pending"}</span>
+        </div>
+        ${
+          inst.active
+            ? `<p style="margin:0;color:var(--muted)">This domain is verified and live.</p>`
+            : `<p style="margin:0 0 0.7rem;color:var(--muted)">Add this DNS record at your domain provider, then click “Check status”. Certificates can take a few minutes.</p>
+               <table class="dns">
+                 <tr><th>Type</th><td>${esc(inst.dns.type)}</td></tr>
+                 <tr><th>Name</th><td><code>${esc(inst.dns.name)}</code></td></tr>
+                 <tr><th>Value</th><td><code>${esc(inst.dns.value)}</code></td></tr>
+               </table>
+               ${
+                 inst.ssl_validation && inst.ssl_validation.length
+                   ? `<p style="margin:0.8rem 0 0.3rem;color:var(--muted);font-size:0.85rem">Certificate validation record:</p>
+                      ${inst.ssl_validation
+                        .map(
+                          (r) =>
+                            `<table class="dns"><tr><th>Name</th><td><code>${esc(
+                              r.txt_name ?? ""
+                            )}</code></td></tr><tr><th>Value</th><td><code>${esc(
+                              r.txt_value ?? ""
+                            )}</code></td></tr></table>`
+                        )
+                        .join("")}`
+                   : ""
+               }`
+        }
+        ${
+          inst.errors && inst.errors.length
+            ? `<p style="margin:0.7rem 0 0;color:var(--danger);font-size:0.85rem">${esc(
+                inst.errors.join("; ")
+              )}</p>`
+            : ""
+        }
+      </div>`
+    : "";
+
+  const list =
+    domains.length === 0
+      ? `<p style="color:var(--muted)">No custom domains yet.</p>`
+      : `<ul class="posts">${domains
+          .map(
+            (d) => `<li>
+              <div>
+                <div class="t">${esc(d.hostname)}</div>
+              </div>
+              <div class="acts">
+                <span class="tag ${d.status === "active" ? "live" : ""}">${
+                  d.status === "active" ? "Active" : "Pending"
+                }</span>
+                ${
+                  d.status === "active"
+                    ? `<a class="btn ghost" href="https://${esc(d.hostname)}" target="_blank">Visit</a>`
+                    : `<form method="post" action="${base}/domains/check">
+                         <input type="hidden" name="hostname" value="${esc(d.hostname)}">
+                         <button class="btn ghost" type="submit">Check status</button>
+                       </form>`
+                }
+                <form method="post" action="${base}/domains/remove" onsubmit="return confirm('Disconnect this domain?')">
+                  <input type="hidden" name="hostname" value="${esc(d.hostname)}">
+                  <button class="btn danger" type="submit">Remove</button>
+                </form>
+              </div>
+            </li>`
+          )
+          .join("")}</ul>`;
+
+  return shell(
+    `Domains — ${tenant.title}`,
+    `<div class="page">
+      <h1>Custom domains</h1>
+      ${opts?.error ? `<div class="error">${esc(opts.error)}</div>` : ""}
+      ${opts?.notice ? `<div class="notice">${esc(opts.notice)}</div>` : ""}
+      <p style="color:var(--muted);margin-top:-0.6rem">
+        Serve this blog on your own domain. Use a subdomain like
+        <code>blog.yourcompany.com</code> — bare domains aren't supported.
+        Your blog also stays reachable at
+        <code>${esc(tenant.slug)}.${esc(cfg.rootDomain)}</code>.
+      </p>
+      <form method="post" action="${base}/domains" style="display:flex;gap:0.6rem;align-items:flex-start;margin:1.2rem 0">
+        <input name="hostname" type="text" placeholder="blog.yourcompany.com"
+               autocapitalize="none" autocorrect="off" spellcheck="false"
+               style="margin:0" required>
+        <button class="btn ghost" type="submit">Connect</button>
+      </form>
+      ${instBlock}
+      ${list}
+    </div>`,
+    account,
+    tenant
+  );
+}
+
+export function postListPage(
+  account: Account,
+  tenant: Tenant,
+  posts: Post[],
+  rootDomain: string
+): string {
+  const base = `/admin/b/${tenant.public_id}`;
+  const publicHost = tenant.custom_domain || `${tenant.slug}.${rootDomain}`;
+  const rows =
+    posts.length === 0
+      ? `<p style="color:var(--muted)">No posts yet. Write your first one.</p>`
+      : `<ul class="posts">${posts
+          .map(
+            (p) => `<li>
+              <div class="post-summary">
+                ${p.featured_image_key ? `<img class="post-thumb" src="/media/${esc(p.featured_image_key)}" alt="">` : ""}
+                <div>
+                <div class="t"><a href="${base}/edit/${p.id}">${esc(p.title)}</a></div>
+                <div class="sub">${formatDate(p.created_at)} &middot; /${esc(p.slug)}</div>
+                </div>
+              </div>
+              <div class="acts">
+                <span class="tag ${p.published ? "live" : ""}">${p.published ? "Published" : "Draft"}</span>
+                <a class="btn ghost icon-btn" href="${base}/edit/${p.id}" aria-label="Edit ${esc(p.title)}" title="Edit">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>
+                </a>
+                <a class="btn ghost icon-btn" href="https://${esc(publicHost)}/${esc(p.slug)}" target="_blank" rel="noopener noreferrer" aria-label="View ${esc(p.title)}" title="View">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg>
+                </a>
+                <form method="post" action="${base}/delete/${p.id}" onsubmit="return confirm('Delete this post?')">
+                  <button class="btn danger icon-btn" type="submit" aria-label="Delete ${esc(p.title)}" title="Delete">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 14h10l1-14"/><path d="M9 7V4h6v3"/></svg>
+                  </button>
+                </form>
+              </div>
+            </li>`
+          )
+          .join("")}</ul>`;
+
+  return shell(
+    `Posts — ${tenant.title}`,
+    `<div class="page">
+      <div class="row">
+        <h1 style="margin:0">Posts</h1>
+        <a class="btn" href="${base}/new">New post</a>
+      </div>
+      ${rows}
+    </div>`,
+    account,
+    tenant
+  );
+}
+
+export function metricsPage(
+  account: Account,
+  tenant: Tenant,
+  report: MetricsReport | null,
+  options?: { days?: number; error?: string; configured?: boolean }
+): string {
+  const base = `/admin/b/${tenant.public_id}`;
+  const days = options?.days ?? report?.days ?? 30;
+  const rangeLinks = [7, 30, 90]
+    .map((value) => `<a class="btn ${value === days ? "" : "ghost"}" href="${base}/metrics?days=${value}">${value} days</a>`)
+    .join(" ");
+  const breakdownRows = (items: MetricsReport["countries"], country = false) =>
+    items.length
+      ? items.map((item) => {
+          let label = item.name;
+          if (country && /^[A-Z]{2}$/.test(item.name)) {
+            try { label = new Intl.DisplayNames(["en"], { type: "region" }).of(item.name) || item.name; } catch { /* keep code */ }
+          }
+          return `<tr><td>${esc(label)}</td><td class="num">${item.views.toLocaleString()}</td></tr>`;
+        }).join("")
+      : `<tr><td colspan="2" style="color:var(--muted)">No data yet.</td></tr>`;
+
+  let content: string;
+  if (options?.configured === false) {
+    content = `<div class="panel-block">
+      <h2 style="margin-top:0">Finish metrics setup</h2>
+      <p>Set <code>CF_ACCOUNT_ID</code> as a Worker variable and add a secret named
+      <code>CF_ANALYTICS_TOKEN</code> with Account Analytics Read permission. Page-view
+      collection begins as soon as the Analytics Engine binding is deployed.</p>
+    </div>`;
+  } else if (!report) {
+    content = `<div class="error">${esc(options?.error || "Metrics could not be loaded. Please try again shortly.")}</div>`;
+  } else {
+    const maxViews = Math.max(1, ...report.daily.map((day) => day.views));
+    const chart = report.daily.length
+      ? report.daily.map((day) => `<span class="metric-bar" style="height:${Math.max(2, Math.round(day.views / maxViews * 100))}%" title="${esc(day.date)}: ${day.views.toLocaleString()} views"></span>`).join("")
+      : `<span style="color:var(--muted);font-size:.85rem">No views recorded in this period.</span>`;
+    const pages = report.pages.length
+      ? report.pages.map((page) => `<tr><td><a href="${esc(page.path)}" target="_blank">${esc(page.path)}</a></td><td class="num">${page.views.toLocaleString()}</td><td class="num">${page.visitors.toLocaleString()}</td></tr>`).join("")
+      : `<tr><td colspan="3" style="color:var(--muted)">No page views yet.</td></tr>`;
+    const referrers = report.referrers.length
+      ? report.referrers.map((item) => `<tr><td>${esc(item.referrer)}</td><td class="num">${item.views.toLocaleString()}</td></tr>`).join("")
+      : `<tr><td colspan="2" style="color:var(--muted)">No external referrers yet.</td></tr>`;
+    const completionRate = report.audio.starts
+      ? Math.min(100, Math.round(report.audio.completions / report.audio.starts * 100))
+      : 0;
+    const audioPages = report.audio.pages.length
+      ? report.audio.pages.map((item) => `<tr><td>${esc(item.path)}</td><td class="num">${item.starts.toLocaleString()}</td><td class="num">${item.completions.toLocaleString()}</td></tr>`).join("")
+      : `<tr><td colspan="3" style="color:var(--muted)">No audio plays yet.</td></tr>`;
+    content = `<div class="metric-cards">
+      <div class="metric-card"><div class="metric-value">${report.summary.views.toLocaleString()}</div><div class="metric-label">Views</div></div>
+      <div class="metric-card"><div class="metric-value">${report.summary.visitors.toLocaleString()}</div><div class="metric-label">Unique visitors</div></div>
+    </div>
+    <div class="panel-block"><strong>Daily views</strong><div class="metric-chart" aria-label="Daily page views">${chart}</div></div>
+    <div class="metrics-grid">
+      <div class="panel-block"><h2 style="margin-top:0;font-size:1rem">Top pages</h2><table class="metrics"><thead><tr><th>Page</th><th class="num">Views</th><th class="num">Visitors</th></tr></thead><tbody>${pages}</tbody></table></div>
+      <div class="panel-block"><h2 style="margin-top:0;font-size:1rem">Top referrers</h2><table class="metrics"><thead><tr><th>Source</th><th class="num">Views</th></tr></thead><tbody>${referrers}</tbody></table></div>
+      <div class="panel-block"><h2 style="margin-top:0;font-size:1rem">Countries</h2><table class="metrics"><thead><tr><th>Country</th><th class="num">Views</th></tr></thead><tbody>${breakdownRows(report.countries, true)}</tbody></table></div>
+      <div class="panel-block"><h2 style="margin-top:0;font-size:1rem">Devices</h2><table class="metrics"><thead><tr><th>Device</th><th class="num">Views</th></tr></thead><tbody>${breakdownRows(report.devices)}</tbody></table></div>
+      <div class="panel-block"><h2 style="margin-top:0;font-size:1rem">Browsers</h2><table class="metrics"><thead><tr><th>Browser</th><th class="num">Views</th></tr></thead><tbody>${breakdownRows(report.browsers)}</tbody></table></div>
+      <div class="panel-block"><h2 style="margin-top:0;font-size:1rem">Audio engagement</h2><div style="display:flex;gap:1.4rem;margin-bottom:.7rem"><span><strong>${report.audio.starts.toLocaleString()}</strong> starts</span><span><strong>${report.audio.completions.toLocaleString()}</strong> completed</span><span><strong>${completionRate}%</strong> completion</span></div><table class="metrics"><thead><tr><th>Post</th><th class="num">Starts</th><th class="num">Completed</th></tr></thead><tbody>${audioPages}</tbody></table></div>
+    </div>`;
+  }
+
+  return shell(
+    `Metrics — ${tenant.title}`,
+    `<div class="page"><div class="row"><h1 style="margin:0">Metrics</h1><div class="actions" style="margin:0">${rangeLinks}</div></div>${content}<p style="color:var(--muted);font-size:.8rem">Visitors are anonymous first-party browser identifiers. Metrics may take a short time to appear.</p></div>`,
+    account,
+    tenant
+  );
+}
+
+export type MediaItem = {
+  key: string;
+  name: string;
+  url: string;
+  size: number;
+  uploaded: string;
+};
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function mediaCards(items: MediaItem[], selectable = false): string {
+  if (!items.length) return `<p style="color:var(--muted)">No images uploaded yet.</p>`;
+  return `<div class="media-grid">${items.map((item) => {
+    const inner = `<img src="${esc(item.url)}" alt="" loading="lazy"><div class="media-card-body"><div class="media-name" title="${esc(item.name)}">${esc(item.name)}</div><div class="media-meta">${formatBytes(item.size)} · ${esc(new Date(item.uploaded).toLocaleDateString())}</div></div>`;
+    return selectable
+      ? `<button class="media-card media-pick" type="button" data-url="${esc(item.url)}" data-name="${esc(item.name)}">${inner}</button>`
+      : `<article class="media-card">${inner}<div class="media-card-body" style="padding-top:0"><button class="btn danger media-delete" type="button" data-key="${esc(item.key)}">Delete</button></div></article>`;
+  }).join("")}</div>`;
+}
+
+export function mediaPage(account: Account, tenant: Tenant, items: MediaItem[]): string {
+  const base = `/admin/b/${tenant.public_id}`;
+  return shell(
+    `Media — ${tenant.title}`,
+    `<div class="page">
+      <div class="row"><div><h1 style="margin:0">Media</h1><div style="color:var(--muted);font-size:.85rem">Upload once and reuse images in any post.</div></div><button class="btn" type="button" id="media-upload">Upload images</button></div>
+      <input id="media-input" type="file" accept="image/*" multiple hidden>
+      <div id="media-status" class="notice" hidden></div>
+      <div id="media-list">${mediaCards(items)}</div>
+    </div>
+    <script>
+      (function () {
+        var input=document.getElementById("media-input"), status=document.getElementById("media-status");
+        document.getElementById("media-upload").addEventListener("click",function(){input.click();});
+        input.addEventListener("change",function(){
+          var files=Array.from(input.files || []); if(!files.length)return;
+          status.hidden=false; status.textContent="Uploading " + files.length + " image(s)…";
+          Promise.all(files.map(function(file){var fd=new FormData();fd.append("file",file,file.name);return fetch("${base}/upload",{method:"POST",body:fd}).then(function(r){if(!r.ok)throw new Error();return r.json();});}))
+            .then(function(){location.reload();}).catch(function(){status.className="error";status.textContent="One or more uploads failed. Images must be JPEG, PNG, GIF, WebP, or AVIF and no larger than 15 MB.";});
+          input.value="";
+        });
+        document.addEventListener("click",function(e){
+          var btn=e.target.closest(".media-delete"); if(!btn)return;
+          if(!confirm("Delete this image permanently?"))return;
+          btn.disabled=true;
+          fetch("${base}/media/"+encodeURIComponent(btn.dataset.key.split("/").pop()),{method:"DELETE"}).then(function(r){return r.json().then(function(data){return {ok:r.ok,data:data};});}).then(function(result){
+            if(!result.ok){alert(result.data.error || "This image could not be deleted.");btn.disabled=false;return;}
+            btn.closest(".media-card").remove();
+          }).catch(function(){alert("This image could not be deleted.");btn.disabled=false;});
+        });
+      })();
+    </script>`, account, tenant);
+}
+
+export function editorPage(
+  account: Account,
+  tenant: Tenant,
+  rootDomain: string,
+  post: Partial<Post> | null,
+  error?: string,
+  authors: Array<{ id: number; label: string }> = []
+): string {
+  const base = `/admin/b/${tenant.public_id}`;
+  const isEdit = !!post?.id;
+  const action = isEdit ? `${base}/save?id=${post!.id}` : `${base}/save`;
+  const title = esc(post?.title ?? "");
+  const slug = esc(post?.slug ?? "");
+  const body = esc(post?.body_md ?? "");
+  const tags = (() => { try { const value = JSON.parse(post?.tags_json || "[]"); return Array.isArray(value) ? value.filter((tag): tag is string => typeof tag === "string").join(", ") : ""; } catch { return ""; } })();
+  const featuredKey = post?.featured_image_key ?? "";
+  const audioKey = post?.audio_key ?? "";
+  const authorId = post?.author_account_id ?? account.id;
+  const authorName = post?.author_name ?? "";
+  const authorVisible = post?.author_visible !== 0;
+  const published = post ? post.published !== 0 : true;
+  const viewUrl = `https://${esc(tenant.slug)}.${esc(rootDomain)}/${slug}`;
+
+  return shell(
+    isEdit ? `Edit — ${tenant.title}` : `New post — ${tenant.title}`,
+    `<div class="page">
+      <div class="breadcrumb"><a href="/admin?list=1">Blog Nice</a> / <a href="${base}">${esc(tenant.title)}</a> / ${isEdit ? "Edit post" : "New post"}</div>
+      <h1>${isEdit ? "Edit post" : "New post"}</h1>
+      ${error ? `<div class="error">${esc(error)}</div>` : ""}
+      <form id="post-editor-form" method="post" action="${action}">
+        <label for="title">Title</label>
+        <input id="title" name="title" type="text" value="${title}" required>
+        <label for="slug">URL slug <span style="color:var(--muted)">(leave blank to generate from the title)</span></label>
+        <input id="slug" name="slug" type="text" value="${slug}" placeholder="my-post">
+        <label for="tags">Post tags</label>
+        <input id="tags" name="tags" type="text" value="${esc(tags)}" placeholder="technology, writing, cloudflare">
+        <p style="color:var(--muted);font-size:.85rem;margin:-.5rem 0 1.2rem">Add comma-separated tags to group related posts.</p>
+
+        ${authors.length ? `<label for="author-visibility">Attribution</label>
+        <select id="author-visibility" name="author_visibility"><option value="author"${authorVisible ? " selected" : ""}>Show an author</option><option value="none"${authorVisible ? "" : " selected"}>Show only the blog identity</option></select>
+        <label for="author-account">Author</label>
+        <select id="author-account" name="author_account_id">${authors.map((author) => `<option value="${author.id}"${author.id === authorId ? " selected" : ""}>${esc(author.label)}</option>`).join("")}</select>
+        <label for="author-name">Public author name <span style="color:var(--muted)">(optional; defaults to the selected account)</span></label>
+        <input id="author-name" name="author_name" type="text" value="${esc(authorName)}" maxlength="120" placeholder="e.g. Joe Bloggs">
+        <p style="color:var(--muted);font-size:.85rem;margin:-.5rem 0 1.2rem">The blog identity remains separate from the person credited on this post.</p>` : ""}
+
+        <label>Featured image <span style="color:var(--muted)">(used on the post and in lists)</span></label>
+        <input id="featured-image-key" name="featured_image_key" type="hidden" value="${esc(featuredKey)}">
+        <div class="featured-picker">
+          <button type="button" id="featured-preview-trigger" class="featured-preview-button"${featuredKey ? "" : " hidden"} aria-label="View featured image larger"><img id="featured-preview" class="featured-preview" src="${featuredKey ? `/media/${esc(featuredKey)}` : ""}" alt="Featured image"></button>
+          <div class="actions" style="margin:0">
+            <button class="btn ghost" type="button" id="choose-featured">${featuredKey ? "Change" : "Choose image"}</button>
+            <button class="btn ghost" type="button" id="generate-image">Generate with AI</button>
+            <button class="btn danger" type="button" id="remove-featured"${featuredKey ? "" : " hidden"}>Remove</button>
+          </div>
+        </div>
+        <dialog class="image-lightbox" id="featured-lightbox" aria-label="Featured image preview">
+          <div class="image-lightbox-body"><button type="button" class="image-lightbox-close" id="featured-lightbox-close">Close</button><img id="featured-lightbox-image" src="${featuredKey ? `/media/${esc(featuredKey)}` : ""}" alt="Featured image enlarged"></div>
+        </dialog>
+
+        <label>Audio narration <span style="color:var(--muted)">(generated from the last saved version)</span></label>
+        <div class="audio-picker">
+          <audio id="audio-preview" controls preload="none" src="${audioKey ? `/media/${esc(audioKey)}` : ""}"${audioKey ? "" : " hidden"}></audio>
+          <div class="actions">
+            ${isEdit ? `<button class="btn ghost" type="button" id="generate-audio"${audioKey ? " hidden" : ""}>Generate audio</button>
+            <button class="btn danger" type="button" id="remove-audio"${audioKey ? "" : " hidden"}>Remove audio</button>` : `<span style="color:var(--muted);font-size:.9rem">Save this post before generating audio.</span>`}
+          </div>
+          <div id="audio-status" class="notice" style="margin:.8rem 0 0" hidden></div>
+        </div>
+
+        <div class="tabs" role="tablist">
+          <button class="tab active" type="button" id="tab-write" aria-selected="true">Write</button>
+          <button class="tab" type="button" id="tab-preview" aria-selected="false">Preview</button>
+          <span class="spacer"></span>
+          <button class="tab img-btn" type="button" id="add-image">🖼 Add image</button>
+          <input type="file" id="file-input" accept="image/*" multiple hidden>
+        </div>
+        <dialog class="media-dialog" id="media-dialog">
+          <div class="media-dialog-head"><strong id="media-dialog-title">Choose from media</strong><span class="spacer"></span><button class="btn ghost" type="button" id="media-close">Close</button></div>
+          <div class="media-dialog-body" id="media-dialog-body"><p style="color:var(--muted)">Loading…</p></div>
+        </dialog>
+        <dialog class="media-dialog" id="ai-dialog">
+          <div class="media-dialog-head"><strong>Generate an image</strong><span class="spacer"></span><button class="btn ghost" type="button" id="ai-close">Close</button></div>
+          <div class="media-dialog-body">
+            <label for="ai-style">Style</label>
+            <select id="ai-style">
+              <option value="auto">Let AI decide</option>
+              <option value="editorial-photo">Editorial photograph</option>
+              <option value="editorial-illustration">Editorial illustration</option>
+              <option value="cinematic">Cinematic</option>
+              <option value="child-crayon">Child's crayon drawing</option>
+              <option value="arcade-action">Arcade action pixel art</option>
+              <option value="risograph">Risograph print</option>
+              <option value="paper-collage">Paper collage</option>
+              <option value="watercolor">Watercolour illustration</option>
+              <option value="minimal">Minimal</option>
+            </select>
+            <label for="ai-prompt">Creative direction <span style="color:var(--muted)">(optional override)</span></label>
+            <textarea id="ai-prompt" maxlength="1200" rows="5" placeholder="Leave blank to use this post. Enter a direction to use it instead, for example: a lone night-shift train driver in a fluorescent cab…"></textarea>
+            <div style="color:var(--muted);font-size:.85rem">The post supplies the subject by default. A creative direction replaces the post context rather than being combined with it.</div>
+            <div id="ai-status" class="notice" hidden></div>
+            <div id="ai-result" class="ai-result" hidden>
+              <img id="ai-preview" alt="Generated image preview">
+              <div>
+                <div style="color:var(--muted);font-size:.85rem">Saved to your media library.</div>
+                <div class="actions" style="margin-top:.7rem">
+                  <button class="btn" type="button" id="ai-featured">Use as featured</button>
+                  <button class="btn ghost" type="button" id="ai-insert">Insert in post</button>
+                </div>
+              </div>
+            </div>
+            <div class="actions"><button class="btn" type="button" id="ai-generate">Generate image</button></div>
+          </div>
+        </dialog>
+        <div class="editor">
+          <textarea id="body" name="body_md" spellcheck="true" placeholder="Write your post in Markdown…  (drag, paste, or add an image)">${body}</textarea>
+          <div id="preview" class="preview" hidden></div>
+        </div>
+
+        <div class="check">
+          <input id="published" name="published" type="checkbox" ${published ? "checked" : ""}>
+          <label for="published">Published</label>
+        </div>
+        <div class="actions">
+          <button class="btn" type="submit" name="save" value="close">Save &amp; close</button>
+          <button class="btn ghost" type="submit" id="save-continue" name="save" value="continue">Save &amp; continue</button>
+          <a class="btn ghost" href="${base}">Cancel</a>
+          <span class="spacer"></span>
+          ${isEdit ? `<a class="btn ghost" href="${viewUrl}" target="_blank">View</a>` : ""}
+        </div>
+      </form>
+    </div>
+    <script>
+      (function () {
+        var body = document.getElementById("body");
+        var preview = document.getElementById("preview");
+        var tw = document.getElementById("tab-write");
+        var tp = document.getElementById("tab-preview");
+        var lastRendered = null;
+
+        function show(which) {
+          var writing = which === "write";
+          body.hidden = !writing;
+          preview.hidden = writing;
+          tw.classList.toggle("active", writing);
+          tp.classList.toggle("active", !writing);
+          tw.setAttribute("aria-selected", writing);
+          tp.setAttribute("aria-selected", !writing);
+          if (writing) body.focus();
+        }
+
+        function renderPreview() {
+          if (body.value === lastRendered) return;      // skip if unchanged
+          lastRendered = body.value;
+          preview.innerHTML = '<p style="color:var(--muted)">Rendering…</p>';
+          fetch("/admin/preview", {
+            method: "POST",
+            headers: { "content-type": "text/plain" },
+            body: body.value,
+          })
+            .then(function (r) { return r.text(); })
+            .then(function (html) {
+              preview.innerHTML = html || '<p style="color:var(--muted)">Nothing to preview yet.</p>';
+            })
+            .catch(function () {
+              preview.innerHTML = '<p style="color:var(--danger)">Preview failed. Try again.</p>';
+            });
+        }
+
+        tw.addEventListener("click", function () { show("write"); });
+        tp.addEventListener("click", function () { renderPreview(); show("preview"); });
+
+        // --- Image upload ---------------------------------------------------
+        var uploadUrl = "${base}/upload";
+        var fileInput = document.getElementById("file-input");
+        var addImage = document.getElementById("add-image");
+        var mediaDialog = document.getElementById("media-dialog");
+        var mediaDialogBody = document.getElementById("media-dialog-body");
+        var mediaDialogTitle = document.getElementById("media-dialog-title");
+        var featuredInput = document.getElementById("featured-image-key");
+        var featuredPreview = document.getElementById("featured-preview");
+        var featuredPreviewTrigger = document.getElementById("featured-preview-trigger");
+        var featuredLightbox = document.getElementById("featured-lightbox");
+        var featuredLightboxImage = document.getElementById("featured-lightbox-image");
+        var chooseFeatured = document.getElementById("choose-featured");
+        var removeFeatured = document.getElementById("remove-featured");
+        var aiDialog = document.getElementById("ai-dialog");
+        var aiStatus = document.getElementById("ai-status");
+        var aiResult = document.getElementById("ai-result");
+        var aiGenerate = document.getElementById("ai-generate");
+        var audioPreview = document.getElementById("audio-preview");
+        var generateAudio = document.getElementById("generate-audio");
+        var removeAudio = document.getElementById("remove-audio");
+        var audioStatus = document.getElementById("audio-status");
+        audioPreview.preservesPitch = true;
+        audioPreview.defaultPlaybackRate = 0.88;
+        audioPreview.playbackRate = 0.88;
+        var generatedImage = null;
+        var pickerMode = "body", nextUploadTarget = "body";
+        var isExistingPost = ${isEdit ? "true" : "false"};
+        var editorForm = document.getElementById("post-editor-form");
+        var saveContinue = document.getElementById("save-continue");
+        var featuredSavePending = false;
+
+        function startGeneration(status, message) {
+          var started = Date.now();
+          status.className = "notice";
+          status.hidden = false;
+          status.innerHTML = '<span class="generation-status"><span class="generation-spinner" aria-hidden="true"></span><span>' + message + ' <strong data-generation-seconds>0s</strong></span></span>';
+          var seconds = status.querySelector("[data-generation-seconds]");
+          var timer = setInterval(function () {
+            if (seconds) seconds.textContent = Math.floor((Date.now() - started) / 1000) + "s";
+          }, 250);
+          return function () { clearInterval(timer); };
+        }
+
+        function setAiBusy(busy) {
+          aiDialog.querySelectorAll("button,select,textarea").forEach(function (control) { control.disabled = busy; });
+        }
+
+        function setFeatured(key, url) {
+          featuredInput.value = key || "";
+          featuredPreview.src = url || "";
+          featuredPreviewTrigger.hidden = !key;
+          featuredPreview.alt = key ? "Featured image" : "";
+          featuredLightboxImage.src = url || "";
+          removeFeatured.hidden = !key;
+          chooseFeatured.textContent = key ? "Change" : "Choose image";
+          if (isExistingPost && !featuredSavePending) {
+            featuredSavePending = true;
+            setTimeout(function () { editorForm.requestSubmit(saveContinue); }, 0);
+          }
+        }
+
+        featuredPreviewTrigger.addEventListener("click", function () {
+          if (featuredInput.value) featuredLightbox.showModal();
+        });
+        document.getElementById("featured-lightbox-close").addEventListener("click", function () { featuredLightbox.close(); });
+
+        // Insert text at the textarea cursor, replacing a token if given.
+        function insertAtCursor(text) {
+          var s = body.selectionStart, e = body.selectionEnd;
+          body.value = body.value.slice(0, s) + text + body.value.slice(e);
+          var pos = s + text.length;
+          body.selectionStart = body.selectionEnd = pos;
+          body.focus();
+        }
+        function replaceToken(token, text) {
+          var i = body.value.indexOf(token);
+          if (i === -1) { insertAtCursor(text); return; }
+          body.value = body.value.slice(0, i) + text + body.value.slice(i + token.length);
+        }
+
+        // Downscale + recompress to WebP in the browser (skips GIFs to keep
+        // animation). Returns a Blob.
+        function shrink(file) {
+          if (file.type === "image/gif") return Promise.resolve(file);
+          return new Promise(function (resolve) {
+            var img = new Image();
+            img.onload = function () {
+              var maxW = 1600;
+              var scale = Math.min(1, maxW / img.width);
+              var w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+              var canvas = document.createElement("canvas");
+              canvas.width = w; canvas.height = h;
+              canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+              canvas.toBlob(
+                function (b) { resolve(b || file); },
+                "image/webp",
+                0.85
+              );
+            };
+            img.onerror = function () { resolve(file); };
+            img.src = URL.createObjectURL(file);
+          });
+        }
+
+        var uploadCount = 0;
+        function uploadImage(file, target) {
+          if (!file || file.type.indexOf("image/") !== 0) return;
+          var token = target === "featured" ? "" : "![uploading image " + (++uploadCount) + "…]()";
+          if (token) insertAtCursor("\\n" + token + "\\n");
+          shrink(file).then(function (blob) {
+            var name = (file.name || "image").replace(/\\.[^.]+$/, "") +
+              (blob.type === "image/webp" ? ".webp" : "");
+            var fd = new FormData();
+            fd.append("file", blob, name);
+            return fetch(uploadUrl, { method: "POST", body: fd });
+          }).then(function (r) { return r.json(); })
+            .then(function (data) {
+              if (data && data.url && target === "featured") setFeatured(data.key, data.url);
+              else if (data && data.url) replaceToken(token, "![](" + data.url + ")");
+              else if (token) replaceToken(token, "");
+            })
+            .catch(function () { if (token) replaceToken(token, ""); });
+        }
+
+        function handleFiles(files, target) {
+          for (var i = 0; i < files.length; i++) {
+            uploadImage(files[i], target || "body");
+            if (target === "featured") break;
+          }
+        }
+
+        function openLibrary(mode) {
+          pickerMode = mode;
+          mediaDialogTitle.textContent = mode === "featured" ? "Choose featured image" : "Choose from media";
+          mediaDialog.showModal();
+          fetch("${base}/media.json").then(function(r){if(!r.ok)throw new Error();return r.json();}).then(function(data){
+            if(!data.items.length){mediaDialogBody.innerHTML='<p style="color:var(--muted)">No images yet. <button class="btn" type="button" id="dialog-upload">Upload one</button></p>';}
+            else mediaDialogBody.innerHTML='<div class="media-grid">'+data.items.map(function(item){return '<button class="media-card media-pick" type="button" data-key="'+item.key+'" data-url="'+item.url.replace(/&/g,"&amp;").replace(/\"/g,"&quot;")+'"><img src="'+item.url+'" alt="" loading="lazy"><div class="media-card-body"><div class="media-name">'+item.name.replace(/&/g,"&amp;").replace(/</g,"&lt;")+'</div><div class="media-meta">Click to '+(mode === "featured" ? "select" : "insert")+'</div></div></button>';}).join('')+'</div><div class="actions"><button class="btn" type="button" id="dialog-upload">Upload new</button><a class="btn ghost" href="${base}/media">Manage media</a></div>';
+            document.getElementById("dialog-upload").onclick=function(){nextUploadTarget=pickerMode;mediaDialog.close();fileInput.click();};
+          }).catch(function(){mediaDialogBody.innerHTML='<p class="error">Could not load media.</p>';});
+        }
+        addImage.addEventListener("click", function () { openLibrary("body"); });
+        chooseFeatured.addEventListener("click", function () { openLibrary("featured"); });
+        removeFeatured.addEventListener("click", function () { setFeatured("", ""); });
+        document.getElementById("media-close").addEventListener("click",function(){mediaDialog.close();});
+        mediaDialogBody.addEventListener("click",function(e){var pick=e.target.closest(".media-pick");if(!pick)return;if(pickerMode === "featured")setFeatured(pick.dataset.key,pick.dataset.url);else insertAtCursor("\\n![]("+pick.dataset.url+")\\n");mediaDialog.close();});
+        document.getElementById("generate-image").addEventListener("click", function () {
+          generatedImage = null; aiStatus.hidden = true; aiResult.hidden = true; aiDialog.showModal();
+        });
+        document.getElementById("ai-close").addEventListener("click", function () { aiDialog.close(); });
+        aiGenerate.addEventListener("click", function () {
+          var button = this;
+          button.disabled = true; aiResult.hidden = true; setAiBusy(true);
+          var stopTimer = startGeneration(aiStatus, "Creating your image…");
+          fetch("${base}/media/generate", {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              style: document.getElementById("ai-style").value,
+              prompt: document.getElementById("ai-prompt").value.trim(),
+              postTitle: document.getElementById("title").value,
+              postBody: body.value
+            })
+          }).then(function(r){return r.json().then(function(data){return {ok:r.ok,data:data};});})
+            .then(function(result){
+              if(!result.ok) throw new Error(result.data.error || "Image generation failed.");
+              generatedImage = result.data;
+              document.getElementById("ai-preview").src = generatedImage.url;
+              stopTimer(); aiStatus.textContent = "Image generated successfully."; aiResult.hidden = false;
+            }).catch(function(error){stopTimer(); aiStatus.className="error";aiStatus.textContent=error.message || "Image generation failed.";})
+            .finally(function(){button.disabled=false; setAiBusy(false);});
+        });
+        document.getElementById("ai-featured").addEventListener("click", function () {
+          if (!generatedImage) return; setFeatured(generatedImage.key, generatedImage.url); aiDialog.close();
+        });
+        document.getElementById("ai-insert").addEventListener("click", function () {
+          if (!generatedImage) return; insertAtCursor("\\n![Generated image](" + generatedImage.url + ")\\n"); aiDialog.close();
+        });
+        if (generateAudio) generateAudio.addEventListener("click", function () {
+          var button = this;
+          button.disabled = true; if (removeAudio) removeAudio.disabled = true;
+          var stopTimer = startGeneration(audioStatus, "Queueing narration…");
+          function poll(jobId) {
+            return fetch("${base}/audio/${post?.id ?? ""}/status?job=" + encodeURIComponent(jobId))
+              .then(function(r){return r.json().then(function(data){return {ok:r.ok,data:data};});})
+              .then(function(result){
+                if (!result.ok || result.data.error) throw new Error(result.data.error || "Audio job status unavailable.");
+                if (result.data.status === "complete") return result.data;
+                if (result.data.status === "failed") throw new Error(result.data.error || "Audio generation failed.");
+                audioStatus.textContent = (result.data.status === "queued" ? "Narration queued" : "Generating narration") + " — " + result.data.completed + "/" + result.data.segments + " segments";
+                return new Promise(function(resolve){setTimeout(function(){resolve(poll(jobId));}, 2500);});
+              });
+          }
+          fetch("${base}/audio/${post?.id ?? ""}", { method: "POST" })
+            .then(function(r){return r.json().then(function(data){return {ok:r.ok,data:data};});})
+            .then(function(result){
+              if(!result.ok || result.data.error) throw new Error(result.data.error || "Audio generation failed.");
+              return poll(result.data.jobId);
+            })
+            .then(function(result){
+              audioPreview.src = result.url; audioPreview.hidden = false; audioPreview.load(); audioPreview.playbackRate = 0.88;
+              removeAudio.hidden = false; button.hidden = true;
+              stopTimer(); audioStatus.textContent = "Narration generated and published.";
+            }).catch(function(error){stopTimer(); audioStatus.className="error";audioStatus.textContent=error.message || "Audio generation failed.";})
+            .finally(function(){button.disabled=false; if (removeAudio) removeAudio.disabled = false;});
+        });
+        if (removeAudio) removeAudio.addEventListener("click", function () {
+          if (!confirm("Remove the narration from this post?")) return;
+          var button = this; button.disabled = true;
+          fetch("${base}/audio/${post?.id ?? ""}", { method: "DELETE" })
+            .then(function(r){return r.json().then(function(data){return {ok:r.ok,data:data};});})
+            .then(function(result){
+              if(!result.ok) throw new Error(result.data.error || "Could not remove audio.");
+              audioPreview.pause(); audioPreview.removeAttribute("src"); audioPreview.load(); audioPreview.hidden = true;
+              button.hidden = true; generateAudio.hidden = false;
+              audioStatus.className = "notice"; audioStatus.hidden = false; audioStatus.textContent = "Narration removed.";
+            }).catch(function(error){audioStatus.className="error";audioStatus.hidden=false;audioStatus.textContent=error.message || "Could not remove audio.";})
+            .finally(function(){button.disabled=false;});
+        });
+        fileInput.addEventListener("change", function () {
+          handleFiles(fileInput.files, nextUploadTarget); nextUploadTarget = "body"; fileInput.value = "";
+        });
+
+        // Drag and drop onto the textarea.
+        ["dragover", "dragenter"].forEach(function (ev) {
+          body.addEventListener(ev, function (e) { e.preventDefault(); body.classList.add("dragover"); });
+        });
+        ["dragleave", "dragend", "drop"].forEach(function (ev) {
+          body.addEventListener(ev, function () { body.classList.remove("dragover"); });
+        });
+        body.addEventListener("drop", function (e) {
+          if (e.dataTransfer && e.dataTransfer.files.length) {
+            e.preventDefault(); handleFiles(e.dataTransfer.files, "body");
+          }
+        });
+
+        // Paste an image from the clipboard.
+        body.addEventListener("paste", function (e) {
+          var items = e.clipboardData && e.clipboardData.items;
+          if (!items) return;
+          for (var i = 0; i < items.length; i++) {
+            if (items[i].type.indexOf("image/") === 0) {
+              var f = items[i].getAsFile();
+              if (f) { e.preventDefault(); uploadImage(f, "body"); }
+            }
+          }
+        });
+      })();
+    </script>`,
+    account,
+    tenant
+  );
+}
+
+type BlogRow = { public_id: string; slug: string; title: string; role?: string };
+
+// Account home: the list of blogs this account can manage.
+export function blogListPage(
+  account: Account,
+  ownedBlogs: BlogRow[],
+  collaborations: BlogRow[],
+  rootDomain: string
+): string {
+  const list = (blogs: BlogRow[], showRole = false) =>
+    blogs.length === 0
+      ? `<p style="color:var(--muted)">You don't have any blogs yet.</p>`
+      : `<ul class="posts">${blogs
+          .map(
+            (b) => `<li>
+              <div>
+                <div class="t"><a href="/admin/b/${esc(b.public_id)}">${esc(b.title)}</a></div>
+                <div class="sub">${esc(b.slug)}.${esc(rootDomain)}${showRole && b.role ? ` · ${esc(b.role)}` : ""}</div>
+              </div>
+              <div class="acts">
+                <a class="btn ghost" href="https://${esc(b.slug)}.${esc(rootDomain)}" target="_blank">Visit</a>
+                <a class="btn" href="/admin/b/${esc(b.public_id)}">Manage</a>
+              </div>
+            </li>`
+          )
+          .join("")}</ul>`;
+
+  return shell(
+    "Your blogs",
+    `<div class="page">
+      <div class="row">
+        <h1 style="margin:0">Your blogs</h1>
+        <a class="btn" href="/admin/new-blog">New blog</a>
+      </div>
+      ${list(ownedBlogs)}
+      <h2 style="margin-top:2.5rem">Collaborations</h2>
+      <p style="color:var(--muted);margin-top:-.8rem">Blogs you help manage. These do not count toward your blog quota.</p>
+      ${list(collaborations, true)}
+    </div>`,
+    account
+  );
+}
+
+// Create an additional blog for an existing account.
+export function newBlogPage(
+  account: Account,
+  rootDomain: string,
+  values?: { slug?: string; title?: string },
+  error?: string
+): string {
+  const slug = esc(values?.slug ?? "");
+  const title = esc(values?.title ?? "");
+  return shell(
+    "New blog",
+    `<div class="page narrow">
+      <h1>New blog</h1>
+      ${error ? `<div class="error">${esc(error)}</div>` : ""}
+      <form method="post" action="/admin/new-blog">
+        <label for="slug">Blog address</label>
+        <input id="slug" name="slug" type="text" value="${slug}" placeholder="yourname"
+               autocapitalize="none" autocorrect="off" spellcheck="false" required>
+        <div style="margin:-0.6rem 0 1rem;color:var(--muted);font-size:0.82rem">
+          <span id="preview">yourname</span>.${esc(rootDomain)}
+        </div>
+        <label for="title">Blog title</label>
+        <input id="title" name="title" type="text" value="${title}" placeholder="My Blog" required>
+        <div class="actions">
+          <button class="btn" type="submit">Create blog</button>
+          <a class="btn ghost" href="/admin">Cancel</a>
+        </div>
+      </form>
+    </div>
+    <script>
+      (function () {
+        var s = document.getElementById("slug"), p = document.getElementById("preview");
+        function clean(v){ return v.toLowerCase().replace(/[^a-z0-9-]/g,"").replace(/^-+|-+$/g,""); }
+        s.addEventListener("input", function () { p.textContent = clean(s.value) || "yourname"; });
+      })();
+    </script>`,
+    account
+  );
+}
+
+// Blog settings: profile photo (avatar), title, and tagline.
+export function settingsPage(
+  account: Account,
+  tenant: Tenant,
+  opts?: { notice?: string; error?: string }
+): string {
+  const base = `/admin/b/${tenant.public_id}`;
+  const initial = (tenant.title.trim()[0] || "?").toUpperCase();
+  const avatar = tenant.avatar_key
+    ? `<img id="avatar-preview" class="avatar-lg" src="/media/${esc(tenant.avatar_key)}" alt="">`
+    : `<span id="avatar-preview" class="avatar-lg">${esc(initial)}</span>`;
+
+  return shell(
+    `Settings — ${tenant.title}`,
+    `<div class="page">
+      <h1>Settings</h1>
+      ${opts?.error ? `<div class="error">${esc(opts.error)}</div>` : ""}
+      ${opts?.notice ? `<div class="notice">${esc(opts.notice)}</div>` : ""}
+
+      <label>Profile photo</label>
+      <div class="avatar-row">
+        ${avatar}
+        <div>
+          <button class="btn ghost" type="button" id="avatar-upload">Upload photo</button>
+          <button class="btn danger" type="button" id="avatar-remove"${tenant.avatar_key ? "" : " hidden"}>Remove</button>
+          <input type="file" id="avatar-input" accept="image/*" hidden>
+          <div id="avatar-status" class="meta" style="margin-top:0.4rem"></div>
+        </div>
+      </div>
+      <p style="color:var(--muted);font-size:0.85rem;margin:0.4rem 0 1.8rem">
+        Shown next to your name on every post. Square images look best.
+      </p>
+
+      <label>Browser icon</label>
+      <div style="display:flex;align-items:center;gap:.7rem;margin:0 0 1.8rem">
+        <button class="btn ghost" type="button" id="favicon-upload">${tenant.favicon_key ? "Replace favicon" : "Upload favicon"}</button>
+        <button class="btn danger" type="button" id="favicon-remove"${tenant.favicon_key ? "" : " hidden"}>Remove</button>
+        <input type="file" id="favicon-input" accept="image/png,image/x-icon,.ico" hidden>
+        <span id="favicon-status" class="meta">PNG or ICO, up to 1 MB.</span>
+      </div>
+
+      <form method="post" action="${base}/settings">
+        <label for="slug">Blog address</label>
+        <input id="slug" name="slug" type="text" value="${esc(tenant.slug)}" autocapitalize="none" autocorrect="off" spellcheck="false" required>
+        <p style="color:#b42318;font-size:1rem;font-weight:700;line-height:1.45;margin:-.35rem 0 1.2rem">I understand this changes the blog address. Existing links may be broken by this change.</p>
+        <label for="title">Blog title</label>
+        <input id="title" name="title" type="text" value="${esc(tenant.title)}" required>
+        <label for="description">Tagline</label>
+        <input id="description" name="description" type="text" value="${esc(tenant.description)}" placeholder="A short description of your blog">
+        <label for="topics">Blog topics</label>
+        <textarea id="topics" name="topics" rows="3" placeholder="technology, photography, travel">${esc(tenantTopics(tenant).join(", "))}</textarea>
+        <p style="color:var(--muted);font-size:.85rem;margin:-.5rem 0 1.2rem">Add up to 50 topics, separated by commas. They help group blogs with similar themes; the first six appear publicly.</p>
+        <label for="accent-color">Brand colour</label>
+        <div class="accent-presets" role="group" aria-label="Brand colour presets">
+          ${ACCENT_PRESETS.map(([label, value]) => `<button class="accent-preset${normalizeAccentColor(tenant.accent_color) === value ? " selected" : ""}" type="button" data-accent-preset="${value}" aria-label="${esc(label)}" aria-pressed="${normalizeAccentColor(tenant.accent_color) === value ? "true" : "false"}"><span class="accent-swatch" style="background:${value}"></span>${esc(label)}</button>`).join("")}
+        </div>
+        <div style="display:flex;align-items:center;gap:.7rem;margin-bottom:1rem">
+          <input id="accent-color" name="accent_color" type="color" value="${esc(normalizeAccentColor(tenant.accent_color))}" style="width:3.2rem;height:2.4rem;padding:.15rem;margin:0;cursor:pointer">
+          <input id="accent-color-hex" type="text" value="${esc(normalizeAccentColor(tenant.accent_color))}" pattern="#[0-9a-fA-F]{6}" maxlength="7" style="max-width:10rem;margin:0;font-family:var(--mono)" aria-label="Brand colour hex value">
+        </div>
+        <p style="color:var(--muted);font-size:.85rem;margin:-.5rem 0 1.4rem">Used for links, buttons, highlights, and other accents on this blog and its dashboard.</p>
+        <div class="actions">
+          <button class="btn" type="submit">Save</button>
+          <a class="btn ghost" href="${base}">Done</a>
+        </div>
+      </form>
+    </div>
+    <script>
+      (function () {
+        var input = document.getElementById("avatar-input");
+        var uploadBtn = document.getElementById("avatar-upload");
+        var removeBtn = document.getElementById("avatar-remove");
+        var status = document.getElementById("avatar-status");
+        var preview = document.getElementById("avatar-preview");
+        var color = document.getElementById("accent-color");
+        var colorHex = document.getElementById("accent-color-hex");
+        var presets = Array.prototype.slice.call(document.querySelectorAll("[data-accent-preset]"));
+        var faviconInput = document.getElementById("favicon-input");
+        var faviconUpload = document.getElementById("favicon-upload");
+        var faviconRemove = document.getElementById("favicon-remove");
+        var faviconStatus = document.getElementById("favicon-status");
+        function markPreset(value) {
+          presets.forEach(function (button) {
+            var selected = button.getAttribute("data-accent-preset") === value.toLowerCase();
+            button.classList.toggle("selected", selected);
+            button.setAttribute("aria-pressed", selected ? "true" : "false");
+          });
+        }
+        color.addEventListener("input", function () { colorHex.value = color.value; });
+        color.addEventListener("input", function () { markPreset(color.value); });
+        colorHex.addEventListener("input", function () { if (/^#[0-9a-f]{6}$/i.test(colorHex.value)) { color.value = colorHex.value; markPreset(colorHex.value); } });
+        presets.forEach(function (button) { button.addEventListener("click", function () { var value = button.getAttribute("data-accent-preset"); color.value = value; colorHex.value = value; markPreset(value); }); });
+
+        function shrink(file) {
+          return new Promise(function (resolve) {
+            var img = new Image();
+            img.onload = function () {
+              var size = 400;
+              var scale = Math.min(1, size / Math.max(img.width, img.height));
+              var w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+              var canvas = document.createElement("canvas");
+              canvas.width = w; canvas.height = h;
+              canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+              canvas.toBlob(function (b) { resolve(b || file); }, "image/webp", 0.85);
+            };
+            img.onerror = function () { resolve(file); };
+            img.src = URL.createObjectURL(file);
+          });
+        }
+
+        function swapPreview(url) {
+          // Replace the monogram span with an <img> (or update existing src).
+          if (preview.tagName === "IMG") { preview.src = url; return; }
+          var img = document.createElement("img");
+          img.id = "avatar-preview"; img.className = "avatar-lg"; img.alt = ""; img.src = url;
+          preview.replaceWith(img); preview = img;
+        }
+
+        uploadBtn.addEventListener("click", function () { input.click(); });
+        input.addEventListener("change", function () {
+          var file = input.files[0];
+          if (!file) return;
+          status.textContent = "Uploading…";
+          shrink(file).then(function (blob) {
+            var fd = new FormData();
+            fd.append("file", blob, "avatar.webp");
+            return fetch("${base}/avatar", { method: "POST", body: fd });
+          }).then(function (r) { return r.json(); })
+            .then(function (data) {
+              if (data && data.url) { swapPreview(data.url); removeBtn.hidden = false; status.textContent = "Saved."; }
+              else status.textContent = "Upload failed.";
+            })
+            .catch(function () { status.textContent = "Upload failed."; });
+          input.value = "";
+        });
+
+        removeBtn.addEventListener("click", function () {
+          status.textContent = "Removing…";
+          fetch("${base}/avatar/remove", { method: "POST" })
+            .then(function () {
+              var span = document.createElement("span");
+              span.id = "avatar-preview"; span.className = "avatar-lg";
+              span.textContent = ${JSON.stringify(initial)};
+              preview.replaceWith(span); preview = span;
+              removeBtn.hidden = true; status.textContent = "Removed.";
+            })
+            .catch(function () { status.textContent = "Couldn't remove."; });
+        });
+
+        faviconUpload.addEventListener("click", function () { faviconInput.click(); });
+        faviconInput.addEventListener("change", function () {
+          var file = faviconInput.files[0];
+          if (!file) return;
+          if (file.size > 1024 * 1024) { faviconStatus.textContent = "Favicon is too large."; faviconInput.value = ""; return; }
+          faviconStatus.textContent = "Uploading…";
+          var fd = new FormData(); fd.append("file", file, file.name);
+          fetch("${base}/favicon", { method: "POST", body: fd }).then(function (r) { return r.json(); }).then(function (data) {
+            if (data && data.ok) { faviconRemove.hidden = false; faviconUpload.textContent = "Replace favicon"; faviconStatus.textContent = "Saved. Refresh browser tabs to see it."; }
+            else faviconStatus.textContent = data.error || "Upload failed.";
+          }).catch(function () { faviconStatus.textContent = "Upload failed."; });
+          faviconInput.value = "";
+        });
+        faviconRemove.addEventListener("click", function () {
+          faviconStatus.textContent = "Removing…";
+          fetch("${base}/favicon/remove", { method: "POST" }).then(function () { faviconRemove.hidden = true; faviconUpload.textContent = "Upload favicon"; faviconStatus.textContent = "Removed."; }).catch(function () { faviconStatus.textContent = "Couldn't remove."; });
+        });
+      })();
+    </script>`,
+    account,
+    tenant
+  );
+}
+
+// Subscriber list for a blog, with CSV export and per-row removal.
+export function subscribersPage(
+  account: Account,
+  tenant: Tenant,
+  subs: Array<{ email: string; created_at: number }>,
+  emailOn: boolean
+): string {
+  const base = `/admin/b/${tenant.public_id}`;
+  const list =
+    subs.length === 0
+      ? `<p style="color:var(--muted)">No subscribers yet. The subscribe box appears on your blog's home page and under each post.</p>`
+      : `<ul class="posts">${subs
+          .map(
+            (s) => `<li>
+              <div>
+                <div class="t">${esc(s.email)}</div>
+                <div class="sub">${formatDate(s.created_at)}</div>
+              </div>
+              <div class="acts">
+                <form method="post" action="${base}/subscribers/remove" onsubmit="return confirm('Remove this subscriber?')">
+                  <input type="hidden" name="email" value="${esc(s.email)}">
+                  <button class="btn danger" type="submit">Remove</button>
+                </form>
+              </div>
+            </li>`
+          )
+          .join("")}</ul>`;
+
+  return shell(
+    `Subscribers — ${tenant.title}`,
+    `<div class="page">
+      <div class="row">
+        <h1 style="margin:0">Subscribers <span style="color:var(--muted);font-weight:400">(${subs.length})</span></h1>
+        ${subs.length ? `<a class="btn ghost" href="${base}/subscribers.csv">Export CSV</a>` : ""}
+      </div>
+      ${
+        emailOn
+          ? ""
+          : `<div class="notice" style="background:color-mix(in srgb, var(--ink) 6%, transparent);color:var(--muted)">
+               Email Integration TODO
+             </div>`
+      }
+      ${list}
+    </div>`,
+    account,
+    tenant
+  );
+}
+
+// Account-level API key management + quick-start docs. The full key is only
+// ever passed in via `opts.newKey` right after generation (shown once).
+export function apiKeyPage(
+  account: Account,
+  rootDomain: string,
+  opts: { createdAt: number | null; newKey?: string; blogs?: Array<{ public_id: string; title: string; slug: string }> }
+): string {
+  const base = `https://${esc(rootDomain)}/api/v1`;
+  const has = opts.createdAt != null;
+  const exampleBlogId = opts.blogs?.[0]?.public_id || "BLOG_ID";
+  const blogIds = opts.blogs?.length
+    ? `<div class="panel-block"><strong>Your blog IDs</strong><ul>${opts.blogs.map((blog) => `<li><code>${esc(blog.public_id)}</code> — ${esc(blog.title)} <span style="color:var(--muted)">(${esc(blog.slug)})</span></li>`).join("")}</ul><p style="color:var(--muted);font-size:.85rem;margin-bottom:0">Use the opaque ID in API paths; post IDs remain numeric.</p></div>`
+    : `<p style="color:var(--muted)">Create a blog first; its public ID will appear here.</p>`;
+
+  const reveal = opts.newKey
+    ? `<div class="notice" style="background:color-mix(in srgb, var(--accent) 10%, transparent)">
+         <strong>Here's your new API key — copy it now.</strong> For your security it
+         won't be shown again. If you lose it, generate a new one (which replaces this one).
+         <div style="display:flex;gap:0.5rem;margin-top:0.7rem">
+           <input id="apikey" type="text" readonly value="${esc(opts.newKey)}"
+                  style="flex:1;font-family:ui-monospace,Menlo,monospace;font-size:0.9rem" onclick="this.select()">
+           <button class="btn" type="button" onclick="navigator.clipboard.writeText(document.getElementById('apikey').value);this.textContent='Copied'">Copy</button>
+         </div>
+       </div>`
+    : "";
+
+  const status = has
+    ? `<p>An API key is active${
+        opts.createdAt ? ` (created ${formatDate(opts.createdAt)})` : ""
+      }. Only its hash is stored, so it can't be shown again — regenerate to get a new one.</p>
+       <div class="actions">
+         <form method="post" action="/admin/api-key/regenerate" onsubmit="return confirm('Regenerate? The current key stops working immediately.')">
+           <button class="btn" type="submit">Regenerate key</button>
+         </form>
+         <form method="post" action="/admin/api-key/revoke" onsubmit="return confirm('Revoke your API key? Any scripts using it stop working.')">
+           <button class="btn danger" type="submit">Revoke</button>
+         </form>
+       </div>`
+    : `<p style="color:var(--muted)">You don't have an API key yet. Generate one to manage your blogs and posts programmatically.</p>
+       <form method="post" action="/admin/api-key/regenerate">
+         <button class="btn" type="submit">Generate API key</button>
+       </form>`;
+
+  return shell(
+    "API",
+    `<div class="page">
+      <h1>API access</h1>
+      ${reveal}
+      ${status}
+
+      <h2 style="font-size:1.15rem;margin-top:2.2rem">Using your key</h2>
+      <p>Send it as a bearer token. Base URL: <code>${base}</code></p>
+      ${blogIds}
+      <pre style="background:color-mix(in srgb, var(--ink) 5%, transparent);padding:1rem;border-radius:8px;overflow-x:auto;font-size:0.85rem;line-height:1.5"># List blogs and IDs
+curl ${base}/me \\
+  -H "Authorization: Bearer YOUR_KEY"
+
+# Create a published post
+curl -X POST ${base}/blogs/${exampleBlogId}/posts \\
+  -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" \\
+  -d '{"title":"Hello from the API","body_md":"# Hello\\n\\nWritten via Markdown.","published":true}'
+
+# Create a draft
+curl -X POST ${base}/blogs/${exampleBlogId}/posts \\
+  -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" \\
+  -d '{"title":"A draft","body_md":"Work in progress.","published":false}'
+
+# List and fetch posts
+curl ${base}/blogs/${exampleBlogId}/posts -H "Authorization: Bearer YOUR_KEY"
+curl ${base}/blogs/${exampleBlogId}/posts/POST_ID -H "Authorization: Bearer YOUR_KEY"
+
+# Update a post and assign an existing featured image
+curl -X PATCH ${base}/blogs/${exampleBlogId}/posts/POST_ID \\
+  -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" \\
+  -d '{"title":"Updated title","featured_image_key":"${exampleBlogId}/image.jpg","published":true}'
+
+# Generate an image, then poll its job
+curl -X POST ${base}/blogs/${exampleBlogId}/images/generations \\
+  -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" \\
+  -d '{"post_id":POST_ID,"style":"editorial-photo"}'
+curl ${base}/blogs/${exampleBlogId}/images/generations/IMAGE_JOB_ID \\
+  -H "Authorization: Bearer YOUR_KEY"
+
+# Generate narration, then poll its job
+curl -X POST ${base}/blogs/${exampleBlogId}/posts/POST_ID/audio/generations \\
+  -H "Authorization: Bearer YOUR_KEY"
+curl ${base}/blogs/${exampleBlogId}/audio/generations/AUDIO_JOB_ID \\
+  -H "Authorization: Bearer YOUR_KEY"
+
+# Delete a post
+curl -X DELETE ${base}/blogs/${exampleBlogId}/posts/POST_ID \\
+  -H "Authorization: Bearer YOUR_KEY"</pre>
+      <p style="color:var(--muted);font-size:0.85rem">
+        In these examples, <code>BLOG_ID</code> means the opaque <code>public_id</code>
+        returned by <code>GET /me</code> (for example <code>ggh6gvgsgj4h</code>), not
+        the internal numeric tenant ID. Post IDs remain numeric.<br><br>
+        Endpoints: <code>GET /me</code>, <code>GET/POST /blogs/:id/posts</code>,
+        <code>GET/PATCH/DELETE /blogs/:id/posts/:postId</code>, plus asynchronous
+        <code>images/generations</code> and <code>posts/:postId/audio/generations</code>
+        jobs with status endpoints. Everything is scoped to blogs you own.
+      </p>
+    </div>`,
+    account
+  );
+}

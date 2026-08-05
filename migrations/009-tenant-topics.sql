@@ -1,0 +1,1 @@
+ALTER TABLE tenants ADD COLUMN topics_json TEXT NOT NULL DEFAULT '[]';

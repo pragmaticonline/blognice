@@ -1,0 +1,33 @@
+{
+  "name": "blognice",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A super-simple multi-tenant blogging platform on Cloudflare Workers",
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/*.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:production": "wrangler deploy --config wrangler.production.jsonc",
+    "deploy:production:check": "wrangler deploy --dry-run --config wrangler.production.jsonc",
+    "db:init": "wrangler d1 execute blognice --file=./schema.sql",
+    "db:init:local": "wrangler d1 execute blognice --local --file=./schema.sql",
+    "db:init:posts": "wrangler d1 execute blognice-posts --file=./schema-posts.sql",
+    "db:init:posts:local": "wrangler d1 execute blognice-posts --local --file=./schema-posts.sql",
+    "db:seed": "wrangler d1 execute blognice --file=./seed.sql",
+    "db:seed:local": "wrangler d1 execute blognice --local --file=./seed.sql",
+    "db:seed:posts": "wrangler d1 execute blognice-posts --file=./seed-posts.sql",
+    "db:seed:posts:local": "wrangler d1 execute blognice-posts --local --file=./seed-posts.sql",
+    "db:setup:local": "npm run db:init:local && npm run db:init:posts:local && npm run db:seed:local && npm run db:seed:posts:local"
+  },
+  "dependencies": {
+    "hono": "^4.6.0",
+    "marked": "^14.1.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260101.0",
+    "typescript": "^5.5.0",
+    "wrangler": "^4.118.0"
+  },
+  "license": "AGPL-3.0-or-later"
+}

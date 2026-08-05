@@ -1,0 +1,38 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "blognice",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-06-20",
+	"vars": {
+		"ROOT_DOMAIN": "example.com",
+		"CF_ZONE_ID": "replace-with-zone-id",
+		"CF_ACCOUNT_ID": "replace-with-account-id",
+		"CNAME_TARGET": "fallback.example.com"
+	},
+	"routes": [
+		{ "pattern": "*.example.com/*", "zone_name": "example.com" },
+		{ "pattern": "example.com/*", "zone_name": "example.com" }
+	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "blognice",
+			"database_id": "replace-with-index-database-id"
+		},
+		{
+			"binding": "POSTS",
+			"database_name": "blognice-posts",
+			"database_id": "replace-with-posts-database-id"
+		}
+	],
+	"r2_buckets": [
+		{ "binding": "MEDIA", "bucket_name": "blognice-media" },
+		{ "binding": "METRICS_ARCHIVE", "bucket_name": "blognice-metrics" }
+	],
+	"analytics_engine_datasets": [
+		{ "binding": "METRICS", "dataset": "blognice_pageviews" },
+		{ "binding": "EVENTS", "dataset": "blognice_events" }
+	],
+	"triggers": { "crons": ["15 2 * * *"] },
+	"ai": { "binding": "AI" }
+}
