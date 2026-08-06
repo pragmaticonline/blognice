@@ -74,4 +74,10 @@ test("staff deployment is a separate Worker route", () => {
   assert.match(config, /"main": "src\/staff\.ts"/);
   assert.match(config, /staff\.blognice\.com/);
   assert.match(config, /ACCESS_AUD/);
+  assert.match(config, /"ai":\s*\{\s*"binding":\s*"AI"\s*\}/);
+});
+
+test("all staff pages expose the shared navigation", () => {
+  assert.match(staff, /Pronunciation dictionary.*TTS test/s);
+  assert.ok(staff.includes("BlogNice staff") && staff.includes("<nav>"));
 });
