@@ -347,7 +347,7 @@ app.get("/pronunciations", async (c) => {
   ).all<{ id: number; term: string; spoken: string; enabled: number; updated_at: number }>();
   const rows = results.map((row) => `<tr><td><code>${esc(row.term)}</code></td><td>${esc(row.spoken)}</td><td>${row.enabled ? "Enabled" : "Disabled"}</td><td><button class="btn btn-danger" type="button" data-delete="${row.id}">Delete</button></td></tr>`).join("");
   const editor = canMutate(staff)
-    ? `<div class="card"><h2>Add pronunciation</h2><p class="muted">Use an exact term and the way it should be spoken. Entries apply to future narration jobs; existing audio is unchanged.</p><form id="pronunciation-form"><label>Term <input name="term" required maxlength="80" placeholder="UI" style="padding:9px;border:1px solid var(--rule);border-radius:5px;margin:0 8px 0 4px"></label><label>Spoken as <input name="spoken" required maxlength="160" placeholder="U I" style="padding:9px;border:1px solid var(--rule);border-radius:5px;margin:0 8px 0 4px"></label><button class="btn" type="submit">Save pronunciation</button></form><p id="pronunciation-status" class="muted" aria-live="polite"></p></div><script>(function(){var form=document.getElementById('pronunciation-form');var status=document.getElementById('pronunciation-status');form.addEventListener('submit',async function(event){event.preventDefault();var button=form.querySelector('button');button.disabled=true;status.textContent='Saving…';var response=await fetch('/api/pronunciations',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({term:form.elements.term.value,spoken:form.elements.spoken.value})});var data=await response.json().catch(function(){return {}});if(response.ok)location.reload();else{button.disabled=false;status.textContent=data.error||'Could not save pronunciation.';}});document.querySelectorAll('[data-delete]').forEach(function(button){button.addEventListener('click',async function(){if(!confirm('Delete this pronunciation?'))return;button.disabled=true;status.textContent='Deleting…';var response=await fetch('/api/pronunciations/'+button.dataset.delete,{method:'DELETE',headers:{'accept':'application/json'}});var data=await response.json().catch(function(){return {}});if(response.ok)location.reload();else{button.disabled=false;status.textContent=data.error||('Delete failed (HTTP '+response.status+').');}});});})();</script>`
+    ? `<div class="card"><h2>Add pronunciation</h2><p class="muted">Use an exact term and the way it should be spoken. Entries apply to future narration jobs; existing audio is unchanged.</p><form id="pronunciation-form"><label>Term <input name="term" required maxlength="80" placeholder="UI" style="padding:9px;border:1px solid var(--rule);border-radius:5px;margin:0 8px 0 4px"></label><label>Spoken as <input name="spoken" required maxlength="160" placeholder="U I" style="padding:9px;border:1px solid var(--rule);border-radius:5px;margin:0 8px 0 4px"></label><button class="btn" type="submit">Save pronunciation</button></form><p id="pronunciation-status" class="muted" aria-live="polite"></p></div><script>(function(){var form=document.getElementById('pronunciation-form');var status=document.getElementById('pronunciation-status');form.addEventListener('submit',async function(event){event.preventDefault();var button=form.querySelector('button');button.disabled=true;status.textContent='Saving…';var response=await fetch('/api/pronunciations',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({term:form.elements.term.value,spoken:form.elements.spoken.value})});var data=await response.json().catch(function(){return {}});if(response.ok)location.reload();else{button.disabled=false;status.textContent=data.error||'Could not save pronunciation.';}});document.querySelectorAll('[data-delete]').forEach(function(button){button.addEventListener('click',async function(){button.disabled=true;status.textContent='Deleting…';var response=await fetch('/api/pronunciations/'+button.dataset.delete+'/delete',{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:'{}'});var data=await response.json().catch(function(){return {}});if(response.ok)location.reload();else{button.disabled=false;status.textContent=data.error||('Delete failed (HTTP '+response.status+').');}});});})();</script>`
     : `<div class="notice">Your role is read-only. Support or admin staff can edit this dictionary.</div>`;
   return c.html(staffPage("Pronunciation dictionary", `<header class="top"><h1><a href="/">BlogNice staff</a></h1><small>${esc(staff.email)} · ${esc(staff.role)}</small></header><nav><a href="/">Accounts</a><a href="/pronunciations">Pronunciation dictionary</a><a href="/tts-test">TTS test</a></nav><h2>Pronunciation dictionary</h2><p class="muted">Global substitutions used when preparing Blog Nice narration. For example, <code>UI</code> becomes <code>U I</code>.</p>${editor}<div class="card"><table><thead><tr><th>Term</th><th>Spoken form</th><th>Status</th><th></th></tr></thead><tbody>${rows || `<tr><td colspan="4" class="empty">No custom entries yet.</td></tr>`}</tbody></table></div>`));
 });
@@ -391,18 +391,21 @@ app.post("/api/pronunciations", async (c) => {
   return c.json({ ok: true, term, spoken });
 });
 
-app.delete("/api/pronunciations/:id", async (c) => {
+async function deletePronunciation(c: any) {
   const staff = c.get("staff") as StaffIdentity;
   if (!canMutate(staff)) return c.json({ error: "staff role cannot edit pronunciations" }, 403);
   if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
   const id = Number(c.req.param("id"));
   if (!Number.isSafeInteger(id) || id < 1) return c.json({ error: "invalid pronunciation" }, 400);
-  const row = await c.env.DB.prepare("SELECT term, spoken FROM pronunciation_overrides WHERE id = ?").bind(id).first<{ term: string; spoken: string }>();
+  const row = await c.env.DB.prepare("SELECT term, spoken FROM pronunciation_overrides WHERE id = ?").bind(id).first() as { term: string; spoken: string } | null;
   if (!row) return c.json({ error: "pronunciation not found" }, 404);
   await c.env.DB.prepare("DELETE FROM pronunciation_overrides WHERE id = ?").bind(id).run();
   await audit(c, staff, { action: "delete-pronunciation", targetType: "pronunciation", targetId: String(id), reason: "Remove narration pronunciation dictionary entry", result: "success", before: row });
   return c.json({ ok: true });
-});
+}
+
+app.delete("/api/pronunciations/:id", deletePronunciation);
+app.post("/api/pronunciations/:id/delete", deletePronunciation);
 
 app.get("/", async (c) => {
   const staff = c.get("staff") as StaffIdentity;
