@@ -3037,6 +3037,30 @@ app.get("/marketing-ai/:file", (c) => {
   return new Response(image, { headers: { "content-type": "image/webp", "cache-control": "public, max-age=31536000, immutable", "x-content-type-options": "nosniff" } });
 });
 
+// The marketing voice sample uses the same MeloTTS model, language, retry
+// policy, and audio conversion as customer narration. Cache the fixed phrase
+// so repeated visitors do not trigger a new AI request at every edge.
+app.get("/marketing-audio", async (c) => {
+  const cacheKey = new Request(new URL("/marketing-audio", c.req.url), { method: "GET" });
+  const cached = await caches.default.match(cacheKey);
+  if (cached) return cached;
+  try {
+    const bytes = await generateSpeechWithRecovery(c.env.AI, "Welcome to Blog Nice. A nicer way to blog.");
+    const response = new Response(bytes, {
+      headers: {
+        "content-type": "audio/mpeg",
+        "cache-control": "public, max-age=86400, s-maxage=86400",
+        "x-content-type-options": "nosniff",
+      },
+    });
+    c.executionCtx.waitUntil(caches.default.put(cacheKey, response.clone()));
+    return response;
+  } catch (error) {
+    console.error("marketing voice sample failed", error);
+    return c.json({ error: "The voice sample is temporarily unavailable." }, 503);
+  }
+});
+
 app.post("/admin/b/:blogId/favicon/remove", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401);

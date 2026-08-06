@@ -20,8 +20,12 @@ test("marketing homepage showcases AI images and an opt-in voice sample", () => 
   assert.match(homepage, /id="ai"/);
   assert.match(homepage, /\/marketing-ai\/writing\.webp/);
   assert.match(homepage, /id="ai-voice-sample"/);
-  assert.match(homepage, /speechSynthesis/);
+  assert.match(homepage, /fetch\('\/marketing-audio'/);
+  assert.doesNotMatch(homepage, /speechSynthesis/);
+  assert.match(indexSource, /generateSpeechWithRecovery\(c\.env\.AI/);
+  assert.match(indexSource, /TTS_MODEL/);
   assert.match(indexSource, /app\.get\("\/marketing-ai\/:file"/);
+  assert.match(indexSource, /app\.get\("\/marketing-audio"/);
 });
 
 test("marketing homepage real example uses generic blogger imagery and address", () => {
