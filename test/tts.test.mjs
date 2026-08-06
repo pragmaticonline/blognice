@@ -31,7 +31,7 @@ test("narration adds structural pauses and conservative spoken forms", () => {
     "AI and the UK",
     "Dr. Jones compared the API vs. the old URL.\n\n## Results\n\n- Faster HTTP requests\n- Clearer HTML output"
   ).replaceAll(TTS_HARD_PAUSE, "\n\n").replaceAll(TTS_SOFT_PAUSE, " ");
-  assert.match(text, /^eAy eye and the U K\./);
+  assert.match(text, /^aiye eye and the U K\./);
   assert.match(text, /Doctor Jones compared the A P I versus the old U R L\./);
   assert.match(text, /Results\.\n\nFaster/);
   assert.match(text, /Faster H T T P requests\.\n\nClearer H T M L output\./);
@@ -56,7 +56,7 @@ test("technical security terms use explicit spoken forms", () => {
     "AI, SHA256, OWASP, and CPU are discussed."
   );
   assert.match(sections.title, /P B K D F two H M A C S H A two five six/);
-  assert.match(sections.body, /eAy eye, S H A two five six, O Wasp, and C P U/);
+  assert.match(sections.body, /aiye eye, S H A two five six, O Wasp, and C P U/);
 });
 
 test("PNG is spelled out letter by letter", () => {
@@ -102,7 +102,7 @@ test("calmer uses its tested spoken form", () => {
 
 test("title is a standalone neutral statement before the article body", () => {
   const sections = narrationSections("AI and the UK", "## Opening\n\nThe article begins.");
-  assert.equal(sections.title, "eAy eye and the U K.");
+  assert.equal(sections.title, "aiye eye and the U K.");
   assert.equal(sections.body.replaceAll(TTS_HARD_PAUSE, "\n\n"), "\n\nOpening.\n\nThe article begins.");
   assert.equal(TTS_TITLE_PAUSE_SECONDS, 1.5);
 });
