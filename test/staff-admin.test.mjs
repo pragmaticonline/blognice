@@ -47,6 +47,14 @@ test("staff can manage the global pronunciation dictionary", () => {
   assert.match(staff, /delete-pronunciation/);
 });
 
+test("staff can generate short pronunciation samples", () => {
+  assert.match(staff, /TTS test/);
+  assert.match(staff, /api\/tts-test/);
+  assert.match(staff, /TTS_MODEL/);
+  assert.match(staff, /short phrase/);
+  assert.match(config, /"ai":\s*\{\s*"binding":\s*"AI"\s*\}/);
+});
+
 test("staff can send a rate-limited password reset email with an audit trail", () => {
   assert.match(staff, /send-password-reset/);
   assert.match(staff, /password_resets/);
