@@ -45,6 +45,9 @@ test("staff can manage the global pronunciation dictionary", () => {
   assert.match(staff, /api\/pronunciations/);
   assert.match(staff, /upsert-pronunciation/);
   assert.match(staff, /delete-pronunciation/);
+  assert.match(staff, /Referer is the next-best CSRF signal/);
+  assert.match(staff, /Delete failed \(HTTP /);
+  assert.match(staff, /response\.status/);
 });
 
 test("staff can generate short pronunciation samples", () => {
@@ -53,6 +56,8 @@ test("staff can generate short pronunciation samples", () => {
   assert.match(staff, /TTS_MODEL/);
   assert.match(staff, /short phrase/);
   assert.match(config, /"ai":\s*\{\s*"binding":\s*"AI"\s*\}/);
+  assert.match(staff, /ttsTestWithRetry/);
+  assert.match(staff, /retryDelays = \[350, 750, 1_500, 2_500\]/);
 });
 
 test("staff can send a rate-limited password reset email with an audit trail", () => {

@@ -98,7 +98,38 @@ function requestId(c: any): string {
 
 function sameOrigin(c: any): boolean {
   const origin = c.req.header("Origin");
-  return !!origin && origin === new URL(c.req.url).origin;
+  const requestOrigin = new URL(c.req.url).origin;
+  if (origin) return origin === requestOrigin;
+  // Some browsers and privacy extensions omit Origin on same-origin DELETE
+  // requests. Referer is the next-best CSRF signal in that case.
+  const referer = c.req.header("Referer");
+  if (!referer) return false;
+  try {
+    return new URL(referer).origin === requestOrigin;
+  } catch {
+    return false;
+  }
+}
+
+async function ttsTestWithRetry(ai: Ai, prompt: string): Promise<Uint8Array> {
+  const retryDelays = [350, 750, 1_500, 2_500];
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
+    try {
+      const generated = await ai.run(TTS_MODEL, { prompt, lang: "en" }) as Uint8Array | { audio: string };
+      const bytes = ttsBytes(generated);
+      if (!bytes.length) throw new Error("The model returned no audio.");
+      return bytes;
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      const transient = /3040|3043|internal server error|temporar|timeout|overload|unavailable/i.test(message);
+      if (!transient || attempt === retryDelays.length) throw error;
+      const jitter = Math.floor(Math.random() * 250);
+      await new Promise((resolve) => setTimeout(resolve, retryDelays[attempt] + jitter));
+    }
+  }
+  throw lastError;
 }
 
 async function audit(c: any, staff: StaffIdentity, event: {
@@ -311,7 +342,7 @@ app.get("/pronunciations", async (c) => {
   ).all<{ id: number; term: string; spoken: string; enabled: number; updated_at: number }>();
   const rows = results.map((row) => `<tr><td><code>${esc(row.term)}</code></td><td>${esc(row.spoken)}</td><td>${row.enabled ? "Enabled" : "Disabled"}</td><td><button class="btn btn-danger" type="button" data-delete="${row.id}">Delete</button></td></tr>`).join("");
   const editor = canMutate(staff)
-    ? `<div class="card"><h2>Add pronunciation</h2><p class="muted">Use an exact term and the way it should be spoken. Entries apply to future narration jobs; existing audio is unchanged.</p><form id="pronunciation-form"><label>Term <input name="term" required maxlength="80" placeholder="UI" style="padding:9px;border:1px solid var(--rule);border-radius:5px;margin:0 8px 0 4px"></label><label>Spoken as <input name="spoken" required maxlength="160" placeholder="U I" style="padding:9px;border:1px solid var(--rule);border-radius:5px;margin:0 8px 0 4px"></label><button class="btn" type="submit">Save pronunciation</button></form><p id="pronunciation-status" class="muted" aria-live="polite"></p></div><script>(function(){var form=document.getElementById('pronunciation-form');var status=document.getElementById('pronunciation-status');form.addEventListener('submit',async function(event){event.preventDefault();var button=form.querySelector('button');button.disabled=true;status.textContent='Saving…';var response=await fetch('/api/pronunciations',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({term:form.elements.term.value,spoken:form.elements.spoken.value})});var data=await response.json();if(response.ok)location.reload();else{button.disabled=false;status.textContent=data.error||'Could not save pronunciation.';}});document.querySelectorAll('[data-delete]').forEach(function(button){button.addEventListener('click',async function(){if(!confirm('Delete this pronunciation?'))return;button.disabled=true;var response=await fetch('/api/pronunciations/'+button.dataset.delete,{method:'DELETE'});if(response.ok)location.reload();else{button.disabled=false;alert('Could not delete pronunciation.');}});});})();</script>`
+    ? `<div class="card"><h2>Add pronunciation</h2><p class="muted">Use an exact term and the way it should be spoken. Entries apply to future narration jobs; existing audio is unchanged.</p><form id="pronunciation-form"><label>Term <input name="term" required maxlength="80" placeholder="UI" style="padding:9px;border:1px solid var(--rule);border-radius:5px;margin:0 8px 0 4px"></label><label>Spoken as <input name="spoken" required maxlength="160" placeholder="U I" style="padding:9px;border:1px solid var(--rule);border-radius:5px;margin:0 8px 0 4px"></label><button class="btn" type="submit">Save pronunciation</button></form><p id="pronunciation-status" class="muted" aria-live="polite"></p></div><script>(function(){var form=document.getElementById('pronunciation-form');var status=document.getElementById('pronunciation-status');form.addEventListener('submit',async function(event){event.preventDefault();var button=form.querySelector('button');button.disabled=true;status.textContent='Saving…';var response=await fetch('/api/pronunciations',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({term:form.elements.term.value,spoken:form.elements.spoken.value})});var data=await response.json().catch(function(){return {}});if(response.ok)location.reload();else{button.disabled=false;status.textContent=data.error||'Could not save pronunciation.';}});document.querySelectorAll('[data-delete]').forEach(function(button){button.addEventListener('click',async function(){if(!confirm('Delete this pronunciation?'))return;button.disabled=true;status.textContent='Deleting…';var response=await fetch('/api/pronunciations/'+button.dataset.delete,{method:'DELETE',headers:{'accept':'application/json'}});var data=await response.json().catch(function(){return {}});if(response.ok)location.reload();else{button.disabled=false;status.textContent=data.error||('Delete failed (HTTP '+response.status+').');}});});})();</script>`
     : `<div class="notice">Your role is read-only. Support or admin staff can edit this dictionary.</div>`;
   return c.html(staffPage("Pronunciation dictionary", `<header class="top"><h1><a href="/">BlogNice staff</a></h1><small>${esc(staff.email)} · ${esc(staff.role)}</small></header><nav><a href="/">Accounts</a><a href="/pronunciations">Pronunciation dictionary</a><a href="/tts-test">TTS test</a></nav><h2>Pronunciation dictionary</h2><p class="muted">Global substitutions used when preparing Blog Nice narration. For example, <code>UI</code> becomes <code>U I</code>.</p>${editor}<div class="card"><table><thead><tr><th>Term</th><th>Spoken form</th><th>Status</th><th></th></tr></thead><tbody>${rows || `<tr><td colspan="4" class="empty">No custom entries yet.</td></tr>`}</tbody></table></div>`));
 });
@@ -332,9 +363,7 @@ app.post("/api/tts-test", async (c) => {
   const text = String(input.text || "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 240);
   if (!text) return c.json({ error: "Enter a short phrase first." }, 400);
   try {
-    const generated = await c.env.AI.run(TTS_MODEL, { prompt: text, lang: "en" }) as Uint8Array | { audio: string };
-    const bytes = ttsBytes(generated);
-    if (!bytes.length) return c.json({ error: "The model returned no audio." }, 502);
+    const bytes = await ttsTestWithRetry(c.env.AI, text);
     await audit(c, staff, { action: "tts-test", targetType: "tts", targetId: TTS_MODEL, reason: "Generate short pronunciation sample", result: "success", after: { characters: text.length } });
     return new Response(bytes, { headers: { "content-type": "audio/mpeg", "cache-control": "no-store", "x-content-type-options": "nosniff" } });
   } catch (error) {
