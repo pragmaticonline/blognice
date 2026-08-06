@@ -15,6 +15,10 @@ test("admin navigation keeps global and current-blog contexts visible", () => {
   assert.match(admin, /opaque.*public_id/s);
   assert.match(admin, /aria-label="Blog navigation"/);
   assert.match(admin, /class="breadcrumb"/);
+  assert.match(admin, /plan-badge/);
+  assert.match(admin, />Pro<|Pro/);
+  assert.match(admin, />Free<|Free/);
+  assert.match(admin, /eventually consistent/);
 });
 
 test("post actions use labeled edit, view, and delete icons", () => {

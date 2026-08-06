@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "blognice-staff",
+  "main": "src/staff.ts",
+  "compatibility_date": "2026-06-20",
+  "vars": {
+    "ACCESS_TEAM_DOMAIN": "https://your-team.cloudflareaccess.com",
+    "ACCESS_AUD": "replace-with-access-application-audience-tag",
+    "STAFF_ALLOWED_EMAILS": "staff@example.com",
+    "EMAIL_FROM": "Blog Nice <support@mailer.blognice.com>"
+  },
+  "routes": [
+    { "pattern": "staff.blognice.com/*", "zone_name": "blognice.com" }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "blognice",
+      "database_id": "replace-with-index-database-id"
+    }
+  ]
+}

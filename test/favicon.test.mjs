@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const indexSource = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
+const adminSource = readFileSync(new URL("../src/admin.ts", import.meta.url), "utf8");
 const renderSource = readFileSync(new URL("../src/render.ts", import.meta.url), "utf8");
 const homepage = readFileSync(new URL("../homepage.html", import.meta.url), "utf8");
 const favicon = readFileSync(new URL("../favicon.svg", import.meta.url), "utf8");
@@ -16,4 +17,24 @@ test("landing and tenant pages link to the cached SVG favicon", () => {
   assert.match(homepage, /<link rel="icon" href="\/favicon\.svg"/);
   assert.match(renderSource, /<link rel="icon" href="\/favicon\.svg"/);
   assert.match(indexSource, /app\.get\("\/favicon\.svg"/);
+});
+
+test("uploaded PNG and ICO favicons are validated by file signature", () => {
+  assert.match(indexSource, /const isPng =/);
+  assert.match(indexSource, /const isIco =/);
+  assert.match(indexSource, /function makeIco/);
+  assert.match(indexSource, /form\.get\(`icon\$\{size\}`\)/);
+  assert.match(indexSource, /const sizes = \[16, 32, 48, 256\]/);
+  assert.match(indexSource, /valid PNG or ICO/);
+  assert.match(indexSource, /const contentType = isPng \? "image\/png" : "image\/x-icon"/);
+  assert.match(adminSource, /normalizeFavicon/);
+  assert.match(adminSource, /Preparing favicon/);
+  assert.match(adminSource, /Uploading favicon/);
+  assert.match(adminSource, /faviconUpload\.addEventListener\("click"/);
+  assert.match(adminSource, /faviconInput\.value = "";[\s\S]*faviconInput\.showPicker/);
+  assert.match(adminSource, /finally \{[\s\S]*faviconUpload\.disabled = false/);
+  assert.match(adminSource, /Upload timed out after 30 seconds/);
+  assert.match(adminSource, /Upload failed \(HTTP/);
+  assert.match(indexSource, /startsWith\("favicon-"\)/);
+  assert.match(indexSource, /MEDIA\.delete\(storedKey\)/);
 });

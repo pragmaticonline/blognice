@@ -1,5 +1,4 @@
-import { Hono } from "hono";
-import { Marked } from "marked";
+import { Hono, type Context } from "hono";
 import {
   esc,
   renderHome,
@@ -9,7 +8,7 @@ import {
   type Post,
   type Tenant,
 } from "./render";
-import { sendEmail, emailEnabled } from "./email";
+import { sendEmail, sendEmailDetailed, emailEnabled } from "./email";
 import {
   createCustomHostname,
   getCustomHostname,
@@ -28,12 +27,16 @@ import {
   clearSessionCookie,
   getSessionToken,
   generateApiKey,
+  generateResetToken,
   sha256hex,
   accountFromApiKey,
+  accountHasPaidPlan,
   type Account,
 } from "./auth";
 import {
   loginPage,
+  forgotPasswordPage,
+  resetPasswordPage,
   postListPage,
   editorPage,
   signupPage,
@@ -45,12 +48,18 @@ import {
   apiKeyPage,
   mediaPage,
   metricsPage,
+  auditPage,
   shell,
   type MediaItem,
 } from "./admin";
 import { tenantDb } from "./db";
 import homepage from "../homepage.html";
 import faviconSvg from "../favicon.svg";
+import marketingWriting from "../assets/marketing-ai/writing.webp";
+import marketingCeramics from "../assets/marketing-ai/ceramics.webp";
+import marketingTrain from "../assets/marketing-ai/night-train.webp";
+import marketingNotebook from "../assets/marketing-ai/travel-notebook.webp";
+import marketingBlogger from "../assets/marketing-ai/blogger.webp";
 import { findMediaUse, mediaKey, mediaUrl, validLibraryFile } from "./media";
 import {
   AI_BRIEF_MODEL,
@@ -67,9 +76,14 @@ import {
   archivePreviousDayEvents,
   metricsConfigured,
   metricsReport,
+  auditReport,
   recordPageView,
   recordCustomEvent,
+  recordAuditEvent,
 } from "./metrics";
+import { createCheckoutSession, createPortalSession, stripeConfigured, verifyStripeSignature } from "./stripe";
+import { renderMarkdown as renderMarkdownSafe } from "./markdown";
+
 
 type Bindings = {
   DB: D1Database; // index database: tenants, users, sessions, domains
@@ -77,6 +91,7 @@ type Bindings = {
   MEDIA: R2Bucket; // image uploads and generated narration
   AI: Ai; // Cloudflare Workers AI image and speech generation
   AUDIO_QUEUE: Queue<AudioJobMessage | ImageJobMessage>; // queued AI media jobs
+  EMAIL_QUEUE?: Queue<EmailJobMessage | EmailFanoutMessage>; // queued transactional email jobs
   METRICS: AnalyticsEngineDataset; // anonymous public page-view events
   EVENTS: AnalyticsEngineDataset; // audio engagement events
   METRICS_ARCHIVE: R2Bucket; // aggregate daily metrics retained beyond 90 days
@@ -94,7 +109,14 @@ type Bindings = {
   // Optional email (Resend). See src/email.ts. Unset = subscriptions still
   // work as capture-only (no emails sent).
   RESEND_API_KEY?: string; // secret
+  MAILNICE_API_KEY?: string; // secret
   EMAIL_FROM?: string; // var, e.g. "Blog Nice <hello@blognice.com>"
+  STRIPE_SECRET_KEY?: string; // secret
+  STRIPE_WEBHOOK_SECRET?: string; // secret
+  STRIPE_PRICE_ID?: string; // var/secret
+  STRIPE_MONTHLY_PRICE_ID?: string;
+  STRIPE_YEARLY_PRICE_ID?: string;
+  STRIPE_PORTAL_CONFIGURATION_ID?: string; // optional var
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -102,34 +124,12 @@ const app = new Hono<{ Bindings: Bindings }>();
 // Markdown → HTML. Adds heading `id` slugs (via slugify, defined below) so
 // in-page anchor links — a table of contents like [Tables](#tables) — jump.
 // A fresh slug counter per call keeps duplicate headings unique (foo, foo-1…).
-function renderMarkdown(md: string): string {
-  const seen = new Map<string, number>();
-  const m = new Marked({ gfm: true, breaks: false });
-  m.use({
-    renderer: {
-      heading(this: any, { tokens, depth }: any): string {
-        const html = this.parser.parseInline(tokens);
-        const plain = html.replace(/<[^>]+>/g, "");
-        let slug = slugify(plain) || "section";
-        const n = seen.get(slug) ?? 0;
-        seen.set(slug, n + 1);
-        const id = n === 0 ? slug : `${slug}-${n}`;
-        return `<h${depth} id="${id}">${html}</h${depth}>\n`;
-      },
-      // Give each divider a class based on the marker typed (--- / *** / ___),
-      // so the three can be styled differently. A private convention: other
-      // Markdown tools render all three identically.
-      hr({ raw }: any): string {
-        const ch = (raw || "").trim()[0];
-        const cls =
-          ch === "*" ? "rule-star" : ch === "_" ? "rule-line" : "rule-dash";
-        return `<hr class="${cls}">\n`;
-      },
-    },
-  });
-  return sanitizeRenderedHtml(m.parse(md, { async: false }) as string);
+function legacyRenderMarkdown(md: string): string {
+  return renderMarkdownSafe(md);
 }
 
+/* Legacy regex sanitizer retained only as historical reference. The active
+// renderer is the parser-based implementation in src/markdown.ts.
 // Markdown is authored by collaborators, so raw HTML must not become a stored
 // XSS vector. Keep harmless formatting while removing executable/embed content
 // and event/javascript URLs. This intentionally stays dependency-free for the
@@ -179,6 +179,7 @@ function sanitizeRenderedHtml(html: string): string {
     return `<${name}${rendered.join("")}>`;
   });
 }
+*/
 
 // ---------------------------------------------------------------------------
 // Tenant resolution: figure out which blog a request is for, from the Host.
@@ -381,6 +382,34 @@ function publicOrigin(env: Bindings, tenant: Tenant): string {
   return `https://${tenant.custom_domain || `${tenant.slug}.${env.ROOT_DOMAIN}`}`;
 }
 
+// The parser-based renderer is the only renderer used by public pages and the
+// live preview. The legacy implementation remains temporarily for comparison
+// while deployments roll over, but is intentionally unreachable.
+function renderMarkdown(md: string): string {
+  return renderMarkdownSafe(md);
+}
+
+function subscriptionManageUrl(env: Bindings, token: string): string {
+  return `https://www.${env.ROOT_DOMAIN}/manage-subscriptions/${encodeURIComponent(token)}`;
+}
+
+async function subscriptionManageToken(env: Bindings, email: string): Promise<string> {
+  const existing = await env.DB.prepare("SELECT token FROM subscription_manage_tokens WHERE email = ?")
+    .bind(email).first<{ token: string }>();
+  if (existing) return existing.token;
+  const token = crypto.randomUUID();
+  try {
+    await env.DB.prepare("INSERT INTO subscription_manage_tokens (email, token, created_at) VALUES (?, ?, ?)")
+      .bind(email, token, Math.floor(Date.now() / 1000)).run();
+    return token;
+  } catch {
+    const raced = await env.DB.prepare("SELECT token FROM subscription_manage_tokens WHERE email = ?")
+      .bind(email).first<{ token: string }>();
+    if (!raced) throw new Error("Unable to create subscription management token");
+    return raced.token;
+  }
+}
+
 async function tenantById(env: Bindings, id: number | string): Promise<Tenant | null> {
   return (await env.DB.prepare("SELECT * FROM tenants WHERE id = ?")
     .bind(id)
@@ -394,33 +423,7 @@ async function notifySubscribers(
   post: { slug: string; title: string }
 ): Promise<void> {
   if (!emailEnabled(env)) return;
-  const origin = publicOrigin(env, tenant);
-  const postUrl = `${origin}/${post.slug}`;
-  const { results } = await env.DB.prepare(
-    "SELECT email, token FROM subscribers WHERE tenant_id = ?"
-  )
-    .bind(tenant.id)
-    .all<{ email: string; token: string }>();
-
-  await Promise.all(
-    results.map((s) => {
-      const unsub = `${origin}/unsubscribe/${s.token}`;
-      const html = `<p>New post on <strong>${esc(tenant.title)}</strong>:</p>
-        <h2 style="font-family:sans-serif"><a href="${postUrl}">${esc(post.title)}</a></h2>
-        <p><a href="${postUrl}">Read it &rarr;</a></p>
-        <hr><p style="color:#888;font-size:13px">You're subscribed to ${esc(tenant.title)}.
-        <a href="${unsub}">Unsubscribe</a>.</p>`;
-      return sendEmail(env, {
-        to: s.email,
-        subject: post.title,
-        html,
-        headers: {
-          "List-Unsubscribe": `<${unsub}>`,
-          "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-        },
-      });
-    })
-  );
+  if (env.EMAIL_QUEUE) await env.EMAIL_QUEUE.send({ kind: "email-fanout", campaignId: crypto.randomUUID(), tenantId: tenant.id, postSlug: post.slug, postTitle: post.title, afterId: 0 } satisfies EmailFanoutMessage);
 }
 
 // ---------------------------------------------------------------------------
@@ -812,7 +815,9 @@ app.post("/api/posts", async (c) => {
 
 async function apiAccount(c: any): Promise<Account | null> {
   const m = (c.req.header("authorization") || "").match(/^Bearer\s+(.+)$/i);
-  return m ? accountFromApiKey(c.env.DB, m[1].trim()) : null;
+  if (!m) return null;
+  const account = await accountFromApiKey(c.env.DB, m[1].trim());
+  return account && accountHasPaidPlan(account) ? account : null;
 }
 
 async function ownedTenantById(
@@ -1014,6 +1019,7 @@ app.post("/api/v1/blogs/:blogId/images/generations", async (c) => {
   if (!account) return c.json({ error: "unauthorized" }, 401);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
+  if (!(await tenantHasPaidPlan(c.env, tenant.id))) return c.json({ error: "AI image generation requires a paid plan." }, 402);
   const role = await membershipRoleFor(c.env, account.id, tenant.id);
   if (!role || !can(role, "media.upload")) return c.json({ error: "forbidden" }, 403);
   if (oversizedAiRequest(c.req.raw)) return c.json({ error: "request too large" }, 413);
@@ -1039,11 +1045,19 @@ app.post("/api/v1/blogs/:blogId/images/generations", async (c) => {
     blogTitle: tenant.title, blogDescription: tenant.description,
     postTitle: postTitle.slice(0, 500), postBody: postBody.slice(0, 20_000),
   });
+  let creditReservation: { accountId: number; period: string };
+  try { creditReservation = await reserveAiCredits(c.env, tenant.id, AI_IMAGE_CREDITS); }
+  catch (error) { return c.json({ error: error instanceof Error ? error.message : "AI credits unavailable" }, 402); }
   const jobId = crypto.randomUUID();
   const jobKey = `${tenant.id}/.image-jobs/${jobId}.json`;
-  const job: ImageJobManifest = { tenantId: tenant.id, postId, source, style, status: "queued" };
-  await writeImageJob(c.env, jobKey, job);
-  await c.env.AUDIO_QUEUE.send({ kind: "image", jobKey, tenantId: tenant.id });
+  const job: ImageJobManifest = { tenantId: tenant.id, postId, source, style, status: "queued", creditCost: AI_IMAGE_CREDITS, creditAccountId: creditReservation.accountId, creditPeriod: creditReservation.period };
+  try {
+    await writeImageJob(c.env, jobKey, job);
+    await c.env.AUDIO_QUEUE.send({ kind: "image", jobKey, tenantId: tenant.id });
+  } catch (error) {
+    await refundAiCredits(c.env, creditReservation.accountId, creditReservation.period, AI_IMAGE_CREDITS);
+    throw error;
+  }
   return c.json({ job_id: jobId, status: job.status, status_url: `/api/v1/blogs/${tenant.public_id}/images/generations/${jobId}` }, 202);
 });
 
@@ -1066,6 +1080,7 @@ app.post("/api/v1/blogs/:blogId/posts/:id/audio/generations", async (c) => {
   if (!account) return c.json({ error: "unauthorized" }, 401);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
+  if (!(await tenantHasPaidPlan(c.env, tenant.id))) return c.json({ error: "AI narration requires a paid plan." }, 402);
   const role = await membershipRoleFor(c.env, account.id, tenant.id);
   if (!role || !can(role, "media.upload")) return c.json({ error: "forbidden" }, 403);
   const post = await tenantDb(c.env, tenant).prepare("SELECT id, slug, title, body_md, audio_key FROM posts WHERE id = ? AND tenant_id = ?")
@@ -1314,6 +1329,22 @@ async function membershipRoleFor(
   return row?.role ?? null;
 }
 
+async function tenantHasPaidPlan(env: Bindings, tenantId: number): Promise<boolean> {
+  const owner = await env.DB.prepare(
+    `SELECT COALESCE(a.billing_status, 'inactive') AS billing_status
+       FROM memberships m JOIN accounts a ON a.id = m.account_id
+      WHERE m.tenant_id = ? AND m.role = 'owner' LIMIT 1`
+  ).bind(tenantId).first<{ billing_status: string }>();
+  return accountHasPaidPlan(owner || {});
+}
+
+function queueBlogAudit(c: any, tenantId: number, actorId: number, action: string, target = ""): void {
+  c.executionCtx.waitUntil((async () => {
+    if (!(await tenantHasPaidPlan(c.env, tenantId))) return;
+    recordAuditEvent(c.env, tenantId, { action, target, actor: String(actorId) });
+  })().catch((error) => console.error("audit event failed", error)));
+}
+
 async function postAuthors(env: Bindings, tenant: Tenant): Promise<Array<{ id: number; label: string; email: string; displayName: string | null }>> {
   const { results } = await env.DB.prepare(
     `SELECT a.id, a.email, m.role, m.display_name FROM memberships m
@@ -1372,6 +1403,127 @@ app.get("/admin/login", async (c) => {
   return c.html(loginPage());
 });
 
+async function forgotPasswordHandler(c: Context<{ Bindings: Bindings }>) {
+  if (await currentAccount(c)) return c.redirect("/admin");
+  return c.html(forgotPasswordPage());
+}
+
+app.get("/admin/forgot", forgotPasswordHandler);
+app.get("/admin/forgot-password", (c) => c.redirect("/admin/forgot"));
+
+async function sendForgotPasswordHandler(c: Context<{ Bindings: Bindings }>) {
+  await c.env.DB.prepare("DELETE FROM password_resets WHERE expires_at < ?").bind(Math.floor(Date.now() / 1000)).run();
+  const form = await c.req.formData();
+  const email = String(form.get("email") || "").trim().toLowerCase();
+  const generic = "If an account exists for that email, a password reset link is on its way.";
+  if (email && email.length <= 320) {
+    const account = await c.env.DB.prepare("SELECT id, email FROM accounts WHERE email = ? AND COALESCE(status, 'active') = 'active'")
+      .bind(email).first<{ id: number; email: string }>();
+    if (account) {
+      const rawToken = generateResetToken();
+      const tokenHash = await sha256hex(rawToken);
+      const now = Math.floor(Date.now() / 1000);
+      const recent = await c.env.DB.prepare("SELECT 1 FROM password_resets WHERE account_id = ? AND created_at > ? AND used = 0 LIMIT 1")
+        .bind(account.id, now - 300).first();
+      if (recent) return c.html(forgotPasswordPage(generic));
+      await c.env.DB.prepare("DELETE FROM password_resets WHERE account_id = ?").bind(account.id).run();
+      await c.env.DB.prepare("INSERT INTO password_resets (token_hash, account_id, created_at, expires_at, used) VALUES (?, ?, ?, ?, 0)")
+        .bind(tokenHash, account.id, now, now + 3600).run();
+      const resetUrl = `https://blognice.com/admin/reset?token=${encodeURIComponent(rawToken)}`;
+      const job: EmailJobMessage = {
+        kind: "email-delivery",
+        emailKind: "password-reset",
+        idempotencyKey: `password-reset:${tokenHash}`,
+        to: account.email,
+        subject: "Reset your Blog Nice password",
+        plainText: `We received a request to reset your Blog Nice password.\n\nReset it here: ${resetUrl}\n\nThis link expires in one hour. If you did not request this, you can ignore this email.`,
+        html: `<p>We received a request to reset your Blog Nice password.</p><p><a href="${resetUrl}">Reset your password</a></p><p style="color:#687064;font-size:13px">This link expires in one hour. If you did not request this, you can ignore this email.</p>`,
+      };
+      if (emailEnabled(c.env) || c.env.MAILNICE_API_KEY || c.env.RESEND_API_KEY) {
+        // Password resets are transactional and time-sensitive. Await the
+        // provider request so a failed fetch cannot be lost with the response.
+        const emailEnv = { ...c.env, EMAIL_FROM: c.env.EMAIL_FROM || "Blog Nice <support@mailer.blognice.com>" };
+        try {
+          const result = await sendEmailDetailed(emailEnv, job);
+          if (!result.ok) console.error("Password reset email provider rejected the message", {
+            accountId: account.id,
+            provider: result.provider,
+            detail: result.detail,
+          });
+        } catch (error) {
+          console.error("Password reset email delivery failed", error);
+        }
+      } else {
+        console.info("Password reset link (email delivery is not configured)", { accountId: account.id, resetUrl });
+      }
+    }
+  }
+  return c.html(forgotPasswordPage(generic));
+}
+app.post("/admin/forgot", sendForgotPasswordHandler);
+app.post("/admin/forgot-password", sendForgotPasswordHandler);
+
+async function resetPasswordFormHandler(c: Context<{ Bindings: Bindings }>) {
+  const token = String(c.req.query("token") || "");
+  if (!token || token.length > 200) return c.html(resetPasswordPage("", "This reset link is invalid or has expired."), 400);
+  const row = await c.env.DB.prepare("SELECT token_hash FROM password_resets WHERE token_hash = ? AND used = 0 AND expires_at > ?")
+    .bind(await sha256hex(token), Math.floor(Date.now() / 1000)).first();
+  if (!row) return c.html(resetPasswordPage("", "This reset link is invalid or has expired."), 400);
+  return c.html(resetPasswordPage(token));
+}
+app.get("/admin/reset", resetPasswordFormHandler);
+app.get("/admin/reset-password", (c) => {
+  const token = c.req.query("token");
+  return c.redirect(`/admin/reset${token ? `?token=${encodeURIComponent(token)}` : ""}`);
+});
+
+async function applyPasswordResetHandler(c: Context<{ Bindings: Bindings }>) {
+  const form = await c.req.formData();
+  const token = String(form.get("token") || "");
+  const password = String(form.get("password") || "");
+  const confirm = String(form.get("confirm") || "");
+  const tokenHash = await sha256hex(token);
+  if (!token || password.length < 8 || password !== confirm) return c.html(resetPasswordPage(token, password !== confirm ? "The passwords do not match." : "Your password must be at least 8 characters."), 400);
+  const now = Math.floor(Date.now() / 1000);
+  const reset = await c.env.DB.prepare("SELECT account_id FROM password_resets WHERE token_hash = ? AND used = 0 AND expires_at > ?")
+    .bind(tokenHash, now).first<{ account_id: number }>();
+  if (!reset) return c.html(resetPasswordPage("", "This reset link is invalid or has expired."), 400);
+  try {
+    const hashStartedAt = Date.now();
+    const pwHash = await hashPassword(password);
+    console.info("Password hash completed", { algorithm: "scrypt", elapsedMs: Date.now() - hashStartedAt });
+    const appliedAt = Math.floor(Date.now() / 1000);
+    const writes = await c.env.DB.batch([
+      c.env.DB.prepare(
+        `UPDATE accounts SET pw_hash = ?
+          WHERE id = ? AND EXISTS (
+            SELECT 1 FROM password_resets
+             WHERE token_hash = ? AND account_id = ? AND used = 0 AND expires_at > ?
+          )`,
+      ).bind(pwHash, reset.account_id, tokenHash, reset.account_id, appliedAt),
+      c.env.DB.prepare(
+        `DELETE FROM sessions
+          WHERE account_id = ? AND EXISTS (
+            SELECT 1 FROM password_resets
+             WHERE token_hash = ? AND account_id = ? AND used = 0 AND expires_at > ?
+          )`,
+      ).bind(reset.account_id, tokenHash, reset.account_id, appliedAt),
+      c.env.DB.prepare("UPDATE password_resets SET used = 1 WHERE token_hash = ? AND used = 0 AND expires_at > ?").bind(tokenHash, appliedAt),
+    ]);
+    if (!writes[0].meta.changes) {
+      return c.html(resetPasswordPage("", "This reset link is invalid or has expired."), 400);
+    }
+    const session = await createSession(c.env.DB, reset.account_id);
+    setSessionCookie(c, session);
+    return c.redirect("/admin?message=Password%20updated");
+  } catch (error) {
+    console.error("Password reset application failed", error);
+    return c.html(resetPasswordPage(token, "We couldn't apply that reset. Please try again or request a new link."), 500);
+  }
+}
+app.post("/admin/reset", applyPasswordResetHandler);
+app.post("/admin/reset-password", applyPasswordResetHandler);
+
 // --- API key management (session-authenticated) ----------------------------
 
 async function accountBlogsForDocs(env: Bindings, account: Account): Promise<Array<{ public_id: string; title: string; slug: string }>> {
@@ -1402,6 +1554,7 @@ app.get("/admin/api-key", async (c) => {
 app.post("/admin/api-key/regenerate", async (c) => {
   const account = await currentAccount(c);
   if (!account) return c.redirect("/admin/login");
+  if (!accountHasPaidPlan(account)) return c.redirect("/admin/billing?message=API access is available on a paid plan.");
   const key = generateApiKey();
   const hash = await sha256hex(key);
   const now = Math.floor(Date.now() / 1000);
@@ -1458,18 +1611,22 @@ app.get("/admin", async (c) => {
   const account = await currentAccount(c);
   if (!account) return c.redirect("/admin/login");
   const { results } = await c.env.DB.prepare(
-    `SELECT t.public_id, t.slug, t.title, m.role FROM tenants t
+    `SELECT t.public_id, t.slug, t.title, t.description, t.avatar_key, t.topics_json, m.role FROM tenants t
        JOIN memberships m ON m.tenant_id = t.id
       WHERE m.account_id = ? ORDER BY t.title`
   )
     .bind(account.id)
-    .all<{ public_id: string; slug: string; title: string; role: MembershipRole }>();
+    .all<{ public_id: string; slug: string; title: string; description: string | null; avatar_key: string | null; topics_json: string | null; role: MembershipRole }>();
   const owned = results.filter((blog) => blog.role === "owner");
   const collaborations = results.filter((blog) => blog.role !== "owner");
   // With exactly one blog, jump straight in — unless the list was asked for
   // explicitly (the "Blogs" nav link), so that link always shows the picker.
+  // Keep a new/incomplete blog on this page so the setup checklist is visible.
+  const firstBlogNeedsSetup = owned.length === 1 && (
+    !owned[0].description?.trim() || !owned[0].avatar_key || !owned[0].topics_json || owned[0].topics_json === "[]"
+  );
   const forceList = c.req.query("list");
-  if (!forceList && owned.length === 1 && collaborations.length === 0)
+  if (!forceList && !firstBlogNeedsSetup && owned.length === 1 && collaborations.length === 0)
     return c.redirect(`/admin/b/${owned[0].public_id}`);
   return c.html(blogListPage(account, owned, collaborations, c.env.ROOT_DOMAIN));
 });
@@ -1506,8 +1663,11 @@ app.post("/admin/new-blog", async (c) => {
   const ownedCount = await c.env.DB.prepare(
     "SELECT COUNT(*) AS count FROM memberships WHERE account_id = ? AND role = 'owner'"
   ).bind(account.id).first<{ count: number }>();
-  if ((ownedCount?.count ?? 0) >= 5)
-    return fail("Your account can own up to five blogs. Collaborations do not count toward this limit.", 409);
+  const maxBlogs = accountHasPaidPlan(account) ? 5 : 1;
+  if ((ownedCount?.count ?? 0) >= maxBlogs)
+    return fail(accountHasPaidPlan(account)
+      ? "Your account can own up to five blogs. Collaborations do not count toward this limit."
+      : "Free accounts can own one blog. Upgrade to add more blogs.", 409);
 
   const slugError = validateSlug(slug);
   if (slugError) return fail(slugError);
@@ -1571,6 +1731,7 @@ function collaboratorPage(account: Account, tenant: Tenant, members: Array<{ acc
 app.get("/admin/b/:blogId/authors", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if (!(await tenantHasPaidPlan(c.env, ctx.tenant.id))) return c.text("Collaborators are available on a paid plan.", 402);
   if (!can(ctx.role, "members.manage")) return c.text("You do not have permission to manage collaborators.", 403);
   const { results } = await c.env.DB.prepare(`SELECT m.account_id, a.email, m.role, m.display_name FROM memberships m JOIN accounts a ON a.id = m.account_id WHERE m.tenant_id = ? ORDER BY m.role, a.email`).bind(ctx.tenant.id).all<{ account_id: number; email: string; role: string; display_name: string | null }>();
   return c.html(collaboratorPage(ctx.account, ctx.tenant, results));
@@ -1579,6 +1740,7 @@ app.get("/admin/b/:blogId/authors", async (c) => {
 app.post("/admin/b/:blogId/authors", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if (!(await tenantHasPaidPlan(c.env, ctx.tenant.id))) return c.text("Collaborators are available on a paid plan.", 402);
   if (!can(ctx.role, "members.manage")) return c.text("You do not have permission to manage collaborators.", 403);
   const form = await c.req.formData();
   if (String(form.get("action") ?? "") === "save-display-name") {
@@ -1588,6 +1750,7 @@ app.post("/admin/b/:blogId/authors", async (c) => {
       return c.text("Invalid collaborator.", 400);
     await c.env.DB.prepare("UPDATE memberships SET display_name = ? WHERE tenant_id = ? AND account_id = ?")
       .bind(displayName, ctx.tenant.id, accountId).run();
+    queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "author_name_updated", String(accountId));
     return c.redirect(`/admin/b/${ctx.tenant.public_id}/authors`);
   }
   const email = String(form.get("email") ?? "").trim().toLowerCase();
@@ -1603,6 +1766,7 @@ app.post("/admin/b/:blogId/authors", async (c) => {
   const now = Math.floor(Date.now() / 1000);
   await c.env.DB.prepare("INSERT INTO blog_invitations (tenant_id,email,role,token_hash,invited_by,expires_at,created_at) VALUES (?,?,?,?,?,?,?)")
     .bind(ctx.tenant.id, email, role, await sha256hex(token), ctx.account.id, now + 7 * 86400, now).run();
+  queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "collaborator_invited", email);
   const origin = new URL(c.req.url).origin;
   return c.html(collaboratorPage(ctx.account, ctx.tenant, results, `${origin}/admin/invite/${token}`));
 });
@@ -1765,6 +1929,9 @@ app.post("/admin/b/:blogId/save", async (c) => {
   // Email subscribers when a post first goes live (draft/new -> published).
   if (published === 1 && wasPublished === 0)
     c.executionCtx.waitUntil(notifySubscribers(c.env, ctx.tenant, { slug, title }));
+  queueBlogAudit(c, ctx.tenant.id, ctx.account.id, idParam ? "post_updated" : "post_created", slug);
+  if (published === 1 && wasPublished === 0)
+    queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "post_published", slug);
   return c.redirect(
     stayInEditor && savedId
       ? `/admin/b/${ctx.tenant.public_id}/edit/${savedId}`
@@ -1791,6 +1958,7 @@ app.post("/admin/b/:blogId/delete/:id", async (c) => {
     c.executionCtx.waitUntil(
       purgeTenant(c.env, ctx.tenant, ["/", "/" + post.slug, "/sitemap.xml"])
     );
+    queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "post_deleted", post.slug);
   }
   return c.redirect(`/admin/b/${ctx.tenant.public_id}`);
 });
@@ -1813,6 +1981,17 @@ const EXT: Record<string, string> = {
 };
 const MAX_UPLOAD = 15 * 1024 * 1024; // 15 MB ceiling (uploads are pre-shrunk)
 
+async function detectedImageType(file: File): Promise<string | null> {
+  const header = new Uint8Array(await file.slice(0, 32).arrayBuffer());
+  const starts = (...values: number[]) => values.every((value, index) => header[index] === value);
+  if (starts(0xff, 0xd8, 0xff)) return "image/jpeg";
+  if (starts(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return "image/png";
+  if (starts(0x47, 0x49, 0x46, 0x38, 0x37, 0x61) || starts(0x47, 0x49, 0x46, 0x38, 0x39, 0x61)) return "image/gif";
+  if (starts(0x52, 0x49, 0x46, 0x46) && header[8] === 0x57 && header[9] === 0x45 && header[10] === 0x42 && header[11] === 0x50) return "image/webp";
+  if (header.length >= 12 && header[4] === 0x66 && header[5] === 0x74 && header[6] === 0x79 && (header[8] === 0x61 || header[8] === 0x6d)) return "image/avif";
+  return null;
+}
+
 async function listMedia(env: Bindings, tenantId: number): Promise<MediaItem[]> {
   const prefix = `${tenantId}/`;
   const objects: R2Object[] = [];
@@ -1824,6 +2003,7 @@ async function listMedia(env: Bindings, tenantId: number): Promise<MediaItem[]> 
   } while (cursor);
   return objects
     .filter((obj) => !obj.key.slice(prefix.length).startsWith("avatar-"))
+    .filter((obj) => !obj.key.slice(prefix.length).startsWith("favicon-"))
     .filter((obj) => !obj.key.slice(prefix.length).startsWith(".audio-checkpoints/"))
     .filter((obj) => !obj.key.slice(prefix.length).startsWith(".audio-jobs/"))
     .filter((obj) => !obj.key.slice(prefix.length).startsWith(".image-jobs/"))
@@ -1860,7 +2040,7 @@ app.post("/admin/b/:blogId/upload", async (c) => {
   if (!(file instanceof File)) return c.json({ error: "no file" }, 400);
 
   const type = file.type;
-  if (!ALLOWED_IMAGE.has(type))
+  if (!ALLOWED_IMAGE.has(type) || (await detectedImageType(file)) !== type)
     return c.json({ error: "unsupported image type" }, 400);
   if (file.size > MAX_UPLOAD) return c.json({ error: "image too large" }, 413);
 
@@ -1875,6 +2055,7 @@ app.post("/admin/b/:blogId/upload", async (c) => {
   });
 
   const url = `/media/${key}`;
+  queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "media_uploaded", file.name);
   return c.json({ key, url, markdown: `![](${url})` });
 });
 
@@ -2019,6 +2200,10 @@ async function processAudioJob(env: Bindings, jobKey: string): Promise<void> {
   } catch (error) {
     job.status = "failed";
     job.error = error instanceof Error ? error.message : String(error);
+    if (job.creditAccountId && job.creditPeriod && job.creditCost && !job.creditsRefunded) {
+      await refundAiCredits(env, job.creditAccountId, job.creditPeriod, job.creditCost);
+      job.creditsRefunded = true;
+    }
     await writeAudioJob(env, jobKey, job);
     throw error;
   }
@@ -2048,12 +2233,27 @@ async function preparePronunciations(ai: Ai, text: string) {
   }
 }
 
+async function loadPronunciationOverrides(env: Bindings): Promise<Array<{ original: string; spoken: string }>> {
+  try {
+    const { results } = await env.DB.prepare(
+      "SELECT term AS original, spoken FROM pronunciation_overrides WHERE enabled = 1 ORDER BY length(term) DESC, term LIMIT 500"
+    ).all<{ original: string; spoken: string }>();
+    return results.filter((row) => row.original.trim() && row.spoken.trim());
+  } catch {
+    // Keep narration available while the optional staff dictionary migration
+    // is being rolled out.
+    return [];
+  }
+}
+
 async function createAudioJob(env: Bindings, tenant: Tenant, post: Pick<Post, "id" | "slug" | "title" | "body_md">) {
-  const sections = narrationSections(post.title, post.body_md);
+  const sections = narrationSections(post.title, post.body_md, await loadPronunciationOverrides(env));
   const text = [sections.title, sections.body].filter(Boolean).join(" ... ");
   if (!text) throw new Error("Add some post text before generating audio.");
   if (text.length > TTS_TEXT_MAX)
     throw new Error(`This post is too long for narration (${text.length.toLocaleString()} characters; maximum ${TTS_TEXT_MAX.toLocaleString()}).`);
+  const audioCost = audioCreditCost(text);
+  const audioReservation = await reserveAiCredits(env, tenant.id, audioCost);
   const replacements = await preparePronunciations(env.AI, text.replaceAll(TTS_HARD_PAUSE, "\n\n").replaceAll(TTS_SOFT_PAUSE, " "));
   const preparedTitle = applyPronunciations(sections.title, replacements).replaceAll(TTS_SOFT_PAUSE, " ");
   const preparedBody = applyPronunciations(sections.body, replacements);
@@ -2074,9 +2274,14 @@ async function createAudioJob(env: Bindings, tenant: Tenant, post: Pick<Post, "i
   const jobKey = `${tenant.id}/.audio-jobs/${jobId}.json`;
   const checkpointHash = await sha256hex(`${TTS_MODEL}\n${preparedTitle}\n${preparedBody}`);
   const checkpointPrefix = `${tenant.id}/.audio-checkpoints/${post.id}-${checkpointHash}`;
-  const job: AudioJobManifest = { tenantId: tenant.id, postId: post.id, postSlug: post.slug, prompts, checkpointKeys: prompts.map((_, index) => `${checkpointPrefix}/${index}.wav`), status: "queued", completed: 0 };
-  await writeAudioJob(env, jobKey, job);
-  await env.AUDIO_QUEUE.send({ jobKey, tenantId: tenant.id, postId: post.id });
+  const job: AudioJobManifest = { tenantId: tenant.id, postId: post.id, postSlug: post.slug, prompts, checkpointKeys: prompts.map((_, index) => `${checkpointPrefix}/${index}.wav`), status: "queued", completed: 0, creditCost: audioCost, creditAccountId: audioReservation.accountId, creditPeriod: audioReservation.period };
+  try {
+    await writeAudioJob(env, jobKey, job);
+    await env.AUDIO_QUEUE.send({ jobKey, tenantId: tenant.id, postId: post.id });
+  } catch (error) {
+    await refundAiCredits(env, audioReservation.accountId, audioReservation.period, audioCost);
+    throw error;
+  }
   return { jobId, segments: prompts.length };
 }
 
@@ -2098,6 +2303,7 @@ app.post("/admin/b/:blogId/audio/:id", async (c) => {
   const ctxResult = await blogContext(c);
   if ("redirect" in ctxResult) return c.json({ error: "unauthorized" }, 401);
   const ctx = ctxResult;
+  if (!(await tenantHasPaidPlan(c.env, ctx.tenant.id))) return c.json({ error: "AI narration is available on a paid plan." }, 402);
   if (!can(ctx.role, "media.upload")) return c.json({ error: "forbidden" }, 403);
   const pdb = tenantDb(c.env, ctx.tenant);
   const post = await pdb.prepare(
@@ -2108,11 +2314,15 @@ app.post("/admin/b/:blogId/audio/:id", async (c) => {
   if (post.audio_key)
     return c.json({ error: "Remove the existing narration before generating a new version." }, 409);
 
-  const sections = narrationSections(post.title, post.body_md);
+  const sections = narrationSections(post.title, post.body_md, await loadPronunciationOverrides(c.env));
   const text = [sections.title, sections.body].filter(Boolean).join(" ... ");
   if (!text) return c.json({ error: "Add some post text before generating audio." }, 400);
   if (text.length > TTS_TEXT_MAX)
     return c.json({ error: `This post is too long for narration (${text.length.toLocaleString()} characters; maximum ${TTS_TEXT_MAX.toLocaleString()}).` }, 400);
+  const audioCost = audioCreditCost(text);
+  let audioReservation: { accountId: number; period: string };
+  try { audioReservation = await reserveAiCredits(c.env, ctx.tenant.id, audioCost); }
+  catch (error) { return c.json({ error: error instanceof Error ? error.message : "AI credits unavailable" }, 402); }
 
   // Long narration is queued so the browser is never responsible for keeping
   // one Worker invocation alive while dozens of model calls run.
@@ -2146,9 +2356,16 @@ app.post("/admin/b/:blogId/audio/:id", async (c) => {
     tenantId: ctx.tenant.id, postId: post.id, postSlug: post.slug, prompts,
     checkpointKeys: prompts.map((_, index) => `${checkpointPrefix}/${index}.wav`),
     status: "queued", completed: 0,
+    creditCost: audioCost, creditAccountId: audioReservation.accountId, creditPeriod: audioReservation.period,
   };
-  await writeAudioJob(c.env, jobKey, job);
-  await c.env.AUDIO_QUEUE.send({ jobKey, tenantId: ctx.tenant.id, postId: post.id });
+  try {
+    await writeAudioJob(c.env, jobKey, job);
+    await c.env.AUDIO_QUEUE.send({ jobKey, tenantId: ctx.tenant.id, postId: post.id });
+  } catch (error) {
+    await refundAiCredits(c.env, audioReservation.accountId, audioReservation.period, audioCost);
+    throw error;
+  }
+  queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "audio_generation_requested", post.slug);
   return c.json({ queued: true, jobId, status: job.status, segments: prompts.length });
 
   const encoder = new TextEncoder();
@@ -2346,6 +2563,18 @@ function can(role: MembershipRole, capability: Capability): boolean {
 
 type AudioJobMessage = { jobKey: string; tenantId: number; postId: number };
 type ImageJobMessage = { kind: "image"; jobKey: string; tenantId: number };
+type EmailJobMessage = {
+  kind: "email-delivery";
+  idempotencyKey: string;
+  subscriberId?: number;
+  emailKind?: "post-notification" | "subscription-welcome" | "password-reset";
+  to: string;
+  subject: string;
+  plainText: string;
+  html: string;
+  headers?: Record<string, string>;
+};
+type EmailFanoutMessage = { kind: "email-fanout"; campaignId: string; tenantId: number; postSlug: string; postTitle: string; afterId: number };
 type AudioJobManifest = {
   tenantId: number;
   postId: number;
@@ -2356,6 +2585,10 @@ type AudioJobManifest = {
   completed: number;
   audioKey?: string;
   error?: string;
+  creditCost?: number;
+  creditAccountId?: number;
+  creditPeriod?: string;
+  creditsRefunded?: boolean;
 };
 type ImageJobManifest = {
   tenantId: number;
@@ -2368,7 +2601,44 @@ type ImageJobManifest = {
   markdown?: string;
   briefFallback?: boolean;
   error?: string;
+  creditCost?: number;
+  creditAccountId?: number;
+  creditPeriod?: string;
+  creditsRefunded?: boolean;
 };
+
+const AI_MONTHLY_CREDITS = 1000;
+const AI_IMAGE_CREDITS = 3;
+const AI_AUDIO_WORDS_PER_CREDIT = 500;
+
+function aiCreditPeriod(now = Date.now()): string {
+  return new Date(now).toISOString().slice(0, 7);
+}
+
+function audioCreditCost(text: string): number {
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
+  return Math.max(1, Math.ceil(words / AI_AUDIO_WORDS_PER_CREDIT));
+}
+
+async function reserveAiCredits(env: Bindings, tenantId: number, cost: number): Promise<{ accountId: number; period: string }> {
+  const owner = await env.DB.prepare(`SELECT a.id FROM memberships m JOIN accounts a ON a.id = m.account_id WHERE m.tenant_id = ? AND m.role = 'owner' LIMIT 1`).bind(tenantId).first<{ id: number }>();
+  if (!owner) throw new Error("Blog owner not found.");
+  const period = aiCreditPeriod();
+  const result = await env.DB.batch([
+    env.DB.prepare(`INSERT OR IGNORE INTO ai_credit_usage (account_id, period, credits_used, allowance) VALUES (?, ?, 0, ?)`)
+      .bind(owner.id, period, AI_MONTHLY_CREDITS),
+    env.DB.prepare(`UPDATE ai_credit_usage SET credits_used = credits_used + ? WHERE account_id = ? AND period = ? AND credits_used + ? <= allowance`)
+      .bind(cost, owner.id, period, cost),
+  ]);
+  const changes = Number((result[1] as any)?.meta?.changes || 0);
+  if (!changes) throw new Error(`AI credit limit reached. You have ${AI_MONTHLY_CREDITS} credits per month.`);
+  return { accountId: owner.id, period };
+}
+
+async function refundAiCredits(env: Bindings, accountId: number, period: string, cost: number): Promise<void> {
+  await env.DB.prepare(`UPDATE ai_credit_usage SET credits_used = MAX(0, credits_used - ?) WHERE account_id = ? AND period = ?`)
+    .bind(cost, accountId, period).run();
+}
 
 const AI_REQUEST_MAX = 64 * 1024;
 const IMAGE_STYLES = new Set<ImageStyle>([
@@ -2484,6 +2754,10 @@ async function processImageJob(env: Bindings, jobKey: string): Promise<void> {
   } catch (error) {
     job.status = "failed";
     job.error = error instanceof Error ? error.message : String(error);
+    if (job.creditAccountId && job.creditPeriod && job.creditCost && !job.creditsRefunded) {
+      await refundAiCredits(env, job.creditAccountId, job.creditPeriod, job.creditCost);
+      job.creditsRefunded = true;
+    }
     await writeImageJob(env, jobKey, job);
     throw error;
   }
@@ -2495,6 +2769,13 @@ async function processImageJob(env: Bindings, jobKey: string): Promise<void> {
 app.post("/admin/b/:blogId/media/generate", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401);
+  const requestOrigin = c.req.header("origin");
+  // This endpoint spends Workers AI credits. Require a browser same-origin
+  // request in addition to the session and blog capability checks, so a
+  // cross-site form cannot trigger generation using a user's cookie.
+  if (!requestOrigin || requestOrigin !== adminOriginOf(c))
+    return c.json({ error: "same-origin request required" }, 403);
+  if (!(await tenantHasPaidPlan(c.env, ctx.tenant.id))) return c.json({ error: "AI image generation is available on a paid plan." }, 402);
   if (!can(ctx.role, "media.upload")) return c.json({ error: "forbidden" }, 403);
   if (oversizedAiRequest(c.req.raw)) return c.json({ error: "request too large" }, 413);
 
@@ -2520,9 +2801,15 @@ app.post("/admin/b/:blogId/media/generate", async (c) => {
     postTitle: String(input.postTitle ?? "").slice(0, 500),
     postBody: String(input.postBody ?? "").slice(0, 20_000),
   });
+  let creditReservation: { accountId: number; period: string };
+  try { creditReservation = await reserveAiCredits(c.env, ctx.tenant.id, AI_IMAGE_CREDITS); }
+  catch (error) { return c.json({ error: error instanceof Error ? error.message : "AI credits unavailable" }, 402); }
   try {
-    return c.json(await generateImageAsset(c.env, ctx.tenant, source, style));
+    const result = await generateImageAsset(c.env, ctx.tenant, source, style);
+    queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "ai_image_generated", result.key);
+    return c.json(result);
   } catch (error) {
+    await refundAiCredits(c.env, creditReservation.accountId, creditReservation.period, AI_IMAGE_CREDITS);
     console.error(JSON.stringify({
       message: "AI image generation failed",
       error: error instanceof Error ? error.message : String(error),
@@ -2551,6 +2838,7 @@ app.delete("/admin/b/:blogId/media/:file", async (c) => {
     return c.json({ error: `This image is used by “${usedBy.title}”. Remove it from the post before deleting it.`, postId: usedBy.id }, 409);
 
   await c.env.MEDIA.delete(key);
+  queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "media_deleted", file);
   await Promise.all([
     purgeTenant(c.env, ctx.tenant, [url]),
     caches.default.delete(new Request(new URL(url, c.req.url), { method: "GET" })),
@@ -2603,6 +2891,7 @@ app.post("/admin/b/:blogId/settings", async (c) => {
   await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, accent_color = ?, topics_json = ? WHERE id = ?")
     .bind(slug, title, description, accentColor.toLowerCase(), JSON.stringify(normalizedTopics.topics), ctx.tenant.id)
     .run();
+  queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "blog_settings_updated", "settings");
 
   c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant));
   const updated = { ...ctx.tenant, slug, title, description, accent_color: accentColor.toLowerCase(), topics_json: JSON.stringify(normalizedTopics.topics) };
@@ -2618,7 +2907,7 @@ app.post("/admin/b/:blogId/avatar", async (c) => {
   const form = await c.req.formData();
   const file = form.get("file");
   if (!(file instanceof File)) return c.json({ error: "no file" }, 400);
-  if (!ALLOWED_IMAGE.has(file.type))
+  if (!ALLOWED_IMAGE.has(file.type) || (await detectedImageType(file)) !== file.type)
     return c.json({ error: "unsupported image type" }, 400);
   if (file.size > MAX_UPLOAD) return c.json({ error: "image too large" }, 413);
 
@@ -2656,22 +2945,96 @@ app.post("/admin/b/:blogId/avatar/remove", async (c) => {
   return c.json({ ok: true });
 });
 
-const FAVICON_TYPES = new Set(["image/png", "image/x-icon", "image/vnd.microsoft.icon"]);
+const PNG_SIGNATURE = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+function isPngBytes(bytes: Uint8Array): boolean {
+  return bytes.length >= PNG_SIGNATURE.length && PNG_SIGNATURE.every((value, index) => bytes[index] === value);
+}
+function isIcoBytes(bytes: Uint8Array): boolean {
+  return bytes.length >= 6 && bytes[0] === 0 && bytes[1] === 0 && bytes[2] === 1 && bytes[3] === 0 && bytes[4] !== 0 && bytes[5] !== 0;
+}
+function makeIco(pngs: Array<{ size: number; bytes: Uint8Array }>): Uint8Array {
+  const headerSize = 6, entrySize = 16;
+  const dataOffset = headerSize + entrySize * pngs.length;
+  const total = dataOffset + pngs.reduce((sum, item) => sum + item.bytes.byteLength, 0);
+  const output = new Uint8Array(total);
+  const view = new DataView(output.buffer);
+  view.setUint16(0, 0, true); view.setUint16(2, 1, true); view.setUint16(4, pngs.length, true);
+  let offset = dataOffset;
+  pngs.forEach((item, index) => {
+    const entry = headerSize + index * entrySize;
+    output[entry] = item.size >= 256 ? 0 : item.size;
+    output[entry + 1] = item.size >= 256 ? 0 : item.size;
+    view.setUint16(entry + 4, 1, true); view.setUint16(entry + 6, 32, true);
+    view.setUint32(entry + 8, item.bytes.byteLength, true);
+    view.setUint32(entry + 12, offset, true);
+    output.set(item.bytes, offset); offset += item.bytes.byteLength;
+  });
+  return output;
+}
 app.post("/admin/b/:blogId/favicon", async (c) => {
-  const ctx = await blogContext(c);
-  if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401);
-  if (!can(ctx.role, "settings.manage")) return c.json({ error: "forbidden" }, 403);
-  const file = (await c.req.formData()).get("file");
-  if (!(file instanceof File)) return c.json({ error: "no file" }, 400);
-  if (!FAVICON_TYPES.has(file.type)) return c.json({ error: "Use a PNG or ICO favicon." }, 400);
-  if (file.size > 1024 * 1024) return c.json({ error: "Favicon is too large (maximum 1 MB)." }, 413);
-  const ext = file.type === "image/png" ? "png" : "ico";
-  const key = `${ctx.tenant.id}/favicon-${crypto.randomUUID().slice(0, 8)}.${ext}`;
-  await c.env.MEDIA.put(key, await file.arrayBuffer(), { httpMetadata: { contentType: file.type, cacheControl: "public, max-age=3600" } });
-  if (ctx.tenant.favicon_key) c.executionCtx.waitUntil(c.env.MEDIA.delete(ctx.tenant.favicon_key));
-  await c.env.DB.prepare("UPDATE tenants SET favicon_key = ? WHERE id = ?").bind(key, ctx.tenant.id).run();
-  c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant));
-  return c.json({ ok: true });
+  let stage = "checking access";
+  let storedKey: string | null = null;
+  try {
+    const ctx = await blogContext(c);
+    if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401);
+    if (!(await tenantHasPaidPlan(c.env, ctx.tenant.id)) ) return c.json({ error: "Custom favicons are available on a paid plan." }, 402);
+    if (!can(ctx.role, "settings.manage")) return c.json({ error: "forbidden" }, 403);
+    stage = "reading the uploaded file";
+    const form = await c.req.formData();
+    const sizes = [16, 32, 48, 256] as const;
+    const variantFiles = sizes.map((size) => form.get(`icon${size}`));
+    let bytes: Uint8Array;
+    let originalName = String(form.get("original_name") || "favicon").slice(0, 200);
+    if (variantFiles.every((value): value is File => value instanceof File)) {
+      const variants = [];
+      for (let index = 0; index < sizes.length; index++) {
+        const file = variantFiles[index];
+        if (file.size > 1024 * 1024) return c.json({ error: "Favicon is too large (maximum 1 MB)." }, 413);
+        const png = new Uint8Array(await file.arrayBuffer());
+        if (!isPngBytes(png)) return c.json({ error: "The uploaded file is not a valid PNG or ICO." }, 400);
+        variants.push({ size: sizes[index], bytes: png });
+      }
+      bytes = makeIco(variants);
+    } else {
+      const file = form.get("file");
+      if (!(file instanceof File)) return c.json({ error: "No favicon file was received." }, 400);
+      if (file.size > 1024 * 1024) return c.json({ error: "Favicon is too large (maximum 1 MB)." }, 413);
+      originalName = file.name.slice(0, 200);
+      const uploaded = new Uint8Array(await file.arrayBuffer());
+      const isPng = isPngBytes(uploaded);
+      const isIco = isIcoBytes(uploaded);
+      const contentType = isPng ? "image/png" : "image/x-icon";
+      if (!isPng && !isIco) return c.json({ error: "The uploaded file is not a valid PNG or ICO." }, 400);
+      bytes = isPng ? makeIco([{ size: 256, bytes: uploaded }]) : uploaded;
+    }
+    const key = `${ctx.tenant.id}/favicon-${crypto.randomUUID().slice(0, 8)}.ico`;
+    storedKey = key;
+    stage = "saving the favicon to media storage";
+    await c.env.MEDIA.put(key, bytes, { httpMetadata: { contentType: "image/x-icon", cacheControl: "public, max-age=3600" }, customMetadata: { originalName } });
+    if (ctx.tenant.favicon_key) c.executionCtx.waitUntil(c.env.MEDIA.delete(ctx.tenant.favicon_key));
+    stage = "updating blog settings";
+    await c.env.DB.prepare("UPDATE tenants SET favicon_key = ? WHERE id = ?").bind(key, ctx.tenant.id).run();
+    queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "favicon_updated", key);
+    c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant));
+    return c.json({ ok: true, format: "ico", sizes: [16, 32, 48, 256] });
+  } catch (error) {
+    if (storedKey) c.executionCtx.waitUntil(c.env.MEDIA.delete(storedKey));
+    console.error("favicon upload failed", { stage, error: error instanceof Error ? error.message : String(error) });
+    return c.json({ error: `Favicon upload failed while ${stage}.` }, 500);
+  }
+});
+
+const marketingImages: Record<string, ArrayBuffer> = {
+  "writing.webp": marketingWriting,
+  "ceramics.webp": marketingCeramics,
+  "night-train.webp": marketingTrain,
+  "travel-notebook.webp": marketingNotebook,
+  "blogger.webp": marketingBlogger,
+};
+app.get("/marketing-ai/:file", (c) => {
+  const image = marketingImages[c.req.param("file")];
+  if (!image) return c.notFound();
+  return new Response(image, { headers: { "content-type": "image/webp", "cache-control": "public, max-age=31536000, immutable", "x-content-type-options": "nosniff" } });
 });
 
 app.post("/admin/b/:blogId/favicon/remove", async (c) => {
@@ -2800,6 +3163,12 @@ app.post("/signup", async (c) => {
     await c.env.DB.prepare("INSERT INTO memberships (account_id, tenant_id, role, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(account_id, tenant_id) DO UPDATE SET role = excluded.role")
       .bind(accountId, invite.tenant_id, invite.role, now).run();
     await c.env.DB.prepare("UPDATE blog_invitations SET accepted_at = ? WHERE id = ?").bind(now, invite.id).run();
+    c.executionCtx.waitUntil(sendEmail(c.env, {
+      to: email,
+      subject: "Welcome to Blog Nice",
+      plainText: "Welcome to Blog Nice!\n\nYour account is ready. Sign in to create and publish your first blog.",
+      html: "<h2>Welcome to Blog Nice!</h2><p>Your account is ready. Sign in to create and publish your first blog.</p>",
+    }));
     const tenant = await c.env.DB.prepare("SELECT public_id FROM tenants WHERE id = ?").bind(invite.tenant_id).first<{ public_id: string }>();
     const token = await createSession(c.env.DB, accountId);
     setSessionCookie(c, token);
@@ -2826,6 +3195,12 @@ app.post("/signup", async (c) => {
   )
     .bind(accountId, blogId, now)
     .run();
+  c.executionCtx.waitUntil(sendEmail(c.env, {
+    to: email,
+    subject: "Welcome to Blog Nice",
+    plainText: "Welcome to Blog Nice!\n\nYour account is ready. Sign in to create and publish your first blog.",
+    html: "<h2>Welcome to Blog Nice!</h2><p>Your account is ready. Sign in to create and publish your first blog.</p>",
+  }));
 
   const token = await createSession(c.env.DB, accountId);
   setSessionCookie(c, token);
@@ -2863,6 +3238,7 @@ app.get("/admin/b/:blogId/domains", async (c) => {
 app.post("/admin/b/:blogId/domains", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if (!(await tenantHasPaidPlan(c.env, ctx.tenant.id))) return c.text("Custom domains are available on a paid plan.", 402);
   const denied = requireBlogCapability(c, ctx, "settings.manage");
   if (denied) return denied;
 
@@ -2920,6 +3296,7 @@ app.post("/admin/b/:blogId/domains", async (c) => {
   )
     .bind(hostname, ctx.tenant.id, created.result?.id ?? null, now)
     .run();
+  queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "custom_domain_added", hostname);
 
   return render({ instructions: instructions(c.env, hostname, created.result) });
 });
@@ -2987,6 +3364,7 @@ app.post("/admin/b/:blogId/domains/remove", async (c) => {
     )
       .bind(ctx.tenant.id, hostname)
       .run();
+    queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "custom_domain_removed", hostname);
   }
   return c.redirect(`/admin/b/${ctx.tenant.public_id}/domains`);
 });
@@ -3007,6 +3385,7 @@ app.get("/media/:blogId/:file", async (c) => {
     headers: {
       "content-type": obj.httpMetadata?.contentType || "application/octet-stream",
       "cache-control": "public, max-age=31536000, immutable",
+      "x-content-type-options": "nosniff",
       etag: obj.httpEtag,
     },
   });
@@ -3056,6 +3435,7 @@ app.post("/subscribe", async (c) => {
   )
     .bind(tenant.id, email, token, now)
     .run();
+  const manageUrl = subscriptionManageUrl(c.env, await subscriptionManageToken(c.env, email));
 
   // Optional welcome email with a one-click unsubscribe link.
   if (emailEnabled(c.env)) {
@@ -3065,8 +3445,9 @@ app.post("/subscribe", async (c) => {
       sendEmail(c.env, {
         to: email,
         subject: `You're subscribed to ${tenant.title}`,
+        plainText: `Thanks for subscribing to ${tenant.title}. You'll get new posts by email.\n\nUnsubscribe: ${unsub}\nManage subscriptions: ${manageUrl}`,
         html: `<p>Thanks for subscribing to <strong>${esc(tenant.title)}</strong>. You'll get new posts by email.</p>
-          <hr><p style="color:#888;font-size:13px"><a href="${unsub}">Unsubscribe</a> anytime.</p>`,
+          <hr><p style="color:#888;font-size:13px"><a href="${unsub}">Unsubscribe</a> anytime · <a href="${manageUrl}">Manage subscriptions</a>.</p>`,
         headers: {
           "List-Unsubscribe": `<${unsub}>`,
           "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
@@ -3076,6 +3457,200 @@ app.post("/subscribe", async (c) => {
   }
 
   return ok(false);
+});
+
+function subscriptionManagePage(email: string, subscriptions: Array<{ id: number; title: string; slug: string; custom_domain?: string | null }>, token: string, message = ""): string {
+  const rows = subscriptions.length
+    ? subscriptions.map((subscription) => `<label style="display:block;padding:.7rem 0;border-bottom:1px solid #e3e7dd"><input type="checkbox" name="subscription" value="${subscription.id}" checked> <strong>${esc(subscription.title)}</strong><br><small style="color:#687064;margin-left:1.5rem">${esc(subscription.custom_domain || `${subscription.slug}.blognice.com`)}</small></label>`).join("")
+    : `<p>You are not subscribed to any Blog Nice blogs.</p>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Manage subscriptions · Blog Nice</title><style>body{margin:0;background:#f7f8f3;color:#171914;font:16px/1.6 system-ui,-apple-system,Segoe UI,sans-serif}.card{max-width:620px;margin:8vh auto;padding:2rem;background:#fff;border:1px solid #dfe4da;border-radius:10px}h1{margin-top:0}small,.muted{color:#687064}.btn{margin-top:1.2rem;padding:.65rem 1rem;border:1px solid #dfe4da;border-radius:6px;background:#171914;color:#fff;font:inherit;cursor:pointer}.notice{padding:.7rem;background:#eaf4e8;border-radius:6px}</style></head><body><main class="card"><p class="muted">Blog Nice</p><h1>Manage subscriptions</h1><p>Subscriptions for <strong>${esc(email)}</strong></p>${message ? `<p class="notice">${esc(message)}</p>` : ""}<form method="post" action="/manage-subscriptions/${esc(token)}">${rows}${subscriptions.length ? `<button class="btn" type="submit">Save preferences</button>` : ""}</form></main></body></html>`;
+}
+
+async function processEmailFanout(env: Bindings, job: EmailFanoutMessage): Promise<void> {
+  if (!env.EMAIL_QUEUE) throw new Error("Email queue is not configured.");
+  const tenant = await tenantById(env, job.tenantId);
+  if (!tenant) return;
+  const subscribers = await env.DB.prepare("SELECT id, email, token FROM subscribers WHERE tenant_id = ? AND id > ? ORDER BY id LIMIT 100")
+    .bind(job.tenantId, job.afterId).all<{ id: number; email: string; token: string }>();
+  const origin = publicOrigin(env, tenant);
+  const postUrl = `${origin}/${job.postSlug}`;
+  const deliveries: EmailJobMessage[] = [];
+  for (const subscriber of subscribers.results) {
+    const unsub = `${origin}/unsubscribe/${subscriber.token}`;
+    const manageUrl = subscriptionManageUrl(env, await subscriptionManageToken(env, subscriber.email));
+    deliveries.push({
+      kind: "email-delivery",
+      idempotencyKey: `post:${job.campaignId}:${subscriber.id}`,
+      subscriberId: subscriber.id,
+      to: subscriber.email,
+      subject: job.postTitle,
+      plainText: `New post on ${tenant.title}:\n\n${job.postTitle}\n${postUrl}\n\nUnsubscribe: ${unsub}\nManage subscriptions: ${manageUrl}`,
+      html: `<p>New post on <strong>${esc(tenant.title)}</strong>:</p><h2 style="font-family:sans-serif"><a href="${postUrl}">${esc(job.postTitle)}</a></h2><p><a href="${postUrl}">Read it &rarr;</a></p><hr><p style="color:#888;font-size:13px">You're subscribed to ${esc(tenant.title)}. <a href="${unsub}">Unsubscribe</a> · <a href="${manageUrl}">Manage subscriptions</a>.</p>`,
+      headers: { "List-Unsubscribe": `<${unsub}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
+    });
+  }
+  if (deliveries.length) await env.EMAIL_QUEUE.sendBatch(deliveries.map((body) => ({ body })));
+  if (subscribers.results.length === 100) await env.EMAIL_QUEUE.send({ ...job, afterId: subscribers.results[subscribers.results.length - 1].id });
+}
+
+async function processEmailJob(env: Bindings, job: EmailJobMessage): Promise<void> {
+  if (job.subscriberId != null) {
+    const active = await env.DB.prepare("SELECT id FROM subscribers WHERE id = ?").bind(job.subscriberId).first();
+    if (!active) return;
+  }
+  const existing = await env.DB.prepare("SELECT status FROM email_delivery_log WHERE idempotency_key = ?")
+    .bind(job.idempotencyKey).first<{ status: string }>();
+  if (existing?.status === "sent") return;
+  const now = Math.floor(Date.now() / 1000);
+  await env.DB.prepare(
+    `INSERT INTO email_delivery_log (idempotency_key, status, recipient, kind, created_at)
+     VALUES (?, 'pending', ?, ?, ?)
+     ON CONFLICT(idempotency_key) DO UPDATE SET status = 'pending'`
+  ).bind(job.idempotencyKey, job.to, job.emailKind || "post-notification", now).run();
+  if (!await sendEmail(env, job)) throw new Error("transactional email provider rejected the message");
+  await env.DB.prepare("UPDATE email_delivery_log SET status = 'sent', sent_at = ? WHERE idempotency_key = ?")
+    .bind(Math.floor(Date.now() / 1000), job.idempotencyKey).run();
+}
+
+app.get("/manage-subscriptions/:token", async (c) => {
+  const token = c.req.param("token");
+  const identity = await c.env.DB.prepare("SELECT email FROM subscription_manage_tokens WHERE token = ?")
+    .bind(token).first<{ email: string }>();
+  if (!identity) return c.html(subscriptionManagePage("unknown address", [], token, "This link is invalid or has expired."), 404);
+  const subscriptions = await c.env.DB.prepare("SELECT s.id, t.title, t.slug, t.custom_domain FROM subscribers s JOIN tenants t ON t.id = s.tenant_id WHERE s.email = ? ORDER BY t.title")
+    .bind(identity.email).all<{ id: number; title: string; slug: string; custom_domain?: string | null }>();
+  return c.html(subscriptionManagePage(identity.email, subscriptions.results, token));
+});
+
+app.get("/admin/b/:blogId/audit", async (c) => {
+  const ctx = await blogContext(c);
+  if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if (!(await tenantHasPaidPlan(c.env, ctx.tenant.id)))
+    return c.html(auditPage(ctx.account, ctx.tenant, [], { paid: false }), 402);
+  try {
+    return c.html(auditPage(ctx.account, ctx.tenant, await auditReport(c.env, ctx.tenant.id, 90), { paid: true }));
+  } catch (error) {
+    console.error("audit report failed", error);
+    return c.html(auditPage(ctx.account, ctx.tenant, null, { error: "Audit log could not be loaded. Please try again shortly.", paid: true }), 502);
+  }
+});
+
+function billingPage(account: Account, billing: any, message = "", credits?: { used: number; allowance: number }): string {
+  const status = String(billing.billing_status || "inactive");
+  const active = ["active", "trialing", "past_due"].includes(status);
+  const creditSummary = active ? ` · AI credits remaining: ${credits ? Math.max(0, credits.allowance - credits.used).toLocaleString() : "—"}/${credits?.allowance || AI_MONTHLY_CREDITS}` : "";
+  const label = (status === "active" ? "Pro — active" : status === "trialing" ? "Pro — trial" : status === "past_due" ? "Pro — payment needs attention" : "Free plan") + creditSummary;
+  const renewal = billing.billing_period_end ? ` · ${billing.billing_cancel_at_period_end ? "Ends" : "Renews"} ${new Date(Number(billing.billing_period_end) * 1000).toLocaleDateString()}` : "";
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Billing · Blog Nice</title><style>body{margin:0;background:#f7f8f3;color:#171914;font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}.card{max-width:700px;margin:7vh auto;padding:2rem;background:#fff;border:1px solid #dfe4da;border-radius:10px}h1{margin-top:0}.muted{color:#687064}.notice{padding:.8rem;background:#eaf4e8;border-radius:6px}.plan{padding:1rem 1.1rem;margin:1.2rem 0;background:#f1f7ef;border:1px solid #cfe2ca;border-radius:8px;font-size:1.1rem}.btn{display:inline-block;margin:1rem .5rem 0 0;padding:.65rem 1rem;border:1px solid #dfe4da;border-radius:6px;background:#171914;color:#fff;font:inherit;cursor:pointer}select{padding:.65rem;border:1px solid #dfe4da;border-radius:6px;font:inherit}li{margin:.35rem 0}</style></head><body><main class="card"><p class="muted"><a href="/admin">Blog Nice admin</a></p><h1>Billing</h1><p>Account: <strong>${esc(account.email)}</strong></p>${message ? `<p class="notice">${esc(message)}</p>` : ""}<div class="plan"><strong>${label}</strong>${renewal}</div>${active || billing.stripe_customer_id ? `<form method="post" action="/admin/billing/portal"><button class="btn" type="submit">Manage billing</button></form>` : `<form method="post" action="/admin/billing/checkout"><label>Choose a plan <select name="plan"><option value="monthly">$5 monthly</option><option value="yearly">$36 yearly (save 40%)</option></select></label><br><button class="btn" type="submit">Upgrade to Pro</button></form>`}<h2>What your plan includes</h2>${active ? `<ul><li>Up to five blogs</li><li>Custom domains and favicons</li><li>Collaborators and authors</li><li>AI image generation and narration</li><li>API access</li></ul>` : `<ul><li>One Blog Nice blog</li><li>Blog Nice subdomain</li><li>Core editor, publishing, images, RSS, themes, tags, and basic metrics</li><li>AI, collaborators, custom domains, favicons, and API access require Pro</li></ul>`}<p class="muted">Stripe manages payment details, invoices, and cancellation. Blog Nice access follows verified Stripe webhook updates.</p></main></body></html>`;
+}
+
+app.get("/admin/billing", async (c) => {
+  const account = await currentAccount(c);
+  if (!account) return c.redirect("/admin/login");
+  const billing = await c.env.DB.prepare("SELECT stripe_customer_id, stripe_subscription_id, billing_status, billing_price_id, billing_period_end, billing_cancel_at_period_end FROM accounts WHERE id = ?").bind(account.id).first() || {};
+  const usage = await c.env.DB.prepare("SELECT credits_used AS used, allowance FROM ai_credit_usage WHERE account_id = ? AND period = ?")
+    .bind(account.id, aiCreditPeriod()).first<{ used: number; allowance: number }>();
+  return c.html(billingPage(account, billing, String(c.req.query("message") || ""), usage || { used: 0, allowance: AI_MONTHLY_CREDITS }));
+});
+
+app.post("/admin/billing/checkout", async (c) => {
+  const account = await currentAccount(c);
+  if (!account) return c.redirect("/admin/login");
+  if (!stripeConfigured(c.env)) return c.redirect("/admin/billing?message=Stripe is not configured yet.");
+  const form = await c.req.formData();
+  const plan = String(form.get("plan") || "monthly");
+  const priceId = plan === "yearly" ? (c.env.STRIPE_YEARLY_PRICE_ID || "") : (c.env.STRIPE_MONTHLY_PRICE_ID || c.env.STRIPE_PRICE_ID || "");
+  if (!priceId) return c.redirect("/admin/billing?message=The selected Stripe plan is not configured yet.");
+  const billing = await c.env.DB.prepare("SELECT stripe_customer_id, billing_status FROM accounts WHERE id = ?").bind(account.id).first<{ stripe_customer_id?: string | null; billing_status: string }>();
+  if (billing && ["active", "trialing", "past_due"].includes(billing.billing_status)) return c.redirect("/admin/billing?message=This account already has a subscription.");
+  try {
+    const origin = new URL(c.req.url).origin;
+    const session = await createCheckoutSession(c.env, { accountId: account.id, email: account.email, priceId, customerId: billing?.stripe_customer_id, successUrl: `${origin}/admin/billing?message=Checkout completed. Subscription access will update after Stripe confirms payment.`, cancelUrl: `${origin}/admin/billing?message=Checkout cancelled.` });
+    return c.redirect(session.url, 303);
+  } catch (error) {
+    return c.redirect(`/admin/billing?message=${encodeURIComponent(error instanceof Error ? error.message : "Stripe checkout failed.")}`);
+  }
+});
+
+app.post("/admin/billing/portal", async (c) => {
+  const account = await currentAccount(c);
+  if (!account) return c.redirect("/admin/login");
+  const billing = await c.env.DB.prepare("SELECT stripe_customer_id FROM accounts WHERE id = ?").bind(account.id).first<{ stripe_customer_id?: string | null }>();
+  if (!billing?.stripe_customer_id) return c.redirect("/admin/billing?message=No Stripe billing customer exists yet.");
+  try {
+    const origin = new URL(c.req.url).origin;
+    const session = await createPortalSession(c.env, billing.stripe_customer_id, `${origin}/admin/billing`);
+    return c.redirect(session.url, 303);
+  } catch (error) {
+    return c.redirect(`/admin/billing?message=${encodeURIComponent(error instanceof Error ? error.message : "Stripe portal failed.")}`);
+  }
+});
+
+app.post("/stripe/webhook", async (c) => {
+  const raw = await c.req.text();
+  if (!await verifyStripeSignature(raw, c.req.header("Stripe-Signature"), c.env.STRIPE_WEBHOOK_SECRET)) return c.json({ error: "invalid signature" }, 400);
+  const event = JSON.parse(raw) as { id: string; type: string; created: number; data?: { object?: any } };
+  const inserted = await c.env.DB.prepare("INSERT OR IGNORE INTO stripe_events (id, type, created_at, processed_at) VALUES (?, ?, ?, ?)").bind(event.id, event.type, event.created || Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)).run();
+  if (!inserted.meta.changes) return c.json({ received: true, duplicate: true });
+  const object = event.data?.object || {};
+  const customerId = typeof object.customer === "string" ? object.customer : null;
+  let accountId: number | null = Number(object.metadata?.account_id || 0) || null;
+  if (!accountId && customerId) {
+    const row = await c.env.DB.prepare("SELECT id FROM accounts WHERE stripe_customer_id = ?").bind(customerId).first<{ id: number }>();
+    accountId = row?.id || null;
+  }
+  if (event.type === "checkout.session.completed" && accountId && customerId) {
+    await c.env.DB.prepare("UPDATE accounts SET stripe_customer_id = ?, stripe_subscription_id = COALESCE(?, stripe_subscription_id), billing_updated_at = ? WHERE id = ?").bind(customerId, typeof object.subscription === "string" ? object.subscription : null, Math.floor(Date.now() / 1000), accountId).run();
+  }
+  if (event.type.startsWith("customer.subscription.") && accountId) {
+    const status = event.type.endsWith(".deleted") ? "canceled" : String(object.status || "inactive");
+    await c.env.DB.prepare("UPDATE accounts SET stripe_customer_id = COALESCE(?, stripe_customer_id), stripe_subscription_id = ?, billing_status = ?, billing_price_id = ?, billing_period_end = ?, billing_cancel_at_period_end = ?, billing_updated_at = ? WHERE id = ?")
+      .bind(customerId, object.id || null, status, object.items?.data?.[0]?.price?.id || null, object.current_period_end || null, object.cancel_at_period_end ? 1 : 0, Math.floor(Date.now() / 1000), accountId).run();
+    await c.env.DB.prepare("UPDATE stripe_events SET account_id = ? WHERE id = ?").bind(accountId, event.id).run();
+    if (event.type === "customer.subscription.created" && ["active", "trialing"].includes(status) && c.env.EMAIL_QUEUE && emailEnabled(c.env)) {
+      const account = await c.env.DB.prepare("SELECT email FROM accounts WHERE id = ?").bind(accountId).first<{ email: string }>();
+      if (account?.email && object.id) {
+        const idempotencyKey = `subscription-welcome:${accountId}:${String(object.id)}`;
+        const welcome = await c.env.DB.prepare(
+          `INSERT OR IGNORE INTO email_delivery_log (idempotency_key, status, recipient, kind, created_at)
+           VALUES (?, 'pending', ?, 'subscription-welcome', ?)`
+        ).bind(idempotencyKey, account.email, Math.floor(Date.now() / 1000)).run();
+        if (welcome.meta.changes) {
+          const billingUrl = `https://www.${c.env.ROOT_DOMAIN}/admin/billing`;
+          await c.env.EMAIL_QUEUE.send({
+            kind: "email-delivery",
+            emailKind: "subscription-welcome",
+            idempotencyKey,
+            to: account.email,
+            subject: "Welcome to Blog Nice Pro",
+            plainText: `Your Blog Nice Pro subscription is active.\n\nYou can now use AI features, collaborators, custom domains, favicons, and up to five blogs.\n\nManage billing: ${billingUrl}\n\nStripe will send your payment receipt separately.`,
+            html: `<p>Your <strong>Blog Nice Pro</strong> subscription is active.</p><p>You can now use AI features, collaborators, custom domains, favicons, and up to five blogs.</p><p><a href="${billingUrl}">Manage billing</a></p><p style="color:#687064;font-size:13px">Stripe will send your payment receipt separately.</p>`,
+          } satisfies EmailJobMessage);
+        }
+      }
+    }
+  }
+  if (event.type === "invoice.payment_failed" && accountId) {
+    await c.env.DB.prepare("UPDATE accounts SET billing_status = 'past_due', billing_updated_at = ? WHERE id = ?").bind(Math.floor(Date.now() / 1000), accountId).run();
+    await c.env.DB.prepare("UPDATE stripe_events SET account_id = ? WHERE id = ?").bind(accountId, event.id).run();
+  }
+  return c.json({ received: true });
+});
+
+app.post("/manage-subscriptions/:token", async (c) => {
+  const token = c.req.param("token");
+  const identity = await c.env.DB.prepare("SELECT email FROM subscription_manage_tokens WHERE token = ?")
+    .bind(token).first<{ email: string }>();
+  if (!identity) return c.text("Invalid subscription management link", 404);
+  const form = await c.req.formData();
+  const selected = new Set(form.getAll("subscription").map(String));
+  const subscriptions = await c.env.DB.prepare("SELECT id FROM subscribers WHERE email = ?")
+    .bind(identity.email).all<{ id: number }>();
+  const remove = subscriptions.results.filter((row) => !selected.has(String(row.id)));
+  if (remove.length) await c.env.DB.batch(remove.map((row) => c.env.DB.prepare("DELETE FROM subscribers WHERE id = ? AND email = ?").bind(row.id, identity.email)));
+  const remaining = await c.env.DB.prepare("SELECT s.id, t.title, t.slug, t.custom_domain FROM subscribers s JOIN tenants t ON t.id = s.tenant_id WHERE s.email = ? ORDER BY t.title")
+    .bind(identity.email).all<{ id: number; title: string; slug: string; custom_domain?: string | null }>();
+  return c.html(subscriptionManagePage(identity.email, remaining.results, token, "Your subscription preferences have been saved."));
 });
 
 // Unsubscribe: GET shows a confirm page; POST (also one-click) removes.
@@ -3193,15 +3768,18 @@ export default {
   fetch: app.fetch,
   async queue(batch, env) {
     for (const message of batch.messages) {
-      const jobMessage = message.body as AudioJobMessage | ImageJobMessage;
+      const jobMessage = message.body as AudioJobMessage | ImageJobMessage | EmailJobMessage | EmailFanoutMessage;
       try {
-        if ("kind" in jobMessage && jobMessage.kind === "image") await processImageJob(env, jobMessage.jobKey);
+        if ("kind" in jobMessage && jobMessage.kind === "email-fanout") await processEmailFanout(env, jobMessage);
+        else if ("kind" in jobMessage && jobMessage.kind === "email-delivery") await processEmailJob(env, jobMessage);
+        else if ("kind" in jobMessage && jobMessage.kind === "image") await processImageJob(env, jobMessage.jobKey);
         else await processAudioJob(env, jobMessage.jobKey);
         message.ack();
       } catch (error) {
         console.error(JSON.stringify({
-          message: "Queued audio job failed; retrying",
-          jobKey: jobMessage.jobKey,
+          message: "Queued job failed; retrying",
+          jobKey: "jobKey" in jobMessage ? jobMessage.jobKey : undefined,
+          idempotencyKey: "idempotencyKey" in jobMessage ? jobMessage.idempotencyKey : undefined,
           error: error instanceof Error ? error.message : String(error),
         }));
         message.retry();

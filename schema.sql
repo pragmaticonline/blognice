@@ -12,7 +12,11 @@ DROP TABLE IF EXISTS bookmark_lists;
 DROP TABLE IF EXISTS reactions;
 DROP TABLE IF EXISTS subscriptions;
 DROP TABLE IF EXISTS subscribers;
+DROP TABLE IF EXISTS staff_audit_events;
+DROP TABLE IF EXISTS staff_users;
+DROP TABLE IF EXISTS pronunciation_overrides;
 DROP TABLE IF EXISTS sessions;
+DROP TABLE IF EXISTS password_resets;
 DROP TABLE IF EXISTS memberships;
 DROP TABLE IF EXISTS blog_invitations;
 DROP TABLE IF EXISTS accounts;
@@ -43,10 +47,42 @@ CREATE TABLE accounts (
   pw_hash    TEXT    NOT NULL,                    -- pbkdf2$iterations$salt$hash
   api_key_hash       TEXT,                        -- sha-256 hex of the account's API key (nullable)
   api_key_created_at INTEGER,                     -- when the current key was generated
+  status     TEXT    NOT NULL DEFAULT 'active',  -- active | suspended
+  status_reason TEXT,
+  status_changed_at INTEGER,
   created_at INTEGER NOT NULL
 );
 
 CREATE INDEX idx_accounts_api_key ON accounts (api_key_hash);
+CREATE INDEX idx_accounts_status ON accounts (status, created_at DESC);
+
+CREATE TABLE staff_users (
+  subject TEXT PRIMARY KEY,
+  email TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'read_only',
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE staff_audit_events (
+  id TEXT PRIMARY KEY,
+  occurred_at INTEGER NOT NULL,
+  subject TEXT NOT NULL,
+  email TEXT NOT NULL,
+  role TEXT NOT NULL,
+  action TEXT NOT NULL,
+  target_type TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  reason TEXT,
+  result TEXT NOT NULL,
+  request_id TEXT,
+  before_json TEXT,
+  after_json TEXT
+);
+
+CREATE INDEX idx_staff_audit_occurred ON staff_audit_events(occurred_at DESC);
+CREATE INDEX idx_staff_audit_target ON staff_audit_events(target_type, target_id, occurred_at DESC);
 
 -- Which accounts can manage which blogs. One row = one account's access to one
 -- blog. `role` is 'owner' today; the column exists so collaborator roles can be

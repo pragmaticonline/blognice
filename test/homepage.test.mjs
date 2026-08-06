@@ -12,6 +12,25 @@ test("www homepage asset is complete and contains the supplied landing page", ()
   assert.match(homepage, /<\/html>/i);
 });
 
+test("marketing homepage provides a central login button", () => {
+  assert.match(homepage, /href="https:\/\/www\.blognice\.com\/admin\/login"[^>]*>Log in<\/a>/);
+});
+
+test("marketing homepage showcases AI images and an opt-in voice sample", () => {
+  assert.match(homepage, /id="ai"/);
+  assert.match(homepage, /\/marketing-ai\/writing\.webp/);
+  assert.match(homepage, /id="ai-voice-sample"/);
+  assert.match(homepage, /speechSynthesis/);
+  assert.match(indexSource, /app\.get\("\/marketing-ai\/:file"/);
+});
+
+test("marketing homepage real example uses generic blogger imagery and address", () => {
+  assert.match(homepage, /src="\/marketing-ai\/blogger\.webp"/);
+  assert.match(homepage, /alt="A blogger writing at a laptop"/);
+  assert.match(homepage, /blognice\.blognice\.com\/blog-nice-vs-wordpress/);
+  assert.match(indexSource, /"blogger\.webp": marketingBlogger/);
+});
+
 test("www is routed to the dedicated landing page before tenant resolution", () => {
   assert.match(indexSource, /host === `www\.\$\{c\.env\.ROOT_DOMAIN\.toLowerCase\(\)\}`/);
   assert.match(indexSource, /new Response\(homepage/);

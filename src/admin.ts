@@ -1,7 +1,7 @@
 // Server-rendered admin UI. Utilitarian but styled to match the public theme.
 import { accentTextColor, esc, formatDate, normalizeAccentColor, type Post, type Tenant } from "./render";
 import type { Account } from "./auth";
-import type { MetricsReport } from "./metrics";
+import type { AuditEntry, MetricsReport } from "./metrics";
 
 const ACCENT_PRESETS = [
   ["Blog Nice green", "#1a8917"],
@@ -52,6 +52,9 @@ const ADMIN_STYLES = /* css */ `
   .globalbar { background: var(--bg); }
   .topbar .brand { font-weight: 600; }
   .topbar .right { display: flex; gap: 1.2rem; align-items: center; font-size: 0.9rem; }
+  .plan-badge { display:inline-flex; align-items:center; gap:.35rem; padding:.2rem .55rem; border:1px solid var(--rule); border-radius:999px; color:var(--ink); text-decoration:none; font-size:.78rem; font-weight:600; }
+  .plan-badge.free { color:var(--muted); }
+  .plan-badge.paid { color:var(--accent); border-color:color-mix(in srgb, var(--accent) 45%, var(--rule)); }
   .topbar form { margin: 0; }
   .linkbtn {
     background: none; border: none; color: var(--muted); cursor: pointer;
@@ -228,13 +231,17 @@ export function shell(
   account?: Account,
   tenant?: Tenant
 ) {
+  const paid = ["active", "trialing", "past_due"].includes(String(account?.billing_status || "inactive"));
+  const planBadge = account
+    ? `<a class="plan-badge ${paid ? "paid" : "free"}" href="/admin/billing" title="View your Blog Nice plan">${paid ? "Pro" : "Free"}</a>`
+    : "";
   let bar = "";
   if (account && tenant) {
     // Keep account navigation persistent, then make the current blog context explicit.
     bar = `<div class="topbar globalbar">
         <a class="brand" href="/admin?list=1">Blog Nice</a>
         <div class="right">
-          <span style="color:var(--muted);font-size:0.85rem">${esc(account.email)}</span>
+          <span style="color:var(--muted);font-size:0.85rem">${esc(account.email)}</span>${planBadge}
           <a href="/admin?list=1">Blogs</a>
           <a href="/admin/api-key">API</a>
           <form method="post" action="/admin/logout">
@@ -256,6 +263,7 @@ export function shell(
           <a href="/admin/b/${tenant.public_id}/subscribers">Subscribers</a>
           <a href="/admin/b/${tenant.public_id}/authors">Collaborators</a>
           <a href="/admin/b/${tenant.public_id}/metrics">Metrics</a>
+          <a href="/admin/b/${tenant.public_id}/audit">Audit log</a>
           <a href="/admin/b/${tenant.public_id}/domains">Domains</a>
           <a href="/admin/b/${tenant.public_id}/settings">Settings</a>
         </nav>
@@ -265,7 +273,7 @@ export function shell(
     bar = `<div class="topbar">
         <span class="brand">Blog Nice</span>
         <div class="right">
-          <span style="color:var(--muted);font-size:0.85rem">${esc(account.email)}</span>
+          <span style="color:var(--muted);font-size:0.85rem">${esc(account.email)}</span>${planBadge}
           <a href="/admin?list=1">Blogs</a>
           <a href="/admin/api-key">API</a>
           <form method="post" action="/admin/logout">
@@ -327,6 +335,7 @@ export function loginPage(error?: string): string {
         <input id="password" name="password" type="password" autocomplete="current-password" required>
         <button class="btn" type="submit">Sign in</button>
       </form>
+      <p style="margin-top:1.1rem;color:var(--muted);font-size:0.9rem"><a href="/admin/forgot">Forgot your password?</a></p>
       <p style="margin-top:1.4rem;color:var(--muted);font-size:0.9rem">
         Don't have a blog yet? <a href="/signup">Create one</a>.
       </p>
@@ -617,6 +626,41 @@ export function metricsPage(
   return shell(
     `Metrics — ${tenant.title}`,
     `<div class="page"><div class="row"><h1 style="margin:0">Metrics</h1><div class="actions" style="margin:0">${rangeLinks}</div></div>${content}<p style="color:var(--muted);font-size:.8rem">Visitors are anonymous first-party browser identifiers. Metrics may take a short time to appear.</p></div>`,
+    account,
+    tenant
+  );
+}
+
+export function forgotPasswordPage(message = "", error = ""): string {
+  return shell(
+    "Reset password",
+    `<div class="page narrow"><h1>Reset your password</h1>${message ? `<div class="notice">${esc(message)}</div>` : ""}${error ? `<div class="error">${esc(error)}</div>` : ""}<p style="color:var(--muted)">Enter your account email and, if it matches an account, we'll send a reset link.</p><form method="post" action="/admin/forgot"><label for="reset-email">Email</label><input id="reset-email" name="email" type="email" autocomplete="email" required><button class="btn" type="submit">Send reset link</button></form><p style="margin-top:1.4rem;color:var(--muted);font-size:.9rem"><a href="/admin/login">Back to sign in</a></p></div>`
+  );
+}
+
+export function resetPasswordPage(token: string, error = ""): string {
+  return shell(
+    "Choose a new password",
+    `<div class="page narrow"><h1>Choose a new password</h1>${error ? `<div class="error">${esc(error)}</div>` : ""}<form method="post" action="/admin/reset"><input type="hidden" name="token" value="${esc(token)}"><label for="new-password">New password <span style="color:var(--muted)">(8+ characters)</span></label><input id="new-password" name="password" type="password" autocomplete="new-password" minlength="8" required><label for="confirm-password">Confirm password</label><input id="confirm-password" name="confirm" type="password" autocomplete="new-password" minlength="8" required><button class="btn" type="submit">Set new password</button></form><p style="margin-top:1.4rem;color:var(--muted);font-size:.9rem"><a href="/admin/forgot">Request another reset link</a></p></div>`
+  );
+}
+
+export function auditPage(
+  account: Account,
+  tenant: Tenant,
+  entries: AuditEntry[] | null,
+  options?: { error?: string; paid?: boolean }
+): string {
+  const content = options?.paid === false
+    ? `<div class="notice"><strong>Audit log is a Pro feature.</strong><br>Upgrade to review blog actions for the last 90 days.</div>`
+    : entries === null
+      ? `<div class="error">${esc(options?.error || "Audit log could not be loaded. Please try again shortly.")}</div>`
+      : entries.length
+        ? `<table class="metrics"><thead><tr><th>Time</th><th>Action</th><th>Target</th><th>Actor</th></tr></thead><tbody>${entries.map((entry) => `<tr><td>${esc(entry.occurredAt)}</td><td>${esc(entry.action.replaceAll("_", " "))}</td><td>${esc(entry.target || "—")}</td><td>${esc(entry.actor || "—")}</td></tr>`).join("")}</tbody></table>`
+        : `<p style="color:var(--muted)">No blog actions recorded in the last 90 days.</p>`;
+  return shell(
+    `Audit log — ${tenant.title}`,
+    `<div class="page"><div class="row"><h1 style="margin:0">Audit log</h1><span style="color:var(--muted);font-size:.85rem">Last 90 days</span></div><p style="color:var(--muted);margin-top:-.8rem">Private administrative actions for this blog. Content and secrets are never recorded.</p><div class="notice" style="margin-bottom:1rem"><strong>Logs may take a short time to appear.</strong> Audit events are stored in Cloudflare Analytics, which is eventually consistent. This is especially noticeable for a new blog; an empty log does not mean logging is disabled. Refresh this page shortly after an action.</div><div class="panel-block">${content}</div></div>`,
     account,
     tenant
   );
@@ -1007,14 +1051,20 @@ export function editorPage(
           var button = this;
           button.disabled = true; aiResult.hidden = true; setAiBusy(true);
           var stopTimer = startGeneration(aiStatus, "Creating your image…");
+          var creativeDirection = document.getElementById("ai-prompt").value.trim();
+          var imageRequest = {
+            style: document.getElementById("ai-style").value,
+            prompt: creativeDirection
+          };
+          // A direction override is intentionally independent of the article;
+          // do not send the full draft over the wire in that mode.
+          if (!creativeDirection) {
+            imageRequest.postTitle = document.getElementById("title").value;
+            imageRequest.postBody = body.value;
+          }
           fetch("${base}/media/generate", {
             method: "POST", headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              style: document.getElementById("ai-style").value,
-              prompt: document.getElementById("ai-prompt").value.trim(),
-              postTitle: document.getElementById("title").value,
-              postBody: body.value
-            })
+            body: JSON.stringify(imageRequest)
           }).then(function(r){return r.json().then(function(data){return {ok:r.ok,data:data};});})
             .then(function(result){
               if(!result.ok) throw new Error(result.data.error || "Image generation failed.");
@@ -1106,7 +1156,7 @@ export function editorPage(
   );
 }
 
-type BlogRow = { public_id: string; slug: string; title: string; role?: string };
+type BlogRow = { public_id: string; slug: string; title: string; role?: string; description?: string | null; avatar_key?: string | null; topics_json?: string | null };
 
 // Account home: the list of blogs this account can manage.
 export function blogListPage(
@@ -1115,6 +1165,19 @@ export function blogListPage(
   collaborations: BlogRow[],
   rootDomain: string
 ): string {
+  const setup = (b: BlogRow) => {
+    let topics: unknown[] = [];
+    try { topics = JSON.parse(b.topics_json || "[]"); } catch { /* malformed metadata is simply incomplete */ }
+    const items = [
+      [Boolean(b.title), "Blog title", "settings"],
+      [Boolean(b.description?.trim()), "Tagline", "settings"],
+      [Boolean(b.avatar_key), "Profile photo", "settings"],
+      [topics.length > 0, "Topics", "settings"],
+    ] as const;
+    const complete = items.filter(([ok]) => ok).length;
+    if (complete === items.length) return `<div class="sub" style="color:var(--success,#287a3d);margin-top:.35rem">Setup complete · <a href="https://${esc(b.slug)}.${esc(rootDomain)}" target="_blank">Preview blog</a></div>`;
+    return `<div class="sub" style="margin-top:.35rem">Setup ${complete}/${items.length} · ${items.filter(([ok]) => !ok).map(([, label]) => `<a href="/admin/b/${esc(b.public_id)}/settings">${label}</a>`).join(" · ")}</div>`;
+  };
   const list = (blogs: BlogRow[], showRole = false) =>
     blogs.length === 0
       ? `<p style="color:var(--muted)">You don't have any blogs yet.</p>`
@@ -1124,6 +1187,7 @@ export function blogListPage(
               <div>
                 <div class="t"><a href="/admin/b/${esc(b.public_id)}">${esc(b.title)}</a></div>
                 <div class="sub">${esc(b.slug)}.${esc(rootDomain)}${showRole && b.role ? ` · ${esc(b.role)}` : ""}</div>
+                ${!showRole ? setup(b) : ""}
               </div>
               <div class="acts">
                 <a class="btn ghost" href="https://${esc(b.slug)}.${esc(rootDomain)}" target="_blank">Visit</a>
@@ -1158,10 +1222,12 @@ export function newBlogPage(
 ): string {
   const slug = esc(values?.slug ?? "");
   const title = esc(values?.title ?? "");
+  const paid = ["active", "trialing", "past_due"].includes(String(account.billing_status || "inactive"));
   return shell(
     "New blog",
     `<div class="page narrow">
       <h1>New blog</h1>
+      ${paid ? "" : `<div class="notice"><strong>Free plan:</strong> You can create one blog. Upgrade to create up to five blogs, use custom domains, invite collaborators, and unlock AI features.</div>`}
       ${error ? `<div class="error">${esc(error)}</div>` : ""}
       <form method="post" action="/admin/new-blog">
         <label for="slug">Blog address</label>
@@ -1338,18 +1404,85 @@ export function settingsPage(
             .catch(function () { status.textContent = "Couldn't remove."; });
         });
 
-        faviconUpload.addEventListener("click", function () { faviconInput.click(); });
-        faviconInput.addEventListener("change", function () {
-          var file = faviconInput.files[0];
-          if (!file) return;
-          if (file.size > 1024 * 1024) { faviconStatus.textContent = "Favicon is too large."; faviconInput.value = ""; return; }
-          faviconStatus.textContent = "Uploading…";
-          var fd = new FormData(); fd.append("file", file, file.name);
-          fetch("${base}/favicon", { method: "POST", body: fd }).then(function (r) { return r.json(); }).then(function (data) {
-            if (data && data.ok) { faviconRemove.hidden = false; faviconUpload.textContent = "Replace favicon"; faviconStatus.textContent = "Saved. Refresh browser tabs to see it."; }
-            else faviconStatus.textContent = data.error || "Upload failed.";
-          }).catch(function () { faviconStatus.textContent = "Upload failed."; });
+        function normalizeFavicon(file) {
+          var sizes = [16, 32, 48, 256];
+          return new Promise(function (resolve, reject) {
+            var url = URL.createObjectURL(file), img = new Image();
+            img.onload = async function () {
+              try {
+                var result = [];
+                for (var index = 0; index < sizes.length; index++) {
+                  var size = sizes[index];
+                  faviconStatus.textContent = "Preparing " + size + "×" + size + "…";
+                  var scale = Math.min(size / img.width, size / img.height);
+                  var w = Math.max(1, Math.round(img.width * scale)), h = Math.max(1, Math.round(img.height * scale));
+                  var canvas = document.createElement("canvas"); canvas.width = size; canvas.height = size;
+                  var context = canvas.getContext("2d");
+                  if (!context) throw new Error("Your browser could not prepare the favicon image.");
+                  context.clearRect(0, 0, size, size);
+                  context.drawImage(img, Math.round((size - w) / 2), Math.round((size - h) / 2), w, h);
+                  var blob = await new Promise(function (ok, fail) {
+                    canvas.toBlob(function (encoded) {
+                      if (encoded) ok(encoded); else fail(new Error("Your browser could not encode the favicon."));
+                    }, "image/png");
+                  });
+                  result.push({ size: size, blob: blob });
+                }
+                resolve(result);
+              } catch (error) { reject(error); }
+              URL.revokeObjectURL(url);
+            };
+            img.onerror = function () { URL.revokeObjectURL(url); reject(new Error("Could not read that image. Please choose a PNG or ICO file.")); };
+            img.src = url;
+          });
+        }
+        var faviconBusy = false;
+        faviconUpload.addEventListener("click", function () {
+          if (faviconBusy) return;
+          // Clear the previous selection before opening the picker. Without this,
+          // choosing the same file twice does not reliably emit a change event.
           faviconInput.value = "";
+          faviconStatus.textContent = "Choose a PNG or ICO file.";
+          if (typeof faviconInput.showPicker === "function") faviconInput.showPicker();
+          else faviconInput.click();
+        });
+        faviconInput.addEventListener("change", async function () {
+          var file = faviconInput.files && faviconInput.files[0];
+          if (!file || faviconBusy) return;
+          if (file.size > 1024 * 1024) { faviconStatus.textContent = "Favicon is too large (maximum 1 MB)."; faviconInput.value = ""; return; }
+          faviconBusy = true;
+          faviconUpload.disabled = true;
+          faviconUpload.setAttribute("aria-busy", "true");
+          faviconStatus.textContent = "Preparing favicon…";
+          var controller = new AbortController();
+          var timeout = setTimeout(function () { controller.abort(); }, 30000);
+          try {
+            var normalized = await normalizeFavicon(file);
+            var fd = new FormData();
+            normalized.forEach(function (item) { fd.append("icon" + item.size, item.blob, "favicon-" + item.size + ".png"); });
+            fd.append("original_name", file.name || "favicon");
+            faviconStatus.textContent = "Uploading favicon…";
+            var response = await fetch("${base}/favicon", { method: "POST", body: fd, signal: controller.signal });
+            var text = await response.text();
+            var data = {};
+            try { data = text ? JSON.parse(text) : {}; }
+            catch (_) { data = { error: text ? text.slice(0, 500) : "The server returned an empty response." }; }
+            if (!response.ok) throw new Error(data.error || "Upload failed (HTTP " + response.status + ").");
+            if (!data || !data.ok) throw new Error(data && data.error ? data.error : "The server did not confirm the favicon was saved.");
+            faviconRemove.hidden = false;
+            faviconUpload.textContent = "Replace favicon";
+            faviconStatus.textContent = "Saved. Refresh browser tabs to see it.";
+          } catch (error) {
+            faviconStatus.textContent = error && error.name === "AbortError"
+              ? "Upload timed out after 30 seconds. Please try again."
+              : (error && error.message ? error.message : "Upload failed.");
+          } finally {
+            clearTimeout(timeout);
+            faviconBusy = false;
+            faviconUpload.disabled = false;
+            faviconUpload.removeAttribute("aria-busy");
+            faviconInput.value = "";
+          }
         });
         faviconRemove.addEventListener("click", function () {
           faviconStatus.textContent = "Removing…";
@@ -1420,6 +1553,7 @@ export function apiKeyPage(
 ): string {
   const base = `https://${esc(rootDomain)}/api/v1`;
   const has = opts.createdAt != null;
+  const paid = ["active", "trialing", "past_due"].includes(String(account.billing_status || "inactive"));
   const exampleBlogId = opts.blogs?.[0]?.public_id || "BLOG_ID";
   const blogIds = opts.blogs?.length
     ? `<div class="panel-block"><strong>Your blog IDs</strong><ul>${opts.blogs.map((blog) => `<li><code>${esc(blog.public_id)}</code> — ${esc(blog.title)} <span style="color:var(--muted)">(${esc(blog.slug)})</span></li>`).join("")}</ul><p style="color:var(--muted);font-size:.85rem;margin-bottom:0">Use the opaque ID in API paths; post IDs remain numeric.</p></div>`
@@ -1449,15 +1583,18 @@ export function apiKeyPage(
            <button class="btn danger" type="submit">Revoke</button>
          </form>
        </div>`
-    : `<p style="color:var(--muted)">You don't have an API key yet. Generate one to manage your blogs and posts programmatically.</p>
-       <form method="post" action="/admin/api-key/regenerate">
-         <button class="btn" type="submit">Generate API key</button>
-       </form>`;
+    : paid
+      ? `<p style="color:var(--muted)">You don't have an API key yet. Generate one to manage your blogs and posts programmatically.</p>
+         <form method="post" action="/admin/api-key/regenerate">
+           <button class="btn" type="submit">Generate API key</button>
+         </form>`
+      : `<p style="color:var(--muted)">API keys are available after upgrading to a paid plan.</p>`;
 
   return shell(
     "API",
     `<div class="page">
       <h1>API access</h1>
+      ${paid ? "" : `<div class="notice"><strong>API access is a paid-plan feature.</strong> Upgrade to generate an API key.</div>`}
       ${reveal}
       ${status}
 

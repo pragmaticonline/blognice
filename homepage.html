@@ -235,6 +235,21 @@
     font-size:13px; color:var(--ink-faint); font-family:var(--mono);
   }
 
+  /* ---------- AI SHOWCASE ---------- */
+  .ai-showcase{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(280px,.85fr);gap:56px;align-items:center;}
+  .ai-gallery{position:relative;aspect-ratio:16/9;border-radius:12px;overflow:hidden;background:var(--paper);box-shadow:0 24px 50px -30px rgba(21,23,15,.35);}
+  .ai-gallery img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .8s ease;}
+  .ai-gallery img.is-active{opacity:1;}
+  .ai-caption{position:absolute;left:16px;bottom:16px;padding:7px 11px;border-radius:6px;background:rgba(21,23,15,.78);color:#fff;font-family:var(--mono);font-size:11px;letter-spacing:.04em;}
+  .ai-copy h3{font-family:var(--display);font-size:23px;line-height:1.2;margin-bottom:12px;}
+  .ai-copy p{font-size:15px;color:var(--ink-soft);line-height:1.65;}
+  .ai-sample{margin-top:24px;padding:17px 18px;border:1px solid var(--rule);border-radius:9px;background:var(--paper);}
+  .ai-sample-label{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--green-deep);display:block;margin-bottom:8px;}
+  .ai-sample button{display:inline-flex;align-items:center;gap:8px;color:var(--ink);font-weight:600;border-bottom:1px solid var(--ink-faint);padding-bottom:2px;}
+  .ai-sample button:hover{color:var(--green-deep);border-color:var(--green);}
+  .ai-sample button[aria-pressed="true"]{color:var(--green-deep);}
+  @media (max-width: 880px){.ai-showcase{grid-template-columns:1fr;gap:30px;}}
+
   /* ---------- HOW IT WORKS ---------- */
   .steps{display:grid; grid-template-columns:repeat(3,1fr); gap:0 48px;}
   .step{padding:6px 0; border-right:1px solid var(--rule); margin-right:-24px; padding-right:24px;}
@@ -298,6 +313,7 @@
   .example-real h3{font-family:var(--display); font-weight:600; font-size:19px; margin-bottom:6px;}
   .example-real p{font-size:14.5px; color:var(--ink-soft); max-width:440px;}
   .example-real .addr{font-family:var(--mono); font-size:13px; color:var(--ink-soft); margin-top:4px; display:block;}
+  .example-real .example-photo{width:320px;height:200px;object-fit:cover;border-radius:8px;flex:0 1 34%;min-width:220px;}
 
   .ideas-label{font-size:13px; color:var(--ink-faint); margin-bottom:18px; font-family:var(--mono); text-transform:uppercase; letter-spacing:.06em;}
   .ideas-row{display:flex; flex-wrap:wrap; gap:12px;}
@@ -376,6 +392,7 @@
     .hero{padding:56px 0 64px;}
     .manifesto{padding:64px 0;}
     .final-cta{padding:80px 0;}
+    .example-real .example-photo{width:100%;height:auto;max-height:260px;flex-basis:100%;}
   }
 </style>
 </head>
@@ -394,7 +411,10 @@
       <a href="#pricing">Pricing</a>
       <a href="#faq">FAQ</a>
     </div>
-    <a href="https://www.blognice.com/signup" class="btn btn-solid">Start your first blog</a>
+    <div style="display:flex;align-items:center;gap:10px">
+      <a href="https://www.blognice.com/admin/login" class="btn btn-line">Log in</a>
+      <a href="https://www.blognice.com/signup" class="btn btn-solid">Start your first blog</a>
+    </div>
   </div>
 </nav>
 
@@ -477,6 +497,36 @@ they hand you a blank page.
       <div class="we-visual">
         <div class="toolbar"><span>Add image</span><span>Bold</span><span>Link</span><span>Heading</span></div>
         <div class="drop">drag, paste, or select an image</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="ai" style="background:var(--green-mist);">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="kicker">A little help from AI</span>
+      <h2>Give every post a strong visual and a voice</h2>
+      <p>Turn an idea into an editorial image, then let readers listen when they prefer. Both are optional, and both stay under your control.</p>
+    </div>
+    <div class="ai-showcase">
+      <div class="ai-gallery" aria-label="Examples of AI-generated blog images">
+        <img class="is-active" src="/marketing-ai/writing.webp" alt="A writer working beside a laptop in a warm study" width="960" height="540" loading="lazy">
+        <img src="/marketing-ai/ceramics.webp" alt="A ceramicist shaping a bowl in a studio" width="960" height="540" loading="lazy">
+        <img src="/marketing-ai/night-train.webp" alt="A night train crossing a city bridge in the rain" width="960" height="540" loading="lazy">
+        <img src="/marketing-ai/travel-notebook.webp" alt="An open notebook arranged with maps and travel objects" width="960" height="540" loading="lazy">
+        <span class="ai-caption" id="ai-caption">Editorial photograph · writing</span>
+      </div>
+      <div class="ai-copy">
+        <h3>From a post to something readers can see and hear.</h3>
+        <p>Describe the visual you want, or let Blog Nice take its cue from the post. Narration is generated in the same editor and appears as a simple listen button on the published page.</p>
+        <div class="ai-sample">
+          <span class="ai-sample-label">Hear a sample</span>
+          <button type="button" id="ai-voice-sample" aria-pressed="false" aria-label="Play voice sample">
+            <span aria-hidden="true">▶</span> Welcome to Blog Nice — a nicer way to blog.
+          </button>
+          <span id="ai-voice-status" style="display:block;margin-top:8px;font-size:12px;color:var(--ink-faint)">Click to play. Nothing starts automatically.</span>
+        </div>
       </div>
     </div>
   </div>
@@ -585,13 +635,14 @@ they hand you a blank page.
       <h2>See it in use</h2>
     </div>
     <div class="example-real">
+      <img class="example-photo" src="/marketing-ai/blogger.webp" alt="A blogger writing at a laptop" width="480" height="300" loading="lazy">
       <div>
         <span class="tag">Published on Blognice</span>
         <h3>Blog Nice vs WordPress: A Simpler Way to Start a Blog</h3>
         <p>A real post, written and published on the platform, comparing Blognice to WordPress for writers who just want to publish.</p>
-        <span class="addr">ray.blognice.com</span>
+        <span class="addr">blognice.blognice.com</span>
       </div>
-      <a href="https://ray.blognice.com/blog-nice-vs-wordpress-a-simpler-way-to-start-a-blog" class="link-underline">Read the post</a>
+      <a href="https://blognice.blognice.com/blog-nice-vs-wordpress-a-simpler-way-to-start-a-blog" class="link-underline">Read the post</a>
     </div>
 
     <p class="ideas-label">What could you publish?</p>
@@ -762,6 +813,38 @@ they hand you a blank page.
       }
     });
   });
+
+  // AI image examples: a gentle crossfade, paused for reduced-motion users.
+  const aiImages = Array.from(document.querySelectorAll('.ai-gallery img'));
+  const aiCaption = document.getElementById('ai-caption');
+  const aiLabels = ['Editorial photograph · writing', 'Editorial illustration · craft', 'Cinematic still · travel', 'Paper collage · journaling'];
+  let aiIndex = 0;
+  if (aiImages.length && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    window.setInterval(() => {
+      aiImages[aiIndex].classList.remove('is-active');
+      aiIndex = (aiIndex + 1) % aiImages.length;
+      aiImages[aiIndex].classList.add('is-active');
+      aiCaption.textContent = aiLabels[aiIndex];
+    }, 4500);
+  }
+
+  // The sample is opt-in and uses the browser's speech engine; no audio loads or plays automatically.
+  const voiceButton = document.getElementById('ai-voice-sample');
+  const voiceStatus = document.getElementById('ai-voice-status');
+  if (voiceButton && 'speechSynthesis' in window) {
+    voiceButton.addEventListener('click', () => {
+      if (speechSynthesis.speaking) { speechSynthesis.cancel(); voiceButton.setAttribute('aria-pressed', 'false'); voiceStatus.textContent = 'Sample stopped.'; return; }
+      const utterance = new SpeechSynthesisUtterance('Welcome to Blog Nice — a nicer way to blog.');
+      utterance.rate = .9;
+      utterance.onend = () => { voiceButton.setAttribute('aria-pressed', 'false'); voiceStatus.textContent = 'Click to hear it again.'; };
+      voiceButton.setAttribute('aria-pressed', 'true');
+      voiceStatus.textContent = 'Playing sample…';
+      speechSynthesis.speak(utterance);
+    });
+  } else if (voiceButton) {
+    voiceButton.disabled = true;
+    voiceStatus.textContent = 'Audio samples are available in supported browsers.';
+  }
 </script>
 
 </body>

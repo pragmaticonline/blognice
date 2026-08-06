@@ -3,7 +3,12 @@
 	"name": "blognice",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-06-20",
+	"compatibility_flags": ["nodejs_compat"],
+	// Password hashing uses OWASP's native 32 MiB scrypt setting.
+	// Allow enough CPU for password hashing on paid Workers deployments.
+	"limits": { "cpu_ms": 300000 },
 	"rules": [
+		{ "type": "Data", "globs": ["**/*.webp"], "fallthrough": false },
 		{ "type": "Text", "globs": ["**/*.html", "**/*.svg"], "fallthrough": false }
 	],
 	"vars": {

@@ -10,6 +10,7 @@
     "deploy": "wrangler deploy",
     "deploy:production": "wrangler deploy --config wrangler.production.jsonc",
     "deploy:production:check": "wrangler deploy --dry-run --config wrangler.production.jsonc",
+    "deploy:staff:production": "wrangler deploy --config wrangler.staff.production.jsonc",
     "db:init": "wrangler d1 execute blognice --file=./schema.sql",
     "db:init:local": "wrangler d1 execute blognice --local --file=./schema.sql",
     "db:init:posts": "wrangler d1 execute blognice-posts --file=./schema-posts.sql",
@@ -22,7 +23,13 @@
   },
   "dependencies": {
     "hono": "^4.6.0",
-    "marked": "^14.1.0"
+    "rehype-sanitize": "^6.0.0",
+    "rehype-stringify": "^10.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
+    "remark-rehype": "^11.1.2",
+    "unified": "^11.0.5",
+    "unist-util-visit": "^5.1.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260101.0",

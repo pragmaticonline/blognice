@@ -1,17 +1,32 @@
-// Authentication: password hashing (PBKDF2 via Web Crypto), server-side
+// Authentication: password hashing (scrypt via native Node crypto), server-side
 // sessions in D1, and cookie helpers. No external dependencies.
 
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
+import { pbkdf2, scrypt } from "node:crypto";
 
 const enc = new TextEncoder();
 const SESSION_COOKIE = "bn_session";
 const SESSION_TTL = 60 * 60 * 24 * 30; // 30 days, in seconds
-const PBKDF2_ITERATIONS = 100_000;
+// OWASP's 32 MiB scrypt setting. Cloudflare workerd supports this natively and
+// permits N * r * p up to 2^20; this setting costs 786,432 and stays below it.
+const SCRYPT_N = 32_768;
+const SCRYPT_R = 8;
+const SCRYPT_P = 3;
+const SCRYPT_MAXMEM = 64 * 1024 * 1024;
+const DERIVED_KEY_BYTES = 32;
+const CLOUDFLARE_MAX_PBKDF2_ITERATIONS = 100_000;
 
 export type Account = {
   id: number;
   email: string;
+  billing_status?: string | null;
+  billing_cancel_at_period_end?: number | null;
 };
+
+/** Paid access remains available during Stripe's short past-due recovery window. */
+export function accountHasPaidPlan(account: Pick<Account, "billing_status">): boolean {
+  return ["active", "trialing", "past_due"].includes(String(account.billing_status || "inactive"));
+}
 
 // --- base64 helpers for raw bytes -----------------------------------------
 function toB64(bytes: Uint8Array): string {
@@ -27,30 +42,50 @@ function fromB64(b64: string): Uint8Array {
 }
 
 // --- passwords -------------------------------------------------------------
-async function derive(
+async function deriveScrypt(
+  password: string,
+  salt: Uint8Array,
+  n = SCRYPT_N,
+  r = SCRYPT_R,
+  p = SCRYPT_P,
+): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    scrypt(
+      enc.encode(password),
+      salt,
+      DERIVED_KEY_BYTES,
+      { N: n, r, p, maxmem: SCRYPT_MAXMEM },
+      (error, key) => {
+        if (error) reject(error);
+        else resolve(new Uint8Array(key));
+      },
+    );
+  });
+}
+
+async function deriveLegacyPbkdf2(
   password: string,
   salt: Uint8Array,
   iterations: number
 ): Promise<Uint8Array> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    enc.encode(password),
-    "PBKDF2",
-    false,
-    ["deriveBits"]
-  );
-  const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
-    key,
-    256
-  );
-  return new Uint8Array(bits);
+  return new Promise((resolve, reject) => {
+    pbkdf2(enc.encode(password), salt, iterations, DERIVED_KEY_BYTES, "sha256", (error, key) => {
+      if (error) reject(error);
+      else resolve(new Uint8Array(key));
+    });
+  });
 }
 
 export async function hashPassword(password: string): Promise<string> {
   const salt = crypto.getRandomValues(new Uint8Array(16));
-  const dk = await derive(password, salt, PBKDF2_ITERATIONS);
-  return `pbkdf2$${PBKDF2_ITERATIONS}$${toB64(salt)}$${toB64(dk)}`;
+  const dk = await deriveScrypt(password, salt);
+  return `scrypt$${SCRYPT_N}$${SCRYPT_R}$${SCRYPT_P}$${toB64(salt)}$${toB64(dk)}`;
+}
+
+/** Generate a high-entropy, URL-safe reset token. Store only its hash. */
+export function generateResetToken(bytes = 32): string {
+  const data = crypto.getRandomValues(new Uint8Array(bytes));
+  return Array.from(data, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
@@ -64,13 +99,38 @@ export async function verifyPassword(
   password: string,
   stored: string
 ): Promise<boolean> {
-  const parts = stored.split("$");
-  if (parts.length !== 4 || parts[0] !== "pbkdf2") return false;
-  const iterations = parseInt(parts[1], 10);
-  const salt = fromB64(parts[2]);
-  const expected = fromB64(parts[3]);
-  const actual = await derive(password, salt, iterations);
-  return timingSafeEqual(actual, expected);
+  try {
+    const parts = stored.split("$");
+    if (parts.length === 6 && parts[0] === "scrypt") {
+      const n = Number(parts[1]);
+      const r = Number(parts[2]);
+      const p = Number(parts[3]);
+      if (n !== SCRYPT_N || r !== SCRYPT_R || p !== SCRYPT_P) return false;
+      const salt = fromB64(parts[4]);
+      const expected = fromB64(parts[5]);
+      if (salt.length !== 16 || expected.length !== DERIVED_KEY_BYTES) return false;
+      const actual = await deriveScrypt(password, salt, n, r, p);
+      return timingSafeEqual(actual, expected);
+    }
+
+    // Compatibility for hashes created before the forced-reset migration.
+    // Hosted workerd rejects PBKDF2 work factors above 100,000 even through
+    // node:crypto, so any higher-round legacy account must use Forgot password.
+    if (parts.length !== 4 || parts[0] !== "pbkdf2") return false;
+    const iterations = Number(parts[1]);
+    if (!Number.isSafeInteger(iterations) || iterations < 1 || iterations > CLOUDFLARE_MAX_PBKDF2_ITERATIONS) {
+      return false;
+    }
+    const salt = fromB64(parts[2]);
+    const expected = fromB64(parts[3]);
+    if (!salt.length || expected.length !== DERIVED_KEY_BYTES) return false;
+    const actual = await deriveLegacyPbkdf2(password, salt, iterations);
+    return timingSafeEqual(actual, expected);
+  } catch {
+    // Malformed or unsupported stored hashes must fail authentication without
+    // turning the login page into a 500 response.
+    return false;
+  }
 }
 
 // --- sessions --------------------------------------------------------------
@@ -107,9 +167,10 @@ export async function currentAccount(c: any): Promise<Account | null> {
   if (!token) return null;
   const now = Math.floor(Date.now() / 1000);
   const row = (await c.env.DB.prepare(
-    `SELECT a.id, a.email
+    `SELECT a.id, a.email, COALESCE(a.billing_status, 'inactive') AS billing_status,
+            COALESCE(a.billing_cancel_at_period_end, 0) AS billing_cancel_at_period_end
        FROM sessions s JOIN accounts a ON a.id = s.account_id
-      WHERE s.token = ? AND s.expires_at > ?`
+      WHERE s.token = ? AND s.expires_at > ? AND COALESCE(a.status, 'active') = 'active'`
   )
     .bind(token, now)
     .first()) as Account | null;
@@ -168,7 +229,7 @@ export async function accountFromApiKey(
   if (!key || !key.startsWith("bnk_")) return null;
   const hash = await sha256hex(key);
   return (await db
-    .prepare("SELECT id, email FROM accounts WHERE api_key_hash = ?")
+    .prepare("SELECT id, email, COALESCE(billing_status, 'inactive') AS billing_status, COALESCE(billing_cancel_at_period_end, 0) AS billing_cancel_at_period_end FROM accounts WHERE api_key_hash = ? AND COALESCE(status, 'active') = 'active'")
     .bind(hash)
     .first()) as Account | null;
 }

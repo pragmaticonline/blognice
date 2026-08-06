@@ -27,6 +27,7 @@ export type MetricPage = MetricSummary & { path: string };
 export type MetricReferrer = { referrer: string; views: number };
 export type MetricBreakdown = { name: string; views: number };
 export type AudioMetric = { path: string; starts: number; completions: number };
+export type AuditEntry = { occurredAt: string; action: string; target: string; actor: string; events: number };
 
 export type MetricsReport = {
   days: number;
@@ -186,6 +187,33 @@ export async function metricsReport(
   };
 }
 
+export async function auditReport(
+  env: MetricsEnv,
+  tenantId: number,
+  days = 90
+): Promise<AuditEntry[]> {
+  const interval = Math.max(1, Math.min(90, Math.trunc(days)));
+  const rows = await analyticsSql(
+    env,
+    `SELECT formatDateTime(timestamp, '%Y-%m-%d %H:%M:%S') AS occurred_at,
+            blob1 AS action, blob2 AS target, blob3 AS actor,
+            SUM(_sample_interval) AS events
+       FROM ${EVENTS_DATASET}
+      WHERE index1 = ${sqlString(String(tenantId))}
+        AND timestamp >= NOW() - INTERVAL '${interval}' DAY
+        AND blob1 LIKE 'audit:%'
+      GROUP BY occurred_at, action, target, actor
+      ORDER BY occurred_at DESC LIMIT 200`
+  );
+  return rows.map((row) => ({
+    occurredAt: String(row.occurred_at ?? ""),
+    action: String(row.action ?? "").replace(/^audit:/, ""),
+    target: String(row.target ?? ""),
+    actor: String(row.actor ?? ""),
+    events: numberValue(row.events),
+  }));
+}
+
 export function recordPageView(
   env: MetricsEnv,
   tenantId: number,
@@ -206,6 +234,18 @@ export function recordCustomEvent(
   env.EVENTS.writeDataPoint({
     indexes: [String(tenantId)],
     blobs: [event.name, event.path, event.visitor, event.country, event.device, event.browser],
+    doubles: [1],
+  });
+}
+
+export function recordAuditEvent(
+  env: MetricsEnv,
+  tenantId: number,
+  event: { action: string; target: string; actor: string }
+): void {
+  env.EVENTS.writeDataPoint({
+    indexes: [String(tenantId)],
+    blobs: [`audit:${event.action}`, event.target.slice(0, 160), event.actor.slice(0, 80), "", "", ""],
     doubles: [1],
   });
 }
