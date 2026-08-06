@@ -98,14 +98,19 @@ function requestId(c: any): string {
 
 function sameOrigin(c: any): boolean {
   const origin = c.req.header("Origin");
-  const requestOrigin = new URL(c.req.url).origin;
-  if (origin) return origin === requestOrigin;
+  const requestUrl = new URL(c.req.url);
+  const host = c.req.header("Host");
+  const requestOrigins = new Set([requestUrl.origin]);
+  if (host) requestOrigins.add(`${requestUrl.protocol}//${host}`);
+  if (origin) return requestOrigins.has(origin);
+  const fetchSite = c.req.header("Sec-Fetch-Site");
+  if (fetchSite === "same-origin" || fetchSite === "same-site") return true;
   // Some browsers and privacy extensions omit Origin on same-origin DELETE
   // requests. Referer is the next-best CSRF signal in that case.
   const referer = c.req.header("Referer");
   if (!referer) return false;
   try {
-    return new URL(referer).origin === requestOrigin;
+    return requestOrigins.has(new URL(referer).origin);
   } catch {
     return false;
   }
