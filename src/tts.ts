@@ -42,7 +42,7 @@ const SPOKEN_FORMS: Array<[RegExp, string]> = [
   [/\bMrs\.(?=\s+[A-Z])/g, "Missus"],
   // MeloTTS often blends spaced initials back into one word. A phonetic
   // spelling keeps the two letters distinct in the rendered narration.
-  [/\bAI\b/gi, "eAy eye"],
+  [/\bAI\b/gi, "aiye eye"],
   [/\bPBKDF2-HMAC-SHA256\b/gi, "P B K D F two H M A C S H A two five six"],
   [/\bSHA256\b/gi, "S H A two five six"],
   [/\bOWASP\b/gi, "O Wasp"],
