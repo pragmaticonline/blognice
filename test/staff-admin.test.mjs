@@ -20,6 +20,7 @@ test("staff Worker validates Access JWTs and keeps staff identity separate", () 
 test("staff phase 1 mutations require role, same origin, reason, and audit", () => {
   assert.match(staff, /function canMutate/);
   assert.match(staff, /same-origin request required/);
+  assert.doesNotMatch(staff, /fetchSite === "same-origin" \|\| fetchSite === "same-site"/);
   assert.match(staff, /a reason is required/);
   assert.match(staff, /staff_audit_events/);
   assert.match(staff, /revoke-sessions/);

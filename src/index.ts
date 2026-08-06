@@ -81,7 +81,7 @@ import {
   recordCustomEvent,
   recordAuditEvent,
 } from "./metrics";
-import { createCheckoutSession, createPortalSession, stripeConfigured, verifyStripeSignature } from "./stripe";
+import { checkoutSubscriptionDecision, createCheckoutSession, createPortalSession, retrieveSubscription, stripeConfigured, subscriptionEventMatchesCurrent, verifyStripeSignature } from "./stripe";
 import { renderMarkdown as renderMarkdownSafe } from "./markdown";
 
 
@@ -2200,10 +2200,6 @@ async function processAudioJob(env: Bindings, jobKey: string): Promise<void> {
   } catch (error) {
     job.status = "failed";
     job.error = error instanceof Error ? error.message : String(error);
-    if (job.creditAccountId && job.creditPeriod && job.creditCost && !job.creditsRefunded) {
-      await refundAiCredits(env, job.creditAccountId, job.creditPeriod, job.creditCost);
-      job.creditsRefunded = true;
-    }
     await writeAudioJob(env, jobKey, job);
     throw error;
   }
@@ -2640,6 +2636,26 @@ async function refundAiCredits(env: Bindings, accountId: number, period: string,
     .bind(cost, accountId, period).run();
 }
 
+async function refundTerminalAiJob(env: Bindings, jobKey: string, kind: "audio" | "image"): Promise<void> {
+  const job = kind === "audio"
+    ? await readAudioJob(env, jobKey)
+    : await readImageJob(env, jobKey);
+  if (job.status === "complete" || job.creditsRefunded || !job.creditAccountId || !job.creditPeriod || !job.creditCost) return;
+  const now = Math.floor(Date.now() / 1000);
+  const result = await env.DB.batch([
+    env.DB.prepare("INSERT OR IGNORE INTO ai_credit_refunds (job_key, account_id, period, credits, refunded_at) VALUES (?, ?, ?, ?, ?)").bind(jobKey, job.creditAccountId, job.creditPeriod, job.creditCost, now),
+    env.DB.prepare("UPDATE ai_credit_usage SET credits_used = MAX(0, credits_used - ?) WHERE account_id = ? AND period = ? AND changes() > 0").bind(job.creditCost, job.creditAccountId, job.creditPeriod),
+    env.DB.prepare("UPDATE ai_credit_refunds SET applied = 1 WHERE job_key = ? AND changes() > 0").bind(jobKey),
+  ]);
+  if (!Number((result[0] as any)?.meta?.changes || 0)) {
+    job.creditsRefunded = true;
+    return;
+  }
+  job.creditsRefunded = true;
+  if (kind === "audio") await writeAudioJob(env, jobKey, job as AudioJobManifest);
+  else await writeImageJob(env, jobKey, job as ImageJobManifest);
+}
+
 const AI_REQUEST_MAX = 64 * 1024;
 const IMAGE_STYLES = new Set<ImageStyle>([
   "editorial-photo", "editorial-illustration", "cinematic", "child-crayon", "arcade-action", "risograph", "paper-collage", "watercolor", "minimal", "auto",
@@ -2754,10 +2770,6 @@ async function processImageJob(env: Bindings, jobKey: string): Promise<void> {
   } catch (error) {
     job.status = "failed";
     job.error = error instanceof Error ? error.message : String(error);
-    if (job.creditAccountId && job.creditPeriod && job.creditCost && !job.creditsRefunded) {
-      await refundAiCredits(env, job.creditAccountId, job.creditPeriod, job.creditCost);
-      job.creditsRefunded = true;
-    }
     await writeImageJob(env, jobKey, job);
     throw error;
   }
@@ -3041,21 +3053,41 @@ app.get("/marketing-ai/:file", (c) => {
 // policy, and audio conversion as customer narration. Cache the fixed phrase
 // so repeated visitors do not trigger a new AI request at every edge.
 app.get("/marketing-audio", async (c) => {
-  const cacheKey = new Request(new URL("/marketing-audio", c.req.url), { method: "GET" });
+  const cacheKey = new Request(`https://${c.env.ROOT_DOMAIN}/marketing-audio`, { method: "GET" });
   const cached = await caches.default.match(cacheKey);
   if (cached) return cached;
+  const assetKey = "marketing/ai-voice.wav";
+  const stored = await c.env.MEDIA.get(assetKey);
+  if (stored) {
+    const response = new Response(stored.body, { headers: {
+      "content-type": "audio/wav", "cache-control": "public, max-age=86400, s-maxage=86400, immutable", "x-content-type-options": "nosniff",
+    } });
+    c.executionCtx.waitUntil(caches.default.put(cacheKey, response.clone()));
+    return response;
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const lock = await c.env.DB.prepare("INSERT OR IGNORE INTO marketing_audio_state (asset_key, generating_at) VALUES (?, ?)").bind(assetKey, now).run();
+  if (!lock.meta.changes) {
+    const current = await c.env.DB.prepare("SELECT generating_at FROM marketing_audio_state WHERE asset_key = ?").bind(assetKey).first<{ generating_at: number }>();
+    if (current && now - current.generating_at < 300) return c.json({ error: "The voice sample is being prepared. Please try again shortly." }, 503);
+    const reclaimed = await c.env.DB.prepare("UPDATE marketing_audio_state SET generating_at = ? WHERE asset_key = ? AND generating_at = ?").bind(now, assetKey, current?.generating_at || 0).run();
+    if (!reclaimed.meta.changes) return c.json({ error: "The voice sample is being prepared. Please try again shortly." }, 503);
+  }
   try {
     const bytes = await generateSpeechWithRecovery(c.env.AI, "Welcome to Blog Nice. A nicer way to blog.");
+    await c.env.MEDIA.put(assetKey, bytes, { httpMetadata: { contentType: "audio/wav", cacheControl: "public, max-age=31536000, immutable" } });
+    await c.env.DB.prepare("DELETE FROM marketing_audio_state WHERE asset_key = ?").bind(assetKey).run();
     const response = new Response(bytes, {
       headers: {
-        "content-type": "audio/mpeg",
-        "cache-control": "public, max-age=86400, s-maxage=86400",
+        "content-type": "audio/wav",
+        "cache-control": "public, max-age=86400, s-maxage=86400, immutable",
         "x-content-type-options": "nosniff",
       },
     });
     c.executionCtx.waitUntil(caches.default.put(cacheKey, response.clone()));
     return response;
   } catch (error) {
+    await c.env.DB.prepare("DELETE FROM marketing_audio_state WHERE asset_key = ?").bind(assetKey).run().catch(() => undefined);
     console.error("marketing voice sample failed", error);
     return c.json({ error: "The voice sample is temporarily unavailable." }, 503);
   }
@@ -3614,24 +3646,94 @@ app.post("/stripe/webhook", async (c) => {
   const raw = await c.req.text();
   if (!await verifyStripeSignature(raw, c.req.header("Stripe-Signature"), c.env.STRIPE_WEBHOOK_SECRET)) return c.json({ error: "invalid signature" }, 400);
   const event = JSON.parse(raw) as { id: string; type: string; created: number; data?: { object?: any } };
-  const inserted = await c.env.DB.prepare("INSERT OR IGNORE INTO stripe_events (id, type, created_at, processed_at) VALUES (?, ?, ?, ?)").bind(event.id, event.type, event.created || Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)).run();
-  if (!inserted.meta.changes) return c.json({ received: true, duplicate: true });
+  const eventCreated = event.created || Math.floor(Date.now() / 1000);
+  const inserted = await c.env.DB.prepare("INSERT OR IGNORE INTO stripe_events (id, type, created_at, processed_at, status) VALUES (?, ?, ?, 0, 'processing')").bind(event.id, event.type, eventCreated).run();
+  if (!inserted.meta.changes) {
+    const existing = await c.env.DB.prepare("SELECT status FROM stripe_events WHERE id = ?").bind(event.id).first<{ status: string }>();
+    if (existing?.status === "processed") return c.json({ received: true, duplicate: true });
+    await c.env.DB.prepare("UPDATE stripe_events SET status = 'processing', last_error = NULL WHERE id = ?").bind(event.id).run();
+  }
+  try {
   const object = event.data?.object || {};
-  const customerId = typeof object.customer === "string" ? object.customer : null;
+  const entitlementEvent = event.type.startsWith("customer.subscription.") || event.type === "invoice.payment_failed";
+  const invoiceSubscriptionId = typeof object.parent?.subscription_details?.subscription === "string"
+    ? object.parent.subscription_details.subscription
+    : typeof object.subscription === "string" ? object.subscription : null;
+  let subscriptionObject = object;
+  if (entitlementEvent && !event.type.endsWith(".deleted")) {
+    const subscriptionId = event.type === "invoice.payment_failed" ? invoiceSubscriptionId : object.id;
+    if (typeof subscriptionId === "string" && subscriptionId) subscriptionObject = await retrieveSubscription(c.env, subscriptionId);
+  }
+  const customerId = typeof (subscriptionObject.customer || object.customer) === "string" ? (subscriptionObject.customer || object.customer) : null;
   let accountId: number | null = Number(object.metadata?.account_id || 0) || null;
   if (!accountId && customerId) {
     const row = await c.env.DB.prepare("SELECT id FROM accounts WHERE stripe_customer_id = ?").bind(customerId).first<{ id: number }>();
     accountId = row?.id || null;
   }
-  if (event.type === "checkout.session.completed" && accountId && customerId) {
-    await c.env.DB.prepare("UPDATE accounts SET stripe_customer_id = ?, stripe_subscription_id = COALESCE(?, stripe_subscription_id), billing_updated_at = ? WHERE id = ?").bind(customerId, typeof object.subscription === "string" ? object.subscription : null, Math.floor(Date.now() / 1000), accountId).run();
+  if (entitlementEvent && !accountId) throw new Error("Stripe billing event could not be mapped to a Blog Nice account yet.");
+  if (event.type === "invoice.payment_failed" && accountId) {
+    const accountBilling = await c.env.DB.prepare("SELECT stripe_subscription_id FROM accounts WHERE id = ?").bind(accountId).first<{ stripe_subscription_id: string | null }>();
+    if (!invoiceSubscriptionId || !accountBilling?.stripe_subscription_id || invoiceSubscriptionId !== accountBilling.stripe_subscription_id) {
+      await c.env.DB.prepare("UPDATE stripe_events SET account_id = ? WHERE id = ?").bind(accountId, event.id).run();
+      // This invoice is unrelated to Blog Nice's subscription; acknowledge it.
+      subscriptionObject = null;
+    }
   }
-  if (event.type.startsWith("customer.subscription.") && accountId) {
-    const status = event.type.endsWith(".deleted") ? "canceled" : String(object.status || "inactive");
-    await c.env.DB.prepare("UPDATE accounts SET stripe_customer_id = COALESCE(?, stripe_customer_id), stripe_subscription_id = ?, billing_status = ?, billing_price_id = ?, billing_period_end = ?, billing_cancel_at_period_end = ?, billing_updated_at = ? WHERE id = ?")
-      .bind(customerId, object.id || null, status, object.items?.data?.[0]?.price?.id || null, object.current_period_end || null, object.cancel_at_period_end ? 1 : 0, Math.floor(Date.now() / 1000), accountId).run();
+  if (event.type === "checkout.session.completed" && accountId && customerId && typeof object.subscription === "string") {
+    const incomingSubscription = await retrieveSubscription(c.env, object.subscription);
+    const currentBilling = await c.env.DB.prepare("SELECT stripe_subscription_id, billing_subscription_created_at FROM accounts WHERE id = ?")
+      .bind(accountId).first<{ stripe_subscription_id: string | null; billing_subscription_created_at: number | null }>();
+    let currentCreated = currentBilling?.billing_subscription_created_at || null;
+    if (currentBilling?.stripe_subscription_id && currentBilling.stripe_subscription_id !== incomingSubscription.id && !currentCreated) {
+      // Backfill the comparison value for subscriptions created before this
+      // column existed. If Stripe cannot provide it, fail and let Stripe retry;
+      // guessing could allow an old Checkout session to replace a newer one.
+      const currentSubscription = await retrieveSubscription(c.env, currentBilling.stripe_subscription_id);
+      currentCreated = currentSubscription.created || null;
+      if (!currentCreated) throw new Error("Stripe did not return the current subscription creation time.");
+    }
+    if (!incomingSubscription.created) throw new Error("Stripe did not return the completed subscription creation time.");
+    const checkoutDecision = checkoutSubscriptionDecision({
+      currentId: currentBilling?.stripe_subscription_id,
+      currentCreated,
+      incomingId: incomingSubscription.id,
+      incomingCreated: incomingSubscription.created,
+    });
+    if (checkoutDecision !== "ignore") {
+      const checkoutStatus = String(incomingSubscription.status || "inactive");
+      const checkoutPeriodEnd = incomingSubscription.current_period_end || incomingSubscription.items?.data?.[0]?.current_period_end || null;
+      if (checkoutDecision === "adopt") {
+        // A new subscription starts a new event-ordering stream. Reset the
+        // webhook cursor even if an old subscription produced a later event.
+        await c.env.DB.prepare("UPDATE accounts SET stripe_customer_id = ?, stripe_subscription_id = ?, billing_subscription_created_at = ?, billing_status = ?, billing_price_id = ?, billing_period_end = ?, billing_cancel_at_period_end = ?, billing_updated_at = ?, billing_event_created_at = ?, billing_event_id = ? WHERE id = ?")
+          .bind(customerId, incomingSubscription.id, incomingSubscription.created, checkoutStatus, incomingSubscription.items?.data?.[0]?.price?.id || null, checkoutPeriodEnd, incomingSubscription.cancel_at_period_end ? 1 : 0, Math.floor(Date.now() / 1000), eventCreated, event.id, accountId).run();
+      } else {
+        // Reprocessing Checkout for the same subscription refreshes live state
+        // without moving its event-ordering cursor backwards.
+        await c.env.DB.prepare("UPDATE accounts SET stripe_customer_id = ?, billing_subscription_created_at = COALESCE(billing_subscription_created_at, ?), billing_status = ?, billing_price_id = ?, billing_period_end = ?, billing_cancel_at_period_end = ?, billing_updated_at = ?, billing_event_created_at = CASE WHEN COALESCE(billing_event_created_at, 0) < ? THEN ? ELSE billing_event_created_at END, billing_event_id = CASE WHEN COALESCE(billing_event_created_at, 0) < ? THEN ? ELSE billing_event_id END WHERE id = ?")
+          .bind(customerId, incomingSubscription.created, checkoutStatus, incomingSubscription.items?.data?.[0]?.price?.id || null, checkoutPeriodEnd, incomingSubscription.cancel_at_period_end ? 1 : 0, Math.floor(Date.now() / 1000), eventCreated, eventCreated, eventCreated, event.id, accountId).run();
+      }
+    }
     await c.env.DB.prepare("UPDATE stripe_events SET account_id = ? WHERE id = ?").bind(accountId, event.id).run();
-    if (event.type === "customer.subscription.created" && ["active", "trialing"].includes(status) && c.env.EMAIL_QUEUE && emailEnabled(c.env)) {
+  }
+  if (event.type.startsWith("customer.subscription.") && accountId && subscriptionObject) {
+    const currentBilling = await c.env.DB.prepare("SELECT stripe_subscription_id FROM accounts WHERE id = ?")
+      .bind(accountId).first<{ stripe_subscription_id: string | null }>();
+    const incomingSubscriptionId = String(subscriptionObject.id || object.id || "");
+    if (!subscriptionEventMatchesCurrent(currentBilling?.stripe_subscription_id, incomingSubscriptionId)) {
+      // A delayed event from an older Stripe subscription must never replace the
+      // account's current subscription or revoke its entitlement.
+      await c.env.DB.prepare("UPDATE stripe_events SET account_id = ? WHERE id = ?").bind(accountId, event.id).run();
+      subscriptionObject = null;
+    }
+  }
+  if (event.type.startsWith("customer.subscription.") && accountId && subscriptionObject) {
+    const status = event.type.endsWith(".deleted") ? "canceled" : String(subscriptionObject.status || "inactive");
+    const periodEnd = subscriptionObject.current_period_end || subscriptionObject.items?.data?.[0]?.current_period_end || null;
+    const subscriptionUpdate = await c.env.DB.prepare("UPDATE accounts SET stripe_customer_id = COALESCE(?, stripe_customer_id), stripe_subscription_id = ?, billing_subscription_created_at = COALESCE(?, billing_subscription_created_at), billing_status = ?, billing_price_id = ?, billing_period_end = ?, billing_cancel_at_period_end = ?, billing_updated_at = ?, billing_event_created_at = ?, billing_event_id = ? WHERE id = ? AND (COALESCE(billing_event_created_at, 0) < ? OR (COALESCE(billing_event_created_at, 0) = ? AND COALESCE(billing_event_id, '') < ?))")
+      .bind(customerId, subscriptionObject.id || object.id || null, subscriptionObject.created || null, status, subscriptionObject.items?.data?.[0]?.price?.id || null, periodEnd, subscriptionObject.cancel_at_period_end ? 1 : 0, Math.floor(Date.now() / 1000), eventCreated, event.id, accountId, eventCreated, eventCreated, event.id).run();
+    await c.env.DB.prepare("UPDATE stripe_events SET account_id = ? WHERE id = ?").bind(accountId, event.id).run();
+    if (subscriptionUpdate.meta.changes && event.type === "customer.subscription.created" && ["active", "trialing"].includes(status) && c.env.EMAIL_QUEUE && emailEnabled(c.env)) {
       const account = await c.env.DB.prepare("SELECT email FROM accounts WHERE id = ?").bind(accountId).first<{ email: string }>();
       if (account?.email && object.id) {
         const idempotencyKey = `subscription-welcome:${accountId}:${String(object.id)}`;
@@ -3654,11 +3756,25 @@ app.post("/stripe/webhook", async (c) => {
       }
     }
   }
-  if (event.type === "invoice.payment_failed" && accountId) {
-    await c.env.DB.prepare("UPDATE accounts SET billing_status = 'past_due', billing_updated_at = ? WHERE id = ?").bind(Math.floor(Date.now() / 1000), accountId).run();
+  if (event.type === "invoice.payment_failed" && accountId && subscriptionObject) {
+    // Preserve the authoritative Stripe status. In particular, an initial
+    // failed payment can be `incomplete`/`incomplete_expired`/`paused`; mapping
+    // those to `past_due` would incorrectly grant Pro access.
+    const stripeStatus = String(subscriptionObject.status || "inactive");
+    const reconciledStatus = ["active", "trialing", "past_due", "canceled", "unpaid", "incomplete", "incomplete_expired", "paused"].includes(stripeStatus)
+      ? stripeStatus
+      : "inactive";
+    await c.env.DB.prepare("UPDATE accounts SET billing_status = ?, billing_updated_at = ?, billing_event_created_at = ?, billing_event_id = ? WHERE id = ? AND (COALESCE(billing_event_created_at, 0) < ? OR (COALESCE(billing_event_created_at, 0) = ? AND COALESCE(billing_event_id, '') < ?))").bind(reconciledStatus, Math.floor(Date.now() / 1000), eventCreated, event.id, accountId, eventCreated, eventCreated, event.id).run();
     await c.env.DB.prepare("UPDATE stripe_events SET account_id = ? WHERE id = ?").bind(accountId, event.id).run();
   }
-  return c.json({ received: true });
+    await c.env.DB.prepare("UPDATE stripe_events SET status = 'processed', processed_at = ?, last_error = NULL WHERE id = ?").bind(Math.floor(Date.now() / 1000), event.id).run();
+    return c.json({ received: true });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500);
+    await c.env.DB.prepare("UPDATE stripe_events SET status = 'failed', last_error = ? WHERE id = ?").bind(detail, event.id).run().catch(() => undefined);
+    console.error(JSON.stringify({ message: "Stripe webhook processing failed", eventId: event.id, error: detail }));
+    return c.json({ error: "webhook processing failed" }, 500);
+  }
 });
 
 app.post("/manage-subscriptions/:token", async (c) => {
@@ -3800,6 +3916,15 @@ export default {
         else await processAudioJob(env, jobMessage.jobKey);
         message.ack();
       } catch (error) {
+        const attempts = Number((message as unknown as { attempts?: number }).attempts || 1);
+        // max_retries is five in both Wrangler configurations, so attempt six
+        // is the terminal delivery. Refund only then; transient failures must
+        // retain their reservation while the queue retries.
+        const isImageJob = "kind" in jobMessage && jobMessage.kind === "image";
+        const isAudioJob = "jobKey" in jobMessage && !("kind" in jobMessage);
+        if (attempts >= 6 && (isImageJob || isAudioJob) && "jobKey" in jobMessage) {
+          await refundTerminalAiJob(env, jobMessage.jobKey, isImageJob ? "image" : "audio").catch((refundError) => console.error(JSON.stringify({ message: "terminal AI credit refund failed", error: refundError instanceof Error ? refundError.message : String(refundError) })));
+        }
         console.error(JSON.stringify({
           message: "Queued job failed; retrying",
           jobKey: "jobKey" in jobMessage ? jobMessage.jobKey : undefined,

@@ -1,0 +1,1 @@
+ALTER TABLE ai_credit_refunds ADD COLUMN applied INTEGER NOT NULL DEFAULT 0;
