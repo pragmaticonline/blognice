@@ -45,10 +45,8 @@ test("staff can manage the global pronunciation dictionary", () => {
   assert.match(staff, /api\/pronunciations/);
   assert.match(staff, /upsert-pronunciation/);
   assert.match(staff, /delete-pronunciation/);
-  assert.match(staff, /api\/pronunciations\/'\+button\.dataset\.delete\+'\/delete/);
+  assert.match(staff, /form method="post" action="\/api\/pronunciations\/\$\{row\.id\}\/delete"/);
   assert.match(staff, /Referer is the next-best CSRF signal/);
-  assert.match(staff, /Delete failed \(HTTP /);
-  assert.match(staff, /response\.status/);
 });
 
 test("staff can generate short pronunciation samples", () => {
