@@ -28,6 +28,7 @@ const SPOKEN_FORMS: Array<[RegExp, string]> = [
   [/\breading\b/gi, "reeding"],
   [/\blogin\b/gi, "log in"],
   [/\bconfiguring\b/gi, "con fig er ing"],
+  [/\bcalmer\b/gi, "carlmar"],
   [/\bplug-ins\b/gi, "plug inns"],
   [/\bplug-in\b/gi, "plug inn"],
   [/\bplugins\b/gi, "plug inns"],

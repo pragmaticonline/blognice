@@ -96,6 +96,10 @@ test("configuring receives clear syllable boundaries", () => {
   assert.equal(text, "Stop con fig er ing. ... Stop con fig er ing and start writing.");
 });
 
+test("calmer uses its tested spoken form", () => {
+  assert.match(narrationText("A calmer introduction", "The tone is calmer."), /carlmar/);
+});
+
 test("title is a standalone neutral statement before the article body", () => {
   const sections = narrationSections("AI and the UK", "## Opening\n\nThe article begins.");
   assert.equal(sections.title, "eAy eye and the U K.");
