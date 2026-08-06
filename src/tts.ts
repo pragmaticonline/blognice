@@ -39,9 +39,17 @@ const SPOKEN_FORMS: Array<[RegExp, string]> = [
   [/\bDr\.(?=\s+[A-Z])/g, "Doctor"],
   [/\bMr\.(?=\s+[A-Z])/g, "Mister"],
   [/\bMrs\.(?=\s+[A-Z])/g, "Missus"],
-  [/\bAI\b/g, "A I"],
+  // MeloTTS often blends spaced initials back into one word. A phonetic
+  // spelling keeps the two letters distinct in the rendered narration.
+  [/\bAI\b/gi, "A eye"],
+  [/\bPBKDF2-HMAC-SHA256\b/gi, "P B K D F two H M A C S H A two five six"],
+  [/\bSHA256\b/gi, "S H A two five six"],
+  [/\bOWASP\b/gi, "O Wasp"],
+  [/\bCPU\b/gi, "C P U"],
+  [/\bUI\b/g, "U I"],
   [/\bAPI\b/g, "A P I"],
   [/\bHTML\b/g, "H T M L"],
+  [/\bPNG\b/gi, "P N G"],
   [/\bHTTPS\b/g, "H T T P S"],
   [/\bHTTP\b/g, "H T T P"],
   [/\bURLs\b/g, "U R Ls"],
@@ -53,6 +61,15 @@ const SPOKEN_FORMS: Array<[RegExp, string]> = [
 function spokenForms(value: string): string {
   let result = value;
   for (const [pattern, replacement] of SPOKEN_FORMS) result = result.replace(pattern, replacement);
+  return result;
+}
+
+export function applyManagedSpokenForms(value: string, overrides: PronunciationReplacement[] = []): string {
+  let result = value;
+  for (const { original, spoken } of overrides) {
+    const escaped = original.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    result = result.replace(new RegExp(`\\b${escaped}\\b`, "gi"), spoken);
+  }
   return result;
 }
 
@@ -103,8 +120,8 @@ function removeEmoji(value: string): string {
     .replace(/[\uFE0E\uFE0F\u200D]/g, " ");
 }
 
-function cleanSpeech(value: string): string {
-  return disambiguateRead(spokenForms(removeEmoji(value)))
+function cleanSpeech(value: string, overrides: PronunciationReplacement[] = []): string {
+  return disambiguateRead(spokenForms(applyManagedSpokenForms(removeEmoji(value), overrides)))
     .replace(/\s*[—–]\s*/g, ", ")
     .replace(/\s*&\s*/g, " and ")
     .replace(/\s+([.,!?;:])(?!\.\.)/g, "$1")
@@ -123,7 +140,7 @@ function cleanSpeech(value: string): string {
     .trim();
 }
 
-export function narrationSections(title: string, markdown: string): { title: string; body: string } {
+export function narrationSections(title: string, markdown: string, overrides: PronunciationReplacement[] = []): { title: string; body: string } {
   const cleaned = decodeEntities(markdown)
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/`([^`]+)`/g, "$1")
@@ -164,13 +181,13 @@ export function narrationSections(title: string, markdown: string): { title: str
   }).filter(Boolean);
   return {
     // A short, standalone statement gives MeloTTS its most neutral title delivery.
-    title: cleanSpeech(finishPhrase(decodeEntities(title))),
-    body: cleanSpeech(blocks.join(" ... ")),
+    title: cleanSpeech(finishPhrase(decodeEntities(title)), overrides),
+    body: cleanSpeech(blocks.join(" ... "), overrides),
   };
 }
 
-export function narrationText(title: string, markdown: string): string {
-  const sections = narrationSections(title, markdown);
+export function narrationText(title: string, markdown: string, overrides: PronunciationReplacement[] = []): string {
+  const sections = narrationSections(title, markdown, overrides);
   return [sections.title, sections.body].filter(Boolean).join(" ... ");
 }
 

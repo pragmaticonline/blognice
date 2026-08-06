@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { applyPronunciations, mergeWav, narrationChunks, narrationSections, narrationText, pronunciationReplacements, ttsBytes, wavAssembly, TTS_CHUNK_MAX, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "../src/tts.ts";
+import { applyManagedSpokenForms, applyPronunciations, mergeWav, narrationChunks, narrationSections, narrationText, pronunciationReplacements, ttsBytes, wavAssembly, TTS_CHUNK_MAX, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "../src/tts.ts";
 
 function wav(samples) {
   const bytes = new Uint8Array(44 + samples.length);
@@ -31,7 +31,7 @@ test("narration adds structural pauses and conservative spoken forms", () => {
     "AI and the UK",
     "Dr. Jones compared the API vs. the old URL.\n\n## Results\n\n- Faster HTTP requests\n- Clearer HTML output"
   ).replaceAll(TTS_HARD_PAUSE, "\n\n").replaceAll(TTS_SOFT_PAUSE, " ");
-  assert.match(text, /^A I and the U K\./);
+  assert.match(text, /^A eye and the U K\./);
   assert.match(text, /Doctor Jones compared the A P I versus the old U R L\./);
   assert.match(text, /Results\.\n\nFaster/);
   assert.match(text, /Faster H T T P requests\.\n\nClearer H T M L output\./);
@@ -48,6 +48,26 @@ test("product names and formatting keep stable syllable boundaries", () => {
   const sections = narrationSections("Cloudflare formatting", "Cloudflare makes formatting simple.");
   assert.equal(sections.title, "Cloud Flare format-ting.");
   assert.equal(sections.body, "Cloud Flare makes format-ting simple.");
+});
+
+test("technical security terms use explicit spoken forms", () => {
+  const sections = narrationSections(
+    "PBKDF2-HMAC-SHA256 and OWASP",
+    "AI, SHA256, OWASP, and CPU are discussed."
+  );
+  assert.match(sections.title, /P B K D F two H M A C S H A two five six/);
+  assert.match(sections.body, /A eye, S H A two five six, O Wasp, and C P U/);
+});
+
+test("PNG is spelled out letter by letter", () => {
+  const sections = narrationSections("PNG favicon", "Upload a PNG image.");
+  assert.equal(sections.title, "P N G favicon.");
+  assert.equal(sections.body, "Upload a P N G image.");
+});
+
+test("managed pronunciation entries apply to future narration", () => {
+  assert.equal(applyManagedSpokenForms("Use UI in the editor.", [{ original: "UI", spoken: "U I" }]), "Use U I in the editor.");
+  assert.equal(narrationText("UI guide", "Use UI in the editor.", [{ original: "UI", spoken: "U I" }]), "U I guide. ... Use U I in the editor.");
 });
 
 test("ambiguous read uses the present-tense pronunciation in clear contexts", () => {
@@ -78,7 +98,7 @@ test("configuring receives clear syllable boundaries", () => {
 
 test("title is a standalone neutral statement before the article body", () => {
   const sections = narrationSections("AI and the UK", "## Opening\n\nThe article begins.");
-  assert.equal(sections.title, "A I and the U K.");
+  assert.equal(sections.title, "A eye and the U K.");
   assert.equal(sections.body.replaceAll(TTS_HARD_PAUSE, "\n\n"), "\n\nOpening.\n\nThe article begins.");
   assert.equal(TTS_TITLE_PAUSE_SECONDS, 1.5);
 });

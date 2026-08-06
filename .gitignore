@@ -16,10 +16,12 @@ pnpm-debug.log*
 .env
 .env.*
 !.env.example
+.dev.vars
 
 # Local production deployment config (contains account resource IDs)
 wrangler.production.jsonc
 wrangler.staff.production.jsonc
+stripe-sandbox.txt
 
 # OS files
 .DS_Store

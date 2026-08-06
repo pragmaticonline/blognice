@@ -6,7 +6,8 @@
   "vars": {
     "ACCESS_TEAM_DOMAIN": "https://your-team.cloudflareaccess.com",
     "ACCESS_AUD": "replace-with-access-application-audience-tag",
-    "STAFF_ALLOWED_EMAILS": "staff@example.com"
+    "STAFF_ALLOWED_EMAILS": "staff@example.com",
+    "EMAIL_FROM": "Blog Nice <support@mailer.blognice.com>"
   },
   "routes": [
     { "pattern": "staff.blognice.com/*", "zone_name": "blognice.com" }

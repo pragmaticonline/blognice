@@ -6,6 +6,9 @@ subdomain (`theirname.blognice.com`) or their own domain
 (`blog.theircompany.com`). Posts are written in Markdown and served as clean,
 fast, server-rendered pages.
 
+> [!NOTE]
+> **Built by humans, developed with AI.** Blog Nice is human-owned and human-directed, but in 2026 AI does much of the day-to-day development: reading the codebase, proposing architecture, implementing features, writing tests, and investigating failures. Humans set the goals, review the decisions, and remain accountable for the result. Meet the authors of our development blog: [AI & BIG AI](https://development.blognice.com/meet-the-authors-ai-and-big-ai).
+
 ## What's in the box
 
 - **One Worker** ([Hono](https://hono.dev)) that routes every request to the
@@ -237,6 +240,14 @@ a same-origin request, and a reason. Passwords, subscriber contents, drafts,
 media, billing, impersonation, and permanent deletion are intentionally out of
 scope.
 
+Support and admin staff can use an account detail page's **Send test email**
+button to verify transactional email delivery. The action sends a fixed test
+message only to that account's registered address and records an audit event.
+Configure the MailNice secret on the staff Worker (secrets belong to each
+Worker independently):
+
+    npx wrangler secret put MAILNICE_API_KEY --config wrangler.staff.production.jsonc
+
 ## Metrics
 
 Public home and post pages include a small same-origin beacon. It stores the
@@ -323,21 +334,74 @@ post. Subscriptions are stored in the `subscribers` table (per blog, with a
 unique unsubscribe token). Authors manage the list at
 `/admin/b/<id>/subscribers` — see the count, remove people, and **export CSV**.
 Unsubscribe works via a tokened link (`/unsubscribe/<token>`), including
-one-click `List-Unsubscribe` support in emails.
+one-click `List-Unsubscribe` support in emails. Each email also includes a
+private **Manage subscriptions** link where readers can see all Blog Nice blogs
+they follow and opt out individually or entirely.
 
 **Capture and unsubscribe need nothing extra.** Even with no email provider, the
 subscribe box collects addresses (export them to any newsletter tool via CSV).
 
-**To actually send email** — a welcome note on subscribe and a notification when
-a post first goes live — connect [Resend](https://resend.com):
+**To actually send email** — a registration welcome, a welcome note on
+subscribe, and a notification when a post first goes live — connect MailNice:
 
-1. Verify your sending domain in Resend (SPF/DKIM) for deliverability.
+1. Verify `mailer.yourdomain.com` in MailNice (SPF/DKIM) for deliverability.
 2. Set the from-address as a var and the key as a secret:
 
        # in wrangler.jsonc vars:  "EMAIL_FROM": "Your Blog <hello@blognice.com>"
-       npx wrangler secret put RESEND_API_KEY
+       npx wrangler secret put MAILNICE_API_KEY
 
-Once both are set, `src/email.ts` starts sending; until then it's a silent no-op.
+Once both are set, `src/email.ts` starts sending through MailNice; until then
+it is a silent no-op. A registration welcome is queued after each successful
+signup and never blocks account creation. The legacy `RESEND_API_KEY` remains
+supported as a fallback.
+
+New-post notifications are placed on the dedicated `blognice-email` Cloudflare
+Queue and delivered by a retrying consumer in controlled batches. Delivery
+state is recorded in `email_delivery_log` so a retried queue message does not
+normally send the same notification twice.
+
+## Stripe billing (initial foundation)
+
+Blog Nice uses Stripe-hosted Checkout for starting a subscription and Stripe's
+hosted Customer Portal for payment methods, invoices, billing details, and
+cancellation. Billing belongs to the account owner, not collaborators. Access
+is updated only from verified Stripe webhooks; returning from Checkout never
+grants access by itself.
+
+Configure monthly and yearly recurring Stripe Prices in test mode, then set
+their IDs as `STRIPE_MONTHLY_PRICE_ID` and `STRIPE_YEARLY_PRICE_ID` on the public
+Worker (the legacy `STRIPE_PRICE_ID` is still accepted):
+
+    npx wrangler secret put STRIPE_SECRET_KEY --config wrangler.production.jsonc
+    npx wrangler secret put STRIPE_WEBHOOK_SECRET --config wrangler.production.jsonc
+
+The webhook endpoint is:
+
+    https://www.blognice.com/stripe/webhook
+
+Register it in Stripe Workbench for `checkout.session.completed`,
+`customer.subscription.created`, `customer.subscription.updated`,
+`customer.subscription.deleted`, and `invoice.payment_failed`. The hosted
+portal is configured in Stripe Dashboard; optionally set its configuration ID
+as `STRIPE_PORTAL_CONFIGURATION_ID`. The account billing page is
+`/admin/billing`.
+
+### Plans and feature boundaries
+
+The free plan includes one Blog Nice subdomain and the core writing experience:
+posts, drafts, image uploads, RSS, themes, tags, sharing, and basic metrics.
+Free accounts do not have AI image/narration, collaborators, custom domains,
+custom favicons, or API keys.
+
+The Pro plan supports up to five owned blogs and unlocks those paid features.
+Collaborative blogs do not count against a collaborator's own blog quota. The
+server enforces these boundaries using the account owner's verified Stripe
+status; the admin shell and `/admin/billing` show the current plan clearly.
+
+Paid blogs also have an **Audit log** at `/admin/b/<public-id>/audit`. It uses
+the existing `blognice_events` Analytics Engine dataset rather than D1, retains
+the latest 90 days, and records only action names, targets, and internal actor
+IDs—never post content, passwords, tokens, or API keys.
 Notifications fire on the draft→published transition, so re-saving a live post
 won't re-send. Note Resend's free tier caps (100/day, 3000/month) — fine to
 start; add batching/queueing before large lists.

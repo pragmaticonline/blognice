@@ -3,8 +3,10 @@ import test from "node:test";
 import {
   analyticsSql,
   archivePreviousDay,
+  auditReport,
   metricsBeacon,
   recordCustomEvent,
+  recordAuditEvent,
   recordPageView,
   reportQueries,
 } from "../src/metrics.ts";
@@ -53,6 +55,26 @@ test("audio engagement uses a separate Analytics Engine dataset", () => {
   });
   assert.deepEqual(point.indexes, ["7"]);
   assert.deepEqual(point.blobs, ["audio_start", "/hello", "8da6baef-62fa-426f-9fb4-fbd8c390fe50", "TH", "Mobile", "Safari"]);
+});
+
+test("audit events use the shared Analytics Engine dataset and a 90-day query", async () => {
+  let point;
+  recordAuditEvent({ EVENTS: { writeDataPoint(value) { point = value; } } }, 7, {
+    action: "post_published", target: "hello-world", actor: "42",
+  });
+  assert.deepEqual(point, {
+    indexes: ["7"],
+    blobs: ["audit:post_published", "hello-world", "42", "", "", ""],
+    doubles: [1],
+  });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    assert.match(String(init?.body), /INTERVAL '90' DAY/);
+    assert.match(String(init?.body), /blob1 LIKE 'audit:%'/);
+    return new Response(JSON.stringify({ data: [] }), { status: 200 });
+  };
+  try { assert.deepEqual(await auditReport({ CF_ACCOUNT_ID: "account", CF_ANALYTICS_TOKEN: "token" }, 7), []); }
+  finally { globalThis.fetch = originalFetch; }
 });
 
 test("public beacon avoids query strings and raw referrer storage", () => {

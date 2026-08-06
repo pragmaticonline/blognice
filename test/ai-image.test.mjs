@@ -76,6 +76,8 @@ test("one-click generation chains both models and saves to the media bucket", ()
   assert.match(index, /\/api\/v1\/blogs\/:blogId\/posts\/:id\/audio\/generations/);
   assert.match(index, /processImageJob\(env, jobMessage\.jobKey\)/);
   assert.match(index, /status_url/);
+  assert.match(index, /same-origin request required/);
+  assert.match(index, /requestOrigin !== adminOriginOf\(c\)/);
   assert.match(admin, /id="ai-generate"/);
   assert.doesNotMatch(admin, /id="ai-context"/);
   assert.match(admin, /child-crayon/);
@@ -86,5 +88,7 @@ test("one-click generation chains both models and saves to the media bucket", ()
   assert.match(admin, /!\[Generated image\]\(" \+ generatedImage\.url/);
   assert.match(admin, /generation-spinner/);
   assert.match(admin, /data-generation-seconds/);
+  assert.match(admin, /if \(!creativeDirection\)/);
+  assert.match(admin, /do not send the full draft over the wire/);
   assert.match(admin, /Generating narration/);
 });
