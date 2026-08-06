@@ -26,6 +26,10 @@ test("marketing homepage showcases AI images and an opt-in voice sample", () => 
   assert.match(indexSource, /TTS_MODEL/);
   assert.match(indexSource, /app\.get\("\/marketing-ai\/:file"/);
   assert.match(indexSource, /app\.get\("\/marketing-audio"/);
+  assert.match(indexSource, /marketing\/ai-voice\.wav/);
+  assert.match(indexSource, /audio\/wav/);
+  assert.match(indexSource, /marketing_audio_state/);
+  assert.match(indexSource, /INSERT OR IGNORE INTO marketing_audio_state/);
 });
 
 test("marketing homepage real example uses generic blogger imagery and address", () => {

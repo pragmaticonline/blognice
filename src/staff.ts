@@ -104,7 +104,7 @@ function sameOrigin(c: any): boolean {
   if (host) requestOrigins.add(`${requestUrl.protocol}//${host}`);
   if (origin) return requestOrigins.has(origin);
   const fetchSite = c.req.header("Sec-Fetch-Site");
-  if (fetchSite === "same-origin" || fetchSite === "same-site") return true;
+  if (fetchSite === "same-origin") return true;
   // Some browsers and privacy extensions omit Origin on same-origin DELETE
   // requests. Referer is the next-best CSRF signal in that case.
   const referer = c.req.header("Referer");
@@ -363,6 +363,7 @@ app.get("/tts-test", async (c) => {
 app.post("/api/tts-test", async (c) => {
   const staff = c.get("staff") as StaffIdentity;
   if (!canMutate(staff)) return c.json({ error: "staff role cannot run TTS tests" }, 403);
+  if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
   if (!c.env.AI) return c.json({ error: "Workers AI is not configured on the staff Worker." }, 503);
   const input = await c.req.json().catch(() => ({})) as Record<string, unknown>;
   const text = String(input.text || "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 240);
@@ -370,7 +371,7 @@ app.post("/api/tts-test", async (c) => {
   try {
     const bytes = await ttsTestWithRetry(c.env.AI, text);
     await audit(c, staff, { action: "tts-test", targetType: "tts", targetId: TTS_MODEL, reason: "Generate short pronunciation sample", result: "success", after: { characters: text.length } });
-    return new Response(bytes, { headers: { "content-type": "audio/mpeg", "cache-control": "no-store", "x-content-type-options": "nosniff" } });
+    return new Response(bytes, { headers: { "content-type": "audio/wav", "cache-control": "no-store", "x-content-type-options": "nosniff" } });
   } catch (error) {
     await audit(c, staff, { action: "tts-test", targetType: "tts", targetId: TTS_MODEL, reason: "Generate short pronunciation sample", result: "failure", after: { error: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200) } });
     return c.json({ error: "TTS sample generation failed." }, 502);

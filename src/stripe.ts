@@ -26,6 +26,54 @@ async function stripeRequest<T>(env: StripeEnv, path: string, params: URLSearchP
   return body;
 }
 
+async function stripeGet<T>(env: StripeEnv, path: string): Promise<T> {
+  if (!env.STRIPE_SECRET_KEY) throw new Error("Stripe is not configured.");
+  const response = await fetch(`https://api.stripe.com/v1/${path}`, {
+    headers: { Authorization: `Basic ${btoa(`${env.STRIPE_SECRET_KEY}:`)}` },
+  });
+  const body = await response.json().catch(() => ({})) as { error?: { message?: string } } & T;
+  if (!response.ok) throw new Error(body.error?.message || `Stripe returned HTTP ${response.status}.`);
+  return body;
+}
+
+export type StripeSubscription = {
+  id: string;
+  customer?: string;
+  created?: number;
+  status?: string;
+  current_period_end?: number;
+  cancel_at_period_end?: boolean;
+  items?: { data?: Array<{ price?: { id?: string }; current_period_end?: number }> };
+};
+
+export type CheckoutSubscriptionDecision = "adopt" | "same" | "ignore";
+
+/**
+ * Decide whether a completed Checkout session may become the account's current
+ * subscription. Stripe event delivery order is not authoritative: a delayed
+ * Checkout event for an older subscription can arrive after a newer purchase.
+ * The subscriptions' own creation timestamps provide the stable ordering.
+ */
+export function checkoutSubscriptionDecision(input: {
+  currentId?: string | null;
+  currentCreated?: number | null;
+  incomingId: string;
+  incomingCreated?: number | null;
+}): CheckoutSubscriptionDecision {
+  if (!input.currentId) return "adopt";
+  if (input.currentId === input.incomingId) return "same";
+  if (!input.currentCreated || !input.incomingCreated) return "ignore";
+  return input.incomingCreated > input.currentCreated ? "adopt" : "ignore";
+}
+
+export function subscriptionEventMatchesCurrent(currentId: string | null | undefined, incomingId: string): boolean {
+  return !currentId || currentId === incomingId;
+}
+
+export function retrieveSubscription(env: StripeEnv, subscriptionId: string) {
+  return stripeGet<StripeSubscription>(env, `subscriptions/${encodeURIComponent(subscriptionId)}`);
+}
+
 export function createCheckoutSession(env: StripeEnv, input: { accountId: number; email: string; successUrl: string; cancelUrl: string; priceId: string; customerId?: string | null }) {
   const params = new URLSearchParams();
   params.set("mode", "subscription");

@@ -17,6 +17,13 @@ DROP TABLE IF EXISTS staff_users;
 DROP TABLE IF EXISTS pronunciation_overrides;
 DROP TABLE IF EXISTS sessions;
 DROP TABLE IF EXISTS password_resets;
+DROP TABLE IF EXISTS password_reset_tokens;
+DROP TABLE IF EXISTS stripe_events;
+DROP TABLE IF EXISTS email_delivery_log;
+DROP TABLE IF EXISTS subscription_manage_tokens;
+DROP TABLE IF EXISTS ai_credit_usage;
+DROP TABLE IF EXISTS ai_credit_refunds;
+DROP TABLE IF EXISTS marketing_audio_state;
 DROP TABLE IF EXISTS memberships;
 DROP TABLE IF EXISTS blog_invitations;
 DROP TABLE IF EXISTS accounts;
@@ -50,11 +57,38 @@ CREATE TABLE accounts (
   status     TEXT    NOT NULL DEFAULT 'active',  -- active | suspended
   status_reason TEXT,
   status_changed_at INTEGER,
+  stripe_customer_id TEXT,
+  stripe_subscription_id TEXT,
+  billing_status TEXT NOT NULL DEFAULT 'inactive',
+  billing_price_id TEXT,
+  billing_period_end INTEGER,
+  billing_cancel_at_period_end INTEGER NOT NULL DEFAULT 0,
+  billing_updated_at INTEGER,
+  billing_event_created_at INTEGER,
+  billing_event_id TEXT,
+  billing_subscription_created_at INTEGER,
+  billing_subscription_event_created_at INTEGER,
+  billing_invoice_event_created_at INTEGER,
   created_at INTEGER NOT NULL
 );
 
 CREATE INDEX idx_accounts_api_key ON accounts (api_key_hash);
 CREATE INDEX idx_accounts_status ON accounts (status, created_at DESC);
+CREATE UNIQUE INDEX idx_accounts_stripe_customer ON accounts (stripe_customer_id);
+CREATE UNIQUE INDEX idx_accounts_stripe_subscription ON accounts (stripe_subscription_id);
+
+CREATE TABLE stripe_events (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  processed_at INTEGER NOT NULL DEFAULT 0,
+  account_id INTEGER,
+  status TEXT NOT NULL DEFAULT 'processed',
+  last_error TEXT,
+  FOREIGN KEY (account_id) REFERENCES accounts (id) ON DELETE SET NULL
+);
+CREATE INDEX idx_stripe_events_account ON stripe_events (account_id, processed_at DESC);
+CREATE INDEX idx_stripe_events_status ON stripe_events (status, created_at);
 
 CREATE TABLE staff_users (
   subject TEXT PRIMARY KEY,
@@ -162,3 +196,87 @@ CREATE TABLE subscribers (
 );
 
 CREATE INDEX idx_subscribers_tenant ON subscribers (tenant_id, created_at DESC);
+
+CREATE TABLE subscription_manage_tokens (
+  email TEXT PRIMARY KEY,
+  token TEXT NOT NULL UNIQUE,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX idx_subscription_manage_tokens_token ON subscription_manage_tokens(token);
+
+CREATE TABLE email_delivery_log (
+  idempotency_key TEXT PRIMARY KEY,
+  status TEXT NOT NULL DEFAULT 'pending',
+  recipient TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  sent_at INTEGER
+);
+CREATE INDEX idx_email_delivery_log_status ON email_delivery_log(status, created_at);
+
+CREATE TABLE password_reset_tokens (
+  token_hash TEXT PRIMARY KEY,
+  account_id INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used_at INTEGER,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_password_reset_account ON password_reset_tokens(account_id, expires_at);
+
+CREATE TABLE password_resets (
+  token_hash TEXT PRIMARY KEY,
+  account_id INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used INTEGER NOT NULL DEFAULT 0,
+  FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_password_resets_account ON password_resets(account_id, expires_at);
+
+CREATE TABLE ai_credit_usage (
+  account_id INTEGER NOT NULL,
+  period TEXT NOT NULL,
+  credits_used INTEGER NOT NULL DEFAULT 0,
+  allowance INTEGER NOT NULL DEFAULT 1000,
+  PRIMARY KEY (account_id, period),
+  FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_ai_credit_usage_period ON ai_credit_usage(period);
+
+CREATE TABLE ai_credit_refunds (
+  job_key TEXT PRIMARY KEY,
+  account_id INTEGER NOT NULL,
+  period TEXT NOT NULL,
+  credits INTEGER NOT NULL,
+  refunded_at INTEGER NOT NULL,
+  applied INTEGER NOT NULL DEFAULT 0,
+  FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+);
+
+CREATE TABLE marketing_audio_state (
+  asset_key TEXT PRIMARY KEY,
+  generating_at INTEGER NOT NULL
+);
+
+CREATE TABLE pronunciation_overrides (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  term TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  spoken TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX idx_pronunciation_overrides_enabled ON pronunciation_overrides(enabled, term);
+
+INSERT OR IGNORE INTO pronunciation_overrides (term, spoken, enabled, created_at, updated_at)
+VALUES
+  ('AI', 'aiye eye', 1, strftime('%s', 'now'), strftime('%s', 'now')),
+  ('UI', 'U I', 1, strftime('%s', 'now'), strftime('%s', 'now')),
+  ('API', 'A P I', 1, strftime('%s', 'now'), strftime('%s', 'now')),
+  ('PNG', 'P N G', 1, strftime('%s', 'now'), strftime('%s', 'now')),
+  ('URL', 'U R L', 1, strftime('%s', 'now'), strftime('%s', 'now')),
+  ('US', 'U S', 1, strftime('%s', 'now'), strftime('%s', 'now')),
+  ('calmer', 'carlmar', 1, strftime('%s', 'now'), strftime('%s', 'now')),
+  ('formatting', 'format-ting', 1, strftime('%s', 'now'), strftime('%s', 'now')),
+  ('login', 'log in', 1, strftime('%s', 'now'), strftime('%s', 'now'));

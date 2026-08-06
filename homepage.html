@@ -843,7 +843,7 @@ they hand you a blank page.
       voiceStatus.textContent = voiceUrl ? 'Playing sample…' : 'Preparing sample…';
       try {
         if (!voiceUrl) {
-          const response = await fetch('/marketing-audio', { headers: { accept: 'audio/mpeg' } });
+          const response = await fetch('/marketing-audio', { headers: { accept: 'audio/wav' } });
           if (!response.ok) throw new Error('The voice sample is temporarily unavailable.');
           voiceUrl = URL.createObjectURL(await response.blob());
           voiceAudio.src = voiceUrl;

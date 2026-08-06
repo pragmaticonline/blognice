@@ -19,6 +19,14 @@ test("AI credit usage is account-period scoped and supports atomic reservations"
   assert.match(index, /credits_used \+ \? <= allowance/);
 });
 
+test("queued AI jobs refund only on terminal delivery", () => {
+  assert.match(index, /attempts >= 6/);
+  assert.match(index, /refundTerminalAiJob/);
+  assert.match(index, /ai_credit_refunds/);
+  assert.match(index, /changes\(\) > 0/);
+  assert.doesNotMatch(index, /job\.creditsRefunded = true;\s*\n\s*}\s*\n\s*await writeAudioJob/);
+});
+
 test("billing exposes remaining AI credits", () => {
   assert.match(index, /remaining/);
   assert.match(index, /ai_credit_usage WHERE account_id/);
