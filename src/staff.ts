@@ -2,12 +2,14 @@ import { Hono } from "hono";
 import { esc } from "./render";
 import { sendMailNice } from "./mailnice";
 import { generateResetToken, sha256hex } from "./auth";
+import { ttsBytes, TTS_MODEL } from "./tts";
 
 type StaffRole = "read_only" | "support" | "admin";
 type StaffIdentity = { subject: string; email: string; role: StaffRole };
 
 type StaffBindings = {
   DB: D1Database;
+  AI?: Ai;
   ACCESS_TEAM_DOMAIN?: string;
   ACCESS_AUD?: string;
   STAFF_ALLOWED_EMAILS?: string;
@@ -311,7 +313,34 @@ app.get("/pronunciations", async (c) => {
   const editor = canMutate(staff)
     ? `<div class="card"><h2>Add pronunciation</h2><p class="muted">Use an exact term and the way it should be spoken. Entries apply to future narration jobs; existing audio is unchanged.</p><form id="pronunciation-form"><label>Term <input name="term" required maxlength="80" placeholder="UI" style="padding:9px;border:1px solid var(--rule);border-radius:5px;margin:0 8px 0 4px"></label><label>Spoken as <input name="spoken" required maxlength="160" placeholder="U I" style="padding:9px;border:1px solid var(--rule);border-radius:5px;margin:0 8px 0 4px"></label><button class="btn" type="submit">Save pronunciation</button></form><p id="pronunciation-status" class="muted" aria-live="polite"></p></div><script>(function(){var form=document.getElementById('pronunciation-form');var status=document.getElementById('pronunciation-status');form.addEventListener('submit',async function(event){event.preventDefault();var button=form.querySelector('button');button.disabled=true;status.textContent='Saving…';var response=await fetch('/api/pronunciations',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({term:form.elements.term.value,spoken:form.elements.spoken.value})});var data=await response.json();if(response.ok)location.reload();else{button.disabled=false;status.textContent=data.error||'Could not save pronunciation.';}});document.querySelectorAll('[data-delete]').forEach(function(button){button.addEventListener('click',async function(){if(!confirm('Delete this pronunciation?'))return;button.disabled=true;var response=await fetch('/api/pronunciations/'+button.dataset.delete,{method:'DELETE'});if(response.ok)location.reload();else{button.disabled=false;alert('Could not delete pronunciation.');}});});})();</script>`
     : `<div class="notice">Your role is read-only. Support or admin staff can edit this dictionary.</div>`;
-  return c.html(staffPage("Pronunciation dictionary", `<header class="top"><h1><a href="/">BlogNice staff</a></h1><small>${esc(staff.email)} · ${esc(staff.role)}</small></header><nav><a href="/">Accounts</a><a href="/pronunciations">Pronunciation dictionary</a></nav><h2>Pronunciation dictionary</h2><p class="muted">Global substitutions used when preparing Blog Nice narration. For example, <code>UI</code> becomes <code>U I</code>.</p>${editor}<div class="card"><table><thead><tr><th>Term</th><th>Spoken form</th><th>Status</th><th></th></tr></thead><tbody>${rows || `<tr><td colspan="4" class="empty">No custom entries yet.</td></tr>`}</tbody></table></div>`));
+  return c.html(staffPage("Pronunciation dictionary", `<header class="top"><h1><a href="/">BlogNice staff</a></h1><small>${esc(staff.email)} · ${esc(staff.role)}</small></header><nav><a href="/">Accounts</a><a href="/pronunciations">Pronunciation dictionary</a><a href="/tts-test">TTS test</a></nav><h2>Pronunciation dictionary</h2><p class="muted">Global substitutions used when preparing Blog Nice narration. For example, <code>UI</code> becomes <code>U I</code>.</p>${editor}<div class="card"><table><thead><tr><th>Term</th><th>Spoken form</th><th>Status</th><th></th></tr></thead><tbody>${rows || `<tr><td colspan="4" class="empty">No custom entries yet.</td></tr>`}</tbody></table></div>`));
+});
+
+app.get("/tts-test", async (c) => {
+  const staff = c.get("staff") as StaffIdentity;
+  const editor = canMutate(staff)
+    ? `<div class="card"><h2>Short TTS test</h2><p class="muted">Generate a short sample without creating a post or consuming a customer’s AI allowance. Try variants such as <code>ay eye</code>, <code>eigh eye</code>, or <code>A, I</code>.</p><form id="tts-test-form"><label>Text <input name="text" required maxlength="240" value="AI is useful." style="padding:9px;border:1px solid var(--rule);border-radius:5px;min-width:360px"></label> <button class="btn" type="submit">Generate sample</button></form><p id="tts-test-status" class="muted" aria-live="polite"></p><audio id="tts-test-audio" controls hidden style="width:min(100%,520px)"></audio></div><script>(function(){var form=document.getElementById('tts-test-form');var status=document.getElementById('tts-test-status');var audio=document.getElementById('tts-test-audio');form.addEventListener('submit',async function(event){event.preventDefault();var button=form.querySelector('button');button.disabled=true;audio.hidden=true;status.textContent='Generating…';try{var response=await fetch('/api/tts-test',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:form.elements.text.value})});if(!response.ok){var data=await response.json().catch(function(){return {}});throw new Error(data.error||'Could not generate sample.');}var blob=await response.blob();if(audio.dataset.url)URL.revokeObjectURL(audio.dataset.url);audio.dataset.url=URL.createObjectURL(blob);audio.src=audio.dataset.url;audio.hidden=false;status.textContent='Sample ready.';await audio.play().catch(function(){});}catch(error){status.textContent=error.message||'Could not generate sample.';}finally{button.disabled=false;}});})();</script>`
+    : `<div class="notice">Your role is read-only. TTS testing requires support or admin access.</div>`;
+  return c.html(staffPage("TTS test", `<header class="top"><h1><a href="/">BlogNice staff</a></h1><small>${esc(staff.email)} · ${esc(staff.role)}</small></header><nav><a href="/">Accounts</a><a href="/pronunciations">Pronunciation dictionary</a><a href="/tts-test">TTS test</a></nav><h2>TTS test</h2><p class="muted">Use this for quick pronunciation experiments before regenerating a full article.</p>${editor}`));
+});
+
+app.post("/api/tts-test", async (c) => {
+  const staff = c.get("staff") as StaffIdentity;
+  if (!canMutate(staff)) return c.json({ error: "staff role cannot run TTS tests" }, 403);
+  if (!c.env.AI) return c.json({ error: "Workers AI is not configured on the staff Worker." }, 503);
+  const input = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const text = String(input.text || "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 240);
+  if (!text) return c.json({ error: "Enter a short phrase first." }, 400);
+  try {
+    const generated = await c.env.AI.run(TTS_MODEL, { prompt: text, lang: "en" }) as Uint8Array | { audio: string };
+    const bytes = ttsBytes(generated);
+    if (!bytes.length) return c.json({ error: "The model returned no audio." }, 502);
+    await audit(c, staff, { action: "tts-test", targetType: "tts", targetId: TTS_MODEL, reason: "Generate short pronunciation sample", result: "success", after: { characters: text.length } });
+    return new Response(bytes, { headers: { "content-type": "audio/mpeg", "cache-control": "no-store", "x-content-type-options": "nosniff" } });
+  } catch (error) {
+    await audit(c, staff, { action: "tts-test", targetType: "tts", targetId: TTS_MODEL, reason: "Generate short pronunciation sample", result: "failure", after: { error: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200) } });
+    return c.json({ error: "TTS sample generation failed." }, 502);
+  }
 });
 
 app.post("/api/pronunciations", async (c) => {
