@@ -1,0 +1,57 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "blognice",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-06-20",
+	"compatibility_flags": ["nodejs_compat"],
+	"limits": { "cpu_ms": 300000 },
+	"rules": [
+		{ "type": "Data", "globs": ["**/*.webp"], "fallthrough": false },
+		{ "type": "Text", "globs": ["**/*.html", "**/*.svg"], "fallthrough": false }
+	],
+	"vars": {
+		"ROOT_DOMAIN": "blognice.com",
+		"CF_ZONE_ID": "7e77e18b4b128bd2fbd6305e7bfb916e",
+		"CF_ACCOUNT_ID": "30142eba9e53a37522d1c59b298db661",
+		"CNAME_TARGET": "fallback.blognice.com",
+		"EMAIL_FROM": "Blog Nice <support@mailer.blognice.com>",
+		"STRIPE_MONTHLY_PRICE_ID": "price_1U15hNPBZtWrx4qGbiLxr4HL",
+		"STRIPE_YEARLY_PRICE_ID": "price_1U15hOPBZtWrx4qGIp4ariDb"
+	},
+	"routes": [
+		{ "pattern": "*/*", "zone_name": "blognice.com" },
+		{ "pattern": "blognice.com/*", "zone_name": "blognice.com" }
+	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "blognice",
+			"database_id": "228b44b6-806a-4730-8c44-1b44d01a6536"
+		},
+		{
+			"binding": "POSTS",
+			"database_name": "blognice-posts",
+			"database_id": "ec0e85e0-03ec-41af-993d-2002cc00728c"
+		}
+	],
+	"r2_buckets": [
+		{ "binding": "MEDIA", "bucket_name": "blognice-media" },
+		{ "binding": "METRICS_ARCHIVE", "bucket_name": "blognice-metrics" }
+	],
+	"analytics_engine_datasets": [
+		{ "binding": "METRICS", "dataset": "blognice_pageviews" },
+		{ "binding": "EVENTS", "dataset": "blognice_events" }
+	],
+	"triggers": { "crons": ["15 2 * * *"] },
+	"ai": { "binding": "AI" },
+	"queues": {
+		"producers": [
+			{ "binding": "AUDIO_QUEUE", "queue": "blognice-audio" },
+			{ "binding": "EMAIL_QUEUE", "queue": "blognice-email" }
+		],
+		"consumers": [
+			{ "queue": "blognice-audio", "max_batch_size": 1, "max_batch_timeout": 5, "max_retries": 5 },
+			{ "queue": "blognice-email", "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 5 }
+		]
+	}
+}
