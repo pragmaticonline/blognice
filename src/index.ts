@@ -78,6 +78,7 @@ import {
 } from "./metrics";
 import { checkoutSubscriptionDecision, createCheckoutSession, createPortalSession, retrieveSubscription, stripeConfigured, subscriptionEventMatchesCurrent, verifyStripeSignature } from "./stripe";
 import { renderMarkdown as renderMarkdownSafe } from "./markdown";
+import { buildSitemapIndexXml, cacheVariants, CACHE_VERSION, customDomainRedirectUrl, indexNowKey } from "./indexing";
 
 
 type Bindings = {
@@ -233,14 +234,8 @@ function originOf(c: { req: { url: string } }): string {
 }
 
 function customDomainRedirect(c: any, tenant: Tenant): Response | null {
-  const custom = (tenant.custom_domain || "").trim().toLowerCase();
-  if (!custom) return null;
-  const request = new URL(c.req.url);
-  const platformHost = `${tenant.slug}.${c.env.ROOT_DOMAIN}`.toLowerCase();
-  if (request.hostname.toLowerCase() !== platformHost) return null;
-  request.protocol = "https:";
-  request.host = custom;
-  return Response.redirect(request.toString(), 301);
+  const location = customDomainRedirectUrl(c.req.url, tenant, c.env.ROOT_DOMAIN);
+  return location ? Response.redirect(location, 308) : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -255,7 +250,7 @@ async function serveCached(
   // Bump this when public shell markup/CSS changes so old edge HTML cannot
   // hide newly shipped controls until the normal five-minute TTL expires.
   const cacheUrl = new URL(c.req.url);
-  cacheUrl.searchParams.set("_bn_shell", "20260805-7");
+  cacheUrl.searchParams.set("_bn_shell", CACHE_VERSION);
   const key = new Request(cacheUrl.toString(), { method: "GET" });
   const hit = await cache.match(key);
   if (hit) return hit;
@@ -272,7 +267,7 @@ async function purge(c: any, paths: string[]): Promise<void> {
   const cache = caches.default;
   const origin = originOf(c);
   await Promise.all(
-    paths.map((p) => cache.delete(new Request(origin + p, { method: "GET" })))
+    paths.flatMap((p) => cacheVariants(origin + p).map((url) => cache.delete(new Request(url, { method: "GET" }))))
   );
 }
 
@@ -281,9 +276,9 @@ async function purge(c: any, paths: string[]): Promise<void> {
 async function purgeHost(hostname: string, paths: string[]): Promise<void> {
   const cache = caches.default;
   await Promise.all(
-    paths.map((p) =>
-      cache.delete(new Request(`https://${hostname}${p}`, { method: "GET" }))
-    )
+    paths.flatMap((p) => cacheVariants(`https://${hostname}${p}`).map((url) =>
+      cache.delete(new Request(url, { method: "GET" }))
+    ))
   );
 }
 
@@ -366,7 +361,8 @@ async function purgeTenant(
   const purgePaths = Array.from(new Set([...paths, "/rss.xml"]));
   for (const host of hosts)
     for (const p of purgePaths)
-      jobs.push(cache.delete(new Request(`https://${host}${p}`, { method: "GET" })));
+      for (const url of cacheVariants(`https://${host}${p}`))
+        jobs.push(cache.delete(new Request(url, { method: "GET" })));
   await Promise.all(jobs);
 }
 
@@ -408,7 +404,7 @@ async function processIndexNow(env: Bindings, job: IndexNowMessage): Promise<voi
     grouped.set(host, list);
   }
   for (const [host, urls] of grouped) {
-    const key = await sha256hex(`${env.INDEXNOW_MASTER_SECRET}:${host}`);
+    const key = await indexNowKey(env.INDEXNOW_MASTER_SECRET, host);
     const response = await fetch("https://api.indexnow.org/indexnow", {
       method: "POST",
       headers: { "content-type": "application/json; charset=utf-8" },
@@ -491,7 +487,7 @@ app.get("/.well-known/indexnow/:key", async (c) => {
   const host = new URL(c.req.url).hostname.toLowerCase();
   const tenant = await resolveTenant(c.env, host);
   if (!secret || !tenant) return c.text("Not found", 404);
-  const expected = await sha256hex(`${secret}:${host}`);
+  const expected = await indexNowKey(secret, host);
   if (c.req.param("key") !== expected) return c.text("Not found", 404);
   return c.text(expected, { headers: { "cache-control": "public, max-age=86400, immutable" } });
 });
@@ -749,10 +745,7 @@ app.get("/sitemap-index.xml", async (c) => {
     const { results } = await c.env.DB.prepare(
       "SELECT slug FROM tenants WHERE custom_domain IS NULL AND slug <> 'www' ORDER BY created_at"
     ).all<{ slug: string }>();
-    const entries = results.map((tenant) =>
-      `<sitemap><loc>https://${esc(tenant.slug)}.${esc(c.env.ROOT_DOMAIN)}/sitemap.xml</loc></sitemap>`
-    ).join("");
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${entries}</sitemapindex>`;
+    const xml = buildSitemapIndexXml(results.map((tenant) => tenant.slug), c.env.ROOT_DOMAIN);
     return new Response(xml, { headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=300" } });
   });
 });
@@ -2004,16 +1997,18 @@ app.post("/admin/b/:blogId/save", async (c) => {
   const pdb = tenantDb(c.env, ctx.tenant);
   let savedId = idParam ? Number(idParam) : undefined;
   let wasPublished = 0;
+  let previousSlug = "";
   if (idParam) {
     const prev = await pdb
-      .prepare("SELECT published, author_account_id, author_name FROM posts WHERE id = ? AND tenant_id = ?")
+      .prepare("SELECT slug, published, author_account_id, author_name FROM posts WHERE id = ? AND tenant_id = ?")
       .bind(idParam, ctx.tenant.id)
-      .first<{ published: number; author_account_id: number | null; author_name: string | null }>();
+      .first<{ slug: string; published: number; author_account_id: number | null; author_name: string | null }>();
     if (!prev) return c.text("Post not found.", 404);
     if (!can(ctx.role, "posts.edit.any") &&
         !(can(ctx.role, "posts.edit.own") && prev.author_account_id === ctx.account.id))
       return c.text("You do not have permission to edit this post.", 403);
     wasPublished = prev?.published ?? 0;
+    previousSlug = prev?.slug ?? "";
   }
   try {
     if (idParam) {
@@ -2046,9 +2041,9 @@ app.post("/admin/b/:blogId/save", async (c) => {
   }
 
   c.executionCtx.waitUntil(
-    purgeTenant(c.env, ctx.tenant, ["/", "/" + slug, "/sitemap.xml"])
+    purgeTenant(c.env, ctx.tenant, ["/", ...(previousSlug ? ["/" + previousSlug] : []), "/" + slug, "/sitemap.xml"])
   );
-  if (published === 1 || wasPublished === 1) queueIndexNow(c, ctx.tenant, ["/", "/" + slug]);
+  if (published === 1 || wasPublished === 1) queueIndexNow(c, ctx.tenant, ["/", ...(previousSlug ? ["/" + previousSlug] : []), "/" + slug]);
   // Email subscribers when a post first goes live (draft/new -> published).
   if (published === 1 && wasPublished === 0)
     c.executionCtx.waitUntil(notifySubscribers(c.env, ctx.tenant, { slug, title }));
@@ -2069,10 +2064,10 @@ app.post("/admin/b/:blogId/delete/:id", async (c) => {
   if (denied) return denied;
   const pdb = tenantDb(c.env, ctx.tenant);
   const post = await pdb.prepare(
-    "SELECT slug, audio_key FROM posts WHERE id = ? AND tenant_id = ?"
+    "SELECT slug, published, audio_key FROM posts WHERE id = ? AND tenant_id = ?"
   )
     .bind(c.req.param("id"), ctx.tenant.id)
-    .first<{ slug: string; audio_key: string | null }>();
+    .first<{ slug: string; published: number; audio_key: string | null }>();
   if (post) {
     await pdb.prepare("DELETE FROM posts WHERE id = ? AND tenant_id = ?")
       .bind(c.req.param("id"), ctx.tenant.id)
@@ -2081,7 +2076,7 @@ app.post("/admin/b/:blogId/delete/:id", async (c) => {
     c.executionCtx.waitUntil(
       purgeTenant(c.env, ctx.tenant, ["/", "/" + post.slug, "/sitemap.xml"])
     );
-    if (post.slug) queueIndexNow(c, ctx.tenant, ["/", "/" + post.slug]);
+    if (post.published) queueIndexNow(c, ctx.tenant, ["/", "/" + post.slug]);
     queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "post_deleted", post.slug);
   }
   return c.redirect(`/admin/b/${ctx.tenant.public_id}`);
