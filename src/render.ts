@@ -391,6 +391,7 @@ const STYLES = /* css */ `
   .share-x { --share-color: #111111; }
   .share-facebook { --share-color: #1877f2; }
   .share-linkedin { --share-color: #0a66c2; }
+  .share-reddit { --share-color: #ff4500; }
   .share-button.share-copy.is-copied { color: var(--accent); border-color: var(--accent); }
   .share-inline { display: none; }
   .byline-name { font-family: var(--sans); font-size: 1rem; color: var(--ink); font-weight: 500; }
@@ -696,6 +697,7 @@ export function renderPost(
     <a class="share-button share-x" href="https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareTitle)}" target="_blank" rel="noopener noreferrer" data-tooltip="X" aria-label="Share on X">𝕏</a>
     <a class="share-button share-facebook" href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}" target="_blank" rel="noopener noreferrer" data-tooltip="Facebook" aria-label="Share on Facebook">f</a>
     <a class="share-button share-linkedin" href="https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}" target="_blank" rel="noopener noreferrer" data-tooltip="LinkedIn" aria-label="Share on LinkedIn">in</a>
+    <a class="share-button share-reddit" href="https://www.reddit.com/submit?url=${encodeURIComponent(shareUrl)}&title=${encodeURIComponent(shareTitle)}" target="_blank" rel="noopener noreferrer" data-tooltip="Reddit" aria-label="Share on Reddit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.2c-3.8 0-6.9 2.3-6.9 5.2s3.1 5.2 6.9 5.2 6.9-2.3 6.9-5.2-3.1-5.2-6.9-5.2Zm-3.1 5.1a1 1 0 1 1 0 2 1 1 0 0 1 0-2Zm6.2 0a1 1 0 1 1 0 2 1 1 0 0 1 0-2ZM9.2 14c.8.7 1.7 1 2.8 1s2-.3 2.8-1l.7.7c-.9.9-2.1 1.4-3.5 1.4s-2.6-.5-3.5-1.4l.7-.7Z"/><path d="m14.1 5.5.8-2.6 2.3.5a1.5 1.5 0 1 0 .2-1l-3-.7a.5.5 0 0 0-.6.4l-1 3.3 1.3.1Z"/></svg></a>
   </div>`;
   const shareScript = `<script>(function(){var buttons=document.querySelectorAll("[data-share-copy]");buttons.forEach(function(button){button.addEventListener("click",function(){var value=button.getAttribute("data-share-copy")||location.href;var done=function(){button.classList.add("is-copied");button.textContent="✓";setTimeout(function(){button.classList.remove("is-copied");button.textContent="↗"},1400)};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(value).then(done).catch(function(){})}else{var input=document.createElement("input");input.value=value;document.body.appendChild(input);input.select();try{document.execCommand("copy");done()}catch(e){}input.remove()}})})})();</script>`;
   const featuredBlock = post.featured_image_key
