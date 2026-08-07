@@ -99,12 +99,38 @@ function hex(bytes: ArrayBuffer): string {
   return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+function constantTimeHexEqual(actual: string, expected: string): boolean {
+  // Stripe sends a SHA-256 HMAC as 64 lowercase hexadecimal characters. Keep
+  // the comparison length fixed so a valid-looking signature is not checked
+  // with an ordinary short-circuiting string comparison.
+  if (!/^[0-9a-f]{64}$/.test(actual) || !/^[0-9a-f]{64}$/.test(expected)) return false;
+  const decode = (value: string) => Uint8Array.from({ length: 32 }, (_, index) => Number.parseInt(value.slice(index * 2, index * 2 + 2), 16));
+  const left = decode(actual);
+  const right = decode(expected);
+  const subtle = crypto.subtle as SubtleCrypto & { timingSafeEqual?: (a: ArrayBufferView, b: ArrayBufferView) => boolean };
+  if (typeof subtle.timingSafeEqual === "function") return subtle.timingSafeEqual(left, right);
+  // Node's test Web Crypto currently lacks timingSafeEqual; retain a fixed-
+  // length fallback so local tests exercise the same comparison semantics.
+  let difference = 0;
+  for (let index = 0; index < left.length; index++) difference |= left[index] ^ right[index];
+  return difference === 0;
+}
+
 export async function verifyStripeSignature(rawBody: string, signature: string | undefined, secret: string | undefined): Promise<boolean> {
   if (!signature || !secret) return false;
-  const parts = Object.fromEntries(signature.split(",").map((part) => part.split("=", 2))) as Record<string, string>;
-  const timestamp = Number(parts.t);
-  if (!Number.isFinite(timestamp) || Math.abs(Date.now() / 1000 - timestamp) > 300 || !parts.v1) return false;
+  const parts: Record<string, string[]> = {};
+  for (const part of signature.split(",")) {
+    const separator = part.indexOf("=");
+    if (separator < 1) continue;
+    const name = part.slice(0, separator).trim();
+    const value = part.slice(separator + 1).trim();
+    (parts[name] ||= []).push(value);
+  }
+  const timestamp = Number(parts.t?.[0]);
+  if (!Number.isFinite(timestamp) || Math.abs(Date.now() / 1000 - timestamp) > 300 || !parts.v1?.length) return false;
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const digest = hex(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${timestamp}.${rawBody}`)));
-  return digest === parts.v1;
+  let matched = false;
+  for (const candidate of parts.v1) matched = constantTimeHexEqual(digest, candidate) || matched;
+  return matched;
 }

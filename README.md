@@ -13,7 +13,7 @@ fast, server-rendered pages.
 
 - **One Worker** ([Hono](https://hono.dev)) that routes every request to the
   right tenant based on the `Host` header, renders Markdown through a
-  dependency-free HTML allowlist, and serves it server-side (good for SEO, with
+  sanitized Markdown-to-HTML pipeline, and serves it server-side (good for SEO, with
   only small progressive scripts for editor, audio, and metrics behavior).
 - **One D1 database** (Cloudflare's SQLite) holding two tables: `tenants` and
   `posts`. All queries filter by `tenant_id`.

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { accountHasPaidPlan } from "../src/auth.ts";
-import { checkoutSubscriptionDecision, subscriptionEventMatchesCurrent } from "../src/stripe.ts";
+import { checkoutSubscriptionDecision, subscriptionEventMatchesCurrent, verifyStripeSignature } from "../src/stripe.ts";
 
 const source = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
 const stripe = readFileSync(new URL("../src/stripe.ts", import.meta.url), "utf8");
@@ -21,7 +21,24 @@ test("Stripe webhook verifies the raw signed payload and deduplicates events", (
   assert.match(source, /Stripe-Signature/);
   assert.match(source, /stripe_events/);
   assert.match(stripe, /HMAC/);
+  assert.match(stripe, /constantTimeHexEqual/);
+  assert.match(stripe, /constantTimeHexEqual\(digest, candidate\)/);
   assert.match(migration, /stripe_subscription_id/);
+});
+
+test("Stripe signature verification accepts valid and repeated signatures only within the time window", async () => {
+  const body = JSON.stringify({ id: "evt_test" });
+  const secret = "whsec_test_secret";
+  const timestamp = Math.floor(Date.now() / 1000);
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const bytes = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${timestamp}.${body}`));
+  const digest = [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  assert.equal(await verifyStripeSignature(body, `t=${timestamp},v1=${digest}`, secret), true);
+  assert.equal(await verifyStripeSignature(body, `t=${timestamp},v1=${"0".repeat(64)},v1=${digest}`, secret), true);
+  const altered = `${digest[0] === "0" ? "1" : "0"}${digest.slice(1)}`;
+  assert.equal(await verifyStripeSignature(body, `t=${timestamp},v1=${altered}`, secret), false);
+  assert.equal(await verifyStripeSignature(body, `t=${timestamp},v1=not-a-signature`, secret), false);
+  assert.equal(await verifyStripeSignature(body, `t=${timestamp - 301},v1=${digest}`, secret), false);
 });
 
 test("Stripe webhook processing is retryable and rejects stale events", () => {

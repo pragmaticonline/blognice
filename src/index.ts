@@ -127,8 +127,8 @@ function legacyRenderMarkdown(md: string): string {
 // renderer is the parser-based implementation in src/markdown.ts.
 // Markdown is authored by collaborators, so raw HTML must not become a stored
 // XSS vector. Keep harmless formatting while removing executable/embed content
-// and event/javascript URLs. This intentionally stays dependency-free for the
-// Worker bundle; Markdown links and images are still supported.
+// and event/javascript URLs. This historical implementation was dependency-free;
+// it is inactive and retained only as a record of the former approach.
 function sanitizeRenderedHtml(html: string): string {
   const safeTags = new Set([
     "p", "br", "hr", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "em",
