@@ -17,6 +17,21 @@ test("Stripe billing uses hosted Checkout and Customer Portal", () => {
   assert.match(stripe, /billing_portal\/sessions/);
 });
 
+test("billing presents monthly AI credits and Stripe-owned plan management", () => {
+  assert.match(source, /AI usage/);
+  assert.match(source, /credits remaining this month/);
+  assert.match(source, /Resets \$\{esc\(resetDate\)\}/);
+  assert.match(source, /Images use 3 credits\. Audio narration uses credits based on word count/);
+  assert.match(source, /Payment details, receipts, invoices, cancellations, and plan changes are managed securely in Stripe/);
+  assert.doesNotMatch(source, /Buy more credits/);
+  assert.match(source, /STRIPE_MONTHLY_PRICE_ID/);
+  assert.match(source, /STRIPE_YEARLY_PRICE_ID/);
+  assert.match(source, /Fix payment in Stripe/);
+  assert.match(source, /View billing history in Stripe/);
+  assert.match(source, /billing-main-action/);
+  assert.doesNotMatch(source, /active \? \(term === "monthly" \? `.*Manage billing in Stripe/);
+});
+
 test("Stripe webhook verifies the raw signed payload and deduplicates events", () => {
   assert.match(source, /Stripe-Signature/);
   assert.match(source, /stripe_events/);
@@ -99,7 +114,7 @@ test("a canceled subscription can transition to a newer paid subscription", () =
 
 test("free and paid plan boundaries are visible and enforced", () => {
   assert.match(source, /Free plan/);
-  assert.match(source, /Pro — active/);
+  assert.match(source, /Pro · Monthly/);
   assert.match(source, /Free accounts can own one blog/);
   assert.match(source, /AI image generation requires a paid plan/);
   assert.match(source, /Collaborators are available on a paid plan/);
