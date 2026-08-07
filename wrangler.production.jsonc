@@ -13,7 +13,7 @@
 		"CF_ZONE_ID": "7e77e18b4b128bd2fbd6305e7bfb916e",
 		"CF_ACCOUNT_ID": "30142eba9e53a37522d1c59b298db661",
 		"CNAME_TARGET": "fallback.blognice.com",
-		"EMAIL_FROM": "Blog Nice <support@mailer.blognice.com>",
+		"EMAIL_FROM": "blognice <support@mailer.blognice.com>",
 		"STRIPE_MONTHLY_PRICE_ID": "price_1U15hNPBZtWrx4qGbiLxr4HL",
 		"STRIPE_YEARLY_PRICE_ID": "price_1U15hOPBZtWrx4qGIp4ariDb"
 	},
