@@ -625,7 +625,7 @@ ${canonical ? `<meta property="og:url" content="${esc(canonical)}">` : ""}${imag
   ${body}
 </div>
 <footer>
-  <span>${esc(tenant.title)}</span> &middot; powered by <a href="https://blognice.com">Blog&nbsp;Nice</a>
+  <span>${esc(tenant.title)}</span> &middot; powered by <a href="https://blognice.com">blognice</a>
 </footer>
 ${metricsBeacon()}
 <script>(function(){var button=document.getElementById("theme-toggle");if(button){function update(){var dark=document.documentElement.dataset.theme==="dark";button.setAttribute("aria-label",dark?"Use light theme":"Use dark theme");button.setAttribute("title",dark?"Use light theme":"Use dark theme");button.setAttribute("aria-pressed",dark?"true":"false")}update();button.addEventListener("click",function(){var dark=document.documentElement.dataset.theme!=="dark";document.documentElement.dataset.theme=dark?"dark":"light";try{localStorage.setItem("blognice-theme",dark?"dark":"light")}catch(e){}update()})}var top=document.getElementById("to-top");if(!top)return;function reveal(){var max=document.documentElement.scrollHeight-window.innerHeight;top.classList.toggle("visible",max>0&&window.scrollY/max>.35)}window.addEventListener("scroll",reveal,{passive:true});reveal();top.addEventListener("click",function(){window.scrollTo({top:0,behavior:"smooth"})})})();</script>
@@ -745,7 +745,7 @@ export function renderPost(
 }
 
 export function renderNotFound(tenant: Tenant | null): string {
-  const title = tenant ? tenant.title : "Blog Nice";
+  const title = tenant ? tenant.title : "blognice";
   const body = `<article>
     <h1>Not found</h1>
     <div class="prose"><p>That page doesn't exist.</p></div>
@@ -754,9 +754,9 @@ export function renderNotFound(tenant: Tenant | null): string {
   if (!tenant) {
     return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Blog Nice</title><style>${STYLES}</style></head>
+<title>blognice</title><style>${STYLES}</style></head>
 <body><div class="wrap"><article><h1>No blog here yet</h1>
-<div class="prose"><p>This domain isn't connected to a Blog Nice site.</p></div>
+<div class="prose"><p>This domain isn't connected to a blognice site.</p></div>
 </article></div></body></html>`;
   }
   return shell({

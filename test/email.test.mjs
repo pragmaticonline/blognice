@@ -16,7 +16,7 @@ test("MailNice is preferred for transactional email", () => {
 });
 
 test("signup queues a registration welcome without blocking account creation", () => {
-  assert.match(index, /subject: "Welcome to Blog Nice"/);
+  assert.match(index, /subject: "Welcome to blognice"/);
   assert.match(index, /c\.executionCtx\.waitUntil\(sendEmail\(c\.env/);
 });
 
@@ -29,7 +29,7 @@ test("subscription emails include one-click and manage-subscriptions links", () 
 test("verified Stripe activation queues one idempotent Pro welcome email", () => {
   assert.match(index, /customer\.subscription\.created/);
   assert.match(index, /subscription-welcome:/);
-  assert.match(index, /Welcome to Blog Nice Pro/);
+  assert.match(index, /Welcome to blognice Pro/);
   assert.match(index, /INSERT OR IGNORE INTO email_delivery_log/);
   assert.match(index, /Stripe will send your payment receipt separately/);
 });

@@ -65,7 +65,7 @@ test("staff can send a rate-limited password reset email with an audit trail", (
   assert.match(staff, /password_resets/);
   assert.match(staff, /A reset email was already issued/);
   assert.match(staff, /send-password-reset/);
-  assert.match(staff, /Reset your Blog Nice password/);
+  assert.match(staff, /Reset your blognice password/);
 });
 
 test("suspended accounts cannot use customer sessions or API keys", () => {

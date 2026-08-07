@@ -4,7 +4,7 @@ import type { Account } from "./auth";
 import type { AuditEntry, MetricsReport } from "./metrics";
 
 const ACCENT_PRESETS = [
-  ["Blog Nice green", "#1a8917"],
+  ["blognice green", "#1a8917"],
   ["Ocean blue", "#2563eb"],
   ["Deep teal", "#0f766e"],
   ["Indigo", "#4f46e5"],
@@ -293,7 +293,7 @@ export function shell(
 ) {
   const paid = ["active", "trialing", "past_due"].includes(String(account?.billing_status || "inactive"));
   const planBadge = account
-    ? `<a class="plan-badge ${paid ? "paid" : "free"}" href="/admin/billing" title="View your Blog Nice plan">${paid ? "Pro" : "Free"}</a>`
+    ? `<a class="plan-badge ${paid ? "paid" : "free"}" href="/admin/billing" title="View your blognice plan">${paid ? "Pro" : "Free"}</a>`
     : "";
   let bar = "";
   if (account && tenant) {
@@ -319,7 +319,7 @@ export function shell(
     const drawerLinks = navItems.map(([key, label, href]) => `<a class="owner-drawer-link ${activeNav === key ? "active" : ""}" href="${href}">${label}</a>`).join("");
     bar = `<header class="topbar globalbar owner-topbar">
         <div class="owner-topbar-inner">
-          <a class="brand" href="/admin?list=1">Blog Nice</a>
+          <a class="brand" href="/admin?list=1">blognice</a>
           <div class="owner-account">
             <span class="owner-account-email">${esc(account.email)}</span>${planBadge}
             <a href="/admin?list=1">Blogs</a>
@@ -349,7 +349,7 @@ export function shell(
   } else if (account) {
     // Account-level pages (blog list, new blog).
     bar = `<div class="topbar">
-        <span class="brand">Blog Nice</span>
+        <span class="brand">blognice</span>
         <div class="right">
           <span style="color:var(--muted);font-size:0.85rem">${esc(account.email)}</span>${planBadge}
           <a href="/admin?list=1">Blogs</a>
@@ -468,7 +468,7 @@ export function signupPage(
     inviteToken ? "Join a blog" : "Create your blog",
     `<div class="page narrow">
       <h1>${inviteToken ? "Join a blog" : "Create your blog"}</h1>
-      ${inviteToken ? `<p style="color:var(--muted)">Create your BlogNice account to accept this invitation.</p>` : ""}
+      ${inviteToken ? `<p style="color:var(--muted)">Create your blognice account to accept this invitation.</p>` : ""}
       ${error ? `<div class="error">${esc(error)}</div>` : ""}
       <form method="post" action="/signup">
         ${inviteToken ? `<input type="hidden" name="invite" value="${esc(inviteToken)}">` : ""}
@@ -862,7 +862,7 @@ export function editorPage(
   return shell(
     isEdit ? `Edit — ${tenant.title}` : `New post — ${tenant.title}`,
     `<div class="page">
-      <div class="breadcrumb"><a href="/admin?list=1">Blog Nice</a> / <a href="${base}">${esc(tenant.title)}</a> / ${isEdit ? "Edit post" : "New post"}</div>
+      <div class="breadcrumb"><a href="/admin?list=1">blognice</a> / <a href="${base}">${esc(tenant.title)}</a> / ${isEdit ? "Edit post" : "New post"}</div>
       <h1>${isEdit ? "Edit post" : "New post"}</h1>
       ${error ? `<div class="error">${esc(error)}</div>` : ""}
       <form id="post-editor-form" method="post" action="${action}">

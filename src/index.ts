@@ -1623,14 +1623,14 @@ async function sendForgotPasswordHandler(c: Context<{ Bindings: Bindings }>) {
         emailKind: "password-reset",
         idempotencyKey: `password-reset:${tokenHash}`,
         to: account.email,
-        subject: "Reset your Blog Nice password",
-        plainText: `We received a request to reset your Blog Nice password.\n\nReset it here: ${resetUrl}\n\nThis link expires in one hour. If you did not request this, you can ignore this email.`,
-        html: `<p>We received a request to reset your Blog Nice password.</p><p><a href="${resetUrl}">Reset your password</a></p><p style="color:#687064;font-size:13px">This link expires in one hour. If you did not request this, you can ignore this email.</p>`,
+        subject: "Reset your blognice password",
+        plainText: `We received a request to reset your blognice password.\n\nReset it here: ${resetUrl}\n\nThis link expires in one hour. If you did not request this, you can ignore this email.`,
+        html: `<p>We received a request to reset your blognice password.</p><p><a href="${resetUrl}">Reset your password</a></p><p style="color:#687064;font-size:13px">This link expires in one hour. If you did not request this, you can ignore this email.</p>`,
       };
       if (emailEnabled(c.env) || c.env.MAILNICE_API_KEY || c.env.RESEND_API_KEY) {
         // Password resets are transactional and time-sensitive. Await the
         // provider request so a failed fetch cannot be lost with the response.
-        const emailEnv = { ...c.env, EMAIL_FROM: c.env.EMAIL_FROM || "Blog Nice <support@mailer.blognice.com>" };
+      const emailEnv = { ...c.env, EMAIL_FROM: c.env.EMAIL_FROM || "blognice <support@mailer.blognice.com>" };
         try {
           const result = await sendEmailDetailed(emailEnv, job);
           if (!result.ok) console.error("Password reset email provider rejected the message", {
@@ -3279,7 +3279,7 @@ app.get("/marketing-audio", async (c) => {
     if (!reclaimed.meta.changes) return c.json({ error: "The voice sample is being prepared. Please try again shortly." }, 503);
   }
   try {
-    const bytes = await generateSpeechWithRecovery(c.env.AI, "Welcome to Blog Nice. A nicer way to blog.");
+    const bytes = await generateSpeechWithRecovery(c.env.AI, "Welcome to blognice. A nicer way to blog.");
     await c.env.MEDIA.put(assetKey, bytes, { httpMetadata: { contentType: "audio/wav", cacheControl: "public, max-age=31536000, immutable" } });
     await c.env.DB.prepare("DELETE FROM marketing_audio_state WHERE asset_key = ?").bind(assetKey).run();
     const response = new Response(bytes, {
@@ -3426,9 +3426,9 @@ app.post("/signup", async (c) => {
     await c.env.DB.prepare("UPDATE blog_invitations SET accepted_at = ? WHERE id = ?").bind(now, invite.id).run();
     c.executionCtx.waitUntil(sendEmail(c.env, {
       to: email,
-      subject: "Welcome to Blog Nice",
-      plainText: "Welcome to Blog Nice!\n\nYour account is ready. Sign in to create and publish your first blog.",
-      html: "<h2>Welcome to Blog Nice!</h2><p>Your account is ready. Sign in to create and publish your first blog.</p>",
+      subject: "Welcome to blognice",
+      plainText: "Welcome to blognice!\n\nYour account is ready. Sign in to create and publish your first blog.",
+      html: "<h2>Welcome to blognice!</h2><p>Your account is ready. Sign in to create and publish your first blog.</p>",
     }));
     const tenant = await c.env.DB.prepare("SELECT public_id FROM tenants WHERE id = ?").bind(invite.tenant_id).first<{ public_id: string }>();
     const token = await createSession(c.env.DB, accountId);
@@ -3458,9 +3458,9 @@ app.post("/signup", async (c) => {
     .run();
   c.executionCtx.waitUntil(sendEmail(c.env, {
     to: email,
-    subject: "Welcome to Blog Nice",
-    plainText: "Welcome to Blog Nice!\n\nYour account is ready. Sign in to create and publish your first blog.",
-    html: "<h2>Welcome to Blog Nice!</h2><p>Your account is ready. Sign in to create and publish your first blog.</p>",
+    subject: "Welcome to blognice",
+    plainText: "Welcome to blognice!\n\nYour account is ready. Sign in to create and publish your first blog.",
+    html: "<h2>Welcome to blognice!</h2><p>Your account is ready. Sign in to create and publish your first blog.</p>",
   }));
 
   const token = await createSession(c.env.DB, accountId);
@@ -3818,7 +3818,7 @@ function billingPage(
     ? `${billing.billing_cancel_at_period_end ? "Ends" : "Renews"} ${new Date(Number(billing.billing_period_end) * 1000).toLocaleDateString()}`
     : "";
   const check = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="m5 13 4 4L19 7"/></svg>`;
-  const freeFeatures = ["One Blog Nice blog", "Blog Nice subdomain", "Editor, publishing, and images", "RSS, themes, tags, and basic metrics"];
+  const freeFeatures = ["One blognice blog", "blognice subdomain", "Editor, publishing, and images", "RSS, themes, tags, and basic metrics"];
   const proFeatures = ["Up to five blogs", "AI image generation and audio narration", "Collaborators and authors", "Custom domains and favicons", "API access"];
   const features = (items: string[]) => `<ul class="billing-features">${items.map((item) => `<li>${check}${esc(item)}</li>`).join("")}</ul>`;
   const checkout = (plan: "monthly" | "yearly", label: string, cls = "") => `<form method="post" action="/admin/billing/checkout"><input type="hidden" name="plan" value="${plan}"><button class="billing-btn ${cls}" type="submit">${label}</button></form>`;
@@ -3986,9 +3986,9 @@ app.post("/stripe/webhook", async (c) => {
             emailKind: "subscription-welcome",
             idempotencyKey,
             to: account.email,
-            subject: "Welcome to Blog Nice Pro",
-            plainText: `Your Blog Nice Pro subscription is active.\n\nYou can now use AI features, collaborators, custom domains, favicons, and up to five blogs.\n\nManage billing: ${billingUrl}\n\nStripe will send your payment receipt separately.`,
-            html: `<p>Your <strong>Blog Nice Pro</strong> subscription is active.</p><p>You can now use AI features, collaborators, custom domains, favicons, and up to five blogs.</p><p><a href="${billingUrl}">Manage billing</a></p><p style="color:#687064;font-size:13px">Stripe will send your payment receipt separately.</p>`,
+            subject: "Welcome to blognice Pro",
+            plainText: `Your blognice Pro subscription is active.\n\nYou can now use AI features, collaborators, custom domains, favicons, and up to five blogs.\n\nManage billing: ${billingUrl}\n\nStripe will send your payment receipt separately.`,
+            html: `<p>Your <strong>blognice Pro</strong> subscription is active.</p><p>You can now use AI features, collaborators, custom domains, favicons, and up to five blogs.</p><p><a href="${billingUrl}">Manage billing</a></p><p style="color:#687064;font-size:13px">Stripe will send your payment receipt separately.</p>`,
           } satisfies EmailJobMessage);
         }
       }
