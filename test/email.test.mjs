@@ -21,8 +21,16 @@ test("signup queues a registration welcome without blocking account creation", (
 });
 
 test("API publishing queues subscriber notifications", () => {
-  assert.match(index, /notifySubscribers\(c\.env, tenant, \{ slug, title \}\)/);
-  assert.match(index, /if \(!post\.published && published\) c\.executionCtx\.waitUntil/);
+  assert.match(index, /queueSubscriberNotificationOnce\(c\.env, tenant/);
+  assert.match(index, /if \(!post\.published && published\)/);
+});
+
+test("subscriber notification claims are atomic and one-time", () => {
+  assert.match(index, /subscriber_notification_sent = 1/);
+  assert.match(index, /subscriber_notification_sent = 0/);
+  assert.match(index, /queueSubscriberNotificationOnce/);
+  assert.match(index, /subscriber_notification_sent = 0/);
+  assert.match(index, /UPDATE posts SET subscriber_notification_sent/);
 });
 
 test("subscription emails include one-click and manage-subscriptions links", () => {

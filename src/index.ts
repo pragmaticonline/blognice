@@ -458,6 +458,24 @@ async function notifySubscribers(
   if (env.EMAIL_QUEUE) await env.EMAIL_QUEUE.send({ kind: "email-fanout", campaignId: crypto.randomUUID(), tenantId: tenant.id, postSlug: post.slug, postTitle: post.title, afterId: 0 } satisfies EmailFanoutMessage);
 }
 
+// Claim and queue the one notification allowed for a post. The conditional
+// update makes editor/API races idempotent; failed queue submission releases
+// the claim so a later publish attempt can retry.
+async function queueSubscriberNotificationOnce(env: Bindings, tenant: Tenant, postId: number, post: { slug: string; title: string }): Promise<boolean> {
+  if (!emailEnabled(env) || !env.EMAIL_QUEUE) return false;
+  const result = await tenantDb(env, tenant).prepare(
+    "UPDATE posts SET subscriber_notification_sent = 1 WHERE id = ? AND tenant_id = ? AND published = 1 AND subscriber_notification_sent = 0"
+  ).bind(postId, tenant.id).run();
+  if (result.meta.changes !== 1) return false;
+  try {
+    await notifySubscribers(env, tenant, post);
+    return true;
+  } catch (error) {
+    await tenantDb(env, tenant).prepare("UPDATE posts SET subscriber_notification_sent = 0 WHERE id = ? AND tenant_id = ? AND subscriber_notification_sent = 1").bind(postId, tenant.id).run();
+    throw error;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Routes. Static paths are registered before the /:slug catch-all.
 // ---------------------------------------------------------------------------
@@ -886,12 +904,13 @@ app.post("/api/posts", async (c) => {
   } catch (e: any) {
     return c.json({ error: "db error", detail: String(e?.message ?? e) }, 500);
   }
+  const savedPost = await tenantDb(c.env, tenant).prepare("SELECT id FROM posts WHERE tenant_id = ? AND slug = ?").bind(tenant.id, slug).first<{ id: number }>();
 
   // Invalidate the pages this post affects.
   await purge(c, ["/", "/" + slug, "/sitemap.xml"]);
   if (published) {
     queueIndexNow(c, tenant, ["/", "/" + slug]);
-    c.executionCtx.waitUntil(notifySubscribers(c.env, tenant, { slug, title }));
+    if (savedPost) c.executionCtx.waitUntil(queueSubscriberNotificationOnce(c.env, tenant, savedPost.id, { slug, title }));
   }
 
   return c.json({ ok: true, slug, tags: normalizedTags.tags, author_name: authorName, author_visible: !!authorVisible, published: !!published });
@@ -1104,7 +1123,7 @@ app.post("/api/v1/blogs/:blogId/posts", async (c) => {
   );
   if (published) {
     queueIndexNow(c, tenant, ["/", "/" + slug]);
-    c.executionCtx.waitUntil(notifySubscribers(c.env, tenant, { slug, title }));
+    c.executionCtx.waitUntil(queueSubscriberNotificationOnce(c.env, tenant, Number(res.meta.last_row_id), { slug, title }));
   }
   return c.json({ post: { id: res.meta.last_row_id, slug, title, featured_image_key: featuredImageKey, tags: normalizedTags.tags, author_name: authorName, author_visible: !!authorVisible, published: !!published } }, 201);
 });
@@ -1178,7 +1197,8 @@ app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
     purgeTenant(c.env, tenant, ["/", "/" + post.slug, "/" + slug, "/sitemap.xml"])
   );
   if (post.published || published) queueIndexNow(c, tenant, ["/", "/" + post.slug, "/" + slug]);
-  if (!post.published && published) c.executionCtx.waitUntil(notifySubscribers(c.env, tenant, { slug, title }));
+  if (!post.published && published)
+    c.executionCtx.waitUntil(queueSubscriberNotificationOnce(c.env, tenant, post.id, { slug, title }));
   return c.json({ post: { id: post.id, slug, title, featured_image_key: featuredImageKey, tags: normalizedTags.tags, author_name: authorName, author_visible: !!authorVisible, published: !!published } });
 });
 
@@ -2125,8 +2145,8 @@ app.post("/admin/b/:blogId/save", async (c) => {
   );
   if (published === 1 || wasPublished === 1) queueIndexNow(c, ctx.tenant, ["/", ...(previousSlug ? ["/" + previousSlug] : []), "/" + slug]);
   // Email subscribers when a post first goes live (draft/new -> published).
-  if (published === 1 && wasPublished === 0)
-    c.executionCtx.waitUntil(notifySubscribers(c.env, ctx.tenant, { slug, title }));
+  if (published === 1 && wasPublished === 0 && savedId)
+    c.executionCtx.waitUntil(queueSubscriberNotificationOnce(c.env, ctx.tenant, savedId, { slug, title }));
   queueBlogAudit(c, ctx.tenant.id, ctx.account.id, idParam ? "post_updated" : "post_created", slug);
   if (published === 1 && wasPublished === 0)
     queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "post_published", slug);
