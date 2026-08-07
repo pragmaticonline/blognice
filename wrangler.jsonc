@@ -8,7 +8,6 @@
 	// Allow enough CPU for password hashing on paid Workers deployments.
 	"limits": { "cpu_ms": 300000 },
 	"rules": [
-		{ "type": "Data", "globs": ["**/*.webp"], "fallthrough": false },
 		{ "type": "Text", "globs": ["**/*.html", "**/*.svg"], "fallthrough": false }
 	],
 	"vars": {

@@ -1605,10 +1605,10 @@ export function apiKeyPage(
 curl ${base}/me \\
   -H "Authorization: Bearer YOUR_KEY"
 
-# Create a published post
+# Create a published post with tags and a public author name
 curl -X POST ${base}/blogs/${exampleBlogId}/posts \\
   -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" \\
-  -d '{"title":"Hello from the API","body_md":"# Hello\\n\\nWritten via Markdown.","published":true}'
+  -d '{"title":"Hello from the API","body_md":"# Hello\\n\\nWritten via Markdown.","tags":["api","automation"],"author_name":"AI & BIG AI","author_visible":true,"published":true}'
 
 # Create a draft
 curl -X POST ${base}/blogs/${exampleBlogId}/posts \\
@@ -1619,10 +1619,10 @@ curl -X POST ${base}/blogs/${exampleBlogId}/posts \\
 curl ${base}/blogs/${exampleBlogId}/posts -H "Authorization: Bearer YOUR_KEY"
 curl ${base}/blogs/${exampleBlogId}/posts/POST_ID -H "Authorization: Bearer YOUR_KEY"
 
-# Update a post and assign an existing featured image
+# Update metadata and assign an existing featured image
 curl -X PATCH ${base}/blogs/${exampleBlogId}/posts/POST_ID \\
   -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" \\
-  -d '{"title":"Updated title","featured_image_key":"${exampleBlogId}/image.jpg","published":true}'
+  -d '{"title":"Updated title","tags":["updates"],"author_name":null,"author_visible":false,"featured_image_key":"${exampleBlogId}/image.jpg","published":true}'
 
 # Generate an image, then poll its job
 curl -X POST ${base}/blogs/${exampleBlogId}/images/generations \\
@@ -1647,7 +1647,10 @@ curl -X DELETE ${base}/blogs/${exampleBlogId}/posts/POST_ID \\
         Endpoints: <code>GET /me</code>, <code>GET/POST /blogs/:id/posts</code>,
         <code>GET/PATCH/DELETE /blogs/:id/posts/:postId</code>, plus asynchronous
         <code>images/generations</code> and <code>posts/:postId/audio/generations</code>
-        jobs with status endpoints. Everything is scoped to blogs you own.
+        jobs with status endpoints. Post creation and updates accept <code>tags</code>,
+        <code>author_name</code>, <code>author_visible</code>, and a validated
+        <code>featured_image_key</code>; use the returned job URLs to poll AI work.
+        Everything is scoped to blogs you own.
       </p>
     </div>`,
     account

@@ -6,7 +6,6 @@
 	"compatibility_flags": ["nodejs_compat"],
 	"limits": { "cpu_ms": 300000 },
 	"rules": [
-		{ "type": "Data", "globs": ["**/*.webp"], "fallthrough": false },
 		{ "type": "Text", "globs": ["**/*.html", "**/*.svg"], "fallthrough": false }
 	],
 	"vars": {

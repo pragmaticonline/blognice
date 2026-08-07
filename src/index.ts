@@ -55,11 +55,6 @@ import {
 import { tenantDb } from "./db";
 import homepage from "../homepage.html";
 import faviconSvg from "../favicon.svg";
-import marketingWriting from "../assets/marketing-ai/writing.webp";
-import marketingCeramics from "../assets/marketing-ai/ceramics.webp";
-import marketingTrain from "../assets/marketing-ai/night-train.webp";
-import marketingNotebook from "../assets/marketing-ai/travel-notebook.webp";
-import marketingBlogger from "../assets/marketing-ai/blogger.webp";
 import { findMediaUse, mediaKey, mediaUrl, validLibraryFile } from "./media";
 import {
   AI_BRIEF_MODEL,
@@ -506,6 +501,20 @@ function normalizePostTags(input: string): { tags: string[]; error?: string } {
   return { tags: unique };
 }
 
+/** Normalize the JSON-friendly tag form accepted by the public API. */
+function normalizeApiPostTags(value: unknown): { tags: string[]; error?: string } {
+  if (value === undefined) return { tags: [] };
+  const input = Array.isArray(value) ? value.map(String).join(",") : String(value ?? "");
+  return normalizePostTags(input);
+}
+
+function storedPostTags(value: unknown): string[] {
+  try {
+    const parsed = JSON.parse(String(value || "[]"));
+    return Array.isArray(parsed) ? parsed.filter((tag): tag is string => typeof tag === "string") : [];
+  } catch { return []; }
+}
+
 async function legacySlugRedirect(c: any): Promise<Response | null> {
   const host = (c.req.header("host") || "").split(":")[0].toLowerCase();
   const root = c.env.ROOT_DOMAIN.toLowerCase();
@@ -749,8 +758,8 @@ app.get("/tag/:tag", async (c) => {
   return c.html(renderSimplePage(tenant, `#${tag}`, inner));
 });
 
-// Create a post. Auth: Authorization: Bearer <API_TOKEN>.
-// Body (JSON): { tenant_slug, slug, title, body_md, published? }
+// Create or upsert a post. Auth: Authorization: Bearer <API_TOKEN>.
+// Body (JSON): { tenant_slug, slug, title, body_md, published?, tags?, author_name?, author_visible?, featured_image_key? }
 app.post("/api/posts", async (c) => {
   if (!authorized(c)) return c.json({ error: "unauthorized" }, 401);
 
@@ -784,19 +793,29 @@ app.post("/api/posts", async (c) => {
   } catch (e: any) {
     return c.json({ error: e.message }, 400);
   }
+  const normalizedTags = normalizeApiPostTags(payload?.tags);
+  if (normalizedTags.error) return c.json({ error: normalizedTags.error }, 400);
+  const authorName = payload?.author_name === undefined || payload?.author_name === null
+    ? null : String(payload.author_name).trim().slice(0, 120);
+  if (payload?.author_name !== undefined && payload?.author_name !== null && String(payload.author_name).trim().length > 120)
+    return c.json({ error: "author_name must be 120 characters or fewer" }, 400);
+  const authorVisible = payload?.author_visible === undefined ? 1 : (payload.author_visible ? 1 : 0);
 
   const now = Math.floor(Date.now() / 1000);
   try {
     await tenantDb(c.env, tenant).prepare(
-      `INSERT INTO posts (tenant_id, slug, title, featured_image_key, body_md, published, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO posts (tenant_id, slug, title, featured_image_key, body_md, tags_json, published, created_at, updated_at, author_name, author_visible)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (tenant_id, slug)
        DO UPDATE SET title = excluded.title,
                      featured_image_key = CASE WHEN ? = 1 THEN excluded.featured_image_key ELSE posts.featured_image_key END,
                      body_md = excluded.body_md,
+                     tags_json = excluded.tags_json,
+                     author_name = excluded.author_name,
+                     author_visible = excluded.author_visible,
                      published = excluded.published, updated_at = excluded.updated_at`
     )
-      .bind(tenant.id, slug, title, featuredImageKey, body_md, published, now, now, hasFeaturedImage ? 1 : 0)
+      .bind(tenant.id, slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, now, now, authorName, authorVisible, hasFeaturedImage ? 1 : 0)
       .run();
   } catch (e: any) {
     return c.json({ error: "db error", detail: String(e?.message ?? e) }, 500);
@@ -805,7 +824,7 @@ app.post("/api/posts", async (c) => {
   // Invalidate the pages this post affects.
   await purge(c, ["/", "/" + slug, "/sitemap.xml"]);
 
-  return c.json({ ok: true, slug, published: !!published });
+  return c.json({ ok: true, slug, tags: normalizedTags.tags, author_name: authorName, author_visible: !!authorVisible, published: !!published });
 });
 
 // ---------------------------------------------------------------------------
@@ -855,12 +874,16 @@ app.get("/api/v1/blogs/:blogId/posts", async (c) => {
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
   const { results } = await tenantDb(c.env, tenant).prepare(
-    `SELECT id, slug, title, featured_image_key, published, created_at, updated_at
+    `SELECT id, slug, title, featured_image_key, tags_json, author_name, author_visible, published, created_at, updated_at
        FROM posts WHERE tenant_id = ? ORDER BY created_at DESC`
   )
     .bind(tenant.id)
     .all();
-  return c.json({ posts: results });
+  return c.json({ posts: results.map((post: any) => ({
+    ...post,
+    tags: storedPostTags(post.tags_json),
+    tags_json: undefined,
+  })) });
 });
 
 // Fetch one post (including its Markdown body).
@@ -875,10 +898,14 @@ app.get("/api/v1/blogs/:blogId/posts/:id", async (c) => {
     .bind(c.req.param("id"), tenant.id)
     .first();
   if (!post) return c.json({ error: "post not found" }, 404);
-  return c.json({ post });
+  return c.json({ post: {
+    ...(post as any),
+    tags: storedPostTags((post as any).tags_json),
+    tags_json: undefined,
+  } });
 });
 
-// Create a post. Body (JSON): { title, body_md, slug?, published? }
+// Create a post. Body (JSON): { title, body_md, slug?, published?, tags?: string[], author_name?: string, author_visible?: boolean, featured_image_key?: string }
 app.post("/api/v1/blogs/:blogId/posts", async (c) => {
   const account = await apiAccount(c);
   if (!account) return c.json({ error: "unauthorized" }, 401);
@@ -906,6 +933,13 @@ app.post("/api/v1/blogs/:blogId/posts", async (c) => {
   } catch (e: any) {
     return c.json({ error: e.message }, 400);
   }
+  const normalizedTags = normalizeApiPostTags(body?.tags);
+  if (normalizedTags.error) return c.json({ error: normalizedTags.error }, 400);
+  const authorName = body?.author_name === undefined || body?.author_name === null
+    ? null : String(body.author_name).trim().slice(0, 120);
+  if (body?.author_name !== undefined && String(body.author_name).trim().length > 120)
+    return c.json({ error: "author_name must be 120 characters or fewer" }, 400);
+  const authorVisible = body?.author_visible === undefined ? 1 : (body.author_visible ? 1 : 0);
   const now = Math.floor(Date.now() / 1000);
 
   const pdb = tenantDb(c.env, tenant);
@@ -917,18 +951,18 @@ app.post("/api/v1/blogs/:blogId/posts", async (c) => {
     return c.json({ error: `a post with slug "${slug}" already exists` }, 409);
 
   const res = await pdb.prepare(
-    `INSERT INTO posts (tenant_id, slug, title, featured_image_key, body_md, published, created_at, updated_at, author_account_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO posts (tenant_id, slug, title, featured_image_key, body_md, tags_json, published, created_at, updated_at, author_account_id, author_name, author_visible)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
-    .bind(tenant.id, slug, title, featuredImageKey, body_md, published, now, now, account.id)
+    .bind(tenant.id, slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, now, now, account.id, authorName, authorVisible)
     .run();
   c.executionCtx.waitUntil(
     purgeTenant(c.env, tenant, ["/", "/" + slug, "/sitemap.xml"])
   );
-  return c.json({ post: { id: res.meta.last_row_id, slug, title, featured_image_key: featuredImageKey, published: !!published } }, 201);
+  return c.json({ post: { id: res.meta.last_row_id, slug, title, featured_image_key: featuredImageKey, tags: normalizedTags.tags, author_name: authorName, author_visible: !!authorVisible, published: !!published } }, 201);
 });
 
-// Update a post. Body (JSON): any of { title, body_md, slug, published }
+// Update a post. Body (JSON): any of { title, body_md, slug, published, tags, author_name, author_visible, featured_image_key }
 app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
   const account = await apiAccount(c);
   if (!account) return c.json({ error: "unauthorized" }, 401);
@@ -966,6 +1000,17 @@ app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
       return c.json({ error: e.message }, 400);
     }
   }
+  const normalizedTags = body?.tags !== undefined
+    ? normalizeApiPostTags(body.tags)
+    : normalizeApiPostTags(post.tags_json || "[]");
+  if (normalizedTags.error) return c.json({ error: normalizedTags.error }, 400);
+  const authorName = body?.author_name !== undefined
+    ? (body.author_name === null ? null : String(body.author_name).trim().slice(0, 120))
+    : (post.author_name ?? null);
+  if (body?.author_name !== undefined && body.author_name !== null && String(body.author_name).trim().length > 120)
+    return c.json({ error: "author_name must be 120 characters or fewer" }, 400);
+  const authorVisible = body?.author_visible !== undefined
+    ? (body.author_visible ? 1 : 0) : (post.author_visible ?? 1);
   const now = Math.floor(Date.now() / 1000);
 
   if (slug !== post.slug) {
@@ -977,15 +1022,15 @@ app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
   }
 
   await pdb.prepare(
-    `UPDATE posts SET title = ?, featured_image_key = ?, body_md = ?, slug = ?, published = ?, updated_at = ?
+    `UPDATE posts SET title = ?, featured_image_key = ?, body_md = ?, tags_json = ?, slug = ?, published = ?, updated_at = ?, author_name = ?, author_visible = ?
       WHERE id = ? AND tenant_id = ?`
   )
-    .bind(title, featuredImageKey, body_md, slug, published, now, post.id, tenant.id)
+    .bind(title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), slug, published, now, authorName, authorVisible, post.id, tenant.id)
     .run();
   c.executionCtx.waitUntil(
     purgeTenant(c.env, tenant, ["/", "/" + post.slug, "/" + slug, "/sitemap.xml"])
   );
-  return c.json({ post: { id: post.id, slug, title, featured_image_key: featuredImageKey, published: !!published } });
+  return c.json({ post: { id: post.id, slug, title, featured_image_key: featuredImageKey, tags: normalizedTags.tags, author_name: authorName, author_visible: !!authorVisible, published: !!published } });
 });
 
 // Delete a post.
@@ -3036,17 +3081,29 @@ app.post("/admin/b/:blogId/favicon", async (c) => {
   }
 });
 
-const marketingImages: Record<string, ArrayBuffer> = {
-  "writing.webp": marketingWriting,
-  "ceramics.webp": marketingCeramics,
-  "night-train.webp": marketingTrain,
-  "travel-notebook.webp": marketingNotebook,
-  "blogger.webp": marketingBlogger,
-};
-app.get("/marketing-ai/:file", (c) => {
-  const image = marketingImages[c.req.param("file")];
-  if (!image) return c.notFound();
-  return new Response(image, { headers: { "content-type": "image/webp", "cache-control": "public, max-age=31536000, immutable", "x-content-type-options": "nosniff" } });
+// Marketing images live in R2 rather than the Worker bundle. Keep this
+// allowlist deliberately small: marketing files are public and immutable, but
+// arbitrary R2 keys must never become publicly readable through this route.
+const MARKETING_IMAGES = new Set([
+  "writing.webp", "ceramics.webp", "night-train.webp", "travel-notebook.webp", "blogger.webp",
+]);
+app.get("/marketing-ai/:file", async (c) => {
+  const file = c.req.param("file");
+  if (!MARKETING_IMAGES.has(file)) return c.notFound();
+  const cache = caches.default;
+  const cacheKey = new Request(c.req.url, { method: "GET" });
+  const hit = await cache.match(cacheKey);
+  if (hit) return hit;
+  const object = await c.env.MEDIA.get(`marketing/${file}`);
+  if (!object) return c.notFound();
+  const response = new Response(object.body, { headers: {
+    "content-type": object.httpMetadata?.contentType || "image/webp",
+    "cache-control": "public, max-age=31536000, immutable",
+    "x-content-type-options": "nosniff",
+    etag: object.httpEtag,
+  } });
+  c.executionCtx.waitUntil(cache.put(cacheKey, response.clone()));
+  return response;
 });
 
 // The marketing voice sample uses the same MeloTTS model, language, retry
