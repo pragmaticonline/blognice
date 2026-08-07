@@ -5,6 +5,7 @@ import test from "node:test";
 const email = readFileSync(new URL("../src/email.ts", import.meta.url), "utf8");
 const index = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
 const auth = readFileSync(new URL("../src/auth.ts", import.meta.url), "utf8");
+const postsSchema = readFileSync(new URL("../schema-posts.sql", import.meta.url), "utf8");
 const productionConfig = readFileSync(new URL("../wrangler.production.jsonc", import.meta.url), "utf8");
 
 test("MailNice is preferred for transactional email", () => {
@@ -31,6 +32,7 @@ test("subscriber notification claims are atomic and one-time", () => {
   assert.match(index, /queueSubscriberNotificationOnce/);
   assert.match(index, /subscriber_notification_sent = 0/);
   assert.match(index, /UPDATE posts SET subscriber_notification_sent/);
+  assert.match(postsSchema, /subscriber_notification_sent INTEGER NOT NULL DEFAULT 0/);
 });
 
 test("subscription emails include one-click and manage-subscriptions links", () => {
