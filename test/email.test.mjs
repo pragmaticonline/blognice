@@ -20,6 +20,11 @@ test("signup queues a registration welcome without blocking account creation", (
   assert.match(index, /c\.executionCtx\.waitUntil\(sendEmail\(c\.env/);
 });
 
+test("API publishing queues subscriber notifications", () => {
+  assert.match(index, /notifySubscribers\(c\.env, tenant, \{ slug, title \}\)/);
+  assert.match(index, /if \(!post\.published && published\) c\.executionCtx\.waitUntil/);
+});
+
 test("subscription emails include one-click and manage-subscriptions links", () => {
   assert.match(index, /List-Unsubscribe-Post/);
   assert.match(index, /manage-subscriptions/);

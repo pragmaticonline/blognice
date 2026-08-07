@@ -889,7 +889,10 @@ app.post("/api/posts", async (c) => {
 
   // Invalidate the pages this post affects.
   await purge(c, ["/", "/" + slug, "/sitemap.xml"]);
-  if (published) queueIndexNow(c, tenant, ["/", "/" + slug]);
+  if (published) {
+    queueIndexNow(c, tenant, ["/", "/" + slug]);
+    c.executionCtx.waitUntil(notifySubscribers(c.env, tenant, { slug, title }));
+  }
 
   return c.json({ ok: true, slug, tags: normalizedTags.tags, author_name: authorName, author_visible: !!authorVisible, published: !!published });
 });
@@ -1099,7 +1102,10 @@ app.post("/api/v1/blogs/:blogId/posts", async (c) => {
   c.executionCtx.waitUntil(
     purgeTenant(c.env, tenant, ["/", "/" + slug, "/sitemap.xml"])
   );
-  if (published) queueIndexNow(c, tenant, ["/", "/" + slug]);
+  if (published) {
+    queueIndexNow(c, tenant, ["/", "/" + slug]);
+    c.executionCtx.waitUntil(notifySubscribers(c.env, tenant, { slug, title }));
+  }
   return c.json({ post: { id: res.meta.last_row_id, slug, title, featured_image_key: featuredImageKey, tags: normalizedTags.tags, author_name: authorName, author_visible: !!authorVisible, published: !!published } }, 201);
 });
 
@@ -1172,6 +1178,7 @@ app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
     purgeTenant(c.env, tenant, ["/", "/" + post.slug, "/" + slug, "/sitemap.xml"])
   );
   if (post.published || published) queueIndexNow(c, tenant, ["/", "/" + post.slug, "/" + slug]);
+  if (!post.published && published) c.executionCtx.waitUntil(notifySubscribers(c.env, tenant, { slug, title }));
   return c.json({ post: { id: post.id, slug, title, featured_image_key: featuredImageKey, tags: normalizedTags.tags, author_name: authorName, author_visible: !!authorVisible, published: !!published } });
 });
 
