@@ -50,3 +50,11 @@ test("published changes queue IndexNow notifications without blocking saves", ()
   assert.match(source, /\.\.\.\(previousSlug \? \["\/" \+ previousSlug\] : \[\]\)/);
   assert.match(production, /blognice-indexnow/);
 });
+
+test("the authenticated API can re-queue IndexNow only for published content", () => {
+  assert.match(source, /app\.post\("\/api\/v1\/blogs\/:blogId\/indexnow"/);
+  assert.match(source, /post_ids/);
+  assert.match(source, /paths must refer to published posts/);
+  assert.match(source, /published = 1 AND id IN/);
+  assert.match(source, /INDEXNOW_QUEUE\.send\(\{ kind: "indexnow", urls \}\)/);
+});

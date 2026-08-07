@@ -1619,6 +1619,11 @@ curl -X POST ${base}/blogs/${exampleBlogId}/posts \\
 curl ${base}/blogs/${exampleBlogId}/posts -H "Authorization: Bearer YOUR_KEY"
 curl ${base}/blogs/${exampleBlogId}/posts/POST_ID -H "Authorization: Bearer YOUR_KEY"
 
+# Re-queue IndexNow discovery for the homepage, feeds, and published posts
+curl -X POST ${base}/blogs/${exampleBlogId}/indexnow \\
+  -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" \\
+  -d '{"post_ids":[POST_ID]}'
+
 # Update metadata and assign an existing featured image
 curl -X PATCH ${base}/blogs/${exampleBlogId}/posts/POST_ID \\
   -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" \\
@@ -1647,7 +1652,10 @@ curl -X DELETE ${base}/blogs/${exampleBlogId}/posts/POST_ID \\
         Endpoints: <code>GET /me</code>, <code>GET/POST /blogs/:id/posts</code>,
         <code>GET/PATCH/DELETE /blogs/:id/posts/:postId</code>, plus asynchronous
         <code>images/generations</code> and <code>posts/:postId/audio/generations</code>
-        jobs with status endpoints. Post creation and updates accept <code>tags</code>,
+        jobs with status endpoints, and <code>POST /blogs/:id/indexnow</code> to
+        re-queue discovery for published pages. Its optional body accepts
+        <code>post_ids</code> and/or <code>paths</code>; an empty body queues the
+        homepage, sitemap, and RSS feed. Post creation and updates accept <code>tags</code>,
         <code>author_name</code>, <code>author_visible</code>, and a validated
         <code>featured_image_key</code>; use the returned job URLs to poll AI work.
         Everything is scoped to blogs you own.

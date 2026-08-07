@@ -583,6 +583,18 @@ List posts, fetch one, update it, and delete it:
     curl -X DELETE "$API/blogs/$BLOG_ID/posts/$POST_ID" \
       -H "Authorization: Bearer $KEY"
 
+Re-queue IndexNow discovery after an external edit or if a notification was
+missed. With an empty JSON body, Blog Nice queues the homepage, sitemap, and
+RSS feed. You can also provide published post IDs or paths:
+
+    curl -X POST "$API/blogs/$BLOG_ID/indexnow" \
+      -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+      -d '{"post_ids":[42]}'
+
+The response is `202` because delivery is handled asynchronously by the
+IndexNow queue. Paths must belong to published posts, or be `/`, `/sitemap.xml`,
+or `/rss.xml`.
+
 Assign an existing media-library image as the featured image (or send `null`
 to remove it):
 

@@ -934,6 +934,79 @@ app.get("/api/v1/me", async (c) => {
   return c.json({ id: account.id, email: account.email, blogs: results });
 });
 
+// Queue IndexNow notifications for already-published pages. Automatic
+// notifications are sent when the API publishes or updates a post; this
+// endpoint is for re-pinging a page after an external edit or a missed job.
+// Body (JSON, optional): { post_ids?: number[], paths?: string[] }
+app.post("/api/v1/blogs/:blogId/indexnow", async (c) => {
+  const account = await apiAccount(c);
+  if (!account) return c.json({ error: "unauthorized" }, 401);
+  const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
+  if (!tenant) return c.json({ error: "blog not found" }, 404);
+  const role = await membershipRoleFor(c.env, account.id, tenant.id);
+  if (!role || !can(role, "posts.edit.any")) return c.json({ error: "forbidden" }, 403);
+  if (!c.env.INDEXNOW_QUEUE || !c.env.INDEXNOW_MASTER_SECRET)
+    return c.json({ error: "IndexNow is not configured" }, 503);
+
+  let input: { post_ids?: unknown; paths?: unknown } = {};
+  try {
+    if (c.req.header("content-type")?.toLowerCase().includes("application/json"))
+      input = await c.req.json();
+  } catch {
+    return c.json({ error: "invalid JSON body" }, 400);
+  }
+  const requestedPaths = Array.isArray(input.paths)
+    ? input.paths.map((path) => String(path).trim()).filter(Boolean)
+    : [];
+  const requestedIds = Array.isArray(input.post_ids) ? input.post_ids : [];
+  if (requestedPaths.length > 1000 || requestedIds.length > 1000)
+    return c.json({ error: "at most 1,000 paths or post_ids may be submitted" }, 400);
+
+  const paths = new Set<string>();
+  if (!requestedPaths.length && !requestedIds.length) {
+    paths.add("/");
+    paths.add("/sitemap.xml");
+    paths.add("/rss.xml");
+  }
+  for (const path of requestedPaths) {
+    const normalized = path.startsWith("/") ? path : `/${path}`;
+    if (!normalized || normalized.includes("?") || normalized.includes("#") || normalized.includes("//"))
+      return c.json({ error: `invalid path: ${path}` }, 400);
+    paths.add(normalized);
+  }
+
+  const specialPaths = new Set(["/", "/sitemap.xml", "/rss.xml"]);
+  const postPaths = Array.from(paths).filter((path) => !specialPaths.has(path));
+  if (postPaths.length) {
+    const { results } = await tenantDb(c.env, tenant)
+      .prepare("SELECT slug FROM posts WHERE tenant_id = ? AND published = 1")
+      .bind(tenant.id)
+      .all<{ slug: string }>();
+    const publishedPaths = new Set(results.map((post) => `/${post.slug}`));
+    const unknown = postPaths.filter((path) => !publishedPaths.has(path));
+    if (unknown.length) return c.json({ error: "paths must refer to published posts or /, /sitemap.xml, /rss.xml", unknown_paths: unknown }, 400);
+  }
+
+  if (requestedIds.length) {
+    const ids = requestedIds.map((id) => Number(id));
+    if (ids.some((id) => !Number.isSafeInteger(id) || id < 1))
+      return c.json({ error: "post_ids must contain positive integers" }, 400);
+    const placeholders = ids.map(() => "?").join(",");
+    const { results } = await tenantDb(c.env, tenant).prepare(
+      `SELECT id, slug FROM posts WHERE tenant_id = ? AND published = 1 AND id IN (${placeholders})`
+    ).bind(tenant.id, ...ids).all<{ id: number; slug: string }>();
+    const found = new Set(results.map((post) => post.id));
+    const missing = ids.filter((id) => !found.has(id));
+    if (missing.length) return c.json({ error: "post_ids must refer to published posts", missing_post_ids: missing }, 400);
+    for (const post of results) paths.add(`/${post.slug}`);
+  }
+
+  const origin = publicOrigin(c.env, tenant);
+  const urls = Array.from(paths).map((path) => `${origin}${path}`);
+  c.executionCtx.waitUntil(c.env.INDEXNOW_QUEUE.send({ kind: "indexnow", urls }));
+  return c.json({ queued: true, urls, count: urls.length }, 202);
+});
+
 // List a blog's posts.
 app.get("/api/v1/blogs/:blogId/posts", async (c) => {
   const account = await apiAccount(c);
