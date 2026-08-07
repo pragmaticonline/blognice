@@ -86,6 +86,7 @@ type Bindings = {
   MEDIA: R2Bucket; // image uploads and generated narration
   AI: Ai; // Cloudflare Workers AI image and speech generation
   AUDIO_QUEUE: Queue<AudioJobMessage | ImageJobMessage>; // queued AI media jobs
+  INDEXNOW_QUEUE?: Queue<IndexNowMessage>; // search-engine discovery notifications
   EMAIL_QUEUE?: Queue<EmailJobMessage | EmailFanoutMessage>; // queued transactional email jobs
   METRICS: AnalyticsEngineDataset; // anonymous public page-view events
   EVENTS: AnalyticsEngineDataset; // audio engagement events
@@ -112,6 +113,7 @@ type Bindings = {
   STRIPE_MONTHLY_PRICE_ID?: string;
   STRIPE_YEARLY_PRICE_ID?: string;
   STRIPE_PORTAL_CONFIGURATION_ID?: string; // optional var
+  INDEXNOW_MASTER_SECRET?: string; // secret; derives per-host IndexNow keys
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -228,6 +230,17 @@ async function resolveTenant(
 function originOf(c: { req: { url: string } }): string {
   const u = new URL(c.req.url);
   return `${u.protocol}//${u.host}`;
+}
+
+function customDomainRedirect(c: any, tenant: Tenant): Response | null {
+  const custom = (tenant.custom_domain || "").trim().toLowerCase();
+  if (!custom) return null;
+  const request = new URL(c.req.url);
+  const platformHost = `${tenant.slug}.${c.env.ROOT_DOMAIN}`.toLowerCase();
+  if (request.hostname.toLowerCase() !== platformHost) return null;
+  request.protocol = "https:";
+  request.host = custom;
+  return Response.redirect(request.toString(), 301);
 }
 
 // ---------------------------------------------------------------------------
@@ -377,6 +390,34 @@ function publicOrigin(env: Bindings, tenant: Tenant): string {
   return `https://${tenant.custom_domain || `${tenant.slug}.${env.ROOT_DOMAIN}`}`;
 }
 
+function queueIndexNow(c: any, tenant: Tenant, paths: string[]): void {
+  if (!c.env.INDEXNOW_QUEUE || !c.env.INDEXNOW_MASTER_SECRET) return;
+  const origin = publicOrigin(c.env, tenant);
+  const urls = Array.from(new Set(paths.map((path) => `${origin}${path.startsWith("/") ? path : `/${path}`}`)));
+  c.executionCtx.waitUntil(c.env.INDEXNOW_QUEUE.send({ kind: "indexnow", urls }));
+}
+
+async function processIndexNow(env: Bindings, job: IndexNowMessage): Promise<void> {
+  if (!env.INDEXNOW_MASTER_SECRET || !job.urls.length) return;
+  const grouped = new Map<string, string[]>();
+  for (const value of job.urls) {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    const list = grouped.get(host) || [];
+    list.push(url.toString());
+    grouped.set(host, list);
+  }
+  for (const [host, urls] of grouped) {
+    const key = await sha256hex(`${env.INDEXNOW_MASTER_SECRET}:${host}`);
+    const response = await fetch("https://api.indexnow.org/indexnow", {
+      method: "POST",
+      headers: { "content-type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ host, key, keyLocation: `https://${host}/.well-known/indexnow/${key}`, urlList: Array.from(new Set(urls)).slice(0, 10_000) }),
+    });
+    if (!response.ok && response.status !== 202) throw new Error(`IndexNow returned HTTP ${response.status}.`);
+  }
+}
+
 // The parser-based renderer is the only renderer used by public pages and the
 // live preview. The legacy implementation remains temporarily for comparison
 // while deployments roll over, but is intentionally unreachable.
@@ -437,11 +478,28 @@ app.use("*", async (c, next) => {
       301
     );
   }
+  if (!host.startsWith("www.")) {
+    const tenant = await resolveTenant(c.env, host);
+    const redirect = tenant ? customDomainRedirect(c, tenant) : null;
+    if (redirect) return redirect;
+  }
   return next();
 });
 
+app.get("/.well-known/indexnow/:key", async (c) => {
+  const secret = c.env.INDEXNOW_MASTER_SECRET;
+  const host = new URL(c.req.url).hostname.toLowerCase();
+  const tenant = await resolveTenant(c.env, host);
+  if (!secret || !tenant) return c.text("Not found", 404);
+  const expected = await sha256hex(`${secret}:${host}`);
+  if (c.req.param("key") !== expected) return c.text("Not found", 404);
+  return c.text(expected, { headers: { "cache-control": "public, max-age=86400, immutable" } });
+});
+
 app.get("/robots.txt", (c) => {
-  const body = `User-agent: *\nAllow: /\nSitemap: ${originOf(c)}/sitemap.xml\n`;
+  const host = new URL(c.req.url).hostname.toLowerCase();
+  const sitemap = host === `www.${c.env.ROOT_DOMAIN}`.toLowerCase() ? "/sitemap-index.xml" : "/sitemap.xml";
+  const body = `User-agent: *\nAllow: /\nSitemap: ${originOf(c)}${sitemap}\n`;
   return c.text(body);
 });
 
@@ -684,6 +742,21 @@ app.get("/_blognice/blog-edit-link", async (c) => {
   return new Response(JSON.stringify({ url: `${adminOriginOf(c)}/admin/b/${tenant.public_id}/settings` }), { headers: { "content-type": "application/json", "cache-control": "private, no-store", vary: "Cookie" } });
 });
 
+app.get("/sitemap-index.xml", async (c) => {
+  const host = new URL(c.req.url).hostname.toLowerCase();
+  if (host !== `www.${c.env.ROOT_DOMAIN}`.toLowerCase()) return c.text("Not found", 404);
+  return serveCached(c, async () => {
+    const { results } = await c.env.DB.prepare(
+      "SELECT slug FROM tenants WHERE custom_domain IS NULL AND slug <> 'www' ORDER BY created_at"
+    ).all<{ slug: string }>();
+    const entries = results.map((tenant) =>
+      `<sitemap><loc>https://${esc(tenant.slug)}.${esc(c.env.ROOT_DOMAIN)}/sitemap.xml</loc></sitemap>`
+    ).join("");
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${entries}</sitemapindex>`;
+    return new Response(xml, { headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=300" } });
+  });
+});
+
 app.get("/sitemap.xml", async (c) => {
   return serveCached(c, async () => {
     const tenant = await resolveTenant(c.env, c.req.header("host") || "");
@@ -823,6 +896,7 @@ app.post("/api/posts", async (c) => {
 
   // Invalidate the pages this post affects.
   await purge(c, ["/", "/" + slug, "/sitemap.xml"]);
+  if (published) queueIndexNow(c, tenant, ["/", "/" + slug]);
 
   return c.json({ ok: true, slug, tags: normalizedTags.tags, author_name: authorName, author_visible: !!authorVisible, published: !!published });
 });
@@ -959,6 +1033,7 @@ app.post("/api/v1/blogs/:blogId/posts", async (c) => {
   c.executionCtx.waitUntil(
     purgeTenant(c.env, tenant, ["/", "/" + slug, "/sitemap.xml"])
   );
+  if (published) queueIndexNow(c, tenant, ["/", "/" + slug]);
   return c.json({ post: { id: res.meta.last_row_id, slug, title, featured_image_key: featuredImageKey, tags: normalizedTags.tags, author_name: authorName, author_visible: !!authorVisible, published: !!published } }, 201);
 });
 
@@ -1030,6 +1105,7 @@ app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
   c.executionCtx.waitUntil(
     purgeTenant(c.env, tenant, ["/", "/" + post.slug, "/" + slug, "/sitemap.xml"])
   );
+  if (post.published || published) queueIndexNow(c, tenant, ["/", "/" + post.slug, "/" + slug]);
   return c.json({ post: { id: post.id, slug, title, featured_image_key: featuredImageKey, tags: normalizedTags.tags, author_name: authorName, author_visible: !!authorVisible, published: !!published } });
 });
 
@@ -1043,9 +1119,9 @@ app.delete("/api/v1/blogs/:blogId/posts/:id", async (c) => {
   if (!role || !can(role, "posts.delete")) return c.json({ error: "forbidden" }, 403);
   const pdb = tenantDb(c.env, tenant);
   const post = await pdb
-    .prepare("SELECT slug FROM posts WHERE id = ? AND tenant_id = ?")
+    .prepare("SELECT slug, published FROM posts WHERE id = ? AND tenant_id = ?")
     .bind(c.req.param("id"), tenant.id)
-    .first<{ slug: string }>();
+    .first<{ slug: string; published: number }>();
   if (!post) return c.json({ error: "post not found" }, 404);
   await pdb.prepare("DELETE FROM posts WHERE id = ? AND tenant_id = ?")
     .bind(c.req.param("id"), tenant.id)
@@ -1053,6 +1129,7 @@ app.delete("/api/v1/blogs/:blogId/posts/:id", async (c) => {
   c.executionCtx.waitUntil(
     purgeTenant(c.env, tenant, ["/", "/" + post.slug, "/sitemap.xml"])
   );
+  if (post.published) queueIndexNow(c, tenant, ["/", "/" + post.slug]);
   return c.json({ ok: true });
 });
 
@@ -1971,6 +2048,7 @@ app.post("/admin/b/:blogId/save", async (c) => {
   c.executionCtx.waitUntil(
     purgeTenant(c.env, ctx.tenant, ["/", "/" + slug, "/sitemap.xml"])
   );
+  if (published === 1 || wasPublished === 1) queueIndexNow(c, ctx.tenant, ["/", "/" + slug]);
   // Email subscribers when a post first goes live (draft/new -> published).
   if (published === 1 && wasPublished === 0)
     c.executionCtx.waitUntil(notifySubscribers(c.env, ctx.tenant, { slug, title }));
@@ -2003,6 +2081,7 @@ app.post("/admin/b/:blogId/delete/:id", async (c) => {
     c.executionCtx.waitUntil(
       purgeTenant(c.env, ctx.tenant, ["/", "/" + post.slug, "/sitemap.xml"])
     );
+    if (post.slug) queueIndexNow(c, ctx.tenant, ["/", "/" + post.slug]);
     queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "post_deleted", post.slug);
   }
   return c.redirect(`/admin/b/${ctx.tenant.public_id}`);
@@ -2604,6 +2683,7 @@ function can(role: MembershipRole, capability: Capability): boolean {
 
 type AudioJobMessage = { jobKey: string; tenantId: number; postId: number };
 type ImageJobMessage = { kind: "image"; jobKey: string; tenantId: number };
+type IndexNowMessage = { kind: "indexnow"; urls: string[] };
 type EmailJobMessage = {
   kind: "email-delivery";
   idempotencyKey: string;
@@ -3965,9 +4045,10 @@ export default {
   fetch: app.fetch,
   async queue(batch, env) {
     for (const message of batch.messages) {
-      const jobMessage = message.body as AudioJobMessage | ImageJobMessage | EmailJobMessage | EmailFanoutMessage;
+      const jobMessage = message.body as AudioJobMessage | ImageJobMessage | IndexNowMessage | EmailJobMessage | EmailFanoutMessage;
       try {
-        if ("kind" in jobMessage && jobMessage.kind === "email-fanout") await processEmailFanout(env, jobMessage);
+        if ("kind" in jobMessage && jobMessage.kind === "indexnow") await processIndexNow(env, jobMessage);
+        else if ("kind" in jobMessage && jobMessage.kind === "email-fanout") await processEmailFanout(env, jobMessage);
         else if ("kind" in jobMessage && jobMessage.kind === "email-delivery") await processEmailJob(env, jobMessage);
         else if ("kind" in jobMessage && jobMessage.kind === "image") await processImageJob(env, jobMessage.jobKey);
         else await processAudioJob(env, jobMessage.jobKey);

@@ -73,8 +73,14 @@
 		"binding": "AI"
 	},
 	"queues": {
-		"producers": [{ "binding": "AUDIO_QUEUE", "queue": "blognice-audio" }],
-		"consumers": [{ "queue": "blognice-audio", "max_batch_size": 1, "max_batch_timeout": 5, "max_retries": 5 }]
+		"producers": [
+			{ "binding": "AUDIO_QUEUE", "queue": "blognice-audio" },
+			{ "binding": "INDEXNOW_QUEUE", "queue": "blognice-indexnow" }
+		],
+		"consumers": [
+			{ "queue": "blognice-audio", "max_batch_size": 1, "max_batch_timeout": 5, "max_retries": 5 },
+			{ "queue": "blognice-indexnow", "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 5 }
+		]
 	}
 	// Secrets (set with `wrangler secret put <NAME>`, not stored here):
 	//   API_TOKEN     authorizes the /api routes

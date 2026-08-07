@@ -46,11 +46,13 @@
 	"queues": {
 		"producers": [
 			{ "binding": "AUDIO_QUEUE", "queue": "blognice-audio" },
-			{ "binding": "EMAIL_QUEUE", "queue": "blognice-email" }
+			{ "binding": "EMAIL_QUEUE", "queue": "blognice-email" },
+			{ "binding": "INDEXNOW_QUEUE", "queue": "blognice-indexnow" }
 		],
 		"consumers": [
 			{ "queue": "blognice-audio", "max_batch_size": 1, "max_batch_timeout": 5, "max_retries": 5 },
-			{ "queue": "blognice-email", "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 5 }
+			{ "queue": "blognice-email", "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 5 },
+			{ "queue": "blognice-indexnow", "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 5 }
 		]
 	}
 }
