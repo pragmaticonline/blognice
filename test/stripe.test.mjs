@@ -29,6 +29,7 @@ test("billing presents monthly AI credits and Stripe-owned plan management", () 
   assert.match(source, /Fix payment in Stripe/);
   assert.match(source, /View billing history in Stripe/);
   assert.match(source, /billing-main-action/);
+  assert.match(source, /billing-main-action\{margin-bottom:1\.25rem\}/);
   assert.doesNotMatch(source, /active \? \(term === "monthly" \? `.*Manage billing in Stripe/);
 });
 
