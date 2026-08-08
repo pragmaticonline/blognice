@@ -29,11 +29,11 @@ test("terms and cookies have public worker routes", () => {
 
 test("algorithms page explains the materialized popularity ranking", () => {
   const algorithms = readFileSync(new URL("../algorithms.html", import.meta.url), "utf8");
-  const indexSource = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
   assert.match(algorithms, /How blognice ranks popular posts/);
   assert.match(algorithms, /21-day half-life/);
   assert.match(algorithms, /engaged-read/);
-  assert.match(indexSource, /app\.get\("\/algorithms"/);
+  assert.match(source, /app\.get\("\/algorithms"/);
 });
 
 test("policies overview links the platform policies", () => {
@@ -46,10 +46,12 @@ test("policies overview links the platform policies", () => {
   assert.match(indexSource, /replaceAll\('href=\"mailto:privacy@blognice\.com\">Contact'/);
   assert.match(indexSource, /policy-nav/);
   assert.match(indexSource, /aria-current="page"/);
-  assert.match(indexSource, /replace\('<\/nav><a href=\"https:\/\/www\.blognice\.com\//);
+  assert.ok(indexSource.includes("replace('</nav><a href=\"/\" class=\"meta\">") );
   assert.ok(indexSource.includes('[ ["/policies", "All policies"]') || indexSource.includes('[["/policies", "All policies"]'));
   assert.ok(indexSource.includes('["/privacy", "Privacy"]'));
   assert.ok(indexSource.includes('["/terms", "Terms"]'));
   assert.ok(indexSource.includes('["/cookies", "Cookies"]'));
   assert.ok(indexSource.includes('["/security", "Security"]'));
+  assert.ok(indexSource.includes('const canonicalFooter = \'<footer class="footer">'));
+  assert.ok(indexSource.includes('const withCanonicalShell = consistentTheme.replace(/<footer class="footer">'));
 });
