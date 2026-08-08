@@ -11,6 +11,7 @@ DROP TABLE IF EXISTS bookmarks;
 DROP TABLE IF EXISTS bookmark_lists;
 DROP TABLE IF EXISTS reactions;
 DROP TABLE IF EXISTS subscriptions;
+DROP TABLE IF EXISTS subscriber_confirmations;
 DROP TABLE IF EXISTS subscribers;
 DROP TABLE IF EXISTS staff_audit_events;
 DROP TABLE IF EXISTS staff_users;
@@ -191,11 +192,25 @@ CREATE TABLE subscribers (
   email      TEXT    NOT NULL,
   token      TEXT    NOT NULL UNIQUE,
   created_at INTEGER NOT NULL,
+  confirmed_at INTEGER,
   UNIQUE (tenant_id, email),
   FOREIGN KEY (tenant_id) REFERENCES tenants (id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_subscribers_tenant ON subscribers (tenant_id, created_at DESC);
+
+-- Pending double-opt-in requests. Tokens are stored hashed and one pending
+-- row per tenant/email prevents repeated requests from spamming confirmations.
+CREATE TABLE subscriber_confirmations (
+  tenant_id  INTEGER NOT NULL,
+  email      TEXT    NOT NULL,
+  token_hash TEXT    NOT NULL PRIMARY KEY,
+  expires_at INTEGER NOT NULL,
+  sent_at    INTEGER NOT NULL,
+  UNIQUE (tenant_id, email),
+  FOREIGN KEY (tenant_id) REFERENCES tenants (id) ON DELETE CASCADE
+);
+CREATE INDEX idx_subscriber_confirmations_expiry ON subscriber_confirmations (expires_at);
 
 CREATE TABLE subscription_manage_tokens (
   email TEXT PRIMARY KEY,

@@ -79,6 +79,7 @@ import {
 import { checkoutSubscriptionDecision, createCheckoutSession, createPortalSession, retrieveSubscription, stripeConfigured, subscriptionEventMatchesCurrent, verifyStripeSignature } from "./stripe";
 import { renderMarkdown as renderMarkdownSafe } from "./markdown";
 import { buildSitemapIndexXml, cacheVariants, CACHE_VERSION, customDomainRedirectUrl, indexNowKey } from "./indexing";
+import { applySubscriberConfirmation, requestSubscriberConfirmation } from "./subscriber-optin";
 
 
 type Bindings = {
@@ -2783,7 +2784,7 @@ type EmailJobMessage = {
   kind: "email-delivery";
   idempotencyKey: string;
   subscriberId?: number;
-  emailKind?: "post-notification" | "subscription-welcome" | "password-reset";
+  emailKind?: "post-notification" | "subscription-welcome" | "password-reset" | "subscriber-confirmation";
   to: string;
   subject: string;
   plainText: string;
@@ -3691,18 +3692,18 @@ app.post("/subscribe", async (c) => {
   const form = await c.req.formData().catch(() => null);
   const email = String(form?.get("email") ?? "").trim().toLowerCase();
   const navigate = c.req.header("sec-fetch-mode") === "navigate";
-  const ok = (already: boolean) =>
+  // Keep this response identical for new, pending, and existing addresses so
+  // the endpoint cannot be used to enumerate a blog's subscribers.
+  const ok = () =>
     navigate
       ? c.html(
           renderSimplePage(
             tenant,
-            "Subscribed",
-            already
-              ? `<p>You're already subscribed to ${esc(tenant.title)}.</p>`
-              : `<p>Thanks — you're subscribed to ${esc(tenant.title)}. New posts will arrive in your inbox.</p>`
+            "Check your inbox",
+            `<p>If that address can receive email, we'll send a confirmation link. Click it to start receiving posts from ${esc(tenant.title)}.</p>`
           )
         )
-      : c.json({ ok: true, already });
+      : c.json({ ok: true });
 
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
     return navigate
@@ -3710,41 +3711,120 @@ app.post("/subscribe", async (c) => {
       : c.json({ error: "Please enter a valid email address." }, 400);
 
   const existing = await c.env.DB.prepare(
-    "SELECT 1 FROM subscribers WHERE tenant_id = ? AND email = ?"
+    "SELECT 1 FROM subscribers WHERE tenant_id = ? AND email = ? AND confirmed_at IS NOT NULL"
   )
     .bind(tenant.id, email)
     .first();
-  if (existing) return ok(true);
+  if (existing) return ok();
 
-  const token = crypto.randomUUID();
   const now = Math.floor(Date.now() / 1000);
-  await c.env.DB.prepare(
-    "INSERT INTO subscribers (tenant_id, email, token, created_at) VALUES (?, ?, ?, ?)"
-  )
-    .bind(tenant.id, email, token, now)
-    .run();
-  const manageUrl = subscriptionManageUrl(c.env, await subscriptionManageToken(c.env, email));
+  // Keep a one-day suppression window after the 24-hour link expires. This
+  // makes repeated requests for the same address unable to turn the form into
+  // an email-spam primitive. Expired rows older than that window are disposable.
+  await c.env.DB.prepare("DELETE FROM subscriber_confirmations WHERE expires_at <= ? AND sent_at <= ?")
+    .bind(now - 86400, now - 86400).run();
+  const pending = await c.env.DB.prepare(
+    "SELECT sent_at FROM subscriber_confirmations WHERE tenant_id = ? AND email = ?"
+  ).bind(tenant.id, email).first<{ sent_at: number }>();
+  if (pending) return ok();
 
-  // Optional welcome email with a one-click unsubscribe link.
-  if (emailEnabled(c.env)) {
-    const origin = publicOrigin(c.env, tenant);
-    const unsub = `${origin}/unsubscribe/${token}`;
-    c.executionCtx.waitUntil(
-      sendEmail(c.env, {
-        to: email,
-        subject: `You're subscribed to ${tenant.title}`,
-        plainText: `Thanks for subscribing to ${tenant.title}. You'll get new posts by email.\n\nUnsubscribe: ${unsub}\nManage subscriptions: ${manageUrl}`,
-        html: `<p>Thanks for subscribing to <strong>${esc(tenant.title)}</strong>. You'll get new posts by email.</p>
-          <hr><p style="color:#888;font-size:13px"><a href="${unsub}">Unsubscribe</a> anytime · <a href="${manageUrl}">Manage subscriptions</a>.</p>`,
-        headers: {
-          "List-Unsubscribe": `<${unsub}>`,
-          "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-        },
-      }).then(() => {})
-    );
+  const rawToken = crypto.randomUUID();
+  const tokenHash = await sha256hex(rawToken);
+  const origin = publicOrigin(c.env, tenant);
+  const confirmUrl = `${origin}/subscribe/confirm?token=${encodeURIComponent(rawToken)}`;
+  const job: EmailJobMessage = {
+    kind: "email-delivery",
+    emailKind: "subscriber-confirmation",
+    idempotencyKey: `subscriber-confirmation:${tokenHash}`,
+    to: email,
+    subject: `Confirm your subscription to ${tenant.title}`,
+    plainText: `Please confirm your subscription to ${tenant.title}.\n\nConfirm here: ${confirmUrl}\n\nThis link expires in 24 hours. If you did not request this, you can ignore this email.`,
+    html: `<p>Please confirm your subscription to <strong>${esc(tenant.title)}</strong>.</p><p><a href="${confirmUrl}">Confirm subscription</a></p><p style="color:#687064;font-size:13px">This link expires in 24 hours. If you did not request this, you can ignore this email.</p>`,
+  };
+  const result = await requestSubscriberConfirmation({
+    isConfirmed: async () => Boolean(existing),
+    hasPending: async () => Boolean(pending),
+    insert: async () => {
+      const inserted = await c.env.DB.prepare(
+        "INSERT OR IGNORE INTO subscriber_confirmations (tenant_id, email, token_hash, expires_at, sent_at) VALUES (?, ?, ?, ?, ?)"
+      ).bind(tenant.id, email, tokenHash, now + 86400, now).run();
+      return inserted.meta.changes === 1;
+    },
+    deliver: async () => {
+      if (!emailEnabled(c.env)) {
+        console.info("Subscriber confirmation link (email delivery is not configured)", { tenantId: tenant.id, confirmUrl });
+        return true;
+      }
+      if (c.env.EMAIL_QUEUE) {
+        await c.env.EMAIL_QUEUE.send(job);
+        return true;
+      }
+      return sendEmail(c.env, job);
+    },
+    remove: async () => {
+      await c.env.DB.prepare("DELETE FROM subscriber_confirmations WHERE token_hash = ?").bind(tokenHash).run();
+    },
+  });
+  if (result === "delivery-failed") {
+    console.error("subscriber confirmation delivery failed", { tenantId: tenant.id, email });
+    // Keep the response indistinguishable from existing/pending addresses;
+    // delivery failures are logged and the row was removed for a later retry.
+    return ok();
   }
+  return ok();
+});
 
-  return ok(false);
+async function subscriberConfirmation(c: Context<{ Bindings: Bindings }>, rawToken: string) {
+  if (!rawToken || rawToken.length > 100) return c.text("This confirmation link is invalid or has expired.", 400);
+  const now = Math.floor(Date.now() / 1000);
+  const row = await c.env.DB.prepare(
+    "SELECT tenant_id, email FROM subscriber_confirmations WHERE token_hash = ? AND expires_at > ?"
+  ).bind(await sha256hex(rawToken), now).first<{ tenant_id: number; email: string }>();
+  if (!row) return c.text("This confirmation link is invalid or has expired.", 400);
+  const tenant = await tenantById(c.env, row.tenant_id);
+  if (!tenant) return c.text("This confirmation link is invalid or has expired.", 404);
+  let unsubscribeToken = "";
+  const confirmation = await applySubscriberConfirmation({
+    method: c.req.method,
+    lookup: async () => true,
+    insert: async () => {
+      unsubscribeToken = crypto.randomUUID();
+      const inserted = await c.env.DB.prepare(
+        "INSERT OR IGNORE INTO subscribers (tenant_id, email, token, created_at, confirmed_at) VALUES (?, ?, ?, ?, ?)"
+      ).bind(row.tenant_id, row.email, unsubscribeToken, now, now).run();
+      return inserted.meta.changes === 1;
+    },
+    remove: async () => {
+      await c.env.DB.prepare("DELETE FROM subscriber_confirmations WHERE token_hash = ?").bind(await sha256hex(rawToken)).run();
+    },
+  });
+  if (confirmation === "preview") {
+    return c.html(renderSimplePage(tenant, "Confirm subscription", `<p>Confirm that you want to receive new posts from ${esc(tenant.title)} by email.</p><form method="post" action="/subscribe/confirm"><input type="hidden" name="token" value="${esc(rawToken)}"><button type="submit" style="font:inherit;background:var(--accent);color:#fff;border:none;border-radius:6px;padding:.6rem 1.1rem;cursor:pointer">Confirm subscription</button></form>`));
+  }
+  if (confirmation === "confirmed") {
+    const origin = publicOrigin(c.env, tenant);
+    const unsub = `${origin}/unsubscribe/${unsubscribeToken}`;
+    const manageUrl = subscriptionManageUrl(c.env, await subscriptionManageToken(c.env, row.email));
+    const welcome: EmailJobMessage = {
+      kind: "email-delivery",
+      emailKind: "subscription-welcome",
+      idempotencyKey: `subscriber-welcome:${tenant.id}:${row.email}`,
+      to: row.email,
+      subject: `You're subscribed to ${tenant.title}`,
+      plainText: `Thanks for subscribing to ${tenant.title}. You'll get new posts by email.\n\nUnsubscribe: ${unsub}\nManage subscriptions: ${manageUrl}`,
+      html: `<p>Thanks for subscribing to <strong>${esc(tenant.title)}</strong>. You'll get new posts by email.</p><hr><p style="color:#687064;font-size:13px"><a href="${unsub}">Unsubscribe</a> anytime · <a href="${manageUrl}">Manage subscriptions</a>.</p>`,
+      headers: { "List-Unsubscribe": `<${unsub}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
+    };
+    if (emailEnabled(c.env) && c.env.EMAIL_QUEUE) c.executionCtx.waitUntil(c.env.EMAIL_QUEUE.send(welcome));
+    else if (emailEnabled(c.env)) c.executionCtx.waitUntil(sendEmail(c.env, welcome).then(() => {}));
+  }
+  return c.html(renderSimplePage(tenant, "Subscription confirmed", `<p>You're now subscribed to ${esc(tenant.title)}. New posts will arrive in your inbox.</p>`));
+}
+
+app.get("/subscribe/confirm", (c) => subscriberConfirmation(c, String(c.req.query("token") || "")));
+app.post("/subscribe/confirm", async (c) => {
+  const form = await c.req.formData().catch(() => null);
+  return subscriberConfirmation(c, String(form?.get("token") || ""));
 });
 
 function subscriptionManagePage(email: string, subscriptions: Array<{ id: number; title: string; slug: string; custom_domain?: string | null }>, token: string, message = ""): string {
@@ -3758,7 +3838,7 @@ async function processEmailFanout(env: Bindings, job: EmailFanoutMessage): Promi
   if (!env.EMAIL_QUEUE) throw new Error("Email queue is not configured.");
   const tenant = await tenantById(env, job.tenantId);
   if (!tenant) return;
-  const subscribers = await env.DB.prepare("SELECT id, email, token FROM subscribers WHERE tenant_id = ? AND id > ? ORDER BY id LIMIT 100")
+  const subscribers = await env.DB.prepare("SELECT id, email, token FROM subscribers WHERE tenant_id = ? AND confirmed_at IS NOT NULL AND id > ? ORDER BY id LIMIT 100")
     .bind(job.tenantId, job.afterId).all<{ id: number; email: string; token: string }>();
   const origin = publicOrigin(env, tenant);
   const postUrl = `${origin}/${job.postSlug}`;
@@ -3783,7 +3863,7 @@ async function processEmailFanout(env: Bindings, job: EmailFanoutMessage): Promi
 
 async function processEmailJob(env: Bindings, job: EmailJobMessage): Promise<void> {
   if (job.subscriberId != null) {
-    const active = await env.DB.prepare("SELECT id FROM subscribers WHERE id = ?").bind(job.subscriberId).first();
+    const active = await env.DB.prepare("SELECT id FROM subscribers WHERE id = ? AND confirmed_at IS NOT NULL").bind(job.subscriberId).first();
     if (!active) return;
   }
   const existing = await env.DB.prepare("SELECT status FROM email_delivery_log WHERE idempotency_key = ?")
@@ -3805,7 +3885,7 @@ app.get("/manage-subscriptions/:token", async (c) => {
   const identity = await c.env.DB.prepare("SELECT email FROM subscription_manage_tokens WHERE token = ?")
     .bind(token).first<{ email: string }>();
   if (!identity) return c.html(subscriptionManagePage("unknown address", [], token, "This link is invalid or has expired."), 404);
-  const subscriptions = await c.env.DB.prepare("SELECT s.id, t.title, t.slug, t.custom_domain FROM subscribers s JOIN tenants t ON t.id = s.tenant_id WHERE s.email = ? ORDER BY t.title")
+  const subscriptions = await c.env.DB.prepare("SELECT s.id, t.title, t.slug, t.custom_domain FROM subscribers s JOIN tenants t ON t.id = s.tenant_id WHERE s.email = ? AND s.confirmed_at IS NOT NULL ORDER BY t.title")
     .bind(identity.email).all<{ id: number; title: string; slug: string; custom_domain?: string | null }>();
   return c.html(subscriptionManagePage(identity.email, subscriptions.results, token));
 });
@@ -4053,7 +4133,7 @@ app.post("/manage-subscriptions/:token", async (c) => {
     .bind(identity.email).all<{ id: number }>();
   const remove = subscriptions.results.filter((row) => !selected.has(String(row.id)));
   if (remove.length) await c.env.DB.batch(remove.map((row) => c.env.DB.prepare("DELETE FROM subscribers WHERE id = ? AND email = ?").bind(row.id, identity.email)));
-  const remaining = await c.env.DB.prepare("SELECT s.id, t.title, t.slug, t.custom_domain FROM subscribers s JOIN tenants t ON t.id = s.tenant_id WHERE s.email = ? ORDER BY t.title")
+  const remaining = await c.env.DB.prepare("SELECT s.id, t.title, t.slug, t.custom_domain FROM subscribers s JOIN tenants t ON t.id = s.tenant_id WHERE s.email = ? AND s.confirmed_at IS NOT NULL ORDER BY t.title")
     .bind(identity.email).all<{ id: number; title: string; slug: string; custom_domain?: string | null }>();
   return c.html(subscriptionManagePage(identity.email, remaining.results, token, "Your subscription preferences have been saved."));
 });
