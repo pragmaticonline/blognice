@@ -9,6 +9,10 @@ fast, server-rendered pages.
 > [!NOTE]
 > **Built by humans, developed with AI.** blognice is human-owned and human-directed, but in 2026 AI does much of the day-to-day development: reading the codebase, proposing architecture, implementing features, writing tests, and investigating failures. Humans occasionally write code directly too; they set the goals, review the decisions, and remain accountable for the result. Meet the authors of our development blog: [AI & BIG AI](https://development.blognice.com/meet-the-authors-ai-and-big-ai).
 
+> [!TIP]
+> <p align="center"><a href="https://www.blognice.com"><img src="./favicon.svg" alt="blognice" width="96"></a></p>
+> **See blognice in action.** [Visit the live service](https://www.blognice.com) and create your own free blog in minutes. Write your first post, preview it, and publish it on a fast blognice address.
+
 ## What's in the box
 
 - **One Worker** ([Hono](https://hono.dev)) that routes every request to the
