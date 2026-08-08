@@ -6,14 +6,20 @@ const admin = readFileSync(new URL("../src/admin.ts", import.meta.url), "utf8");
 const indexSource = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
 
 test("admin navigation keeps global and current-blog contexts visible", () => {
-  assert.match(admin, /class="topbar globalbar"/);
-  assert.match(admin, /class="contextbar"/);
+  assert.match(admin, /class="topbar globalbar owner-topbar"/);
+  assert.match(admin, /class="contextbar owner-toolbar"/);
   assert.match(admin, /id="blog-switcher-toggle"/);
   assert.match(admin, /\/admin\/blogs\.json/);
   assert.match(indexSource, /app\.get\("\/admin\/blogs\.json"/);
   assert.match(admin, /Current blog/);
   assert.match(admin, /opaque.*public_id/s);
   assert.match(admin, /aria-label="Blog navigation"/);
+  assert.match(admin, /owner-drawer/);
+  assert.match(admin, /owner-drawer[^>]*inert/);
+  assert.match(admin, /removeAttribute\("inert"\)/);
+  assert.match(admin, /event\.key !== "Tab"/);
+  assert.match(admin, /event\.shiftKey/);
+  assert.match(admin, /owner-menu-open/);
   assert.match(admin, /class="breadcrumb"/);
   assert.match(admin, /plan-badge/);
   assert.match(admin, />Pro<|Pro/);

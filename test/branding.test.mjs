@@ -19,7 +19,7 @@ test("blog branding is persisted and injected into public and admin pages", () =
   assert.match(migration, /ADD COLUMN accent_color TEXT NOT NULL DEFAULT '#1a8917'/);
   assert.match(admin, /name="accent_color"/);
   assert.match(admin, /ACCENT_PRESETS/);
-  assert.match(admin, /Blog Nice green/);
+  assert.match(admin, /blognice green/);
   assert.match(admin, /data-accent-preset/);
   assert.match(indexSource, /UPDATE tenants SET slug = \?, title = \?, description = \?, accent_color = \?, topics_json = \?/);
   assert.match(indexSource, /INSERT INTO tenant_slug_aliases/);

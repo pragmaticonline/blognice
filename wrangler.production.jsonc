@@ -6,7 +6,6 @@
 	"compatibility_flags": ["nodejs_compat"],
 	"limits": { "cpu_ms": 300000 },
 	"rules": [
-		{ "type": "Data", "globs": ["**/*.webp"], "fallthrough": false },
 		{ "type": "Text", "globs": ["**/*.html", "**/*.svg"], "fallthrough": false }
 	],
 	"vars": {
@@ -14,7 +13,7 @@
 		"CF_ZONE_ID": "7e77e18b4b128bd2fbd6305e7bfb916e",
 		"CF_ACCOUNT_ID": "30142eba9e53a37522d1c59b298db661",
 		"CNAME_TARGET": "fallback.blognice.com",
-		"EMAIL_FROM": "Blog Nice <support@mailer.blognice.com>",
+		"EMAIL_FROM": "blognice <support@mailer.blognice.com>",
 		"STRIPE_MONTHLY_PRICE_ID": "price_1U15hNPBZtWrx4qGbiLxr4HL",
 		"STRIPE_YEARLY_PRICE_ID": "price_1U15hOPBZtWrx4qGIp4ariDb"
 	},
@@ -47,11 +46,13 @@
 	"queues": {
 		"producers": [
 			{ "binding": "AUDIO_QUEUE", "queue": "blognice-audio" },
-			{ "binding": "EMAIL_QUEUE", "queue": "blognice-email" }
+			{ "binding": "EMAIL_QUEUE", "queue": "blognice-email" },
+			{ "binding": "INDEXNOW_QUEUE", "queue": "blognice-indexnow" }
 		],
 		"consumers": [
 			{ "queue": "blognice-audio", "max_batch_size": 1, "max_batch_timeout": 5, "max_retries": 5 },
-			{ "queue": "blognice-email", "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 5 }
+			{ "queue": "blognice-email", "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 5 },
+			{ "queue": "blognice-indexnow", "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 5 }
 		]
 	}
 }

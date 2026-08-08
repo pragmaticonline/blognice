@@ -36,7 +36,8 @@ test("marketing homepage real example uses generic blogger imagery and address",
   assert.match(homepage, /src="\/marketing-ai\/blogger\.webp"/);
   assert.match(homepage, /alt="A blogger writing at a laptop"/);
   assert.match(homepage, /blognice\.blognice\.com\/blog-nice-vs-wordpress/);
-  assert.match(indexSource, /"blogger\.webp": marketingBlogger/);
+  assert.match(indexSource, /MEDIA\.get\(`marketing\/\$\{file\}`\)/);
+  assert.doesNotMatch(indexSource, /import marketingWriting/);
 });
 
 test("www is routed to the dedicated landing page before tenant resolution", () => {

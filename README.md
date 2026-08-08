@@ -13,7 +13,7 @@ fast, server-rendered pages.
 
 - **One Worker** ([Hono](https://hono.dev)) that routes every request to the
   right tenant based on the `Host` header, renders Markdown through a
-  dependency-free HTML allowlist, and serves it server-side (good for SEO, with
+  sanitized Markdown-to-HTML pipeline, and serves it server-side (good for SEO, with
   only small progressive scripts for editor, audio, and metrics behavior).
 - **One D1 database** (Cloudflare's SQLite) holding two tables: `tenants` and
   `posts`. All queries filter by `tenant_id`.
@@ -582,6 +582,18 @@ List posts, fetch one, update it, and delete it:
       -d '{"title":"Updated title","published":true}'
     curl -X DELETE "$API/blogs/$BLOG_ID/posts/$POST_ID" \
       -H "Authorization: Bearer $KEY"
+
+Re-queue IndexNow discovery after an external edit or if a notification was
+missed. With an empty JSON body, Blog Nice queues the homepage, sitemap, and
+RSS feed. You can also provide published post IDs or paths:
+
+    curl -X POST "$API/blogs/$BLOG_ID/indexnow" \
+      -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+      -d '{"post_ids":[42]}'
+
+The response is `202` because delivery is handled asynchronously by the
+IndexNow queue. Paths must belong to published posts, or be `/`, `/sitemap.xml`,
+or `/rss.xml`.
 
 Assign an existing media-library image as the featured image (or send `null`
 to remove it):

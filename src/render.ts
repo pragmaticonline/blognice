@@ -391,6 +391,7 @@ const STYLES = /* css */ `
   .share-x { --share-color: #111111; }
   .share-facebook { --share-color: #1877f2; }
   .share-linkedin { --share-color: #0a66c2; }
+  .share-reddit { --share-color: #ff4500; }
   .share-button.share-copy.is-copied { color: var(--accent); border-color: var(--accent); }
   .share-inline { display: none; }
   .byline-name { font-family: var(--sans); font-size: 1rem; color: var(--ink); font-weight: 500; }
@@ -624,7 +625,7 @@ ${canonical ? `<meta property="og:url" content="${esc(canonical)}">` : ""}${imag
   ${body}
 </div>
 <footer>
-  <span>${esc(tenant.title)}</span> &middot; powered by <a href="https://blognice.com">Blog&nbsp;Nice</a>
+  <span>${esc(tenant.title)}</span> &middot; powered by <a href="https://blognice.com">blognice</a>
 </footer>
 ${metricsBeacon()}
 <script>(function(){var button=document.getElementById("theme-toggle");if(button){function update(){var dark=document.documentElement.dataset.theme==="dark";button.setAttribute("aria-label",dark?"Use light theme":"Use dark theme");button.setAttribute("title",dark?"Use light theme":"Use dark theme");button.setAttribute("aria-pressed",dark?"true":"false")}update();button.addEventListener("click",function(){var dark=document.documentElement.dataset.theme!=="dark";document.documentElement.dataset.theme=dark?"dark":"light";try{localStorage.setItem("blognice-theme",dark?"dark":"light")}catch(e){}update()})}var top=document.getElementById("to-top");if(!top)return;function reveal(){var max=document.documentElement.scrollHeight-window.innerHeight;top.classList.toggle("visible",max>0&&window.scrollY/max>.35)}window.addEventListener("scroll",reveal,{passive:true});reveal();top.addEventListener("click",function(){window.scrollTo({top:0,behavior:"smooth"})})})();</script>
@@ -696,6 +697,7 @@ export function renderPost(
     <a class="share-button share-x" href="https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareTitle)}" target="_blank" rel="noopener noreferrer" data-tooltip="X" aria-label="Share on X">𝕏</a>
     <a class="share-button share-facebook" href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}" target="_blank" rel="noopener noreferrer" data-tooltip="Facebook" aria-label="Share on Facebook">f</a>
     <a class="share-button share-linkedin" href="https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}" target="_blank" rel="noopener noreferrer" data-tooltip="LinkedIn" aria-label="Share on LinkedIn">in</a>
+    <a class="share-button share-reddit" href="https://www.reddit.com/submit?url=${encodeURIComponent(shareUrl)}&title=${encodeURIComponent(shareTitle)}" target="_blank" rel="noopener noreferrer" data-tooltip="Reddit" aria-label="Share on Reddit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.2c-3.8 0-6.9 2.3-6.9 5.2s3.1 5.2 6.9 5.2 6.9-2.3 6.9-5.2-3.1-5.2-6.9-5.2Zm-3.1 5.1a1 1 0 1 1 0 2 1 1 0 0 1 0-2Zm6.2 0a1 1 0 1 1 0 2 1 1 0 0 1 0-2ZM9.2 14c.8.7 1.7 1 2.8 1s2-.3 2.8-1l.7.7c-.9.9-2.1 1.4-3.5 1.4s-2.6-.5-3.5-1.4l.7-.7Z"/><path d="m14.1 5.5.8-2.6 2.3.5a1.5 1.5 0 1 0 .2-1l-3-.7a.5.5 0 0 0-.6.4l-1 3.3 1.3.1Z"/></svg></a>
   </div>`;
   const shareScript = `<script>(function(){var buttons=document.querySelectorAll("[data-share-copy]");buttons.forEach(function(button){button.addEventListener("click",function(){var value=button.getAttribute("data-share-copy")||location.href;var done=function(){button.classList.add("is-copied");button.textContent="✓";setTimeout(function(){button.classList.remove("is-copied");button.textContent="↗"},1400)};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(value).then(done).catch(function(){})}else{var input=document.createElement("input");input.value=value;document.body.appendChild(input);input.select();try{document.execCommand("copy");done()}catch(e){}input.remove()}})})})();</script>`;
   const featuredBlock = post.featured_image_key
@@ -743,7 +745,7 @@ export function renderPost(
 }
 
 export function renderNotFound(tenant: Tenant | null): string {
-  const title = tenant ? tenant.title : "Blog Nice";
+  const title = tenant ? tenant.title : "blognice";
   const body = `<article>
     <h1>Not found</h1>
     <div class="prose"><p>That page doesn't exist.</p></div>
@@ -752,9 +754,9 @@ export function renderNotFound(tenant: Tenant | null): string {
   if (!tenant) {
     return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Blog Nice</title><style>${STYLES}</style></head>
+<title>blognice</title><style>${STYLES}</style></head>
 <body><div class="wrap"><article><h1>No blog here yet</h1>
-<div class="prose"><p>This domain isn't connected to a Blog Nice site.</p></div>
+<div class="prose"><p>This domain isn't connected to a blognice site.</p></div>
 </article></div></body></html>`;
   }
   return shell({

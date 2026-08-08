@@ -55,11 +55,6 @@ import {
 import { tenantDb } from "./db";
 import homepage from "../homepage.html";
 import faviconSvg from "../favicon.svg";
-import marketingWriting from "../assets/marketing-ai/writing.webp";
-import marketingCeramics from "../assets/marketing-ai/ceramics.webp";
-import marketingTrain from "../assets/marketing-ai/night-train.webp";
-import marketingNotebook from "../assets/marketing-ai/travel-notebook.webp";
-import marketingBlogger from "../assets/marketing-ai/blogger.webp";
 import { findMediaUse, mediaKey, mediaUrl, validLibraryFile } from "./media";
 import {
   AI_BRIEF_MODEL,
@@ -83,6 +78,7 @@ import {
 } from "./metrics";
 import { checkoutSubscriptionDecision, createCheckoutSession, createPortalSession, retrieveSubscription, stripeConfigured, subscriptionEventMatchesCurrent, verifyStripeSignature } from "./stripe";
 import { renderMarkdown as renderMarkdownSafe } from "./markdown";
+import { buildSitemapIndexXml, cacheVariants, CACHE_VERSION, customDomainRedirectUrl, indexNowKey } from "./indexing";
 
 
 type Bindings = {
@@ -91,6 +87,7 @@ type Bindings = {
   MEDIA: R2Bucket; // image uploads and generated narration
   AI: Ai; // Cloudflare Workers AI image and speech generation
   AUDIO_QUEUE: Queue<AudioJobMessage | ImageJobMessage>; // queued AI media jobs
+  INDEXNOW_QUEUE?: Queue<IndexNowMessage>; // search-engine discovery notifications
   EMAIL_QUEUE?: Queue<EmailJobMessage | EmailFanoutMessage>; // queued transactional email jobs
   METRICS: AnalyticsEngineDataset; // anonymous public page-view events
   EVENTS: AnalyticsEngineDataset; // audio engagement events
@@ -117,6 +114,7 @@ type Bindings = {
   STRIPE_MONTHLY_PRICE_ID?: string;
   STRIPE_YEARLY_PRICE_ID?: string;
   STRIPE_PORTAL_CONFIGURATION_ID?: string; // optional var
+  INDEXNOW_MASTER_SECRET?: string; // secret; derives per-host IndexNow keys
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -132,8 +130,8 @@ function legacyRenderMarkdown(md: string): string {
 // renderer is the parser-based implementation in src/markdown.ts.
 // Markdown is authored by collaborators, so raw HTML must not become a stored
 // XSS vector. Keep harmless formatting while removing executable/embed content
-// and event/javascript URLs. This intentionally stays dependency-free for the
-// Worker bundle; Markdown links and images are still supported.
+// and event/javascript URLs. This historical implementation was dependency-free;
+// it is inactive and retained only as a record of the former approach.
 function sanitizeRenderedHtml(html: string): string {
   const safeTags = new Set([
     "p", "br", "hr", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "em",
@@ -235,6 +233,11 @@ function originOf(c: { req: { url: string } }): string {
   return `${u.protocol}//${u.host}`;
 }
 
+function customDomainRedirect(c: any, tenant: Tenant): Response | null {
+  const location = customDomainRedirectUrl(c.req.url, tenant, c.env.ROOT_DOMAIN);
+  return location ? Response.redirect(location, 308) : null;
+}
+
 // ---------------------------------------------------------------------------
 // Edge caching. Reads are cached at the edge; writes purge the affected URLs.
 // TTL is short so content stays fresh even if a purge is ever missed.
@@ -247,7 +250,7 @@ async function serveCached(
   // Bump this when public shell markup/CSS changes so old edge HTML cannot
   // hide newly shipped controls until the normal five-minute TTL expires.
   const cacheUrl = new URL(c.req.url);
-  cacheUrl.searchParams.set("_bn_shell", "20260805-7");
+  cacheUrl.searchParams.set("_bn_shell", CACHE_VERSION);
   const key = new Request(cacheUrl.toString(), { method: "GET" });
   const hit = await cache.match(key);
   if (hit) return hit;
@@ -264,7 +267,7 @@ async function purge(c: any, paths: string[]): Promise<void> {
   const cache = caches.default;
   const origin = originOf(c);
   await Promise.all(
-    paths.map((p) => cache.delete(new Request(origin + p, { method: "GET" })))
+    paths.flatMap((p) => cacheVariants(origin + p).map((url) => cache.delete(new Request(url, { method: "GET" }))))
   );
 }
 
@@ -273,9 +276,9 @@ async function purge(c: any, paths: string[]): Promise<void> {
 async function purgeHost(hostname: string, paths: string[]): Promise<void> {
   const cache = caches.default;
   await Promise.all(
-    paths.map((p) =>
-      cache.delete(new Request(`https://${hostname}${p}`, { method: "GET" }))
-    )
+    paths.flatMap((p) => cacheVariants(`https://${hostname}${p}`).map((url) =>
+      cache.delete(new Request(url, { method: "GET" }))
+    ))
   );
 }
 
@@ -358,7 +361,8 @@ async function purgeTenant(
   const purgePaths = Array.from(new Set([...paths, "/rss.xml"]));
   for (const host of hosts)
     for (const p of purgePaths)
-      jobs.push(cache.delete(new Request(`https://${host}${p}`, { method: "GET" })));
+      for (const url of cacheVariants(`https://${host}${p}`))
+        jobs.push(cache.delete(new Request(url, { method: "GET" })));
   await Promise.all(jobs);
 }
 
@@ -380,6 +384,34 @@ async function purgeTenantEverywhere(
 // Used for email links, which must point at the reader-facing host.
 function publicOrigin(env: Bindings, tenant: Tenant): string {
   return `https://${tenant.custom_domain || `${tenant.slug}.${env.ROOT_DOMAIN}`}`;
+}
+
+function queueIndexNow(c: any, tenant: Tenant, paths: string[]): void {
+  if (!c.env.INDEXNOW_QUEUE || !c.env.INDEXNOW_MASTER_SECRET) return;
+  const origin = publicOrigin(c.env, tenant);
+  const urls = Array.from(new Set(paths.map((path) => `${origin}${path.startsWith("/") ? path : `/${path}`}`)));
+  c.executionCtx.waitUntil(c.env.INDEXNOW_QUEUE.send({ kind: "indexnow", urls }));
+}
+
+async function processIndexNow(env: Bindings, job: IndexNowMessage): Promise<void> {
+  if (!env.INDEXNOW_MASTER_SECRET || !job.urls.length) return;
+  const grouped = new Map<string, string[]>();
+  for (const value of job.urls) {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    const list = grouped.get(host) || [];
+    list.push(url.toString());
+    grouped.set(host, list);
+  }
+  for (const [host, urls] of grouped) {
+    const key = await indexNowKey(env.INDEXNOW_MASTER_SECRET, host);
+    const response = await fetch("https://api.indexnow.org/indexnow", {
+      method: "POST",
+      headers: { "content-type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ host, key, keyLocation: `https://${host}/.well-known/indexnow/${key}`, urlList: Array.from(new Set(urls)).slice(0, 10_000) }),
+    });
+    if (!response.ok && response.status !== 202) throw new Error(`IndexNow returned HTTP ${response.status}.`);
+  }
 }
 
 // The parser-based renderer is the only renderer used by public pages and the
@@ -426,6 +458,24 @@ async function notifySubscribers(
   if (env.EMAIL_QUEUE) await env.EMAIL_QUEUE.send({ kind: "email-fanout", campaignId: crypto.randomUUID(), tenantId: tenant.id, postSlug: post.slug, postTitle: post.title, afterId: 0 } satisfies EmailFanoutMessage);
 }
 
+// Claim and queue the one notification allowed for a post. The conditional
+// update makes editor/API races idempotent; failed queue submission releases
+// the claim so a later publish attempt can retry.
+async function queueSubscriberNotificationOnce(env: Bindings, tenant: Tenant, postId: number, post: { slug: string; title: string }): Promise<boolean> {
+  if (!emailEnabled(env) || !env.EMAIL_QUEUE) return false;
+  const result = await tenantDb(env, tenant).prepare(
+    "UPDATE posts SET subscriber_notification_sent = 1 WHERE id = ? AND tenant_id = ? AND published = 1 AND subscriber_notification_sent = 0"
+  ).bind(postId, tenant.id).run();
+  if (result.meta.changes !== 1) return false;
+  try {
+    await notifySubscribers(env, tenant, post);
+    return true;
+  } catch (error) {
+    await tenantDb(env, tenant).prepare("UPDATE posts SET subscriber_notification_sent = 0 WHERE id = ? AND tenant_id = ? AND subscriber_notification_sent = 1").bind(postId, tenant.id).run();
+    throw error;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Routes. Static paths are registered before the /:slug catch-all.
 // ---------------------------------------------------------------------------
@@ -442,11 +492,28 @@ app.use("*", async (c, next) => {
       301
     );
   }
+  if (!host.startsWith("www.")) {
+    const tenant = await resolveTenant(c.env, host);
+    const redirect = tenant ? customDomainRedirect(c, tenant) : null;
+    if (redirect) return redirect;
+  }
   return next();
 });
 
+app.get("/.well-known/indexnow/:key", async (c) => {
+  const secret = c.env.INDEXNOW_MASTER_SECRET;
+  const host = new URL(c.req.url).hostname.toLowerCase();
+  const tenant = await resolveTenant(c.env, host);
+  if (!secret || !tenant) return c.text("Not found", 404);
+  const expected = await indexNowKey(secret, host);
+  if (c.req.param("key") !== expected) return c.text("Not found", 404);
+  return c.text(expected, { headers: { "cache-control": "public, max-age=86400, immutable" } });
+});
+
 app.get("/robots.txt", (c) => {
-  const body = `User-agent: *\nAllow: /\nSitemap: ${originOf(c)}/sitemap.xml\n`;
+  const host = new URL(c.req.url).hostname.toLowerCase();
+  const sitemap = host === `www.${c.env.ROOT_DOMAIN}`.toLowerCase() ? "/sitemap-index.xml" : "/sitemap.xml";
+  const body = `User-agent: *\nAllow: /\nSitemap: ${originOf(c)}${sitemap}\n`;
   return c.text(body);
 });
 
@@ -504,6 +571,20 @@ function normalizePostTags(input: string): { tags: string[]; error?: string } {
   if (unique.some((tag) => tag.length > 40 || !/^[\p{L}\p{N}][\p{L}\p{N} _-]*$/u.test(tag)))
     return { tags: [], error: "Post tags must be 40 characters or fewer and contain only letters, numbers, spaces, hyphens, or underscores." };
   return { tags: unique };
+}
+
+/** Normalize the JSON-friendly tag form accepted by the public API. */
+function normalizeApiPostTags(value: unknown): { tags: string[]; error?: string } {
+  if (value === undefined) return { tags: [] };
+  const input = Array.isArray(value) ? value.map(String).join(",") : String(value ?? "");
+  return normalizePostTags(input);
+}
+
+function storedPostTags(value: unknown): string[] {
+  try {
+    const parsed = JSON.parse(String(value || "[]"));
+    return Array.isArray(parsed) ? parsed.filter((tag): tag is string => typeof tag === "string") : [];
+  } catch { return []; }
 }
 
 async function legacySlugRedirect(c: any): Promise<Response | null> {
@@ -675,6 +756,18 @@ app.get("/_blognice/blog-edit-link", async (c) => {
   return new Response(JSON.stringify({ url: `${adminOriginOf(c)}/admin/b/${tenant.public_id}/settings` }), { headers: { "content-type": "application/json", "cache-control": "private, no-store", vary: "Cookie" } });
 });
 
+app.get("/sitemap-index.xml", async (c) => {
+  const host = new URL(c.req.url).hostname.toLowerCase();
+  if (host !== `www.${c.env.ROOT_DOMAIN}`.toLowerCase()) return c.text("Not found", 404);
+  return serveCached(c, async () => {
+    const { results } = await c.env.DB.prepare(
+      "SELECT slug FROM tenants WHERE custom_domain IS NULL AND slug <> 'www' ORDER BY created_at"
+    ).all<{ slug: string }>();
+    const xml = buildSitemapIndexXml(results.map((tenant) => tenant.slug), c.env.ROOT_DOMAIN);
+    return new Response(xml, { headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=300" } });
+  });
+});
+
 app.get("/sitemap.xml", async (c) => {
   return serveCached(c, async () => {
     const tenant = await resolveTenant(c.env, c.req.header("host") || "");
@@ -749,8 +842,8 @@ app.get("/tag/:tag", async (c) => {
   return c.html(renderSimplePage(tenant, `#${tag}`, inner));
 });
 
-// Create a post. Auth: Authorization: Bearer <API_TOKEN>.
-// Body (JSON): { tenant_slug, slug, title, body_md, published? }
+// Create or upsert a post. Auth: Authorization: Bearer <API_TOKEN>.
+// Body (JSON): { tenant_slug, slug, title, body_md, published?, tags?, author_name?, author_visible?, featured_image_key? }
 app.post("/api/posts", async (c) => {
   if (!authorized(c)) return c.json({ error: "unauthorized" }, 401);
 
@@ -784,28 +877,43 @@ app.post("/api/posts", async (c) => {
   } catch (e: any) {
     return c.json({ error: e.message }, 400);
   }
+  const normalizedTags = normalizeApiPostTags(payload?.tags);
+  if (normalizedTags.error) return c.json({ error: normalizedTags.error }, 400);
+  const authorName = payload?.author_name === undefined || payload?.author_name === null
+    ? null : String(payload.author_name).trim().slice(0, 120);
+  if (payload?.author_name !== undefined && payload?.author_name !== null && String(payload.author_name).trim().length > 120)
+    return c.json({ error: "author_name must be 120 characters or fewer" }, 400);
+  const authorVisible = payload?.author_visible === undefined ? 1 : (payload.author_visible ? 1 : 0);
 
   const now = Math.floor(Date.now() / 1000);
   try {
     await tenantDb(c.env, tenant).prepare(
-      `INSERT INTO posts (tenant_id, slug, title, featured_image_key, body_md, published, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO posts (tenant_id, slug, title, featured_image_key, body_md, tags_json, published, created_at, updated_at, author_name, author_visible)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (tenant_id, slug)
        DO UPDATE SET title = excluded.title,
                      featured_image_key = CASE WHEN ? = 1 THEN excluded.featured_image_key ELSE posts.featured_image_key END,
                      body_md = excluded.body_md,
+                     tags_json = excluded.tags_json,
+                     author_name = excluded.author_name,
+                     author_visible = excluded.author_visible,
                      published = excluded.published, updated_at = excluded.updated_at`
     )
-      .bind(tenant.id, slug, title, featuredImageKey, body_md, published, now, now, hasFeaturedImage ? 1 : 0)
+      .bind(tenant.id, slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, now, now, authorName, authorVisible, hasFeaturedImage ? 1 : 0)
       .run();
   } catch (e: any) {
     return c.json({ error: "db error", detail: String(e?.message ?? e) }, 500);
   }
+  const savedPost = await tenantDb(c.env, tenant).prepare("SELECT id FROM posts WHERE tenant_id = ? AND slug = ?").bind(tenant.id, slug).first<{ id: number }>();
 
   // Invalidate the pages this post affects.
   await purge(c, ["/", "/" + slug, "/sitemap.xml"]);
+  if (published) {
+    queueIndexNow(c, tenant, ["/", "/" + slug]);
+    if (savedPost) c.executionCtx.waitUntil(queueSubscriberNotificationOnce(c.env, tenant, savedPost.id, { slug, title }));
+  }
 
-  return c.json({ ok: true, slug, published: !!published });
+  return c.json({ ok: true, slug, tags: normalizedTags.tags, author_name: authorName, author_visible: !!authorVisible, published: !!published });
 });
 
 // ---------------------------------------------------------------------------
@@ -848,6 +956,79 @@ app.get("/api/v1/me", async (c) => {
   return c.json({ id: account.id, email: account.email, blogs: results });
 });
 
+// Queue IndexNow notifications for already-published pages. Automatic
+// notifications are sent when the API publishes or updates a post; this
+// endpoint is for re-pinging a page after an external edit or a missed job.
+// Body (JSON, optional): { post_ids?: number[], paths?: string[] }
+app.post("/api/v1/blogs/:blogId/indexnow", async (c) => {
+  const account = await apiAccount(c);
+  if (!account) return c.json({ error: "unauthorized" }, 401);
+  const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
+  if (!tenant) return c.json({ error: "blog not found" }, 404);
+  const role = await membershipRoleFor(c.env, account.id, tenant.id);
+  if (!role || !can(role, "posts.edit.any")) return c.json({ error: "forbidden" }, 403);
+  if (!c.env.INDEXNOW_QUEUE || !c.env.INDEXNOW_MASTER_SECRET)
+    return c.json({ error: "IndexNow is not configured" }, 503);
+
+  let input: { post_ids?: unknown; paths?: unknown } = {};
+  try {
+    if (c.req.header("content-type")?.toLowerCase().includes("application/json"))
+      input = await c.req.json();
+  } catch {
+    return c.json({ error: "invalid JSON body" }, 400);
+  }
+  const requestedPaths = Array.isArray(input.paths)
+    ? input.paths.map((path) => String(path).trim()).filter(Boolean)
+    : [];
+  const requestedIds = Array.isArray(input.post_ids) ? input.post_ids : [];
+  if (requestedPaths.length > 1000 || requestedIds.length > 1000)
+    return c.json({ error: "at most 1,000 paths or post_ids may be submitted" }, 400);
+
+  const paths = new Set<string>();
+  if (!requestedPaths.length && !requestedIds.length) {
+    paths.add("/");
+    paths.add("/sitemap.xml");
+    paths.add("/rss.xml");
+  }
+  for (const path of requestedPaths) {
+    const normalized = path.startsWith("/") ? path : `/${path}`;
+    if (!normalized || normalized.includes("?") || normalized.includes("#") || normalized.includes("//"))
+      return c.json({ error: `invalid path: ${path}` }, 400);
+    paths.add(normalized);
+  }
+
+  const specialPaths = new Set(["/", "/sitemap.xml", "/rss.xml"]);
+  const postPaths = Array.from(paths).filter((path) => !specialPaths.has(path));
+  if (postPaths.length) {
+    const { results } = await tenantDb(c.env, tenant)
+      .prepare("SELECT slug FROM posts WHERE tenant_id = ? AND published = 1")
+      .bind(tenant.id)
+      .all<{ slug: string }>();
+    const publishedPaths = new Set(results.map((post) => `/${post.slug}`));
+    const unknown = postPaths.filter((path) => !publishedPaths.has(path));
+    if (unknown.length) return c.json({ error: "paths must refer to published posts or /, /sitemap.xml, /rss.xml", unknown_paths: unknown }, 400);
+  }
+
+  if (requestedIds.length) {
+    const ids = requestedIds.map((id) => Number(id));
+    if (ids.some((id) => !Number.isSafeInteger(id) || id < 1))
+      return c.json({ error: "post_ids must contain positive integers" }, 400);
+    const placeholders = ids.map(() => "?").join(",");
+    const { results } = await tenantDb(c.env, tenant).prepare(
+      `SELECT id, slug FROM posts WHERE tenant_id = ? AND published = 1 AND id IN (${placeholders})`
+    ).bind(tenant.id, ...ids).all<{ id: number; slug: string }>();
+    const found = new Set(results.map((post) => post.id));
+    const missing = ids.filter((id) => !found.has(id));
+    if (missing.length) return c.json({ error: "post_ids must refer to published posts", missing_post_ids: missing }, 400);
+    for (const post of results) paths.add(`/${post.slug}`);
+  }
+
+  const origin = publicOrigin(c.env, tenant);
+  const urls = Array.from(paths).map((path) => `${origin}${path}`);
+  c.executionCtx.waitUntil(c.env.INDEXNOW_QUEUE.send({ kind: "indexnow", urls }));
+  return c.json({ queued: true, urls, count: urls.length }, 202);
+});
+
 // List a blog's posts.
 app.get("/api/v1/blogs/:blogId/posts", async (c) => {
   const account = await apiAccount(c);
@@ -855,12 +1036,16 @@ app.get("/api/v1/blogs/:blogId/posts", async (c) => {
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
   const { results } = await tenantDb(c.env, tenant).prepare(
-    `SELECT id, slug, title, featured_image_key, published, created_at, updated_at
+    `SELECT id, slug, title, featured_image_key, tags_json, author_name, author_visible, published, created_at, updated_at
        FROM posts WHERE tenant_id = ? ORDER BY created_at DESC`
   )
     .bind(tenant.id)
     .all();
-  return c.json({ posts: results });
+  return c.json({ posts: results.map((post: any) => ({
+    ...post,
+    tags: storedPostTags(post.tags_json),
+    tags_json: undefined,
+  })) });
 });
 
 // Fetch one post (including its Markdown body).
@@ -875,10 +1060,14 @@ app.get("/api/v1/blogs/:blogId/posts/:id", async (c) => {
     .bind(c.req.param("id"), tenant.id)
     .first();
   if (!post) return c.json({ error: "post not found" }, 404);
-  return c.json({ post });
+  return c.json({ post: {
+    ...(post as any),
+    tags: storedPostTags((post as any).tags_json),
+    tags_json: undefined,
+  } });
 });
 
-// Create a post. Body (JSON): { title, body_md, slug?, published? }
+// Create a post. Body (JSON): { title, body_md, slug?, published?, tags?: string[], author_name?: string, author_visible?: boolean, featured_image_key?: string }
 app.post("/api/v1/blogs/:blogId/posts", async (c) => {
   const account = await apiAccount(c);
   if (!account) return c.json({ error: "unauthorized" }, 401);
@@ -906,6 +1095,13 @@ app.post("/api/v1/blogs/:blogId/posts", async (c) => {
   } catch (e: any) {
     return c.json({ error: e.message }, 400);
   }
+  const normalizedTags = normalizeApiPostTags(body?.tags);
+  if (normalizedTags.error) return c.json({ error: normalizedTags.error }, 400);
+  const authorName = body?.author_name === undefined || body?.author_name === null
+    ? null : String(body.author_name).trim().slice(0, 120);
+  if (body?.author_name !== undefined && String(body.author_name).trim().length > 120)
+    return c.json({ error: "author_name must be 120 characters or fewer" }, 400);
+  const authorVisible = body?.author_visible === undefined ? 1 : (body.author_visible ? 1 : 0);
   const now = Math.floor(Date.now() / 1000);
 
   const pdb = tenantDb(c.env, tenant);
@@ -917,18 +1113,22 @@ app.post("/api/v1/blogs/:blogId/posts", async (c) => {
     return c.json({ error: `a post with slug "${slug}" already exists` }, 409);
 
   const res = await pdb.prepare(
-    `INSERT INTO posts (tenant_id, slug, title, featured_image_key, body_md, published, created_at, updated_at, author_account_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO posts (tenant_id, slug, title, featured_image_key, body_md, tags_json, published, created_at, updated_at, author_account_id, author_name, author_visible)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
-    .bind(tenant.id, slug, title, featuredImageKey, body_md, published, now, now, account.id)
+    .bind(tenant.id, slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, now, now, account.id, authorName, authorVisible)
     .run();
   c.executionCtx.waitUntil(
     purgeTenant(c.env, tenant, ["/", "/" + slug, "/sitemap.xml"])
   );
-  return c.json({ post: { id: res.meta.last_row_id, slug, title, featured_image_key: featuredImageKey, published: !!published } }, 201);
+  if (published) {
+    queueIndexNow(c, tenant, ["/", "/" + slug]);
+    c.executionCtx.waitUntil(queueSubscriberNotificationOnce(c.env, tenant, Number(res.meta.last_row_id), { slug, title }));
+  }
+  return c.json({ post: { id: res.meta.last_row_id, slug, title, featured_image_key: featuredImageKey, tags: normalizedTags.tags, author_name: authorName, author_visible: !!authorVisible, published: !!published } }, 201);
 });
 
-// Update a post. Body (JSON): any of { title, body_md, slug, published }
+// Update a post. Body (JSON): any of { title, body_md, slug, published, tags, author_name, author_visible, featured_image_key }
 app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
   const account = await apiAccount(c);
   if (!account) return c.json({ error: "unauthorized" }, 401);
@@ -966,6 +1166,17 @@ app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
       return c.json({ error: e.message }, 400);
     }
   }
+  const normalizedTags = body?.tags !== undefined
+    ? normalizeApiPostTags(body.tags)
+    : normalizeApiPostTags(post.tags_json || "[]");
+  if (normalizedTags.error) return c.json({ error: normalizedTags.error }, 400);
+  const authorName = body?.author_name !== undefined
+    ? (body.author_name === null ? null : String(body.author_name).trim().slice(0, 120))
+    : (post.author_name ?? null);
+  if (body?.author_name !== undefined && body.author_name !== null && String(body.author_name).trim().length > 120)
+    return c.json({ error: "author_name must be 120 characters or fewer" }, 400);
+  const authorVisible = body?.author_visible !== undefined
+    ? (body.author_visible ? 1 : 0) : (post.author_visible ?? 1);
   const now = Math.floor(Date.now() / 1000);
 
   if (slug !== post.slug) {
@@ -977,15 +1188,18 @@ app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
   }
 
   await pdb.prepare(
-    `UPDATE posts SET title = ?, featured_image_key = ?, body_md = ?, slug = ?, published = ?, updated_at = ?
+    `UPDATE posts SET title = ?, featured_image_key = ?, body_md = ?, tags_json = ?, slug = ?, published = ?, updated_at = ?, author_name = ?, author_visible = ?
       WHERE id = ? AND tenant_id = ?`
   )
-    .bind(title, featuredImageKey, body_md, slug, published, now, post.id, tenant.id)
+    .bind(title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), slug, published, now, authorName, authorVisible, post.id, tenant.id)
     .run();
   c.executionCtx.waitUntil(
     purgeTenant(c.env, tenant, ["/", "/" + post.slug, "/" + slug, "/sitemap.xml"])
   );
-  return c.json({ post: { id: post.id, slug, title, featured_image_key: featuredImageKey, published: !!published } });
+  if (post.published || published) queueIndexNow(c, tenant, ["/", "/" + post.slug, "/" + slug]);
+  if (!post.published && published)
+    c.executionCtx.waitUntil(queueSubscriberNotificationOnce(c.env, tenant, post.id, { slug, title }));
+  return c.json({ post: { id: post.id, slug, title, featured_image_key: featuredImageKey, tags: normalizedTags.tags, author_name: authorName, author_visible: !!authorVisible, published: !!published } });
 });
 
 // Delete a post.
@@ -998,9 +1212,9 @@ app.delete("/api/v1/blogs/:blogId/posts/:id", async (c) => {
   if (!role || !can(role, "posts.delete")) return c.json({ error: "forbidden" }, 403);
   const pdb = tenantDb(c.env, tenant);
   const post = await pdb
-    .prepare("SELECT slug FROM posts WHERE id = ? AND tenant_id = ?")
+    .prepare("SELECT slug, published FROM posts WHERE id = ? AND tenant_id = ?")
     .bind(c.req.param("id"), tenant.id)
-    .first<{ slug: string }>();
+    .first<{ slug: string; published: number }>();
   if (!post) return c.json({ error: "post not found" }, 404);
   await pdb.prepare("DELETE FROM posts WHERE id = ? AND tenant_id = ?")
     .bind(c.req.param("id"), tenant.id)
@@ -1008,6 +1222,7 @@ app.delete("/api/v1/blogs/:blogId/posts/:id", async (c) => {
   c.executionCtx.waitUntil(
     purgeTenant(c.env, tenant, ["/", "/" + post.slug, "/sitemap.xml"])
   );
+  if (post.published) queueIndexNow(c, tenant, ["/", "/" + post.slug]);
   return c.json({ ok: true });
 });
 
@@ -1435,14 +1650,14 @@ async function sendForgotPasswordHandler(c: Context<{ Bindings: Bindings }>) {
         emailKind: "password-reset",
         idempotencyKey: `password-reset:${tokenHash}`,
         to: account.email,
-        subject: "Reset your Blog Nice password",
-        plainText: `We received a request to reset your Blog Nice password.\n\nReset it here: ${resetUrl}\n\nThis link expires in one hour. If you did not request this, you can ignore this email.`,
-        html: `<p>We received a request to reset your Blog Nice password.</p><p><a href="${resetUrl}">Reset your password</a></p><p style="color:#687064;font-size:13px">This link expires in one hour. If you did not request this, you can ignore this email.</p>`,
+        subject: "Reset your blognice password",
+        plainText: `We received a request to reset your blognice password.\n\nReset it here: ${resetUrl}\n\nThis link expires in one hour. If you did not request this, you can ignore this email.`,
+        html: `<p>We received a request to reset your blognice password.</p><p><a href="${resetUrl}">Reset your password</a></p><p style="color:#687064;font-size:13px">This link expires in one hour. If you did not request this, you can ignore this email.</p>`,
       };
       if (emailEnabled(c.env) || c.env.MAILNICE_API_KEY || c.env.RESEND_API_KEY) {
         // Password resets are transactional and time-sensitive. Await the
         // provider request so a failed fetch cannot be lost with the response.
-        const emailEnv = { ...c.env, EMAIL_FROM: c.env.EMAIL_FROM || "Blog Nice <support@mailer.blognice.com>" };
+      const emailEnv = { ...c.env, EMAIL_FROM: c.env.EMAIL_FROM || "blognice <support@mailer.blognice.com>" };
         try {
           const result = await sendEmailDetailed(emailEnv, job);
           if (!result.ok) console.error("Password reset email provider rejected the message", {
@@ -1882,16 +2097,18 @@ app.post("/admin/b/:blogId/save", async (c) => {
   const pdb = tenantDb(c.env, ctx.tenant);
   let savedId = idParam ? Number(idParam) : undefined;
   let wasPublished = 0;
+  let previousSlug = "";
   if (idParam) {
     const prev = await pdb
-      .prepare("SELECT published, author_account_id, author_name FROM posts WHERE id = ? AND tenant_id = ?")
+      .prepare("SELECT slug, published, author_account_id, author_name FROM posts WHERE id = ? AND tenant_id = ?")
       .bind(idParam, ctx.tenant.id)
-      .first<{ published: number; author_account_id: number | null; author_name: string | null }>();
+      .first<{ slug: string; published: number; author_account_id: number | null; author_name: string | null }>();
     if (!prev) return c.text("Post not found.", 404);
     if (!can(ctx.role, "posts.edit.any") &&
         !(can(ctx.role, "posts.edit.own") && prev.author_account_id === ctx.account.id))
       return c.text("You do not have permission to edit this post.", 403);
     wasPublished = prev?.published ?? 0;
+    previousSlug = prev?.slug ?? "";
   }
   try {
     if (idParam) {
@@ -1924,11 +2141,12 @@ app.post("/admin/b/:blogId/save", async (c) => {
   }
 
   c.executionCtx.waitUntil(
-    purgeTenant(c.env, ctx.tenant, ["/", "/" + slug, "/sitemap.xml"])
+    purgeTenant(c.env, ctx.tenant, ["/", ...(previousSlug ? ["/" + previousSlug] : []), "/" + slug, "/sitemap.xml"])
   );
+  if (published === 1 || wasPublished === 1) queueIndexNow(c, ctx.tenant, ["/", ...(previousSlug ? ["/" + previousSlug] : []), "/" + slug]);
   // Email subscribers when a post first goes live (draft/new -> published).
-  if (published === 1 && wasPublished === 0)
-    c.executionCtx.waitUntil(notifySubscribers(c.env, ctx.tenant, { slug, title }));
+  if (published === 1 && wasPublished === 0 && savedId)
+    c.executionCtx.waitUntil(queueSubscriberNotificationOnce(c.env, ctx.tenant, savedId, { slug, title }));
   queueBlogAudit(c, ctx.tenant.id, ctx.account.id, idParam ? "post_updated" : "post_created", slug);
   if (published === 1 && wasPublished === 0)
     queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "post_published", slug);
@@ -1946,10 +2164,10 @@ app.post("/admin/b/:blogId/delete/:id", async (c) => {
   if (denied) return denied;
   const pdb = tenantDb(c.env, ctx.tenant);
   const post = await pdb.prepare(
-    "SELECT slug, audio_key FROM posts WHERE id = ? AND tenant_id = ?"
+    "SELECT slug, published, audio_key FROM posts WHERE id = ? AND tenant_id = ?"
   )
     .bind(c.req.param("id"), ctx.tenant.id)
-    .first<{ slug: string; audio_key: string | null }>();
+    .first<{ slug: string; published: number; audio_key: string | null }>();
   if (post) {
     await pdb.prepare("DELETE FROM posts WHERE id = ? AND tenant_id = ?")
       .bind(c.req.param("id"), ctx.tenant.id)
@@ -1958,6 +2176,7 @@ app.post("/admin/b/:blogId/delete/:id", async (c) => {
     c.executionCtx.waitUntil(
       purgeTenant(c.env, ctx.tenant, ["/", "/" + post.slug, "/sitemap.xml"])
     );
+    if (post.published) queueIndexNow(c, ctx.tenant, ["/", "/" + post.slug]);
     queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "post_deleted", post.slug);
   }
   return c.redirect(`/admin/b/${ctx.tenant.public_id}`);
@@ -2559,6 +2778,7 @@ function can(role: MembershipRole, capability: Capability): boolean {
 
 type AudioJobMessage = { jobKey: string; tenantId: number; postId: number };
 type ImageJobMessage = { kind: "image"; jobKey: string; tenantId: number };
+type IndexNowMessage = { kind: "indexnow"; urls: string[] };
 type EmailJobMessage = {
   kind: "email-delivery";
   idempotencyKey: string;
@@ -3036,17 +3256,29 @@ app.post("/admin/b/:blogId/favicon", async (c) => {
   }
 });
 
-const marketingImages: Record<string, ArrayBuffer> = {
-  "writing.webp": marketingWriting,
-  "ceramics.webp": marketingCeramics,
-  "night-train.webp": marketingTrain,
-  "travel-notebook.webp": marketingNotebook,
-  "blogger.webp": marketingBlogger,
-};
-app.get("/marketing-ai/:file", (c) => {
-  const image = marketingImages[c.req.param("file")];
-  if (!image) return c.notFound();
-  return new Response(image, { headers: { "content-type": "image/webp", "cache-control": "public, max-age=31536000, immutable", "x-content-type-options": "nosniff" } });
+// Marketing images live in R2 rather than the Worker bundle. Keep this
+// allowlist deliberately small: marketing files are public and immutable, but
+// arbitrary R2 keys must never become publicly readable through this route.
+const MARKETING_IMAGES = new Set([
+  "writing.webp", "ceramics.webp", "night-train.webp", "travel-notebook.webp", "blogger.webp",
+]);
+app.get("/marketing-ai/:file", async (c) => {
+  const file = c.req.param("file");
+  if (!MARKETING_IMAGES.has(file)) return c.notFound();
+  const cache = caches.default;
+  const cacheKey = new Request(c.req.url, { method: "GET" });
+  const hit = await cache.match(cacheKey);
+  if (hit) return hit;
+  const object = await c.env.MEDIA.get(`marketing/${file}`);
+  if (!object) return c.notFound();
+  const response = new Response(object.body, { headers: {
+    "content-type": object.httpMetadata?.contentType || "image/webp",
+    "cache-control": "public, max-age=31536000, immutable",
+    "x-content-type-options": "nosniff",
+    etag: object.httpEtag,
+  } });
+  c.executionCtx.waitUntil(cache.put(cacheKey, response.clone()));
+  return response;
 });
 
 // The marketing voice sample uses the same MeloTTS model, language, retry
@@ -3074,7 +3306,7 @@ app.get("/marketing-audio", async (c) => {
     if (!reclaimed.meta.changes) return c.json({ error: "The voice sample is being prepared. Please try again shortly." }, 503);
   }
   try {
-    const bytes = await generateSpeechWithRecovery(c.env.AI, "Welcome to Blog Nice. A nicer way to blog.");
+    const bytes = await generateSpeechWithRecovery(c.env.AI, "Welcome to blognice. A nicer way to blog.");
     await c.env.MEDIA.put(assetKey, bytes, { httpMetadata: { contentType: "audio/wav", cacheControl: "public, max-age=31536000, immutable" } });
     await c.env.DB.prepare("DELETE FROM marketing_audio_state WHERE asset_key = ?").bind(assetKey).run();
     const response = new Response(bytes, {
@@ -3221,9 +3453,9 @@ app.post("/signup", async (c) => {
     await c.env.DB.prepare("UPDATE blog_invitations SET accepted_at = ? WHERE id = ?").bind(now, invite.id).run();
     c.executionCtx.waitUntil(sendEmail(c.env, {
       to: email,
-      subject: "Welcome to Blog Nice",
-      plainText: "Welcome to Blog Nice!\n\nYour account is ready. Sign in to create and publish your first blog.",
-      html: "<h2>Welcome to Blog Nice!</h2><p>Your account is ready. Sign in to create and publish your first blog.</p>",
+      subject: "Welcome to blognice",
+      plainText: "Welcome to blognice!\n\nYour account is ready. Sign in to create and publish your first blog.",
+      html: "<h2>Welcome to blognice!</h2><p>Your account is ready. Sign in to create and publish your first blog.</p>",
     }));
     const tenant = await c.env.DB.prepare("SELECT public_id FROM tenants WHERE id = ?").bind(invite.tenant_id).first<{ public_id: string }>();
     const token = await createSession(c.env.DB, accountId);
@@ -3253,9 +3485,9 @@ app.post("/signup", async (c) => {
     .run();
   c.executionCtx.waitUntil(sendEmail(c.env, {
     to: email,
-    subject: "Welcome to Blog Nice",
-    plainText: "Welcome to Blog Nice!\n\nYour account is ready. Sign in to create and publish your first blog.",
-    html: "<h2>Welcome to Blog Nice!</h2><p>Your account is ready. Sign in to create and publish your first blog.</p>",
+    subject: "Welcome to blognice",
+    plainText: "Welcome to blognice!\n\nYour account is ready. Sign in to create and publish your first blog.",
+    html: "<h2>Welcome to blognice!</h2><p>Your account is ready. Sign in to create and publish your first blog.</p>",
   }));
 
   const token = await createSession(c.env.DB, accountId);
@@ -3591,13 +3823,46 @@ app.get("/admin/b/:blogId/audit", async (c) => {
   }
 });
 
-function billingPage(account: Account, billing: any, message = "", credits?: { used: number; allowance: number }): string {
+function billingPage(
+  account: Account,
+  billing: any,
+  message = "",
+  credits?: { used: number; allowance: number },
+  prices?: { monthly?: string; yearly?: string },
+): string {
   const status = String(billing.billing_status || "inactive");
   const active = ["active", "trialing", "past_due"].includes(status);
-  const creditSummary = active ? ` · AI credits remaining: ${credits ? Math.max(0, credits.allowance - credits.used).toLocaleString() : "—"}/${credits?.allowance || AI_MONTHLY_CREDITS}` : "";
-  const label = (status === "active" ? "Pro — active" : status === "trialing" ? "Pro — trial" : status === "past_due" ? "Pro — payment needs attention" : "Free plan") + creditSummary;
-  const renewal = billing.billing_period_end ? ` · ${billing.billing_cancel_at_period_end ? "Ends" : "Renews"} ${new Date(Number(billing.billing_period_end) * 1000).toLocaleDateString()}` : "";
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Billing · Blog Nice</title><style>body{margin:0;background:#f7f8f3;color:#171914;font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}.card{max-width:700px;margin:7vh auto;padding:2rem;background:#fff;border:1px solid #dfe4da;border-radius:10px}h1{margin-top:0}.muted{color:#687064}.notice{padding:.8rem;background:#eaf4e8;border-radius:6px}.plan{padding:1rem 1.1rem;margin:1.2rem 0;background:#f1f7ef;border:1px solid #cfe2ca;border-radius:8px;font-size:1.1rem}.btn{display:inline-block;margin:1rem .5rem 0 0;padding:.65rem 1rem;border:1px solid #dfe4da;border-radius:6px;background:#171914;color:#fff;font:inherit;cursor:pointer}select{padding:.65rem;border:1px solid #dfe4da;border-radius:6px;font:inherit}li{margin:.35rem 0}</style></head><body><main class="card"><p class="muted"><a href="/admin">Blog Nice admin</a></p><h1>Billing</h1><p>Account: <strong>${esc(account.email)}</strong></p>${message ? `<p class="notice">${esc(message)}</p>` : ""}<div class="plan"><strong>${label}</strong>${renewal}</div>${active || billing.stripe_customer_id ? `<form method="post" action="/admin/billing/portal"><button class="btn" type="submit">Manage billing</button></form>` : `<form method="post" action="/admin/billing/checkout"><label>Choose a plan <select name="plan"><option value="monthly">$5 monthly</option><option value="yearly">$36 yearly (save 40%)</option></select></label><br><button class="btn" type="submit">Upgrade to Pro</button></form>`}<h2>What your plan includes</h2>${active ? `<ul><li>Up to five blogs</li><li>Custom domains and favicons</li><li>Collaborators and authors</li><li>AI image generation and narration</li><li>API access</li></ul>` : `<ul><li>One Blog Nice blog</li><li>Blog Nice subdomain</li><li>Core editor, publishing, images, RSS, themes, tags, and basic metrics</li><li>AI, collaborators, custom domains, favicons, and API access require Pro</li></ul>`}<p class="muted">Stripe manages payment details, invoices, and cancellation. Blog Nice access follows verified Stripe webhook updates.</p></main></body></html>`;
+  const allowance = Math.max(0, Number(credits?.allowance || AI_MONTHLY_CREDITS));
+  const used = Math.min(allowance, Math.max(0, Number(credits?.used || 0)));
+  const remaining = allowance - used;
+  const period = aiCreditPeriod();
+  const [periodYear, periodMonth] = period.split("-").map(Number);
+  const resetDate = Number.isFinite(periodYear) && Number.isFinite(periodMonth)
+    ? new Date(Date.UTC(periodYear, periodMonth, 1)).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })
+    : "the start of next month";
+  const term = billing.billing_price_id === prices?.monthly ? "monthly" : billing.billing_price_id === prices?.yearly ? "yearly" : "";
+  const renewal = billing.billing_period_end
+    ? `${billing.billing_cancel_at_period_end ? "Ends" : "Renews"} ${new Date(Number(billing.billing_period_end) * 1000).toLocaleDateString()}`
+    : "";
+  const check = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="m5 13 4 4L19 7"/></svg>`;
+  const freeFeatures = ["One blognice blog", "blognice subdomain", "Editor, publishing, and images", "RSS, themes, tags, and basic metrics"];
+  const proFeatures = ["Up to five blogs", "AI image generation and audio narration", "Collaborators and authors", "Custom domains and favicons", "API access"];
+  const features = (items: string[]) => `<ul class="billing-features">${items.map((item) => `<li>${check}${esc(item)}</li>`).join("")}</ul>`;
+  const checkout = (plan: "monthly" | "yearly", label: string, cls = "") => `<form method="post" action="/admin/billing/checkout"><input type="hidden" name="plan" value="${plan}"><button class="billing-btn ${cls}" type="submit">${label}</button></form>`;
+  const portal = `<form method="post" action="/admin/billing/portal"><button class="billing-btn billing-btn-solid" type="submit">Manage billing in Stripe</button></form>`;
+  const statusNotice = status === "past_due"
+    ? `<div class="billing-alert"><strong>Payment needs attention.</strong> Your Pro features remain available temporarily, but update your payment method in Stripe to avoid interruption.${billing.stripe_customer_id ? `<div class="billing-alert-action">${portal.replace("Manage billing in Stripe", "Fix payment in Stripe")}</div>` : ""}</div>`
+    : message ? `<div class="billing-notice">${esc(message)}</div>` : "";
+  const billingAction = active ? portal : "";
+  const usage = active ? `<section class="billing-section billing-usage"><div class="billing-section-head"><h2>AI usage</h2><span>Resets ${esc(resetDate)}</span></div><div class="billing-usage-stat"><div class="billing-usage-icon">✦</div><div><strong>${remaining.toLocaleString()} of ${allowance.toLocaleString()}</strong><span>credits remaining this month</span></div></div><div class="billing-track"><div style="width:${allowance ? Math.round(used / allowance * 100) : 0}%"></div></div><div class="billing-bar-labels"><span>${used.toLocaleString()} used</span><span>${remaining.toLocaleString()} remaining</span></div><p class="billing-muted">Images use 3 credits. Audio narration uses credits based on word count.</p></section>` : "";
+  const freeCard = `<article class="billing-plan ${!active ? "billing-current" : ""}"><div class="billing-plan-name">Free</div><div class="billing-price">$0</div>${!active ? `<span class="billing-current-badge">${check} Current plan</span>` : ""}<div class="billing-includes">What's included</div>${features(freeFeatures)}${!active ? `<span class="billing-plan-foot">This is your plan today</span>` : ""}</article>`;
+  const monthlyCard = `<article class="billing-plan ${active && term === "monthly" ? "billing-current" : ""}"><div class="billing-plan-name">Pro · Monthly</div><div class="billing-price">$5 <small>/ month</small></div><p class="billing-sub">Billed monthly, cancel any time</p><div class="billing-includes">Everything in Free, plus</div>${features(proFeatures)}${active && term === "monthly" ? `<span class="billing-plan-foot">${check} Current plan${renewal ? ` · ${esc(renewal)}` : ""}</span>` : active ? `<span class="billing-plan-foot">Plan changes are managed in Stripe</span>` : checkout("monthly", "Upgrade monthly", "billing-btn-dark")}</article>`;
+  const yearlyCard = `<article class="billing-plan billing-featured ${active && term === "yearly" ? "billing-current" : ""}"><span class="billing-ribbon">Save 40%</span><div class="billing-plan-name">Pro · Yearly</div><div class="billing-price">$36 <small>/ year</small></div><p class="billing-sub">Just <b>$3/month</b>, billed annually</p><div class="billing-includes">Everything in Free, plus</div>${features(proFeatures)}${active && term === "yearly" ? `<span class="billing-plan-foot">${check} Current plan${renewal ? ` · ${esc(renewal)}` : ""}</span>` : active ? `<span class="billing-plan-foot">Plan changes are managed in Stripe</span>` : checkout("yearly", "Upgrade yearly", "billing-btn-green")}</article>`;
+  const unknownPaid = active && !term ? `<div class="billing-notice">Your account is Pro. Use the Stripe button below to view its current plan and renewal details.</div>` : "";
+  const formerCustomer = !active && billing.stripe_customer_id ? `<div class="billing-history">Already subscribed before? ${portal.replace("Manage billing in Stripe", "View billing history in Stripe")}</div>` : "";
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Billing · Blog Nice</title><style>
+  :root{--bg:#f7f8f3;--card:#fff;--ink:#15170f;--soft:#5c6455;--faint:#8a9182;--green:#1a8917;--deep:#0e5a0c;--mist:#eef5ec;--rule:#e3e7dd}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;padding:3.5rem 1.5rem}.billing-wrap{max-width:1040px;margin:auto}.billing-crumb{color:var(--deep);font-weight:650;text-decoration:none;display:inline-block;margin-bottom:1.8rem}.billing-h1{font-size:30px;margin:0 0 .35rem;letter-spacing:-.02em}.billing-account{color:var(--soft);margin:0 0 2.2rem}.billing-account b{color:var(--ink)}.billing-alert,.billing-notice{padding:.85rem 1rem;border-radius:10px;margin:0 0 1.2rem}.billing-alert{background:#fff4e5;border:1px solid #e8c58c;color:#6b4300}.billing-notice{background:var(--mist);border:1px solid #cfe6cb;color:var(--deep)}.billing-section{margin:0 0 2.4rem}.billing-section-head{display:flex;justify-content:space-between;align-items:baseline;gap:1rem;margin-bottom:1rem}.billing-section-head h2{font-size:19px;margin:0}.billing-section-head span{font-size:13px;color:var(--faint)}.billing-usage{background:var(--card);border:1px solid var(--rule);border-radius:16px;padding:1.5rem 1.7rem}.billing-usage-stat{display:flex;align-items:center;gap:.8rem}.billing-usage-icon{width:2.4rem;height:2.4rem;border-radius:9px;background:var(--mist);color:var(--deep);display:grid;place-items:center;font-size:1.35rem}.billing-usage-stat strong{display:block;font-size:20px}.billing-usage-stat span{display:block;color:var(--soft);font-size:13px}.billing-track{height:8px;background:var(--rule);border-radius:99px;overflow:hidden;margin:1.2rem 0 .5rem}.billing-track div{height:100%;background:var(--green);border-radius:99px}.billing-bar-labels{display:flex;justify-content:space-between;color:var(--soft);font-size:12.5px}.billing-muted{color:var(--faint);font-size:13px;margin:.9rem 0 0}.billing-plan-section{margin-top:2.6rem}.billing-plans{display:grid;grid-template-columns:repeat(3,1fr);gap:1.2rem}.billing-plan{background:var(--card);border:1px solid var(--rule);border-radius:16px;padding:1.6rem 1.45rem;display:flex;flex-direction:column;position:relative}.billing-plan.billing-current{background:var(--mist);border-color:#cfe6cb}.billing-featured{border:2px solid var(--green);box-shadow:0 20px 40px -28px rgb(15 90 12 / .35)}.billing-ribbon{position:absolute;top:-.8rem;left:1.5rem;background:var(--green);color:#fff;padding:.3rem .75rem;border-radius:99px;font-size:11px;font-weight:700}.billing-plan-name{font-size:13px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--soft);margin-bottom:.8rem}.billing-current .billing-plan-name{color:var(--deep)}.billing-price{font-size:36px;font-weight:800;line-height:1.1}.billing-price small{font-size:14px;font-weight:500;color:var(--soft)}.billing-sub{font-size:13px;color:var(--faint);min-height:2.6rem;margin:.35rem 0 1.2rem}.billing-sub b{color:var(--deep)}.billing-current-badge{display:inline-flex;align-items:center;gap:.35rem;color:var(--deep);font-size:12px;font-weight:650;margin:0 0 1.2rem}.billing-current-badge svg{width:13px;height:13px}.billing-includes{font-size:12.5px;color:var(--faint);font-weight:650;margin-bottom:.7rem}.billing-features{list-style:none;padding:0;margin:0 0 1.3rem;display:flex;flex-direction:column;gap:.55rem;flex:1}.billing-features li{display:flex;align-items:flex-start;gap:.45rem;font-size:14px}.billing-features svg{width:16px;height:16px;color:var(--green);flex:none;margin-top:2px}.billing-plan-foot{color:var(--faint);font-size:13px;margin-top:auto}.billing-plan-foot svg{width:14px;height:14px;vertical-align:-2px;color:var(--deep)}.billing-btn{display:block;width:100%;border:1px solid var(--rule);border-radius:9px;padding:.7rem 1rem;background:#fff;color:var(--ink);font:inherit;font-weight:650;cursor:pointer}.billing-btn:hover{border-color:var(--green);background:var(--mist);color:var(--deep)}.billing-btn-dark{background:var(--ink);border-color:var(--ink);color:#fff}.billing-btn-green{background:var(--green);border-color:var(--green);color:#fff}.billing-btn-solid{background:var(--ink);border-color:var(--ink);color:#fff}.billing-footnote{color:var(--faint);font-size:13px;margin-top:1.8rem}.billing-footnote a{color:var(--deep);font-weight:650}@media(max-width:860px){.billing-plans{grid-template-columns:1fr}.billing-current{order:-1}}@media(max-width:560px){body{padding:2.5rem 1rem}.billing-h1{font-size:25px}.billing-usage{padding:1.2rem}.billing-plan{padding:1.35rem}}
+  </style></head><body><main class="billing-wrap"><a class="billing-crumb" href="/admin">← Blog Nice admin</a><h1 class="billing-h1">Billing</h1><p class="billing-account">Account: <b>${esc(account.email)}</b></p>${statusNotice}${unknownPaid}${usage}<section class="billing-section billing-plan-section"><div class="billing-section-head"><h2>Plan</h2>${active && renewal ? `<span>${esc(renewal)}</span>` : ""}</div>${billingAction ? `<div class="billing-main-action">${billingAction}</div>` : ""}<div class="billing-plans">${freeCard}${monthlyCard}${yearlyCard}</div></section><p class="billing-footnote">Payment details, receipts, invoices, cancellations, and plan changes are managed securely in Stripe. ${active ? "" : "Upgrade when you’re ready; your account stays on the Free plan until Stripe confirms payment."}</p>${formerCustomer}</main></body></html>`;
 }
 
 app.get("/admin/billing", async (c) => {
@@ -3606,7 +3871,7 @@ app.get("/admin/billing", async (c) => {
   const billing = await c.env.DB.prepare("SELECT stripe_customer_id, stripe_subscription_id, billing_status, billing_price_id, billing_period_end, billing_cancel_at_period_end FROM accounts WHERE id = ?").bind(account.id).first() || {};
   const usage = await c.env.DB.prepare("SELECT credits_used AS used, allowance FROM ai_credit_usage WHERE account_id = ? AND period = ?")
     .bind(account.id, aiCreditPeriod()).first<{ used: number; allowance: number }>();
-  return c.html(billingPage(account, billing, String(c.req.query("message") || ""), usage || { used: 0, allowance: AI_MONTHLY_CREDITS }));
+  return c.html(billingPage(account, billing, String(c.req.query("message") || ""), usage || { used: 0, allowance: AI_MONTHLY_CREDITS }, { monthly: c.env.STRIPE_MONTHLY_PRICE_ID || c.env.STRIPE_PRICE_ID, yearly: c.env.STRIPE_YEARLY_PRICE_ID }));
 });
 
 app.post("/admin/billing/checkout", async (c) => {
@@ -3748,9 +4013,9 @@ app.post("/stripe/webhook", async (c) => {
             emailKind: "subscription-welcome",
             idempotencyKey,
             to: account.email,
-            subject: "Welcome to Blog Nice Pro",
-            plainText: `Your Blog Nice Pro subscription is active.\n\nYou can now use AI features, collaborators, custom domains, favicons, and up to five blogs.\n\nManage billing: ${billingUrl}\n\nStripe will send your payment receipt separately.`,
-            html: `<p>Your <strong>Blog Nice Pro</strong> subscription is active.</p><p>You can now use AI features, collaborators, custom domains, favicons, and up to five blogs.</p><p><a href="${billingUrl}">Manage billing</a></p><p style="color:#687064;font-size:13px">Stripe will send your payment receipt separately.</p>`,
+            subject: "Welcome to blognice Pro",
+            plainText: `Your blognice Pro subscription is active.\n\nYou can now use AI features, collaborators, custom domains, favicons, and up to five blogs.\n\nManage billing: ${billingUrl}\n\nStripe will send your payment receipt separately.`,
+            html: `<p>Your <strong>blognice Pro</strong> subscription is active.</p><p>You can now use AI features, collaborators, custom domains, favicons, and up to five blogs.</p><p><a href="${billingUrl}">Manage billing</a></p><p style="color:#687064;font-size:13px">Stripe will send your payment receipt separately.</p>`,
           } satisfies EmailJobMessage);
         }
       }
@@ -3908,9 +4173,10 @@ export default {
   fetch: app.fetch,
   async queue(batch, env) {
     for (const message of batch.messages) {
-      const jobMessage = message.body as AudioJobMessage | ImageJobMessage | EmailJobMessage | EmailFanoutMessage;
+      const jobMessage = message.body as AudioJobMessage | ImageJobMessage | IndexNowMessage | EmailJobMessage | EmailFanoutMessage;
       try {
-        if ("kind" in jobMessage && jobMessage.kind === "email-fanout") await processEmailFanout(env, jobMessage);
+        if ("kind" in jobMessage && jobMessage.kind === "indexnow") await processIndexNow(env, jobMessage);
+        else if ("kind" in jobMessage && jobMessage.kind === "email-fanout") await processEmailFanout(env, jobMessage);
         else if ("kind" in jobMessage && jobMessage.kind === "email-delivery") await processEmailJob(env, jobMessage);
         else if ("kind" in jobMessage && jobMessage.kind === "image") await processImageJob(env, jobMessage.jobKey);
         else await processAudioJob(env, jobMessage.jobKey);

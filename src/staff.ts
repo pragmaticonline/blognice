@@ -172,7 +172,7 @@ async function accountById(c: any, id: number) {
 }
 
 function staffPage(title: string, body: string): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · BlogNice Staff</title><style>
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · blognice staff</title><style>
   :root{color-scheme:light;--ink:#171914;--muted:#687064;--rule:#dfe4da;--paper:#f7f8f3;--accent:#1a8917}*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}.wrap{max-width:1120px;margin:auto;padding:28px}.top{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid var(--rule);padding-bottom:18px;margin-bottom:24px}.top h1{font-size:1.25rem;margin:0}.top small{color:var(--muted)}nav{display:flex;gap:16px;margin-bottom:24px;font-size:.92rem}nav a{color:var(--muted)}nav a:hover{color:var(--ink)}h2{font-size:1.6rem;margin:0 0 8px}.muted{color:var(--muted)}.search{display:flex;gap:8px;margin:20px 0}.search input{flex:1;padding:10px 12px;border:1px solid var(--rule);border-radius:6px;font:inherit;background:#fff}.btn{border:1px solid var(--rule);background:#fff;border-radius:6px;padding:9px 13px;font:inherit;cursor:pointer}.btn:hover,.btn:focus-visible{border-color:var(--accent)}.btn-danger{color:#8d241b}.card{background:#fff;border:1px solid var(--rule);border-radius:9px;margin:14px 0;padding:18px}.card-head{display:flex;justify-content:space-between;gap:16px;align-items:center}.badge{display:inline-block;border-radius:999px;padding:3px 9px;font-size:.78rem;background:#eaf4e8;color:#20611e}.badge.suspended{background:#fae7e4;color:#8d241b}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--rule);vertical-align:top}th{font-size:.78rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}.actions form{display:inline-flex;gap:6px}.actions input{min-width:190px;padding:8px;border:1px solid var(--rule);border-radius:5px}.notice{padding:12px;border-radius:6px;background:#fff4d6;margin:12px 0}.empty{padding:28px;text-align:center;color:var(--muted)}
   </style></head><body><main class="wrap">${body}</main></body></html>`;
 }
@@ -278,9 +278,9 @@ app.post("/api/accounts/:id/send-password-reset", async (c) => {
   const resetUrl = `https://blognice.com/admin/reset?token=${encodeURIComponent(rawToken)}`;
   const result = await sendMailNice(c.env, {
     to: account.email,
-    subject: "Reset your Blog Nice password",
-    plainBody: `We received a request to reset your Blog Nice password.\n\nReset it here: ${resetUrl}\n\nThis link expires in one hour. If you did not request this, you can ignore this email.`,
-    html: `<p>We received a request to reset your Blog Nice password.</p><p><a href="${resetUrl}">Reset your password</a></p><p style="color:#687064;font-size:13px">This link expires in one hour. If you did not request this, you can ignore this email.</p>`,
+    subject: "Reset your blognice password",
+    plainBody: `We received a request to reset your blognice password.\n\nReset it here: ${resetUrl}\n\nThis link expires in one hour. If you did not request this, you can ignore this email.`,
+    html: `<p>We received a request to reset your blognice password.</p><p><a href="${resetUrl}">Reset your password</a></p><p style="color:#687064;font-size:13px">This link expires in one hour. If you did not request this, you can ignore this email.</p>`,
   });
   await audit(c, staff, { action: "send-password-reset", targetType: "account", targetId: String(id), reason: reason.slice(0, 500), result: result.ok ? "success" : "failure", after: { recipient: account.email, detail: result.detail || null } });
   if (!result.ok) return c.json({ error: result.detail || "Password reset email could not be sent." }, 502);
@@ -301,9 +301,9 @@ app.post("/api/test-email", async (c) => {
   const unsubscribe = `${origin}/unsubscribe/test-token`;
   const templates: Record<TestEmailType, { subject: string; plainBody: string; html: string; headers?: Record<string, string> }> = {
     registration: {
-      subject: "Welcome to Blog Nice",
-      plainBody: "Welcome to Blog Nice!\n\nYour account is ready. Sign in to create and publish your first blog.",
-      html: "<h2>Welcome to Blog Nice!</h2><p>Your account is ready. Sign in to create and publish your first blog.</p>",
+      subject: "Welcome to blognice",
+      plainBody: "Welcome to blognice!\n\nYour account is ready. Sign in to create and publish your first blog.",
+      html: "<h2>Welcome to blognice!</h2><p>Your account is ready. Sign in to create and publish your first blog.</p>",
     },
     "subscriber-welcome": {
       subject: `You're subscribed to ${blogTitle}`,
