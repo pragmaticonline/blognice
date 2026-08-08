@@ -19,6 +19,7 @@ test("edit-link lookup is uncached and verifies blog membership and post ownersh
   assert.match(indexSource, /"cache-control": "private, no-store"/);
   assert.match(indexSource, /SELECT 1 FROM memberships WHERE tenant_id = \? AND account_id = \?/);
   assert.match(indexSource, /SELECT id FROM posts WHERE id = \? AND tenant_id = \?/);
+  assert.match(indexSource, /url: `\$\{adminOriginOf\(c\)\}\/admin\/b/);
 });
 
 test("central login fallback permits credentials only from the blog's own host", () => {
@@ -27,4 +28,10 @@ test("central login fallback permits credentials only from the blog's own host",
   assert.match(indexSource, /"access-control-allow-origin"/);
   assert.match(indexSource, /"access-control-allow-credentials"/);
   assert.doesNotMatch(indexSource, /headers\["access-control-allow-origin"\] = "\*"/);
+});
+
+test("admin traffic is redirected to the canonical host with a method-preserving status", () => {
+  assert.match(indexSource, /app\.use\("\*", async \(c, next\) =>/);
+  assert.match(indexSource, /url\.pathname === "\/admin" \|\| url\.pathname\.startsWith\("\/admin\/"\)/);
+  assert.match(indexSource, /return c\.redirect\(url\.toString\(\), 308\)/);
 });

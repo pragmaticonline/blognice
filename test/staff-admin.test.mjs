@@ -85,4 +85,7 @@ test("staff deployment is a separate Worker route", () => {
 test("all staff pages expose the shared navigation", () => {
   assert.match(staff, /Pronunciation dictionary.*TTS test/s);
   assert.ok(staff.includes("BlogNice staff") && staff.includes("<nav>"));
+  assert.match(staff, /staff-footer/);
+  assert.match(staff, /href="https:\/\/www\.blognice\.com\/policies"/);
+  assert.doesNotMatch(staff, /staff-footer[\s\S]*mailto:/);
 });

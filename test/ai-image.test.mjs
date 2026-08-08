@@ -77,7 +77,8 @@ test("one-click generation chains both models and saves to the media bucket", ()
   assert.match(index, /processImageJob\(env, jobMessage\.jobKey\)/);
   assert.match(index, /status_url/);
   assert.match(index, /same-origin request required/);
-  assert.match(index, /requestOrigin !== adminOriginOf\(c\)/);
+  assert.match(index, /const localRequest = c\.env\.DEV_TENANT/);
+  assert.match(index, /new Set\(localRequest \? \[requestUrlOrigin\] : \[adminOriginOf\(c\)\]\)/);
   assert.match(admin, /id="ai-generate"/);
   assert.doesNotMatch(admin, /id="ai-context"/);
   assert.match(admin, /child-crayon/);

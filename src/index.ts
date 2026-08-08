@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import { verifyPlatformBearer } from "./platform-auth";
 import {
   esc,
   renderHome,
@@ -54,6 +55,12 @@ import {
 } from "./admin";
 import { tenantDb } from "./db";
 import homepage from "../homepage.html";
+import privacyPage from "../privacy.html";
+import termsPage from "../terms.html";
+import cookiesPage from "../cookies.html";
+import securityPage from "../security.html";
+import algorithmsPage from "../algorithms.html";
+import policiesPage from "../policies.html";
 import faviconSvg from "../favicon.svg";
 import { findMediaUse, mediaKey, mediaUrl, validLibraryFile } from "./media";
 import {
@@ -75,11 +82,15 @@ import {
   recordPageView,
   recordCustomEvent,
   recordAuditEvent,
+  analyticsConsentRequired,
+  ANALYTICS_CONSENT_VERSION,
 } from "./metrics";
 import { checkoutSubscriptionDecision, createCheckoutSession, createPortalSession, retrieveSubscription, stripeConfigured, subscriptionEventMatchesCurrent, verifyStripeSignature } from "./stripe";
+import { createAnnualInvoice, getPayment, isTerminalPaidStatus, nowPaymentsConfigured, verifyNowPaymentsIpn, NOWPAYMENTS_ANNUAL_SECONDS, NOWPAYMENTS_ANNUAL_USD } from "./nowpayments";
 import { renderMarkdown as renderMarkdownSafe } from "./markdown";
 import { buildSitemapIndexXml, cacheVariants, CACHE_VERSION, customDomainRedirectUrl, indexNowKey } from "./indexing";
 import { applySubscriberConfirmation, requestSubscriberConfirmation } from "./subscriber-optin";
+import { refreshPostPopularity } from "./popularity";
 
 
 type Bindings = {
@@ -94,7 +105,7 @@ type Bindings = {
   EVENTS: AnalyticsEngineDataset; // audio engagement events
   METRICS_ARCHIVE: R2Bucket; // aggregate daily metrics retained beyond 90 days
   ROOT_DOMAIN: string; // e.g. "blognice.com"
-  API_TOKEN: string; // secret; authorizes the /api routes
+  API_TOKEN?: string; // secret; authorizes the /api routes
   DEV_TENANT?: string; // dev only: force a tenant regardless of Host
 
   // Cloudflare for SaaS (custom domains). See src/cloudflare.ts.
@@ -115,10 +126,31 @@ type Bindings = {
   STRIPE_MONTHLY_PRICE_ID?: string;
   STRIPE_YEARLY_PRICE_ID?: string;
   STRIPE_PORTAL_CONFIGURATION_ID?: string; // optional var
+  NOWPAYMENTS_API_KEY?: string; // secret
+  NOWPAYMENTS_IPN_SECRET?: string; // secret
   INDEXNOW_MASTER_SECRET?: string; // secret; derives per-host IndexNow keys
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
+
+// Keep every authenticated admin page and mutation on the canonical host.
+// Tenant and custom-domain hosts remain public reader origins; they must not
+// become alternate admin origins that share the session cookie.
+app.use("*", async (c, next) => {
+  const url = new URL(c.req.url);
+  if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
+    const host = url.hostname.toLowerCase();
+    const canonical = `www.${c.env.ROOT_DOMAIN}`.toLowerCase();
+    const local = host === "localhost" || host === "127.0.0.1";
+    if (!local && host !== canonical) {
+      url.protocol = "https:";
+      url.hostname = canonical;
+      if (c.req.method === "GET" || c.req.method === "HEAD") return c.redirect(url.toString(), 308);
+      return c.json({ error: "canonical admin host required" }, 403);
+    }
+  }
+  return next();
+});
 
 // Markdown → HTML. Adds heading `id` slugs (via slugify, defined below) so
 // in-page anchor links — a table of contents like [Tables](#tables) — jump.
@@ -285,7 +317,7 @@ async function purgeHost(hostname: string, paths: string[]): Promise<void> {
 
 // Shared bearer-token check for the /api routes.
 function authorized(c: any): boolean {
-  return (c.req.header("authorization") || "") === `Bearer ${c.env.API_TOKEN}`;
+  return verifyPlatformBearer(c.req.header("authorization"), c.env.API_TOKEN);
 }
 
 // Basic hostname sanity check before we hand it to Cloudflare.
@@ -633,14 +665,15 @@ app.post("/_blognice/metrics", async (c) => {
   const length = Number(c.req.header("content-length") || "0");
   if (length > 2048) return c.body(null, 413);
   const origin = c.req.header("origin");
-  if (origin && new URL(c.req.url).origin !== origin) return c.body(null, 403);
+  if (!origin || new URL(c.req.url).origin !== origin) return c.body(null, 403);
 
-  let body: { path?: unknown; referrer?: unknown; visitor?: unknown };
+  let body: { path?: unknown; referrer?: unknown; visitor?: unknown; consent?: unknown };
   try {
     body = await c.req.json();
   } catch {
     return c.body(null, 400);
   }
+  if (body.consent !== ANALYTICS_CONSENT_VERSION || c.req.header("x-blognice-consent") !== ANALYTICS_CONSENT_VERSION) return c.body(null, 403);
   const path = typeof body.path === "string" ? body.path : "";
   const visitor = typeof body.visitor === "string" ? body.visitor : "";
   if (!/^\/(?:$|[^?#]{1,300}$)/.test(path) || !/^[0-9a-f-]{36}$/i.test(visitor)) {
@@ -668,17 +701,18 @@ app.post("/_blognice/events", async (c) => {
   const length = Number(c.req.header("content-length") || "0");
   if (length > 2048) return c.body(null, 413);
   const origin = c.req.header("origin");
-  if (origin && new URL(c.req.url).origin !== origin) return c.body(null, 403);
-  let body: { event?: unknown; path?: unknown; visitor?: unknown };
+  if (!origin || new URL(c.req.url).origin !== origin) return c.body(null, 403);
+  let body: { event?: unknown; path?: unknown; visitor?: unknown; consent?: unknown };
   try {
     body = await c.req.json();
   } catch {
     return c.body(null, 400);
   }
+  if (body.consent !== ANALYTICS_CONSENT_VERSION || c.req.header("x-blognice-consent") !== ANALYTICS_CONSENT_VERSION) return c.body(null, 403);
   const name = body.event;
   const path = typeof body.path === "string" ? body.path : "";
   const visitor = typeof body.visitor === "string" ? body.visitor : "";
-  if ((name !== "audio_start" && name !== "audio_complete") ||
+  if ((name !== "audio_start" && name !== "audio_complete" && name !== "engaged_read") ||
       !/^\/(?:$|[^?#]{1,300}$)/.test(path) ||
       !/^[0-9a-f-]{36}$/i.test(visitor)) return c.body(null, 400);
   const tenant = await resolveTenant(c.env, c.req.header("host") || "");
@@ -745,7 +779,10 @@ app.get("/_blognice/edit-link", async (c) => {
   ).bind(postParam, tenant.id).first();
   if (!post) return reply({ error: "Post not found." }, 404);
 
-  return reply({ url: `${requestOrigin}/admin/b/${tenant.public_id}/edit/${postParam}` });
+  // Keep authenticated admin pages on the canonical host. Returning the
+  // tenant/custom-domain origin would make the browser send the admin
+  // request from a host that the protected AI endpoint must reject.
+  return reply({ url: `${adminOriginOf(c)}/admin/b/${tenant.public_id}/edit/${postParam}` });
 });
 
 app.get("/_blognice/blog-edit-link", async (c) => {
@@ -1547,10 +1584,10 @@ async function membershipRoleFor(
 
 async function tenantHasPaidPlan(env: Bindings, tenantId: number): Promise<boolean> {
   const owner = await env.DB.prepare(
-    `SELECT COALESCE(a.billing_status, 'inactive') AS billing_status
+    `SELECT COALESCE(a.billing_status, 'inactive') AS billing_status, a.crypto_paid_through
        FROM memberships m JOIN accounts a ON a.id = m.account_id
       WHERE m.tenant_id = ? AND m.role = 'owner' LIMIT 1`
-  ).bind(tenantId).first<{ billing_status: string }>();
+  ).bind(tenantId).first<{ billing_status: string; crypto_paid_through?: number | null }>();
   return accountHasPaidPlan(owner || {});
 }
 
@@ -1670,7 +1707,10 @@ async function sendForgotPasswordHandler(c: Context<{ Bindings: Bindings }>) {
           console.error("Password reset email delivery failed", error);
         }
       } else {
-        console.info("Password reset link (email delivery is not configured)", { accountId: account.id, resetUrl });
+        console.info("Password reset link is unavailable because email delivery is not configured", {
+          accountId: account.id,
+          tokenHashPrefix: tokenHash.slice(0, 12),
+        });
       }
     }
   }
@@ -3006,7 +3046,11 @@ app.post("/admin/b/:blogId/media/generate", async (c) => {
   // This endpoint spends Workers AI credits. Require a browser same-origin
   // request in addition to the session and blog capability checks, so a
   // cross-site form cannot trigger generation using a user's cookie.
-  if (!requestOrigin || requestOrigin !== adminOriginOf(c))
+  const requestUrl = new URL(c.req.url);
+  const requestUrlOrigin = requestUrl.origin;
+  const localRequest = c.env.DEV_TENANT || requestUrl.hostname === "localhost" || requestUrl.hostname === "127.0.0.1";
+  const allowedOrigins = new Set(localRequest ? [requestUrlOrigin] : [adminOriginOf(c)]);
+  if (!requestOrigin || !allowedOrigins.has(requestOrigin))
     return c.json({ error: "same-origin request required" }, 403);
   if (!(await tenantHasPaidPlan(c.env, ctx.tenant.id))) return c.json({ error: "AI image generation is available on a paid plan." }, 402);
   if (!can(ctx.role, "media.upload")) return c.json({ error: "forbidden" }, 403);
@@ -3099,6 +3143,7 @@ app.post("/admin/b/:blogId/settings", async (c) => {
   const slug = String(form.get("slug") ?? "").trim().toLowerCase();
   const title = String(form.get("title") ?? "").trim();
   const description = String(form.get("description") ?? "").trim();
+  const footerName = String(form.get("footer_name") ?? "").trim().slice(0, 160);
   const accentColor = String(form.get("accent_color") ?? "").trim();
   const normalizedTopics = normalizeTopics(String(form.get("topics") ?? ""));
   const slugError = validateSlug(slug);
@@ -3121,13 +3166,13 @@ app.post("/admin/b/:blogId/settings", async (c) => {
     await c.env.DB.prepare("INSERT INTO tenant_slug_aliases (old_slug, tenant_id, created_at) VALUES (?, ?, ?)")
       .bind(ctx.tenant.slug, ctx.tenant.id, now).run();
   }
-  await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, accent_color = ?, topics_json = ? WHERE id = ?")
-    .bind(slug, title, description, accentColor.toLowerCase(), JSON.stringify(normalizedTopics.topics), ctx.tenant.id)
+  await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, footer_name = ?, accent_color = ?, topics_json = ? WHERE id = ?")
+    .bind(slug, title, description, footerName, accentColor.toLowerCase(), JSON.stringify(normalizedTopics.topics), ctx.tenant.id)
     .run();
   queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "blog_settings_updated", "settings");
 
   c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant));
-  const updated = { ...ctx.tenant, slug, title, description, accent_color: accentColor.toLowerCase(), topics_json: JSON.stringify(normalizedTopics.topics) };
+  const updated = { ...ctx.tenant, slug, title, description, footer_name: footerName, accent_color: accentColor.toLowerCase(), topics_json: JSON.stringify(normalizedTopics.topics) };
   return c.html(settingsPage(ctx.account, updated, { notice: "Saved." }));
 });
 
@@ -3752,7 +3797,10 @@ app.post("/subscribe", async (c) => {
     },
     deliver: async () => {
       if (!emailEnabled(c.env)) {
-        console.info("Subscriber confirmation link (email delivery is not configured)", { tenantId: tenant.id, confirmUrl });
+        console.info("Subscriber confirmation link is unavailable because email delivery is not configured", {
+          tenantId: tenant.id,
+          tokenHashPrefix: tokenHash.slice(0, 12),
+        });
         return true;
       }
       if (c.env.EMAIL_QUEUE) {
@@ -3772,6 +3820,48 @@ app.post("/subscribe", async (c) => {
     return ok();
   }
   return ok();
+});
+
+app.get("/privacy", (c) => {
+  return legalPage(c, privacyPage);
+});
+
+function legalPage(c: any, page: string): Response {
+  const host = new URL(c.req.url).hostname.toLowerCase();
+  if (host !== `www.${c.env.ROOT_DOMAIN}`.toLowerCase()) return c.redirect(`https://www.${c.env.ROOT_DOMAIN}${new URL(c.req.url).pathname}`, 301);
+  const currentPath = new URL(c.req.url).pathname;
+  const policyItems = [["/policies", "All policies"], ["/privacy", "Privacy"], ["/terms", "Terms"], ["/cookies", "Cookies"], ["/security", "Security"]] as const;
+  const policyNav = `<nav class="policy-nav" aria-label="Policy pages">${policyItems.map(([href, label]) => `<a href="${href}"${currentPath === href ? ' aria-current="page"' : ""}>${label}</a>`).join("")}</nav>`;
+  const policyNavMarkup = policyItems.some(([href]) => href === currentPath) ? policyNav : "";
+  const consistentTheme = page
+    .replaceAll("https://www.blognice.com/", "/")
+    .replace("</style>", ".theme-toggle{width:2.35rem;height:2.35rem;display:inline-flex;align-items:center;justify-content:center;border-radius:999px;padding:0;line-height:1}.theme-toggle .moon{display:none}html[data-theme=dark] .theme-toggle .sun{display:none}html[data-theme=dark] .theme-toggle .moon{display:inline}</style>")
+    .replace('<button id="theme-toggle" type="button">◐ Theme</button>', '<button id="theme-toggle" class="theme-toggle" type="button" aria-label="Use dark theme" aria-pressed="false" title="Use dark theme"><span class="sun" aria-hidden="true">☀</span><span class="moon" aria-hidden="true">☾</span></button>')
+    .replaceAll('href="mailto:security@blognice.com">Security', 'href="/security">Security')
+    .replaceAll('href="mailto:privacy@blognice.com">Contact privacy', 'href="/privacy">Privacy')
+    .replaceAll('href="mailto:privacy@blognice.com">Contact', 'href="/privacy">Privacy')
+    .replace("</style>", ".policy-nav{display:flex;gap:.35rem;align-items:center;flex-wrap:wrap;margin:1rem 0 1.5rem;padding:.45rem 0;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);font:14px/1.5 var(--sans)}.policy-nav a{color:var(--muted);text-decoration:none;padding:.35rem .65rem;border-radius:999px}.policy-nav a:hover,.policy-nav a:focus-visible{color:var(--ink);background:color-mix(in srgb,var(--accent) 10%,transparent)}.policy-nav a[aria-current=page]{color:var(--accent);font-weight:600;background:color-mix(in srgb,var(--accent) 12%,transparent)}:root{--bg:#fdfdfc;--panel:#fff;--ink:#1a1a18;--muted:#6a6a66;--rule:#e4e3de;--accent:#146b54;--accent-ink:#fff;--sans:system-ui,-apple-system,\"Segoe UI\",Roboto,Helvetica,Arial,sans-serif}html[data-theme=dark]{--bg:#161614;--panel:#1e1e1b;--ink:#e9e8e3;--muted:#9a9a93;--rule:#302f2b;--accent:#6fc9a9;--accent-ink:#10241d}body{background:var(--bg);color:var(--ink);font:15px/1.5 var(--sans);-webkit-font-smoothing:antialiased}main,.wrap{width:min(76.25rem,calc(100% - 2.5rem));max-width:none;margin:0 auto;padding:0 0 5rem}.top,.topbar{min-height:3.5rem;padding:.8rem 0;border-bottom:1px solid var(--rule);background:var(--bg)}.top a,.topbar a{color:var(--accent)}h1,h2,h3{font-family:var(--sans);line-height:1.2}h1{font-size:clamp(2rem,4vw,2.8rem);margin:3rem 0 .8rem}h2{font-size:1.35rem;margin:2.25rem 0 .65rem}h3{font-size:1.05rem;margin:1.35rem 0 .45rem}p,li{max-width:54rem}a{color:var(--accent)}.footer{border-top:1px solid var(--rule);margin:2.5rem auto 0;padding:1.25rem 0 2rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;color:var(--muted);font:13px/1.5 var(--sans)}.footer a{color:inherit}.footer a:hover,.footer a:focus-visible{color:var(--accent);text-decoration:underline}.footer-links{display:flex;gap:1rem;flex-wrap:wrap}@media(max-width:640px){main,.wrap{width:calc(100% - 2rem)}.footer{align-items:flex-start;flex-direction:column}.footer a{padding:.35rem 0}}</style>")
+    .replace('<a href="/privacy">Privacy</a>', '')
+    .replace('</nav><a href="https://www.blognice.com/" class="meta">', `</nav>${policyNavMarkup}<a href="https://www.blognice.com/" class="meta">`)
+    .replace('</header><h1>Policies', `</header>${policyNavMarkup}<h1>Policies`)
+    .replaceAll("© blognice · Pragmatic Online Co., Ltd.", "© 2026 blognice · Pragmatic Online Co., Ltd.")
+    .replace("</nav></footer>", '<a href="/privacy#analytics-dialog">Analytics preferences</a></nav></footer>');
+  const withPrivacyPreferences = page === privacyPage
+    ? consistentTheme.replace("</body>", '<script>if(location.hash==="#analytics-dialog"){var analyticsDialog=document.getElementById("analytics-dialog");if(analyticsDialog)analyticsDialog.hidden=false}</script></body>')
+    : consistentTheme;
+  return new Response(withPrivacyPreferences, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store, max-age=0" } });
+}
+
+app.get("/terms", (c) => legalPage(c, termsPage));
+app.get("/cookies", (c) => legalPage(c, cookiesPage));
+app.get("/security", (c) => legalPage(c, securityPage));
+app.get("/algorithms", (c) => legalPage(c, algorithmsPage));
+app.get("/policies", (c) => legalPage(c, policiesPage));
+
+app.get("/.well-known/security.txt", (c) => {
+  const host = new URL(c.req.url).hostname.toLowerCase();
+  if (host !== `www.${c.env.ROOT_DOMAIN}`.toLowerCase()) return c.redirect(`https://www.${c.env.ROOT_DOMAIN}/.well-known/security.txt`, 301);
+  return c.text("Contact: mailto:security@blognice.com\nPolicy: https://www.blognice.com/security\nPreferred-Languages: en, th\nExpires: 2027-08-08T00:00:00Z\n", 200, { "cache-control": "public, max-age=86400" });
 });
 
 async function subscriberConfirmation(c: Context<{ Bindings: Bindings }>, rawToken: string) {
@@ -3909,9 +3999,12 @@ function billingPage(
   message = "",
   credits?: { used: number; allowance: number },
   prices?: { monthly?: string; yearly?: string },
+  cryptoReady = false,
 ): string {
   const status = String(billing.billing_status || "inactive");
-  const active = ["active", "trialing", "past_due"].includes(status);
+  const stripeActive = ["active", "trialing", "past_due"].includes(status);
+  const cryptoActive = Number(billing.crypto_paid_through || 0) > Math.floor(Date.now() / 1000);
+  const active = stripeActive || cryptoActive;
   const allowance = Math.max(0, Number(credits?.allowance || AI_MONTHLY_CREDITS));
   const used = Math.min(allowance, Math.max(0, Number(credits?.used || 0)));
   const remaining = allowance - used;
@@ -3926,6 +4019,7 @@ function billingPage(
     : "";
   const check = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="m5 13 4 4L19 7"/></svg>`;
   const freeFeatures = ["One blognice blog", "blognice subdomain", "Editor, publishing, and images", "RSS, themes, tags, and basic metrics"];
+  // Free plan remains the default until a provider confirms payment.
   const proFeatures = ["Up to five blogs", "AI image generation and audio narration", "Collaborators and authors", "Custom domains and favicons", "API access"];
   const features = (items: string[]) => `<ul class="billing-features">${items.map((item) => `<li>${check}${esc(item)}</li>`).join("")}</ul>`;
   const checkout = (plan: "monthly" | "yearly", label: string, cls = "") => `<form method="post" action="/admin/billing/checkout"><input type="hidden" name="plan" value="${plan}"><button class="billing-btn ${cls}" type="submit">${label}</button></form>`;
@@ -3933,25 +4027,33 @@ function billingPage(
   const statusNotice = status === "past_due"
     ? `<div class="billing-alert"><strong>Payment needs attention.</strong> Your Pro features remain available temporarily, but update your payment method in Stripe to avoid interruption.${billing.stripe_customer_id ? `<div class="billing-alert-action">${portal.replace("Manage billing in Stripe", "Fix payment in Stripe")}</div>` : ""}</div>`
     : message ? `<div class="billing-notice">${esc(message)}</div>` : "";
-  const billingAction = active ? portal : "";
+  const cryptoExpiry = cryptoActive ? new Date(Number(billing.crypto_paid_through) * 1000).toLocaleDateString() : "";
+  const billingAction = stripeActive ? portal : "";
   const usage = active ? `<section class="billing-section billing-usage"><div class="billing-section-head"><h2>AI usage</h2><span>Resets ${esc(resetDate)}</span></div><div class="billing-usage-stat"><div class="billing-usage-icon">✦</div><div><strong>${remaining.toLocaleString()} of ${allowance.toLocaleString()}</strong><span>credits remaining this month</span></div></div><div class="billing-track"><div style="width:${allowance ? Math.round(used / allowance * 100) : 0}%"></div></div><div class="billing-bar-labels"><span>${used.toLocaleString()} used</span><span>${remaining.toLocaleString()} remaining</span></div><p class="billing-muted">Images use 3 credits. Audio narration uses credits based on word count.</p></section>` : "";
   const freeCard = `<article class="billing-plan ${!active ? "billing-current" : ""}"><div class="billing-plan-name">Free</div><div class="billing-price">$0</div>${!active ? `<span class="billing-current-badge">${check} Current plan</span>` : ""}<div class="billing-includes">What's included</div>${features(freeFeatures)}${!active ? `<span class="billing-plan-foot">This is your plan today</span>` : ""}</article>`;
-  const monthlyCard = `<article class="billing-plan ${active && term === "monthly" ? "billing-current" : ""}"><div class="billing-plan-name">blognice pro monthly</div><div class="billing-price">$5 <small>/ month</small></div><p class="billing-sub">Billed monthly, cancel any time</p><div class="billing-includes">Everything in Free, plus</div>${features(proFeatures)}${active && term === "monthly" ? `<span class="billing-plan-foot">${check} Current plan${renewal ? ` · ${esc(renewal)}` : ""}</span>` : active ? `<span class="billing-plan-foot">Plan changes are managed in Stripe</span>` : checkout("monthly", "Upgrade monthly", "billing-btn-dark")}</article>`;
-  const yearlyCard = `<article class="billing-plan billing-featured ${active && term === "yearly" ? "billing-current" : ""}"><span class="billing-ribbon">Save 40%</span><div class="billing-plan-name">blognice pro yearly</div><div class="billing-price">$36 <small>/ year</small></div><p class="billing-sub">Just <b>$3/month</b>, billed annually</p><div class="billing-includes">Everything in Free, plus</div>${features(proFeatures)}${active && term === "yearly" ? `<span class="billing-plan-foot">${check} Current plan${renewal ? ` · ${esc(renewal)}` : ""}</span>` : active ? `<span class="billing-plan-foot">Plan changes are managed in Stripe</span>` : checkout("yearly", "Upgrade yearly", "billing-btn-green")}</article>`;
-  const unknownPaid = active && !term ? `<div class="billing-notice">Your account is Pro. Use the Stripe button below to view its current plan and renewal details.</div>` : "";
+  const monthlyCard = `<article class="billing-plan ${stripeActive && term === "monthly" ? "billing-current" : ""}"><div class="billing-plan-name">blognice pro monthly</div><div class="billing-price">$5 <small>/ month</small></div><p class="billing-sub">Billed monthly, cancel any time</p><div class="billing-includes">Everything in Free, plus</div>${features(proFeatures)}${stripeActive && term === "monthly" ? `<span class="billing-plan-foot">${check} Current plan${renewal ? ` · ${esc(renewal)}` : ""}</span>` : stripeActive ? `<span class="billing-plan-foot">Plan changes are managed in Stripe</span>` : cryptoActive ? `<span class="billing-plan-foot">Available with your crypto plan</span>` : checkout("monthly", "Upgrade monthly", "billing-btn-dark")}</article>`;
+  const yearlyCard = `<article class="billing-plan billing-featured ${stripeActive && term === "yearly" ? "billing-current" : ""}"><span class="billing-ribbon">Save 40%</span><div class="billing-plan-name">blognice pro yearly</div><div class="billing-price">$36 <small>/ year</small></div><p class="billing-sub">Just <b>$3/month</b>, billed annually</p><div class="billing-includes">Everything in Free, plus</div>${features(proFeatures)}${stripeActive && term === "yearly" ? `<span class="billing-plan-foot">${check} Current plan${renewal ? ` · ${esc(renewal)}` : ""}</span>` : stripeActive ? `<span class="billing-plan-foot">Plan changes are managed in Stripe</span>` : cryptoActive ? `<span class="billing-plan-foot">Available with your crypto plan</span>` : checkout("yearly", "Upgrade yearly", "billing-btn-green")}</article>`;
+  const cryptoOption = cryptoActive
+    ? `<div class="crypto-option crypto-option-active">${check} Crypto plan active · valid through ${esc(cryptoExpiry)}</div>`
+    : stripeActive
+      ? `<div class="crypto-option crypto-option-muted">Crypto payment is available after your current Stripe subscription ends.</div>`
+      : cryptoReady
+      ? `<div class="crypto-option"><div class="crypto-option-copy"><strong>Or pay for blognice pro yearly with crypto</strong><span>One year prepaid · no automatic renewal</span><div class="crypto-assets" aria-label="Supported crypto assets"><span role="img" aria-label="Bitcoin">₿</span><span role="img" aria-label="Ethereum">Ξ</span><span role="img" aria-label="Tron">TRX</span><span role="img" aria-label="Tether USDT">₮</span></div></div><form method="post" action="/admin/billing/crypto/checkout"><button class="billing-btn billing-btn-crypto" type="submit">Pay $36 with crypto</button></form></div>`
+      : `<div class="crypto-option crypto-option-muted">Crypto payments are being configured.</div>`;
+  const unknownPaid = stripeActive && !term ? `<div class="billing-notice">Your Stripe subscription is active. Use Manage billing in Stripe to view its current plan and renewal details.</div>` : "";
   const formerCustomer = !active && billing.stripe_customer_id ? `<div class="billing-history">Already subscribed before? ${portal.replace("Manage billing in Stripe", "View billing history in Stripe")}</div>` : "";
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Billing · Blog Nice</title><style>
-  :root{--bg:#f7f8f3;--card:#fff;--ink:#15170f;--soft:#5c6455;--faint:#8a9182;--green:#1a8917;--deep:#0e5a0c;--mist:#eef5ec;--rule:#e3e7dd}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;padding:3.5rem 1.5rem}.billing-wrap{max-width:1040px;margin:auto}.billing-crumb{color:var(--deep);font-weight:650;text-decoration:none;display:inline-block;margin-bottom:1.8rem}.billing-h1{font-size:30px;margin:0 0 .35rem;letter-spacing:-.02em}.billing-account{color:var(--soft);margin:0 0 2.2rem}.billing-account b{color:var(--ink)}.billing-alert,.billing-notice{padding:.85rem 1rem;border-radius:10px;margin:0 0 1.2rem}.billing-alert{background:#fff4e5;border:1px solid #e8c58c;color:#6b4300}.billing-notice{background:var(--mist);border:1px solid #cfe6cb;color:var(--deep)}.billing-section{margin:0 0 2.4rem}.billing-section-head{display:flex;justify-content:space-between;align-items:baseline;gap:1rem;margin-bottom:1rem}.billing-section-head h2{font-size:19px;margin:0}.billing-section-head span{font-size:13px;color:var(--faint)}.billing-usage{background:var(--card);border:1px solid var(--rule);border-radius:16px;padding:1.5rem 1.7rem}.billing-usage-stat{display:flex;align-items:center;gap:.8rem}.billing-usage-icon{width:2.4rem;height:2.4rem;border-radius:9px;background:var(--mist);color:var(--deep);display:grid;place-items:center;font-size:1.35rem}.billing-usage-stat strong{display:block;font-size:20px}.billing-usage-stat span{display:block;color:var(--soft);font-size:13px}.billing-track{height:8px;background:var(--rule);border-radius:99px;overflow:hidden;margin:1.2rem 0 .5rem}.billing-track div{height:100%;background:var(--green);border-radius:99px}.billing-bar-labels{display:flex;justify-content:space-between;color:var(--soft);font-size:12.5px}.billing-muted{color:var(--faint);font-size:13px;margin:.9rem 0 0}.billing-plan-section{margin-top:2.6rem}.billing-main-action{margin-bottom:1.25rem}.billing-plans{display:grid;grid-template-columns:repeat(3,1fr);gap:1.2rem}.billing-plan{background:var(--card);border:1px solid var(--rule);border-radius:16px;padding:1.6rem 1.45rem;display:flex;flex-direction:column;position:relative}.billing-plan.billing-current{background:var(--mist);border-color:#cfe6cb}.billing-featured{border:2px solid var(--green);box-shadow:0 20px 40px -28px rgb(15 90 12 / .35)}.billing-ribbon{position:absolute;top:-.8rem;left:1.5rem;background:var(--green);color:#fff;padding:.3rem .75rem;border-radius:99px;font-size:11px;font-weight:700}.billing-plan-name{font-size:13px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--soft);margin-bottom:.8rem}.billing-current .billing-plan-name{color:var(--deep)}.billing-price{font-size:36px;font-weight:800;line-height:1.1}.billing-price small{font-size:14px;font-weight:500;color:var(--soft)}.billing-sub{font-size:13px;color:var(--faint);min-height:2.6rem;margin:.35rem 0 1.2rem}.billing-sub b{color:var(--deep)}.billing-current-badge{display:inline-flex;align-items:center;gap:.35rem;color:var(--deep);font-size:12px;font-weight:650;margin:0 0 1.2rem}.billing-current-badge svg{width:13px;height:13px}.billing-includes{font-size:12.5px;color:var(--faint);font-weight:650;margin-bottom:.7rem}.billing-features{list-style:none;padding:0;margin:0 0 1.3rem;display:flex;flex-direction:column;gap:.55rem;flex:1}.billing-features li{display:flex;align-items:flex-start;gap:.45rem;font-size:14px}.billing-features svg{width:16px;height:16px;color:var(--green);flex:none;margin-top:2px}.billing-plan-foot{color:var(--faint);font-size:13px;margin-top:auto}.billing-plan-foot svg{width:14px;height:14px;vertical-align:-2px;color:var(--deep)}.billing-btn{display:block;width:100%;border:1px solid var(--rule);border-radius:9px;padding:.7rem 1rem;background:#fff;color:var(--ink);font:inherit;font-weight:650;cursor:pointer}.billing-btn:hover{border-color:var(--green);background:var(--mist);color:var(--deep)}.billing-btn-dark{background:var(--ink);border-color:var(--ink);color:#fff}.billing-btn-green{background:var(--green);border-color:var(--green);color:#fff}.billing-btn-solid{background:var(--ink);border-color:var(--ink);color:#fff}.billing-footnote{color:var(--faint);font-size:13px;margin-top:1.8rem}.billing-footnote a{color:var(--deep);font-weight:650}@media(max-width:860px){.billing-plans{grid-template-columns:1fr}.billing-current{order:-1}}@media(max-width:560px){body{padding:2.5rem 1rem}.billing-h1{font-size:25px}.billing-usage{padding:1.2rem}.billing-plan{padding:1.35rem}}
-  </style></head><body><main class="billing-wrap"><a class="billing-crumb" href="/admin">← Blog Nice admin</a><h1 class="billing-h1">Billing</h1><p class="billing-account">Account: <b>${esc(account.email)}</b></p>${statusNotice}${unknownPaid}${usage}<section class="billing-section billing-plan-section"><div class="billing-section-head"><h2>Plan</h2>${active && renewal ? `<span>${esc(renewal)}</span>` : ""}</div>${billingAction ? `<div class="billing-main-action">${billingAction}</div>` : ""}<div class="billing-plans">${freeCard}${monthlyCard}${yearlyCard}</div></section><p class="billing-footnote">Payment details, receipts, invoices, cancellations, and plan changes are managed securely in Stripe. ${active ? "" : "Upgrade when you’re ready; your account stays on the Free plan until Stripe confirms payment."}</p>${formerCustomer}</main></body></html>`;
+  :root{--bg:#f7f8f3;--card:#fff;--ink:#15170f;--soft:#5c6455;--faint:#8a9182;--green:#1a8917;--deep:#0e5a0c;--mist:#eef5ec;--rule:#e3e7dd}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;padding:3.5rem 1.5rem}.billing-wrap{max-width:1040px;margin:auto}.billing-crumb{color:var(--deep);font-weight:650;text-decoration:none;display:inline-block;margin-bottom:1.8rem}.billing-h1{font-size:30px;margin:0 0 .35rem;letter-spacing:-.02em}.billing-account{color:var(--soft);margin:0 0 2.2rem}.billing-account b{color:var(--ink)}.billing-alert,.billing-notice{padding:.85rem 1rem;border-radius:10px;margin:0 0 1.2rem}.billing-alert{background:#fff4e5;border:1px solid #e8c58c;color:#6b4300}.billing-notice{background:var(--mist);border:1px solid #cfe6cb;color:var(--deep)}.billing-section{margin:0 0 2.4rem}.billing-section-head{display:flex;justify-content:space-between;align-items:baseline;gap:1rem;margin-bottom:1rem}.billing-section-head h2{font-size:19px;margin:0}.billing-section-head span{font-size:13px;color:var(--faint)}.billing-usage{background:var(--card);border:1px solid var(--rule);border-radius:16px;padding:1.5rem 1.7rem}.billing-usage-stat{display:flex;align-items:center;gap:.8rem}.billing-usage-icon{width:2.4rem;height:2.4rem;border-radius:9px;background:var(--mist);color:var(--deep);display:grid;place-items:center;font-size:1.35rem}.billing-usage-stat strong{display:block;font-size:20px}.billing-usage-stat span{display:block;color:var(--soft);font-size:13px}.billing-track{height:8px;background:var(--rule);border-radius:99px;overflow:hidden;margin:1.2rem 0 .5rem}.billing-track div{height:100%;background:var(--green);border-radius:99px}.billing-bar-labels{display:flex;justify-content:space-between;color:var(--soft);font-size:12.5px}.billing-muted{color:var(--faint);font-size:13px;margin:.9rem 0 0}.billing-plan-section{margin-top:2.6rem}.billing-main-action{margin-bottom:1.25rem}.billing-main-action form+form{margin-top:.7rem}.billing-plans{display:grid;grid-template-columns:repeat(3,1fr);gap:1.2rem}.billing-plan{background:var(--card);border:1px solid var(--rule);border-radius:16px;padding:1.6rem 1.45rem;display:flex;flex-direction:column;position:relative}.billing-plan.billing-current{background:var(--mist);border-color:#cfe6cb}.billing-featured{border:2px solid var(--green);box-shadow:0 20px 40px -28px rgb(15 90 12 / .35)}.billing-ribbon{position:absolute;top:-.8rem;left:1.5rem;background:var(--green);color:#fff;padding:.3rem .75rem;border-radius:99px;font-size:11px;font-weight:700}.billing-plan-name{font-size:13px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--soft);margin-bottom:.8rem}.billing-current .billing-plan-name{color:var(--deep)}.billing-price{font-size:36px;font-weight:800;line-height:1.1}.billing-price small{font-size:14px;font-weight:500;color:var(--soft)}.billing-sub{font-size:13px;color:var(--faint);min-height:2.6rem;margin:.35rem 0 1.2rem}.billing-sub b{color:var(--deep)}.billing-current-badge{display:inline-flex;align-items:center;gap:.35rem;color:var(--deep);font-size:12px;font-weight:650;margin:0 0 1.2rem}.billing-current-badge svg{width:13px;height:13px}.billing-includes{font-size:12.5px;color:var(--faint);font-weight:650;margin-bottom:.7rem}.billing-features{list-style:none;padding:0;margin:0 0 1.3rem;display:flex;flex-direction:column;gap:.55rem;flex:1}.billing-features li{display:flex;align-items:flex-start;gap:.45rem;font-size:14px}.billing-features svg{width:16px;height:16px;color:var(--green);flex:none;margin-top:2px}.billing-plan-foot{color:var(--faint);font-size:13px;margin-top:auto}.billing-plan-foot svg{width:14px;height:14px;vertical-align:-2px;color:var(--deep)}.billing-btn{display:block;width:100%;border:1px solid var(--rule);border-radius:9px;padding:.7rem 1rem;background:#fff;color:var(--ink);font:inherit;font-weight:650;cursor:pointer}.billing-btn:hover{border-color:var(--green);background:var(--mist);color:var(--deep)}.billing-btn:focus-visible{outline:3px solid var(--green);outline-offset:2px}.billing-btn-dark{background:var(--ink);border-color:var(--ink);color:#fff}.billing-btn-green{background:var(--green);border-color:var(--green);color:#fff}.billing-btn-solid{background:var(--ink);border-color:var(--ink);color:#fff}.billing-btn-crypto{background:#f3eee3;border-color:#c8b88e}.crypto-option{margin-top:1rem;padding:1rem 1.2rem;border:1px solid #d8cfba;border-radius:12px;background:#fbf8f0;display:flex;align-items:center;justify-content:space-between;gap:1rem}.crypto-option-copy{display:flex;align-items:center;gap:.8rem;flex-wrap:wrap}.crypto-option-copy strong{font-size:14px}.crypto-option-copy>span{font-size:13px;color:var(--soft)}.crypto-assets{display:flex;gap:.35rem}.crypto-assets span{width:1.7rem;height:1.7rem;border-radius:50%;display:grid;place-items:center;background:#efe6d2;color:#6d5524;font-size:.8rem;font-weight:750}.crypto-option-active{color:var(--deep);background:var(--mist);border-color:#cfe6cb;font-size:13px}.crypto-option-active svg{width:15px;height:15px;vertical-align:-3px}.crypto-option-muted{color:var(--faint);font-size:13px}.billing-footnote{color:var(--faint);font-size:13px;margin-top:1.8rem}.billing-footnote a{color:var(--deep);font-weight:650}@media(max-width:1050px){.billing-plans{grid-template-columns:repeat(2,1fr)}}@media(max-width:560px){body{padding:2.5rem 1rem}.billing-h1{font-size:25px}.billing-usage{padding:1.2rem}.billing-plan{padding:1.35rem}.billing-plans{grid-template-columns:1fr}.crypto-option{align-items:flex-start;flex-direction:column}}
+  </style></head><body><main class="billing-wrap"><a class="billing-crumb" href="/admin">← blognice admin</a><h1 class="billing-h1">Billing</h1><p class="billing-account">Account: <b>${esc(account.email)}</b></p>${statusNotice}${unknownPaid}${usage}<section class="billing-section billing-plan-section"><div class="billing-section-head"><h2>Plan</h2>${active && renewal ? `<span>${esc(renewal)}</span>` : cryptoActive ? `<span>Valid through ${esc(cryptoExpiry)}</span>` : ""}</div>${billingAction ? `<div class="billing-main-action">${billingAction}</div>` : ""}<div class="billing-plans">${freeCard}${monthlyCard}${yearlyCard}</div>${cryptoOption}</section><p class="billing-footnote">Stripe remains the primary payment provider. Payment details, receipts, invoices, cancellations, and plan changes are managed securely in Stripe. Crypto payments are annual-only, prepaid, and handled by NOWPayments; there is no automatic renewal. ${active ? "" : "Upgrade when you’re ready; access starts only after the payment provider confirms payment."}</p>${formerCustomer}</main></body></html>`;
 }
 
 app.get("/admin/billing", async (c) => {
   const account = await currentAccount(c);
   if (!account) return c.redirect("/admin/login");
-  const billing = await c.env.DB.prepare("SELECT stripe_customer_id, stripe_subscription_id, billing_status, billing_price_id, billing_period_end, billing_cancel_at_period_end FROM accounts WHERE id = ?").bind(account.id).first() || {};
+  const billing = await c.env.DB.prepare("SELECT stripe_customer_id, stripe_subscription_id, billing_status, billing_price_id, billing_period_end, billing_cancel_at_period_end, crypto_paid_through FROM accounts WHERE id = ?").bind(account.id).first() || {};
   const usage = await c.env.DB.prepare("SELECT credits_used AS used, allowance FROM ai_credit_usage WHERE account_id = ? AND period = ?")
     .bind(account.id, aiCreditPeriod()).first<{ used: number; allowance: number }>();
-  return c.html(billingPage(account, billing, String(c.req.query("message") || ""), usage || { used: 0, allowance: AI_MONTHLY_CREDITS }, { monthly: c.env.STRIPE_MONTHLY_PRICE_ID || c.env.STRIPE_PRICE_ID, yearly: c.env.STRIPE_YEARLY_PRICE_ID }).replaceAll("Blog Nice admin", "blognice admin").replaceAll("Billing · Blog Nice", "Billing · blognice"));
+  return c.html(billingPage(account, billing, String(c.req.query("message") || ""), usage || { used: 0, allowance: AI_MONTHLY_CREDITS }, { monthly: c.env.STRIPE_MONTHLY_PRICE_ID || c.env.STRIPE_PRICE_ID, yearly: c.env.STRIPE_YEARLY_PRICE_ID }, nowPaymentsConfigured(c.env)).replaceAll("Blog Nice admin", "blognice admin").replaceAll("Billing · Blog Nice", "Billing · blognice"));
 });
 
 app.post("/admin/billing/checkout", async (c) => {
@@ -3984,6 +4086,89 @@ app.post("/admin/billing/portal", async (c) => {
     return c.redirect(session.url, 303);
   } catch (error) {
     return c.redirect(`/admin/billing?message=${encodeURIComponent(error instanceof Error ? error.message : "Stripe portal failed.")}`);
+  }
+});
+
+app.post("/admin/billing/crypto/checkout", async (c) => {
+  const account = await currentAccount(c);
+  if (!account) return c.redirect("/admin/login");
+  if (!nowPaymentsConfigured(c.env)) return c.redirect("/admin/billing?message=Crypto payments are not configured yet.");
+  const billing = await c.env.DB.prepare("SELECT billing_status, crypto_paid_through FROM accounts WHERE id = ?").bind(account.id).first<{ billing_status: string; crypto_paid_through?: number | null }>();
+  if (accountHasPaidPlan(billing || {})) return c.redirect("/admin/billing?message=This account already has paid access.");
+  try {
+    const origin = new URL(c.req.url).origin;
+    const orderId = `blognice-${account.id}-${crypto.randomUUID()}`;
+    const invoice = await createAnnualInvoice(c.env, {
+      orderId,
+      callbackUrl: `${origin}/nowpayments/webhook`,
+      successUrl: `${origin}/admin/billing?message=Crypto payment received. Access will update after NOWPayments confirms it.`,
+      cancelUrl: `${origin}/admin/billing?message=Crypto payment cancelled.`,
+    });
+    const url = invoice.invoice_url || invoice.payment_url || invoice.pay_url;
+    if (!url) throw new Error("NOWPayments did not return an invoice URL.");
+    return c.redirect(url, 303);
+  } catch (error) {
+    return c.redirect(`/admin/billing?message=${encodeURIComponent(error instanceof Error ? error.message : "Crypto checkout failed.")}`);
+  }
+});
+
+app.post("/nowpayments/webhook", async (c) => {
+  const raw = await c.req.text();
+  if (!await verifyNowPaymentsIpn(raw, c.req.header("x-nowpayments-sig"), c.env.NOWPAYMENTS_IPN_SECRET)) return c.json({ error: "invalid signature" }, 400);
+  let payload: any;
+  try { payload = JSON.parse(raw); } catch { return c.json({ error: "invalid payload" }, 400); }
+  const paymentId = String(payload.payment_id || "");
+  const orderId = String(payload.order_id || "");
+  if (!paymentId || !orderId) return c.json({ error: "missing payment identity" }, 400);
+  try {
+    const payment = await getPayment(c.env, paymentId);
+    if (String(payment.order_id || orderId) !== orderId) throw new Error("NOWPayments order mismatch.");
+    if (Number(payment.price_amount) !== NOWPAYMENTS_ANNUAL_USD || String(payment.price_currency || "").toLowerCase() !== "usd") throw new Error("NOWPayments payment amount mismatch.");
+    const order = await c.env.DB.prepare("SELECT account_id, price_usd_cents, credited_at, revoked_at FROM crypto_payments WHERE order_id = ?").bind(orderId).first<{ account_id: number; price_usd_cents: number; credited_at: number | null; revoked_at: number | null }>();
+    const accountId = order?.account_id || Number(orderId.match(/^blognice-(\d+)-/)?.[1] || 0);
+    if (!accountId) throw new Error("NOWPayments order could not be mapped to an account.");
+    const now = Math.floor(Date.now() / 1000);
+    const paymentStatus = String(payment.payment_status || payload.payment_status || "");
+    const finished = isTerminalPaidStatus(paymentStatus);
+    // Unpaid/intermediate states must remain retryable: NOWPayments can send a
+    // later finished callback. Only a true post-credit refund revokes access.
+    const reversible = paymentStatus === "refunded";
+    await c.env.DB.prepare(
+      `INSERT INTO crypto_payments (id, account_id, order_id, plan, price_usd_cents, pay_currency, pay_amount, actually_paid, status, created_at, updated_at, paid_at, credited_at)
+       VALUES (?, ?, ?, 'yearly', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(order_id) DO UPDATE SET pay_currency = excluded.pay_currency, pay_amount = excluded.pay_amount, actually_paid = excluded.actually_paid, status = excluded.status, updated_at = excluded.updated_at, paid_at = COALESCE(crypto_payments.paid_at, excluded.paid_at), credited_at = COALESCE(crypto_payments.credited_at, excluded.credited_at)`
+    ).bind(paymentId, accountId, orderId, NOWPAYMENTS_ANNUAL_USD * 100, payment.pay_currency || payload.pay_currency || null, payment.pay_amount || payload.pay_amount || null, payment.actually_paid || payload.actually_paid || null, paymentStatus, now, now, finished ? now : null, null).run();
+    if (finished) {
+      const nonce = crypto.randomUUID();
+      const claim = await c.env.DB.batch([
+        c.env.DB.prepare("UPDATE crypto_payments SET credited_at = ?, credit_nonce = ? WHERE order_id = ? AND status = 'finished' AND credited_at IS NULL AND revoked_at IS NULL").bind(now, nonce, orderId),
+        c.env.DB.prepare("UPDATE accounts SET crypto_paid_through = CASE WHEN COALESCE(crypto_paid_through, 0) > ? THEN crypto_paid_through + ? ELSE ? END WHERE id = ? AND EXISTS (SELECT 1 FROM crypto_payments WHERE order_id = ? AND credit_nonce = ?)").bind(now, NOWPAYMENTS_ANNUAL_SECONDS, now + NOWPAYMENTS_ANNUAL_SECONDS, accountId, orderId, nonce),
+        // Keep each payment's own one-year contribution independent from the
+        // account's stacked expiry. Refund recomputation can then remove only
+        // this payment without preserving a cumulative expiry from another one.
+        c.env.DB.prepare("UPDATE crypto_payments SET entitlement_through = ? WHERE order_id = ? AND credit_nonce = ?").bind(now + NOWPAYMENTS_ANNUAL_SECONDS, orderId, nonce),
+      ]);
+      if (claim[0].meta.changes !== 1) console.info(JSON.stringify({ message: "NOWPayments duplicate finished IPN", paymentId, orderId }));
+    } else if (reversible) {
+      await c.env.DB.batch([
+        c.env.DB.prepare("UPDATE crypto_payments SET revoked_at = COALESCE(revoked_at, ?), updated_at = ? WHERE order_id = ?").bind(now, now, orderId),
+        c.env.DB.prepare(`WITH RECURSIVE ordered AS (
+            SELECT credited_at, ROW_NUMBER() OVER (ORDER BY credited_at, id) AS rn
+              FROM crypto_payments
+             WHERE account_id = ? AND status = 'finished' AND revoked_at IS NULL AND credited_at IS NOT NULL
+          ), timeline(rn, expiry) AS (
+            SELECT rn, credited_at + ? FROM ordered WHERE rn = 1
+            UNION ALL
+            SELECT o.rn, CASE WHEN t.expiry > o.credited_at THEN t.expiry ELSE o.credited_at END + ?
+              FROM timeline t JOIN ordered o ON o.rn = t.rn + 1
+          )
+          UPDATE accounts SET crypto_paid_through = (SELECT expiry FROM timeline ORDER BY rn DESC LIMIT 1) WHERE id = ?`).bind(accountId, NOWPAYMENTS_ANNUAL_SECONDS, NOWPAYMENTS_ANNUAL_SECONDS, accountId),
+      ]);
+    }
+    return c.json({ received: true });
+  } catch (error) {
+    console.error(JSON.stringify({ message: "NOWPayments webhook processing failed", paymentId, orderId, error: error instanceof Error ? error.message : String(error) }));
+    return c.json({ error: "webhook processing failed" }, 500);
   }
 });
 
@@ -4189,7 +4374,7 @@ app.get("/", async (c) => {
       status: 200,
       headers: {
         "content-type": "text/html; charset=utf-8",
-        "cache-control": "public, max-age=300, s-maxage=3600",
+        "cache-control": "public, max-age=0, s-maxage=0, must-revalidate",
       },
     });
   }
@@ -4203,13 +4388,32 @@ app.get("/", async (c) => {
         headers: { "content-type": "text/html; charset=utf-8" },
       });
 
-    const { results } = await tenantDb(c.env, tenant).prepare(
+    const postsPromise = tenantDb(c.env, tenant).prepare(
       "SELECT * FROM posts WHERE tenant_id = ? AND published = 1 ORDER BY created_at DESC"
-    )
-      .bind(tenant.id)
-      .all<Post>();
+    ).bind(tenant.id).all<Post>();
+    const popularityPromise = c.env.DB.prepare(
+      `SELECT path, score, reader_days_30
+         FROM post_popularity
+        WHERE tenant_id = ? AND reader_days_30 >= 3
+        ORDER BY score DESC, reader_days_30 DESC, path
+        LIMIT 3`
+    ).bind(tenant.id).all<{ path: string; score: number; reader_days_30: number }>().catch((error) => {
+      // A missing migration or transient ranking failure must never make the
+      // public blog unavailable. Keep the last normal homepage layout instead.
+      console.error(JSON.stringify({
+        message: "popular posts lookup failed",
+        tenantId: tenant.id,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+      return { results: [] as { path: string; score: number; reader_days_30: number }[] };
+    });
+    const [{ results }, popularity] = await Promise.all([postsPromise, popularityPromise]);
+    const postsByPath = new Map(results.map((post) => [`/${post.slug}`, post]));
+    const popularPosts = popularity.results
+      .map((row) => postsByPath.get(row.path))
+      .filter((post): post is Post => Boolean(post));
 
-    return new Response(renderHome(tenant, results, originOf(c)), {
+    return new Response(renderHome(tenant, results, originOf(c), analyticsConsentRequired(c.req.raw.cf?.country), popularPosts), {
       status: 200,
       headers: { "content-type": "text/html; charset=utf-8" },
     });
@@ -4242,7 +4446,7 @@ app.get("/:slug", async (c) => {
 
     const htmlBody = renderMarkdown(post.body_md);
 
-    return new Response(renderPost(tenant, post, htmlBody, originOf(c), adminOriginOf(c)), {
+    return new Response(renderPost(tenant, post, htmlBody, originOf(c), adminOriginOf(c), analyticsConsentRequired(c.req.raw.cf?.country)), {
       status: 200,
       headers: { "content-type": "text/html; charset=utf-8" },
     });
@@ -4283,9 +4487,9 @@ export default {
   },
   scheduled(_controller, env, ctx) {
     ctx.waitUntil(
-      Promise.all([archivePreviousDay(env), archivePreviousDayEvents(env)]).catch((error) => {
+      Promise.all([archivePreviousDay(env), archivePreviousDayEvents(env), refreshPostPopularity(env)]).catch((error) => {
         console.error(JSON.stringify({
-          message: "metrics archive failed",
+          message: "scheduled metrics maintenance failed",
           error: error instanceof Error ? error.message : String(error),
         }));
       })

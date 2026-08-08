@@ -1,6 +1,6 @@
 // Server-rendered admin UI. Utilitarian but styled to match the public theme.
 import { accentTextColor, esc, formatDate, normalizeAccentColor, type Post, type Tenant } from "./render";
-import type { Account } from "./auth";
+import { accountHasPaidPlan, type Account } from "./auth";
 import type { AuditEntry, MetricsReport } from "./metrics";
 
 const ACCENT_PRESETS = [
@@ -291,7 +291,7 @@ export function shell(
   account?: Account,
   tenant?: Tenant
 ) {
-  const paid = ["active", "trialing", "past_due"].includes(String(account?.billing_status || "inactive"));
+  const paid = account ? accountHasPaidPlan(account) : false;
   const planBadge = account
     ? `<a class="plan-badge ${paid ? "paid" : "free"}" href="/admin/billing" title="View your blognice plan">${paid ? "Pro" : "Free"}</a>`
     : "";
@@ -431,7 +431,7 @@ export function shell(
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>${esc(title)}</title><style>${ADMIN_STYLES}</style>${brandingStyle}</head>
-<body>${bar}${inner}${switcherScript}</body></html>`;
+<body>${bar}${inner}${switcherScript}<footer class="admin-footer"><span><strong>blognice</strong> · © 2026 Pragmatic Online Co., Ltd.</span><nav aria-label="Legal"><a href="https://www.blognice.com/policies">Policies</a></nav></footer><style>.admin-footer{max-width:1220px;margin:2.5rem auto 0;padding:1.25rem 1.5rem 2rem;border-top:1px solid var(--rule);display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;color:var(--muted);font-size:.82rem}.admin-footer nav{display:flex;gap:1rem;flex-wrap:wrap}.admin-footer a{color:inherit;text-decoration:none}.admin-footer a:hover,.admin-footer a:focus-visible{color:var(--accent);text-decoration:underline}@media(max-width:640px){.admin-footer{align-items:flex-start;flex-direction:column}.admin-footer a{padding:.5rem 0}}</style></body></html>`;
 }
 
 export function loginPage(error?: string): string {
@@ -1334,7 +1334,7 @@ export function newBlogPage(
 ): string {
   const slug = esc(values?.slug ?? "");
   const title = esc(values?.title ?? "");
-  const paid = ["active", "trialing", "past_due"].includes(String(account.billing_status || "inactive"));
+  const paid = accountHasPaidPlan(account);
   return shell(
     "New blog",
     `<div class="page narrow">
@@ -1416,6 +1416,9 @@ export function settingsPage(
         <input id="title" name="title" type="text" value="${esc(tenant.title)}" required>
         <label for="description">Tagline</label>
         <input id="description" name="description" type="text" value="${esc(tenant.description)}" placeholder="A short description of your blog">
+        <label for="footer-name">Footer publisher name</label>
+        <input id="footer-name" name="footer_name" type="text" value="${esc(tenant.footer_name || "")}" maxlength="160" placeholder="Defaults to your blog title">
+        <p style="color:var(--muted);font-size:.85rem;margin:-.5rem 0 1.2rem">Shown in the public footer. This is useful when the blog represents a company or publication; leave blank to use the blog title.</p>
         <label for="topics">Blog topics</label>
         <textarea id="topics" name="topics" rows="3" placeholder="technology, photography, travel">${esc(tenantTopics(tenant).join(", "))}</textarea>
         <p style="color:var(--muted);font-size:.85rem;margin:-.5rem 0 1.2rem">Add up to 50 topics, separated by commas. They help group blogs with similar themes; the first six appear publicly.</p>
@@ -1665,7 +1668,7 @@ export function apiKeyPage(
 ): string {
   const base = `https://${esc(rootDomain)}/api/v1`;
   const has = opts.createdAt != null;
-  const paid = ["active", "trialing", "past_due"].includes(String(account.billing_status || "inactive"));
+  const paid = accountHasPaidPlan(account);
   const exampleBlogId = opts.blogs?.[0]?.public_id || "BLOG_ID";
   const blogIds = opts.blogs?.length
     ? `<div class="panel-block"><strong>Your blog IDs</strong><ul>${opts.blogs.map((blog) => `<li><code>${esc(blog.public_id)}</code> — ${esc(blog.title)} <span style="color:var(--muted)">(${esc(blog.slug)})</span></li>`).join("")}</ul><p style="color:var(--muted);font-size:.85rem;margin-bottom:0">Use the opaque ID in API paths; post IDs remain numeric.</p></div>`

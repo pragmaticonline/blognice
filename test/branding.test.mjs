@@ -21,7 +21,7 @@ test("blog branding is persisted and injected into public and admin pages", () =
   assert.match(admin, /ACCENT_PRESETS/);
   assert.match(admin, /blognice green/);
   assert.match(admin, /data-accent-preset/);
-  assert.match(indexSource, /UPDATE tenants SET slug = \?, title = \?, description = \?, accent_color = \?, topics_json = \?/);
+  assert.match(indexSource, /UPDATE tenants SET slug = \?, title = \?, description = \?, footer_name = \?, accent_color = \?, topics_json = \?/);
   assert.match(indexSource, /INSERT INTO tenant_slug_aliases/);
   assert.doesNotMatch(indexSource, /confirm_slug_change/);
   assert.match(render, /--accent: \$\{normalizeAccentColor\(tenant\.accent_color\)\}/);

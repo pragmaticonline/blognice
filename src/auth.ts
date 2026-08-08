@@ -21,11 +21,13 @@ export type Account = {
   email: string;
   billing_status?: string | null;
   billing_cancel_at_period_end?: number | null;
+  crypto_paid_through?: number | null;
 };
 
 /** Paid access remains available during Stripe's short past-due recovery window. */
-export function accountHasPaidPlan(account: Pick<Account, "billing_status">): boolean {
-  return ["active", "trialing", "past_due"].includes(String(account.billing_status || "inactive"));
+export function accountHasPaidPlan(account: Pick<Account, "billing_status" | "crypto_paid_through">): boolean {
+  return ["active", "trialing", "past_due"].includes(String(account.billing_status || "inactive")) ||
+    Number(account.crypto_paid_through || 0) > Math.floor(Date.now() / 1000);
 }
 
 // --- base64 helpers for raw bytes -----------------------------------------
@@ -168,7 +170,8 @@ export async function currentAccount(c: any): Promise<Account | null> {
   const now = Math.floor(Date.now() / 1000);
   const row = (await c.env.DB.prepare(
     `SELECT a.id, a.email, COALESCE(a.billing_status, 'inactive') AS billing_status,
-            COALESCE(a.billing_cancel_at_period_end, 0) AS billing_cancel_at_period_end
+            COALESCE(a.billing_cancel_at_period_end, 0) AS billing_cancel_at_period_end,
+            a.crypto_paid_through
        FROM sessions s JOIN accounts a ON a.id = s.account_id
       WHERE s.token = ? AND s.expires_at > ? AND COALESCE(a.status, 'active') = 'active'`
   )
@@ -229,7 +232,7 @@ export async function accountFromApiKey(
   if (!key || !key.startsWith("bnk_")) return null;
   const hash = await sha256hex(key);
   return (await db
-    .prepare("SELECT id, email, COALESCE(billing_status, 'inactive') AS billing_status, COALESCE(billing_cancel_at_period_end, 0) AS billing_cancel_at_period_end FROM accounts WHERE api_key_hash = ? AND COALESCE(status, 'active') = 'active'")
+    .prepare("SELECT id, email, COALESCE(billing_status, 'inactive') AS billing_status, COALESCE(billing_cancel_at_period_end, 0) AS billing_cancel_at_period_end, crypto_paid_through FROM accounts WHERE api_key_hash = ? AND COALESCE(status, 'active') = 'active'")
     .bind(hash)
     .first()) as Account | null;
 }
