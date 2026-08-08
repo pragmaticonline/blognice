@@ -1,0 +1,1 @@
+ALTER TABLE tenants ADD COLUMN footer_name TEXT NOT NULL DEFAULT '';

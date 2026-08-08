@@ -30,6 +30,14 @@ test("billing presents monthly AI credits and Stripe-owned plan management", () 
   assert.match(source, /View billing history in Stripe/);
   assert.match(source, /billing-main-action/);
   assert.match(source, /billing-main-action\{margin-bottom:1\.25rem\}/);
+  assert.match(source, /const stripeActive = \["active", "trialing", "past_due"\]/);
+  assert.match(source, /const billingAction = stripeActive \? portal : ""/);
+  assert.match(source, /Or pay for blognice pro yearly with crypto/);
+  assert.equal((source.match(/action="\/admin\/billing\/crypto\/checkout"/g) || []).length, 1);
+  assert.match(source, /role="img" aria-label="Bitcoin"/);
+  assert.match(source, /billing-btn:focus-visible\{outline:3px solid var\(--green\)/);
+  assert.doesNotMatch(source, /Use the Stripe button below/);
+  assert.match(source, /Crypto payment is available after your current Stripe subscription ends/);
   assert.doesNotMatch(source, /active \? \(term === "monthly" \? `.*Manage billing in Stripe/);
 });
 

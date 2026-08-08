@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>How blognice ranks popular posts</title>
+<style>
+:root{--bg:#fff;--ink:#171914;--muted:#687064;--rule:#dfe4da;--accent:#1a8917;--serif:Georgia,serif;--sans:system-ui,-apple-system,"Segoe UI",sans-serif;color-scheme:light}
+html[data-theme="dark"]{--bg:#121212;--ink:#e8e8e6;--muted:#aaa;--rule:#2d2d2d;--accent:#75d371;color-scheme:dark}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.7 var(--serif)}main{max-width:800px;margin:0 auto;padding:2rem 1.5rem 5rem}h1,h2{font-family:var(--sans);line-height:1.2}h1{font-size:clamp(2.1rem,6vw,3.4rem);margin:2rem 0 .5rem}h2{font-size:1.35rem;margin:2.4rem 0 .7rem}p{margin:.8rem 0}li{margin:.45rem 0}a{color:var(--accent)}button{font:inherit;color:inherit;background:transparent;border:1px solid var(--rule);border-radius:999px;padding:.55rem .8rem;cursor:pointer}.topbar,.footer{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;font:14px/1.5 var(--sans)}.topbar a,.footer a{text-decoration:none}.theme-toggle{width:2.35rem;height:2.35rem;padding:0}.theme-toggle .moon{display:none}html[data-theme="dark"] .theme-toggle .sun{display:none}html[data-theme="dark"] .theme-toggle .moon{display:inline}.note{border-left:3px solid var(--accent);padding:.7rem 1rem;background:color-mix(in srgb,var(--accent) 8%,transparent)}.footer{border-top:1px solid var(--rule);margin-top:3rem;padding-top:1.5rem}.footer-links{display:flex;gap:1rem;flex-wrap:wrap}
+</style>
+</head>
+<body><main>
+<nav class="topbar" aria-label="Global"><a href="/" aria-label="blognice home">blognice</a><button id="theme-toggle" class="theme-toggle" type="button" aria-label="Use dark theme" title="Use dark theme"><span class="sun" aria-hidden="true">☀</span><span class="moon" aria-hidden="true">☾</span></button></nav>
+<h1>How blognice ranks popular posts</h1>
+<p class="note">Popular means readers genuinely spent time with a post. It does not simply mean “published most recently.”</p>
+<h2>What contributes to the score</h2>
+<p>Each night, blognice combines anonymous aggregate analytics from the previous 90 days. Unique readers are the main signal. A reader who stays for about 30 seconds and reaches roughly half the article adds an engaged-read signal, which is weighted more heavily than a quick visit.</p>
+<p>Repeated refreshes from the same anonymous browser identifier do not count as unlimited new readers. We do not store those identifiers in the ranking database.</p>
+<h2>Why older posts can remain popular</h2>
+<p>Popularity uses a 21-day half-life. A post’s influence gradually fades unless readers continue discovering it. This keeps the section current without making it another list of the newest posts.</p>
+<h2>When a post qualifies</h2>
+<p>A post needs evidence from at least three unique consenting readers before it can appear. If a blog is new or has too little traffic, blognice does not pretend that its newest posts are popular; the section stays hidden until the evidence is sufficient.</p>
+<h2>Privacy and reliability</h2>
+<p>Only aggregate daily counts and scores are retained for ranking. Visitor identifiers remain inside the existing consent-controlled analytics system and are not copied into D1. If an analytics refresh fails, the last successful ranking remains in place rather than breaking a blog homepage.</p>
+<p>The ranking is recalculated in a scheduled job, so loading a blog homepage is fast and does not query Analytics Engine live.</p>
+<footer class="footer"><span>© 2026 blognice · Pragmatic Online Co., Ltd.</span><nav class="footer-links" aria-label="Legal"><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/cookies">Cookies</a><a href="/security">Security</a><a href="mailto:support@blognice.com">Contact</a></nav></footer>
+</main><script>(function(){var root=document.documentElement,key="blognice-theme",saved;try{saved=localStorage.getItem(key)}catch(e){}root.dataset.theme=saved==="dark"||saved==="light"?saved:(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");document.getElementById("theme-toggle").addEventListener("click",function(){var dark=root.dataset.theme!=="dark";root.dataset.theme=dark?"dark":"light";try{localStorage.setItem(key,root.dataset.theme)}catch(e){}})})();</script></body></html>

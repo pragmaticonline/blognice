@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { buildSitemapIndexXml, cacheVariants, customDomainRedirectUrl, indexNowKey } from "../src/indexing.ts";
+import { buildSitemapIndexXml, cacheVariants, customDomainRedirectUrl, indexNowKey, CACHE_VERSION } from "../src/indexing.ts";
 
 const source = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
 const production = readFileSync(new URL("../wrangler.production.jsonc", import.meta.url), "utf8");
@@ -35,7 +35,7 @@ test("sitemap index output escapes hosts and cache purge variants match the read
   assert.match(xml, /science&amp;arts/);
   assert.deepEqual(cacheVariants("https://www.blognice.com/sitemap-index.xml"), [
     "https://www.blognice.com/sitemap-index.xml",
-    "https://www.blognice.com/sitemap-index.xml?_bn_shell=20260805-7",
+    `https://www.blognice.com/sitemap-index.xml?_bn_shell=${CACHE_VERSION}`,
   ]);
   const key = await indexNowKey("secret", "Ray.BlogNice.com");
   assert.match(key, /^[0-9a-f]{64}$/);

@@ -24,6 +24,10 @@ DROP TABLE IF EXISTS email_delivery_log;
 DROP TABLE IF EXISTS subscription_manage_tokens;
 DROP TABLE IF EXISTS ai_credit_usage;
 DROP TABLE IF EXISTS ai_credit_refunds;
+DROP TABLE IF EXISTS crypto_payments;
+DROP TABLE IF EXISTS post_popularity;
+DROP TABLE IF EXISTS post_popularity_daily;
+DROP TABLE IF EXISTS popularity_state;
 DROP TABLE IF EXISTS marketing_audio_state;
 DROP TABLE IF EXISTS memberships;
 DROP TABLE IF EXISTS blog_invitations;
@@ -40,12 +44,46 @@ CREATE TABLE tenants (
   custom_domain TEXT             UNIQUE,          -- optional: blog.theircompany.com (nullable)
   title         TEXT    NOT NULL,                 -- blog title, shown in header + <title>
   description   TEXT    NOT NULL DEFAULT '',      -- tagline, shown under the title + meta description
+  footer_name   TEXT    NOT NULL DEFAULT '',      -- optional public publisher/company name
   avatar_key    TEXT,                             -- R2 key of the blog's profile image (nullable)
   favicon_key   TEXT,                             -- R2 key of the blog's browser icon (nullable)
   accent_color  TEXT    NOT NULL DEFAULT '#1a8917', -- six-digit hex branding accent
   topics_json   TEXT    NOT NULL DEFAULT '[]',     -- normalized blog topics
   shard         TEXT    NOT NULL DEFAULT 'primary', -- which POSTS database holds this tenant's posts (see src/db.ts)
   created_at    INTEGER NOT NULL                  -- unix seconds
+);
+
+-- Materialized anonymous readership rankings. Raw visitor identifiers stay in
+-- Analytics Engine; D1 receives only daily aggregate counts and scores.
+CREATE TABLE post_popularity_daily (
+  tenant_id       INTEGER NOT NULL,
+  path            TEXT NOT NULL,
+  day             TEXT NOT NULL,
+  reader_days     INTEGER NOT NULL DEFAULT 0,
+  engaged_readers INTEGER NOT NULL DEFAULT 0,
+  updated_at      INTEGER NOT NULL,
+  PRIMARY KEY (tenant_id, path, day),
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_post_popularity_daily_window ON post_popularity_daily(day, tenant_id);
+
+CREATE TABLE post_popularity (
+  tenant_id           INTEGER NOT NULL,
+  path                TEXT NOT NULL,
+  score               REAL NOT NULL,
+  reader_days_30      INTEGER NOT NULL DEFAULT 0,
+  reader_days_90      INTEGER NOT NULL DEFAULT 0,
+  engaged_readers_30  INTEGER NOT NULL DEFAULT 0,
+  calculated_at       INTEGER NOT NULL,
+  PRIMARY KEY (tenant_id, path),
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_post_popularity_rank ON post_popularity(tenant_id, score DESC, reader_days_30 DESC);
+
+CREATE TABLE popularity_state (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
 );
 
 -- A login. An account can own several blogs (via memberships).
@@ -70,6 +108,7 @@ CREATE TABLE accounts (
   billing_subscription_created_at INTEGER,
   billing_subscription_event_created_at INTEGER,
   billing_invoice_event_created_at INTEGER,
+  crypto_paid_through INTEGER,
   created_at INTEGER NOT NULL
 );
 
@@ -77,6 +116,27 @@ CREATE INDEX idx_accounts_api_key ON accounts (api_key_hash);
 CREATE INDEX idx_accounts_status ON accounts (status, created_at DESC);
 CREATE UNIQUE INDEX idx_accounts_stripe_customer ON accounts (stripe_customer_id);
 CREATE UNIQUE INDEX idx_accounts_stripe_subscription ON accounts (stripe_subscription_id);
+
+CREATE TABLE crypto_payments (
+  id TEXT PRIMARY KEY,
+  account_id INTEGER NOT NULL,
+  order_id TEXT NOT NULL UNIQUE,
+  plan TEXT NOT NULL DEFAULT 'yearly',
+  price_usd_cents INTEGER NOT NULL,
+  pay_currency TEXT,
+  pay_amount TEXT,
+  actually_paid TEXT,
+  status TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  paid_at INTEGER,
+  credited_at INTEGER,
+  credit_nonce TEXT,
+  entitlement_through INTEGER,
+  revoked_at INTEGER,
+  FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_crypto_payments_account ON crypto_payments(account_id, created_at DESC);
 
 CREATE TABLE stripe_events (
   id TEXT PRIMARY KEY,
