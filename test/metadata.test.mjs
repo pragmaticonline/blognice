@@ -15,6 +15,13 @@ test("public blog shell emits complete social metadata", () => {
   assert.match(render, /article:modified_time/);
 });
 
+test("post sharing includes an accessible Reddit link with the title and URL", () => {
+  assert.match(render, /share-reddit/);
+  assert.match(render, /www\.reddit\.com\/submit\?url=/);
+  assert.match(render, /data-tooltip="Reddit"/);
+  assert.match(render, /aria-label="Share on Reddit"/);
+});
+
 test("marketing homepage has canonical and social metadata", () => {
   assert.match(homepage, /<meta name="description"/);
   assert.match(homepage, /<link rel="canonical" href="https:\/\/www\.blognice\.com\/"/);

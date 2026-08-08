@@ -120,6 +120,13 @@ test("narration omits emoji and lengthens pauses after full stops", () => {
   assert.doesNotMatch(sections.body, /🎙|👩|💻|🇬🇧|1️⃣/gu);
 });
 
+test("narration removes separators inside numbers", () => {
+  const text = narrationText("Usage", "The allowance is 1,000 credits, and 1,2 is unusual.");
+  assert.doesNotMatch(text, /1,000/);
+  assert.match(text, /1000/);
+  assert.doesNotMatch(text, /1,2/);
+});
+
 test("headings and spoken numbered markers receive explicit pauses", () => {
   const sections = narrationSections(
     "A list",

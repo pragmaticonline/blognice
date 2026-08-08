@@ -3,19 +3,19 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Blognice — A nicer way to blog</title>
+<title>blognice — A nicer way to blog</title>
 <meta name="description" content="Create beautiful, fast blogs without hosting, plugins, updates, or technical maintenance.">
 <link rel="canonical" href="https://www.blognice.com/">
 <meta name="theme-color" content="#1a8917">
-<meta property="og:site_name" content="Blog Nice">
-<meta property="og:title" content="Blognice — A nicer way to blog">
+<meta property="og:site_name" content="blognice">
+<meta property="og:title" content="blognice — A nicer way to blog">
 <meta property="og:description" content="Create beautiful, fast blogs without hosting, plugins, updates, or technical maintenance.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://www.blognice.com/">
 <meta property="og:image" content="https://www.blognice.com/favicon.svg">
-<meta property="og:image:alt" content="Blog Nice">
+<meta property="og:image:alt" content="blognice">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Blognice — A nicer way to blog">
+<meta name="twitter:title" content="blognice — A nicer way to blog">
 <meta name="twitter:description" content="Create beautiful, fast blogs without hosting, plugins, updates, or technical maintenance.">
 <meta name="twitter:image" content="https://www.blognice.com/favicon.svg">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -303,7 +303,8 @@
   /* ---------- EXAMPLES ---------- */
   .example-real{
     border:1px solid var(--rule); border-radius:12px; padding:32px;
-    display:flex; align-items:center; justify-content:space-between; gap:24px; flex-wrap:wrap;
+    display:grid; grid-template-columns:minmax(220px, 30%) minmax(0, 1fr) auto;
+    align-items:center; gap:30px; 
     margin-bottom:44px;
   }
   .example-real .tag{
@@ -314,6 +315,8 @@
   .example-real p{font-size:14.5px; color:var(--ink-soft); max-width:440px;}
   .example-real .addr{font-family:var(--mono); font-size:13px; color:var(--ink-soft); margin-top:4px; display:block;}
   .example-real .example-photo{width:320px;height:200px;object-fit:cover;border-radius:8px;flex:0 1 34%;min-width:220px;}
+  .example-real > div{max-width:500px; justify-self:center;}
+  .example-real > .link-underline{white-space:nowrap;}
 
   .ideas-label{font-size:13px; color:var(--ink-faint); margin-bottom:18px; font-family:var(--mono); text-transform:uppercase; letter-spacing:.06em;}
   .ideas-row{display:flex; flex-wrap:wrap; gap:12px;}
@@ -392,7 +395,9 @@
     .hero{padding:56px 0 64px;}
     .manifesto{padding:64px 0;}
     .final-cta{padding:80px 0;}
-    .example-real .example-photo{width:100%;height:auto;max-height:260px;flex-basis:100%;}
+    .example-real{grid-template-columns:1fr; gap:20px;}
+    .example-real .example-photo{width:100%;height:auto;max-height:260px;}
+    .example-real > div{max-width:none; justify-self:stretch;}
   }
 </style>
 </head>
@@ -473,7 +478,7 @@ they hand you a blank page.
     <div class="section-head">
       <span class="kicker">Made for writing, not configuring</span>
       <h2>A calm place to write, and a fast place to be read</h2>
-      <p>Create an account, choose a Blognice address, and begin. There are no hosting plans, themes, or control panels to assemble.</p>
+      <p>Create an account, choose a blognice address, and begin. There are no hosting plans, themes, or control panels to assemble.</p>
     </div>
     <div class="we-grid">
       <ul class="we-list">
@@ -519,11 +524,11 @@ they hand you a blank page.
       </div>
       <div class="ai-copy">
         <h3>From a post to something readers can see and hear.</h3>
-        <p>Describe the visual you want, or let Blog Nice take its cue from the post. Narration is generated in the same editor and appears as a simple listen button on the published page.</p>
+        <p>Describe the visual you want, or let blognice take its cue from the post. Narration is generated in the same editor and appears as a simple listen button on the published page.</p>
         <div class="ai-sample">
           <span class="ai-sample-label">Hear a sample</span>
             <button type="button" id="ai-voice-sample" aria-pressed="false" aria-label="Play voice sample">
-              <span aria-hidden="true">▶</span> Welcome to Blog Nice — a nicer way to blog.
+              <span aria-hidden="true">▶</span> Welcome to blognice — a nicer way to blog.
             </button>
             <audio id="ai-voice-audio" preload="none" hidden></audio>
             <span id="ai-voice-status" style="display:block;margin-top:8px;font-size:12px;color:var(--ink-faint)">Click to play. Nothing starts automatically.</span>
@@ -584,7 +589,7 @@ they hand you a blank page.
       <div class="feat-row"><b>Multiple blogs</b><span>Up to five separate blogs under one account, each managed on its own.</span></div>
       <div class="feat-row"><b>Unlimited posts</b><span>Write as much as you want — posts and image hosting are unlimited.</span></div>
       <div class="feat-row"><b>Markdown editor</b><span>A focused Write and Preview editor, with drafts kept separate from published posts.</span></div>
-      <div class="feat-row"><b>Your own domain</b><span>Start on a Blognice address, then connect a domain you own whenever you're ready.</span></div>
+        <div class="feat-row"><b>Your own domain</b><span>Start on a blognice address, then connect a domain you own whenever you're ready.</span></div>
       <div class="feat-row"><b>Image handling</b><span>Drag, paste, or select images — resized and compressed to WebP automatically.</span></div>
       <div class="feat-row"><b>Reading experience</b><span>Fast, responsive, server-rendered pages with light and dark modes.</span></div>
       <div class="feat-row"><b>Author details</b><span>Profile image, reading time, title, and tagline shown on every post.</span></div>
@@ -639,8 +644,8 @@ they hand you a blank page.
       <img class="example-photo" src="/marketing-ai/blogger.webp" alt="A blogger writing at a laptop" width="480" height="300" loading="lazy">
       <div>
         <span class="tag">Published on Blognice</span>
-        <h3>Blog Nice vs WordPress: A Simpler Way to Start a Blog</h3>
-        <p>A real post, written and published on the platform, comparing Blognice to WordPress for writers who just want to publish.</p>
+        <h3>blognice vs WordPress: A Simpler Way to Start a Blog</h3>
+        <p>A real post, written and published on the platform, comparing blognice to WordPress for writers who just want to publish.</p>
         <span class="addr">blognice.blognice.com</span>
       </div>
       <a href="https://blognice.blognice.com/blog-nice-vs-wordpress-a-simpler-way-to-start-a-blog" class="link-underline">Read the post</a>
@@ -669,14 +674,14 @@ they hand you a blank page.
         <span class="rec-tag">Recommended</span>
         <div class="price-amount">$36<span> / year</span></div>
         <p class="price-note">Equivalent to $3/month, billed annually</p>
-        <div class="price-includes">Up to five blogs, unlimited posts and image hosting, Blognice subdomains, and custom-domain support.</div>
+        <div class="price-includes">Up to five blogs, unlimited posts and image hosting, blognice subdomains, and custom-domain support.</div>
         <a href="https://www.blognice.com/signup" class="btn btn-green" style="margin-top:22px; width:100%; justify-content:center;">Try your first blog free</a>
       </div>
       <div class="price-box">
         <span class="rec-tag" style="color:var(--ink-faint);">Monthly</span>
         <div class="price-amount">$5<span> / month</span></div>
         <p class="price-note">Cancel any time</p>
-        <div class="price-includes">The same five blogs, unlimited posts and image hosting, Blognice subdomains, and custom-domain support.</div>
+        <div class="price-includes">The same five blogs, unlimited posts and image hosting, blognice subdomains, and custom-domain support.</div>
         <a href="https://www.blognice.com/signup" class="btn btn-line" style="margin-top:22px; width:100%; justify-content:center;">Try your first blog free</a>
       </div>
     </div>
@@ -690,7 +695,7 @@ they hand you a blank page.
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18M3 12h18"/></svg>
       <div>
         <h3>Open source, under the GNU AGPL v3</h3>
-        <p>Blognice is free software. The source is available to read, audit, and self-host if you'd rather run it yourself — see <code>github.com/pragmaticonline/blognice</code>.</p>
+        <p>blognice is free software. The source is available to read, audit, and self-host if you'd rather run it yourself — see <code>github.com/pragmaticonline/blognice</code>.</p>
       </div>
     </div>
   </div>
@@ -731,7 +736,7 @@ they hand you a blank page.
         <div class="faq-a"><div class="faq-a-inner">The subscribe box on every blog captures reader emails, and you can export the list as CSV any time. New-post notifications can be sent once an email provider is connected.</div></div>
       </div>
       <div class="faq-item">
-        <button class="faq-q">Am I locked in to Blognice?<span class="plus"></span></button>
+        <button class="faq-q">Am I locked in to blognice?<span class="plus"></span></button>
         <div class="faq-a"><div class="faq-a-inner">Posts are stored as plain Markdown, not a proprietary format, and the project is open source under the AGPL v3. Your domain is always yours, too.</div></div>
       </div>
     </div>

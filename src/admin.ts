@@ -4,7 +4,7 @@ import type { Account } from "./auth";
 import type { AuditEntry, MetricsReport } from "./metrics";
 
 const ACCENT_PRESETS = [
-  ["Blog Nice green", "#1a8917"],
+  ["blognice green", "#1a8917"],
   ["Ocean blue", "#2563eb"],
   ["Deep teal", "#0f766e"],
   ["Indigo", "#4f46e5"],
@@ -223,6 +223,66 @@ const ADMIN_STYLES = /* css */ `
   table.dns code { font-family: var(--mono); font-size: 0.85em; background: color-mix(in srgb, var(--ink) 7%, transparent); padding: 0.1rem 0.35rem; border-radius: 4px; }
   @media (max-width: 900px) { .context-inner { align-items: flex-start; flex-direction: column; } .context-links { justify-content: flex-start; gap: .7rem 1rem; } }
   @media (max-width: 720px) { .page { padding: 1.4rem 1rem 3rem; } .metrics-grid { grid-template-columns:1fr; } .topbar { align-items: flex-start; gap: .5rem; flex-direction: column; } .topbar .right { gap: .7rem 1rem; flex-wrap: wrap; } }
+
+  /* Owner-admin refresh: a compact global bar, blog toolbar, and mobile drawer. */
+  .owner-topbar { height: 3.5rem; padding: 0; background: var(--panel); flex-direction: row; align-items: center; }
+  .owner-topbar-inner, .owner-toolbar-inner { width: min(76.25rem, calc(100% - 2.5rem)); margin: 0 auto; }
+  .owner-topbar-inner { height: 100%; display:flex; align-items:center; justify-content:space-between; gap:1rem; }
+  .owner-topbar .brand { color: var(--accent); font-size:1rem; font-weight:700; text-decoration:none; }
+  .owner-account { display:flex; align-items:center; gap:1rem; min-width:0; }
+  .owner-account-email { color:var(--muted); font-size:.84rem; max-width:18rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .owner-menu-open { display:none; width:2.1rem; height:2.1rem; padding:0; border:1px solid var(--rule); border-radius:7px; color:var(--muted); align-items:center; justify-content:center; }
+  .owner-menu-open svg { width:1.15rem; height:1.15rem; }
+  .owner-toolbar { background:var(--panel); border-bottom:1px solid var(--rule); }
+  .owner-toolbar-inner { display:flex; align-items:center; gap:1.25rem; padding:.8rem 0; min-width:0; }
+  .owner-nav { display:flex; align-items:center; gap:.2rem; min-width:0; overflow-x:auto; scrollbar-width:none; }
+  .owner-nav::-webkit-scrollbar { display:none; }
+  .owner-nav a { flex:0 0 auto; padding:.5rem .75rem; border-radius:7px; color:var(--muted); font-size:.88rem; font-weight:600; text-decoration:none; white-space:nowrap; }
+  .owner-nav a:hover { color:var(--ink); background:var(--bg); }
+  .owner-nav a.active { color:var(--accent); background:color-mix(in srgb, var(--accent) 12%, transparent); }
+  .owner-switcher .blog-switcher-toggle { border-radius:8px; padding:.55rem .8rem; }
+  .owner-drawer-backdrop { position:fixed; inset:0; z-index:60; background:rgb(0 0 0 / .4); opacity:0; pointer-events:none; transition:opacity .2s ease; }
+  .owner-drawer-backdrop.open { opacity:1; pointer-events:auto; }
+  .owner-drawer { position:fixed; top:0; right:0; bottom:0; z-index:61; width:min(18rem,82vw); background:var(--panel); box-shadow:-1rem 0 2.5rem -1.5rem rgb(0 0 0 / .4); transform:translateX(100%); transition:transform .24s ease; overflow:auto; }
+  .owner-drawer.open { transform:translateX(0); }
+  .owner-drawer-head { display:flex; align-items:center; justify-content:space-between; gap:.6rem; padding:1rem 1.1rem; border-bottom:1px solid var(--rule); }
+  .owner-drawer-who { color:var(--muted); font-size:.82rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .owner-drawer-close { width:2rem; height:2rem; display:flex; align-items:center; justify-content:center; border:1px solid var(--rule); border-radius:7px; color:var(--muted); }
+  .owner-drawer-close svg { width:1rem; height:1rem; }
+  .owner-drawer-section { padding:.9rem .75rem; }
+  .owner-drawer-label { padding:.2rem .55rem .5rem; color:var(--muted); font-size:.7rem; font-weight:700; letter-spacing:.07em; text-transform:uppercase; }
+  .owner-drawer-link { display:block; padding:.7rem .6rem; border-radius:7px; color:var(--ink); font-size:.95rem; font-weight:600; text-decoration:none; }
+  .owner-drawer-link:hover, .owner-drawer-link.active { color:var(--accent); background:color-mix(in srgb, var(--accent) 12%, transparent); }
+  .owner-drawer-divider { height:1px; margin:.1rem .75rem; background:var(--rule); }
+  .owner-drawer form { margin:0; }
+  .owner-drawer .linkbtn { display:block; width:100%; padding:.7rem .6rem; text-align:left; text-decoration:none; border-radius:7px; }
+  .owner-drawer .linkbtn:hover { background:var(--bg); }
+  .page { max-width:76.25rem; padding-top:2rem; }
+  ul.posts li { padding:1rem 0; gap:1rem; }
+  ul.posts .t { font-size:1rem; font-weight:650; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  ul.posts .sub { font-size:.82rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .post-summary { flex:1; min-width:0; }
+  .post-thumb { width:4rem; height:4rem; border-radius:8px; }
+  .acts { display:flex; align-items:center; gap:.4rem; flex:0 0 auto; }
+  .icon-btn { width:2.15rem; height:2.15rem; border-radius:7px; }
+  @media (max-width: 700px) {
+    .owner-topbar { height:3.25rem; }
+    .owner-topbar-inner, .owner-toolbar-inner { width:calc(100% - 2rem); }
+    .owner-account-email, .owner-account > a, .owner-account > form { display:none; }
+    .owner-menu-open { display:flex; }
+    .owner-toolbar-inner { padding:.65rem 0; }
+    .owner-nav { display:none; }
+    .owner-toolbar-inner .blog-switcher { flex:1; }
+    .owner-toolbar-inner .blog-switcher-toggle { max-width:100%; }
+    ul.posts li { align-items:flex-start; flex-wrap:wrap; }
+    .post-summary { min-width:calc(100% - 0rem); }
+    .acts { margin-left:5rem; margin-top:-.35rem; }
+  }
+  @media (max-width: 420px) {
+    .owner-topbar-inner, .owner-toolbar-inner { width:calc(100% - 1.5rem); }
+    .post-thumb { width:3.25rem; height:3.25rem; }
+    .acts { margin-left:4.25rem; }
+  }
 `;
 
 export function shell(
@@ -233,45 +293,63 @@ export function shell(
 ) {
   const paid = ["active", "trialing", "past_due"].includes(String(account?.billing_status || "inactive"));
   const planBadge = account
-    ? `<a class="plan-badge ${paid ? "paid" : "free"}" href="/admin/billing" title="View your Blog Nice plan">${paid ? "Pro" : "Free"}</a>`
+    ? `<a class="plan-badge ${paid ? "paid" : "free"}" href="/admin/billing" title="View your blognice plan">${paid ? "Pro" : "Free"}</a>`
     : "";
   let bar = "";
   if (account && tenant) {
-    // Keep account navigation persistent, then make the current blog context explicit.
-    bar = `<div class="topbar globalbar">
-        <a class="brand" href="/admin?list=1">Blog Nice</a>
-        <div class="right">
-          <span style="color:var(--muted);font-size:0.85rem">${esc(account.email)}</span>${planBadge}
-          <a href="/admin?list=1">Blogs</a>
-          <a href="/admin/api-key">API</a>
-          <form method="post" action="/admin/logout">
-            <button class="linkbtn" type="submit">Log out</button>
-          </form>
+    const titleKey = title.toLowerCase();
+    const activeNav = titleKey.startsWith("media") ? "media"
+      : titleKey.startsWith("subscriber") ? "subscribers"
+      : titleKey.startsWith("collaborator") || titleKey.startsWith("author") ? "authors"
+      : titleKey.startsWith("metric") ? "metrics"
+      : titleKey.startsWith("audit") ? "audit"
+      : titleKey.startsWith("domain") ? "domains"
+      : titleKey.startsWith("setting") ? "settings" : "posts";
+    const navItems = [
+      ["posts", "Posts", `/admin/b/${tenant.public_id}`],
+      ["media", "Media", `/admin/b/${tenant.public_id}/media`],
+      ["subscribers", "Subscribers", `/admin/b/${tenant.public_id}/subscribers`],
+      ["authors", "Collaborators", `/admin/b/${tenant.public_id}/authors`],
+      ["metrics", "Metrics", `/admin/b/${tenant.public_id}/metrics`],
+      ["audit", "Audit log", `/admin/b/${tenant.public_id}/audit`],
+      ["domains", "Domains", `/admin/b/${tenant.public_id}/domains`],
+      ["settings", "Settings", `/admin/b/${tenant.public_id}/settings`],
+    ] as const;
+    const navLinks = navItems.map(([key, label, href]) => `<a class="${activeNav === key ? "active" : ""}" href="${href}">${label}</a>`).join("");
+    const drawerLinks = navItems.map(([key, label, href]) => `<a class="owner-drawer-link ${activeNav === key ? "active" : ""}" href="${href}">${label}</a>`).join("");
+    bar = `<header class="topbar globalbar owner-topbar">
+        <div class="owner-topbar-inner">
+          <a class="brand" href="/admin?list=1">blognice</a>
+          <div class="owner-account">
+            <span class="owner-account-email">${esc(account.email)}</span>${planBadge}
+            <a href="/admin?list=1">Blogs</a>
+            <a href="/admin/api-key">API</a>
+            <form method="post" action="/admin/logout"><button class="linkbtn" type="submit">Log out</button></form>
+            <button class="owner-menu-open" id="owner-menu-open" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="owner-drawer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+          </div>
         </div>
-      </div>
-      <div class="contextbar"><div class="context-inner">
-        <div class="context-title"><div class="blog-switcher">
+      </header>
+      <div class="contextbar owner-toolbar"><div class="owner-toolbar-inner">
+        <div class="blog-switcher owner-switcher">
           <button class="blog-switcher-toggle" type="button" id="blog-switcher-toggle" aria-label="Current blog: ${esc(tenant.title)}" aria-expanded="false" aria-controls="blog-switcher-menu">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15.5A2.5 2.5 0 0 0 17.5 16H4z"/><path d="M4 5.5V19a2 2 0 0 0 2 2h11.5A2.5 2.5 0 0 0 20 18.5V3"/></svg>
             <span class="context-name">${esc(tenant.title)}</span><span aria-hidden="true">⌄</span>
           </button>
           <div class="blog-switcher-menu" id="blog-switcher-menu" hidden><div class="blog-switcher-heading">Switch blog</div><div class="blog-switcher-list" id="blog-switcher-list"><span style="padding:.55rem;color:var(--muted);font-size:.85rem">Loading…</span></div><a class="blog-switcher-new" href="/admin/new-blog">＋ Create new blog</a></div>
-        </div></div>
-        <nav class="context-links" aria-label="Blog navigation">
-          <a href="/admin/b/${tenant.public_id}">Posts</a>
-          <a href="/admin/b/${tenant.public_id}/media">Media</a>
-          <a href="/admin/b/${tenant.public_id}/subscribers">Subscribers</a>
-          <a href="/admin/b/${tenant.public_id}/authors">Collaborators</a>
-          <a href="/admin/b/${tenant.public_id}/metrics">Metrics</a>
-          <a href="/admin/b/${tenant.public_id}/audit">Audit log</a>
-          <a href="/admin/b/${tenant.public_id}/domains">Domains</a>
-          <a href="/admin/b/${tenant.public_id}/settings">Settings</a>
-        </nav>
-      </div></div>`;
+        </div>
+        <nav class="owner-nav context-links" aria-label="Blog navigation">${navLinks}</nav>
+      </div></div>
+      <div class="owner-drawer-backdrop" id="owner-drawer-backdrop"></div>
+      <aside class="owner-drawer" id="owner-drawer" aria-label="Owner menu" aria-hidden="true" inert>
+        <div class="owner-drawer-head"><span class="owner-drawer-who">${esc(account.email)} · ${paid ? "Pro" : "Free"}</span><button class="owner-drawer-close" id="owner-menu-close" type="button" aria-label="Close menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+        <div class="owner-drawer-section"><div class="owner-drawer-label">${esc(tenant.title)}</div>${drawerLinks}</div>
+        <div class="owner-drawer-divider"></div>
+        <div class="owner-drawer-section"><div class="owner-drawer-label">Account</div><a class="owner-drawer-link" href="/admin?list=1">Blogs</a><a class="owner-drawer-link" href="/admin/api-key">API</a><form method="post" action="/admin/logout"><button class="linkbtn" type="submit">Log out</button></form></div>
+      </aside>`;
   } else if (account) {
     // Account-level pages (blog list, new blog).
     bar = `<div class="topbar">
-        <span class="brand">Blog Nice</span>
+        <span class="brand">blognice</span>
         <div class="right">
           <span style="color:var(--muted);font-size:0.85rem">${esc(account.email)}</span>${planBadge}
           <a href="/admin?list=1">Blogs</a>
@@ -310,6 +388,40 @@ export function shell(
         }
       });
       document.addEventListener("click", function (event) { if (!menu.contains(event.target) && !toggle.contains(event.target)) { menu.hidden = true; toggle.setAttribute("aria-expanded", "false"); } });
+      var openButton = document.getElementById("owner-menu-open");
+      var closeButton = document.getElementById("owner-menu-close");
+      var drawer = document.getElementById("owner-drawer");
+      var backdrop = document.getElementById("owner-drawer-backdrop");
+      var lastFocus = null;
+      function closeOwnerMenu() {
+        if (!drawer || !backdrop || !openButton) return;
+        drawer.classList.remove("open"); backdrop.classList.remove("open");
+        drawer.setAttribute("aria-hidden", "true"); openButton.setAttribute("aria-expanded", "false");
+        drawer.setAttribute("inert", "");
+        document.body.style.overflow = "";
+        if (lastFocus) lastFocus.focus();
+      }
+      function openOwnerMenu() {
+        if (!drawer || !backdrop || !openButton) return;
+        lastFocus = document.activeElement;
+        drawer.classList.add("open"); backdrop.classList.add("open");
+        drawer.setAttribute("aria-hidden", "false"); openButton.setAttribute("aria-expanded", "true");
+        drawer.removeAttribute("inert");
+        document.body.style.overflow = "hidden";
+        if (closeButton) closeButton.focus();
+      }
+      if (openButton) openButton.addEventListener("click", openOwnerMenu);
+      if (closeButton) closeButton.addEventListener("click", closeOwnerMenu);
+      if (backdrop) backdrop.addEventListener("click", closeOwnerMenu);
+      document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape") { closeOwnerMenu(); return; }
+        if (event.key !== "Tab" || !drawer || !drawer.classList.contains("open")) return;
+        var focusable = drawer.querySelectorAll("a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])");
+        if (!focusable.length) { event.preventDefault(); return; }
+        var first = focusable[0], last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      });
     })();
   </script>` : "";
   const brandingStyle = account && tenant
@@ -356,7 +468,7 @@ export function signupPage(
     inviteToken ? "Join a blog" : "Create your blog",
     `<div class="page narrow">
       <h1>${inviteToken ? "Join a blog" : "Create your blog"}</h1>
-      ${inviteToken ? `<p style="color:var(--muted)">Create your BlogNice account to accept this invitation.</p>` : ""}
+      ${inviteToken ? `<p style="color:var(--muted)">Create your blognice account to accept this invitation.</p>` : ""}
       ${error ? `<div class="error">${esc(error)}</div>` : ""}
       <form method="post" action="/signup">
         ${inviteToken ? `<input type="hidden" name="invite" value="${esc(inviteToken)}">` : ""}
@@ -750,7 +862,7 @@ export function editorPage(
   return shell(
     isEdit ? `Edit — ${tenant.title}` : `New post — ${tenant.title}`,
     `<div class="page">
-      <div class="breadcrumb"><a href="/admin?list=1">Blog Nice</a> / <a href="${base}">${esc(tenant.title)}</a> / ${isEdit ? "Edit post" : "New post"}</div>
+      <div class="breadcrumb"><a href="/admin?list=1">blognice</a> / <a href="${base}">${esc(tenant.title)}</a> / ${isEdit ? "Edit post" : "New post"}</div>
       <h1>${isEdit ? "Edit post" : "New post"}</h1>
       ${error ? `<div class="error">${esc(error)}</div>` : ""}
       <form id="post-editor-form" method="post" action="${action}">
@@ -1605,10 +1717,10 @@ export function apiKeyPage(
 curl ${base}/me \\
   -H "Authorization: Bearer YOUR_KEY"
 
-# Create a published post
+# Create a published post with tags and a public author name
 curl -X POST ${base}/blogs/${exampleBlogId}/posts \\
   -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" \\
-  -d '{"title":"Hello from the API","body_md":"# Hello\\n\\nWritten via Markdown.","published":true}'
+  -d '{"title":"Hello from the API","body_md":"# Hello\\n\\nWritten via Markdown.","tags":["api","automation"],"author_name":"AI & BIG AI","author_visible":true,"published":true}'
 
 # Create a draft
 curl -X POST ${base}/blogs/${exampleBlogId}/posts \\
@@ -1619,10 +1731,15 @@ curl -X POST ${base}/blogs/${exampleBlogId}/posts \\
 curl ${base}/blogs/${exampleBlogId}/posts -H "Authorization: Bearer YOUR_KEY"
 curl ${base}/blogs/${exampleBlogId}/posts/POST_ID -H "Authorization: Bearer YOUR_KEY"
 
-# Update a post and assign an existing featured image
+# Re-queue IndexNow discovery for the homepage, feeds, and published posts
+curl -X POST ${base}/blogs/${exampleBlogId}/indexnow \\
+  -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" \\
+  -d '{"post_ids":[POST_ID]}'
+
+# Update metadata and assign an existing featured image
 curl -X PATCH ${base}/blogs/${exampleBlogId}/posts/POST_ID \\
   -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" \\
-  -d '{"title":"Updated title","featured_image_key":"${exampleBlogId}/image.jpg","published":true}'
+  -d '{"title":"Updated title","tags":["updates"],"author_name":null,"author_visible":false,"featured_image_key":"${exampleBlogId}/image.jpg","published":true}'
 
 # Generate an image, then poll its job
 curl -X POST ${base}/blogs/${exampleBlogId}/images/generations \\
@@ -1647,7 +1764,13 @@ curl -X DELETE ${base}/blogs/${exampleBlogId}/posts/POST_ID \\
         Endpoints: <code>GET /me</code>, <code>GET/POST /blogs/:id/posts</code>,
         <code>GET/PATCH/DELETE /blogs/:id/posts/:postId</code>, plus asynchronous
         <code>images/generations</code> and <code>posts/:postId/audio/generations</code>
-        jobs with status endpoints. Everything is scoped to blogs you own.
+        jobs with status endpoints, and <code>POST /blogs/:id/indexnow</code> to
+        re-queue discovery for published pages. Its optional body accepts
+        <code>post_ids</code> and/or <code>paths</code>; an empty body queues the
+        homepage, sitemap, and RSS feed. Post creation and updates accept <code>tags</code>,
+        <code>author_name</code>, <code>author_visible</code>, and a validated
+        <code>featured_image_key</code>; use the returned job URLs to poll AI work.
+        Everything is scoped to blogs you own.
       </p>
     </div>`,
     account

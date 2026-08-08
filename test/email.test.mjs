@@ -5,6 +5,7 @@ import test from "node:test";
 const email = readFileSync(new URL("../src/email.ts", import.meta.url), "utf8");
 const index = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
 const auth = readFileSync(new URL("../src/auth.ts", import.meta.url), "utf8");
+const postsSchema = readFileSync(new URL("../schema-posts.sql", import.meta.url), "utf8");
 const productionConfig = readFileSync(new URL("../wrangler.production.jsonc", import.meta.url), "utf8");
 
 test("MailNice is preferred for transactional email", () => {
@@ -16,8 +17,22 @@ test("MailNice is preferred for transactional email", () => {
 });
 
 test("signup queues a registration welcome without blocking account creation", () => {
-  assert.match(index, /subject: "Welcome to Blog Nice"/);
+  assert.match(index, /subject: "Welcome to blognice"/);
   assert.match(index, /c\.executionCtx\.waitUntil\(sendEmail\(c\.env/);
+});
+
+test("API publishing queues subscriber notifications", () => {
+  assert.match(index, /queueSubscriberNotificationOnce\(c\.env, tenant/);
+  assert.match(index, /if \(!post\.published && published\)/);
+});
+
+test("subscriber notification claims are atomic and one-time", () => {
+  assert.match(index, /subscriber_notification_sent = 1/);
+  assert.match(index, /subscriber_notification_sent = 0/);
+  assert.match(index, /queueSubscriberNotificationOnce/);
+  assert.match(index, /subscriber_notification_sent = 0/);
+  assert.match(index, /UPDATE posts SET subscriber_notification_sent/);
+  assert.match(postsSchema, /subscriber_notification_sent INTEGER NOT NULL DEFAULT 0/);
 });
 
 test("subscription emails include one-click and manage-subscriptions links", () => {
@@ -29,7 +44,7 @@ test("subscription emails include one-click and manage-subscriptions links", () 
 test("verified Stripe activation queues one idempotent Pro welcome email", () => {
   assert.match(index, /customer\.subscription\.created/);
   assert.match(index, /subscription-welcome:/);
-  assert.match(index, /Welcome to Blog Nice Pro/);
+  assert.match(index, /Welcome to blognice Pro/);
   assert.match(index, /INSERT OR IGNORE INTO email_delivery_log/);
   assert.match(index, /Stripe will send your payment receipt separately/);
 });

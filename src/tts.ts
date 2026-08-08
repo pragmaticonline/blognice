@@ -121,8 +121,12 @@ function removeEmoji(value: string): string {
     .replace(/[\uFE0E\uFE0F\u200D]/g, " ");
 }
 
+function removeNumericSeparators(value: string): string {
+  return value.replace(/(?<=\d),(?=\d)/g, "");
+}
+
 function cleanSpeech(value: string, overrides: PronunciationReplacement[] = []): string {
-  return disambiguateRead(spokenForms(applyManagedSpokenForms(removeEmoji(value), overrides)))
+  return disambiguateRead(spokenForms(applyManagedSpokenForms(removeNumericSeparators(removeEmoji(value)), overrides)))
     .replace(/\s*[—–]\s*/g, ", ")
     .replace(/\s*&\s*/g, " and ")
     .replace(/\s+([.,!?;:])(?!\.\.)/g, "$1")
