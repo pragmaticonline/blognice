@@ -46,7 +46,7 @@ test("policies overview links the platform policies", () => {
   assert.match(indexSource, /replaceAll\('href=\"mailto:privacy@blognice\.com\">Contact'/);
   assert.match(indexSource, /policy-nav/);
   assert.match(indexSource, /aria-current="page"/);
-  assert.ok(indexSource.includes("replace('</nav><a href=\"/\" class=\"meta\">") );
+  assert.ok(indexSource.includes(".replace('<h1>', `${policyNavMarkup}<h1>`)"));
   assert.ok(indexSource.includes('[ ["/policies", "All policies"]') || indexSource.includes('[["/policies", "All policies"]'));
   assert.ok(indexSource.includes('["/privacy", "Privacy"]'));
   assert.ok(indexSource.includes('["/terms", "Terms"]'));
