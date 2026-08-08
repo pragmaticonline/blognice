@@ -17,8 +17,7 @@ test("public blog shell emits complete social metadata", () => {
   assert.match(render, /site-footer\$\{wide \? " homepage-footer" : ""\}/);
   assert.match(render, /footer\.site-footer\.homepage-footer \{ max-width: 82\.5rem; \}/);
   assert.match(render, /tenant\.footer_name\?\.trim\(\) \|\| tenant\.title/);
-  assert.match(render, /Analytics preferences/);
-  assert.match(render, /href="https:\/\/www\.blognice\.com\/privacy#analytics-dialog"/);
+  assert.doesNotMatch(render, /Analytics preferences/);
   assert.match(render, /powered by <a href="https:\/\/www\.blognice\.com" target="_blank"/);
 });
 
