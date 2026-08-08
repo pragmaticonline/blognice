@@ -4,9 +4,12 @@ import test from "node:test";
 
 const email = readFileSync(new URL("../src/email.ts", import.meta.url), "utf8");
 const index = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
+const render = readFileSync(new URL("../src/render.ts", import.meta.url), "utf8");
 const auth = readFileSync(new URL("../src/auth.ts", import.meta.url), "utf8");
 const postsSchema = readFileSync(new URL("../schema-posts.sql", import.meta.url), "utf8");
 const productionConfig = readFileSync(new URL("../wrangler.production.jsonc", import.meta.url), "utf8");
+const subscriberMigration = readFileSync(new URL("../migrations/040-subscriber-double-opt-in.sql", import.meta.url), "utf8");
+const subscriberOptin = readFileSync(new URL("../src/subscriber-optin.ts", import.meta.url), "utf8");
 
 test("MailNice is preferred for transactional email", () => {
   assert.match(email, /MAILNICE_API_KEY/);
@@ -39,6 +42,99 @@ test("subscription emails include one-click and manage-subscriptions links", () 
   assert.match(index, /List-Unsubscribe-Post/);
   assert.match(index, /manage-subscriptions/);
   assert.match(index, /subscription_manage_tokens/);
+});
+
+test("subscriber signup requires double opt-in and cannot resend pending confirmations", () => {
+  assert.match(index, /subscriber_confirmations/);
+  assert.match(index, /app\.get\("\/subscribe\/confirm"/);
+  assert.match(index, /app\.post\("\/subscribe\/confirm"/);
+  assert.match(subscriberOptin, /method === "GET/);
+  assert.match(index, /Confirm your subscription/);
+  assert.match(index, /INSERT OR IGNORE INTO subscriber_confirmations/);
+  assert.match(index, /sent_at <= \?/);
+  assert.match(index, /subscriber-confirmation:/);
+  assert.match(index, /confirmed_at IS NOT NULL/);
+  assert.match(render, /Check your inbox to confirm your subscription/);
+  assert.match(subscriberMigration, /ALTER TABLE subscribers ADD COLUMN confirmed_at/);
+  assert.match(subscriberMigration, /UNIQUE \(tenant_id, email\)/);
+});
+
+test("subscriber confirmation delivery failures release the retry lock", () => {
+  assert.match(subscriberOptin, /if \(!await input\.deliver\(\)\) throw/);
+  assert.match(index, /await c\.env\.EMAIL_QUEUE\.send\(job\)/);
+  assert.match(index, /return sendEmail\(c\.env, job\)/);
+  assert.match(index, /DELETE FROM subscriber_confirmations WHERE token_hash = \?/);
+  assert.match(index, /subscriber confirmation delivery failed/);
+  assert.match(index, /expires_at <= \? AND sent_at <= \?/);
+  assert.match(index, /bind\(now - 86400, now - 86400\)/);
+});
+
+test("subscription requests use an enumeration-safe response", () => {
+  assert.match(index, /cannot be used to enumerate/);
+  assert.match(index, /: c\.json\(\{ ok: true \}\)/);
+  assert.doesNotMatch(index, /c\.json\(\{ ok: true, already, pending \}\)/);
+  assert.doesNotMatch(render, /d\.already/);
+});
+
+test("subscription confirmation state machine is behavioral and replay safe", async () => {
+  const { requestSubscriberConfirmation, applySubscriberConfirmation } = await import("../src/subscriber-optin.ts");
+  let pending = false;
+  let confirmed = false;
+  let deliveries = 0;
+  let removals = 0;
+  const request = () => requestSubscriberConfirmation({
+    isConfirmed: async () => confirmed,
+    hasPending: async () => pending,
+    insert: async () => { if (pending) return false; pending = true; return true; },
+    deliver: async () => { deliveries++; return true; },
+    remove: async () => { pending = false; removals++; },
+  });
+  assert.equal(await request(), "accepted");
+  assert.equal(deliveries, 1);
+  assert.equal(await request(), "accepted");
+  assert.equal(deliveries, 1);
+
+  let subscriberRows = 0;
+  const confirm = (method) => applySubscriberConfirmation({
+    method,
+    lookup: async () => pending,
+    insert: async () => { if (subscriberRows) return false; subscriberRows++; confirmed = true; pending = false; return true; },
+    remove: async () => { pending = false; removals++; },
+  });
+  assert.equal(await confirm("GET"), "preview");
+  assert.equal(subscriberRows, 0);
+  assert.equal(await confirm("POST"), "confirmed");
+  assert.equal(await confirm("POST"), "invalid");
+  assert.equal(subscriberRows, 1);
+
+  pending = false;
+  confirmed = false;
+  deliveries = 0;
+  const failed = await requestSubscriberConfirmation({
+    isConfirmed: async () => false,
+    hasPending: async () => false,
+    insert: async () => { pending = true; return true; },
+    deliver: async () => false,
+    remove: async () => { pending = false; removals++; },
+  });
+  assert.equal(failed, "delivery-failed");
+  assert.equal(pending, false);
+});
+
+test("confirmation welcome email uses the persisted unsubscribe token", () => {
+  const confirmationBlock = index.slice(index.indexOf("async function subscriberConfirmation"), index.indexOf("app.get(\"/subscribe/confirm\""));
+  assert.equal((confirmationBlock.match(/const unsubscribeToken = crypto\.randomUUID\(\)/g) || []).length, 0);
+  assert.match(confirmationBlock, /let unsubscribeToken = \"\"/);
+  assert.match(confirmationBlock, /unsubscribeToken = crypto\.randomUUID\(\)/);
+  assert.match(confirmationBlock, /const unsub = `\$\{origin\}\/unsubscribe\/\$\{unsubscribeToken\}`/);
+});
+
+test("confirmation delivery failures retain the generic subscription response", () => {
+  const subscribeBlock = index.slice(index.indexOf('app.post("/subscribe"'), index.indexOf("async function subscriberConfirmation"));
+  assert.match(subscribeBlock, /if \(result === "delivery-failed"\)/);
+  assert.match(subscribeBlock, /return ok\(\);/);
+  assert.doesNotMatch(subscribeBlock, /status unavailable/);
+  assert.doesNotMatch(subscribeBlock, /c\.json\(\{ error: .*confirmation email/);
 });
 
 test("verified Stripe activation queues one idempotent Pro welcome email", () => {

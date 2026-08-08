@@ -152,7 +152,7 @@ function subscribeBox(tenant: Tenant): string {
           .then(function (d) {
             if (d && d.ok) {
               form.reset();
-              msg.textContent = d.already ? "You're already subscribed." : "Thanks — you're subscribed!";
+        msg.textContent = "Check your inbox to confirm your subscription.";
             } else { msg.textContent = (d && d.error) || "Something went wrong."; }
           })
           .catch(function () { msg.textContent = "Something went wrong."; });
