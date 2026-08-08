@@ -14,6 +14,7 @@ export type Tenant = {
   custom_domain: string | null;
   title: string;
   description: string;
+  footer_name?: string | null;
   avatar_key: string | null; // R2 key of the blog's profile image
   favicon_key: string | null; // R2 key of the blog's favicon
   accent_color: string | null; // hex accent used for this blog's branding
@@ -515,12 +516,18 @@ const STYLES = /* css */ `
   }
   .backlink:hover { color: var(--accent); }
 
-  footer {
-    max-width: var(--measure); margin: 5rem auto 0; padding: 1.5rem 1.4rem 0;
-    border-top: 1px solid var(--rule);
-    font-family: var(--sans); font-size: 0.85rem; color: var(--muted);
+  footer.site-footer {
+    max-width: var(--measure); margin: 5rem auto 0; padding: 1.75rem 1.4rem 2rem;
+    border-top: 1px solid var(--rule); font-family: var(--sans); font-size: .85rem; color: var(--muted);
+    display: grid; gap: .9rem;
   }
-  footer a { color: inherit; }
+  footer.site-footer.homepage-footer { max-width: 82.5rem; }
+  .site-footer-row { display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; }
+  .site-footer-brand { color:var(--ink); font-weight:600; }
+  .site-footer-links { display:flex; gap:.9rem; flex-wrap:wrap; }
+  .site-footer a { color:inherit; text-decoration:none; }
+  .site-footer a:hover, .site-footer a:focus-visible { color:var(--accent); text-decoration:underline; }
+  @media (max-width: 640px) { .site-footer-row { align-items:flex-start; flex-direction:column; } .site-footer-links a, .site-footer button { padding:.55rem .2rem; } }
 
   a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
 
@@ -577,8 +584,9 @@ function shell(opts: {
   ogType?: "website" | "article";
   publishedAt?: number;
   modifiedAt?: number;
+  analyticsConsentRequired?: boolean;
 }): string {
-  const { tenant, pageTitle, description, canonical, body, showMasthead = true, wide = false, showRss = false, ownerEdit, image, imageAlt, ogType = "website", publishedAt, modifiedAt } = opts;
+  const { tenant, pageTitle, description, canonical, body, showMasthead = true, wide = false, showRss = false, ownerEdit, image, imageAlt, ogType = "website", publishedAt, modifiedAt, analyticsConsentRequired = true } = opts;
   const ownerEditControl = ownerEdit ? `<a class="owner-edit" data-${ownerEdit.dataAttr} hidden href="${esc(ownerEdit.href)}" aria-label="${esc(ownerEdit.label)}" title="${esc(ownerEdit.label)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${ownerEdit.dataAttr === "blog-edit" ? "M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" : "m14.7 6.3 3 3M4 20l4.2-1 9.9-9.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Z"}"/><path d="${ownerEdit.dataAttr === "blog-edit" ? "m19.4 15 .1.1a1.8 1.8 0 0 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-3.1 1.3v.2a1.8 1.8 0 0 1-3.6 0v-.2a1.8 1.8 0 0 0-3.1-1.3l-.1.1a1.8 1.8 0 1 1-2.5-2.5l.1-.1A1.8 1.8 0 0 0 5.3 12a1.8 1.8 0 0 0-1.3-3.1h-.2a1.8 1.8 0 0 1 0-3.6H4a1.8 1.8 0 0 0 1.3-3.1l-.1-.1a1.8 1.8 0 1 1 2.5-2.5l.1.1A1.8 1.8 0 0 0 10.9 1.3v-.2a1.8 1.8 0 0 1 3.6 0v.2a1.8 1.8 0 0 0 3.1 1.3l-.1-.1a1.8 1.8 0 1 1 2.5 2.5l-.1.1A1.8 1.8 0 0 0 19.4 8h.2a1.8 1.8 0 0 1 0 3.6h-.2a1.8 1.8 0 0 0 0 3.4Z" : "m13.5 7.5 3 3"}"/></svg><span class="sr-only">${esc(ownerEdit.label)}</span></a>` : "";
   const canonicalTag = canonical ? `<link rel="canonical" href="${esc(canonical)}">` : "";
   const imageTags = image ? `
@@ -624,16 +632,24 @@ ${canonical ? `<meta property="og:url" content="${esc(canonical)}">` : ""}${imag
   </header>` : ""}
   ${body}
 </div>
-<footer>
-  <span>${esc(tenant.title)}</span> &middot; powered by <a href="https://blognice.com">blognice</a>
+<footer class="site-footer${wide ? " homepage-footer" : ""}">
+  <div class="site-footer-row"><span class="site-footer-brand">${esc(tenant.footer_name?.trim() || tenant.title)} <span style="font-weight:400;color:var(--muted)">· powered by <a href="https://www.blognice.com" target="_blank" rel="noopener noreferrer">blognice</a></span></span><nav class="site-footer-links" aria-label="Legal"><a href="https://www.blognice.com/policies">Policies</a></nav></div>
+  <div class="site-footer-row"><span>© 2026 Pragmatic Online Co., Ltd.</span><a href="https://www.blognice.com/privacy#analytics-dialog" id="blognice-analytics-preferences" class="blognice-analytics-preferences">Analytics preferences</a></div>
 </footer>
-${metricsBeacon()}
+<style>#blognice-consent{position:fixed;z-index:100;left:1rem;right:1rem;bottom:1rem;max-width:760px;margin:auto;padding:.85rem 1rem;border:1px solid var(--rule);border-radius:10px;background:var(--bg);box-shadow:0 8px 28px #0002;display:flex;align-items:center;gap:.65rem;flex-wrap:wrap;font:14px/1.45 system-ui,sans-serif}#blognice-consent[hidden]{display:none}#blognice-consent span{flex:1 1 100%;color:var(--soft)}#blognice-consent button,#blognice-consent a{font:inherit;padding:.45rem .7rem;border:1px solid var(--rule);border-radius:6px;background:var(--bg);color:var(--ink);cursor:pointer}.blognice-analytics-preferences{color:var(--muted);font:inherit;text-decoration:none}.blognice-analytics-preferences:hover,.blognice-analytics-preferences:focus-visible,#blognice-consent button:focus-visible,#blognice-consent a:focus-visible{color:var(--accent);text-decoration:underline;outline:2px solid var(--accent);outline-offset:2px}</style>
+${metricsBeacon(analyticsConsentRequired)}
 <script>(function(){var button=document.getElementById("theme-toggle");if(button){function update(){var dark=document.documentElement.dataset.theme==="dark";button.setAttribute("aria-label",dark?"Use light theme":"Use dark theme");button.setAttribute("title",dark?"Use light theme":"Use dark theme");button.setAttribute("aria-pressed",dark?"true":"false")}update();button.addEventListener("click",function(){var dark=document.documentElement.dataset.theme!=="dark";document.documentElement.dataset.theme=dark?"dark":"light";try{localStorage.setItem("blognice-theme",dark?"dark":"light")}catch(e){}update()})}var top=document.getElementById("to-top");if(!top)return;function reveal(){var max=document.documentElement.scrollHeight-window.innerHeight;top.classList.toggle("visible",max>0&&window.scrollY/max>.35)}window.addEventListener("scroll",reveal,{passive:true});reveal();top.addEventListener("click",function(){window.scrollTo({top:0,behavior:"smooth"})})})();</script>
 </body>
 </html>`;
 }
 
-export function renderHome(tenant: Tenant, posts: Post[], origin: string): string {
+export function renderHome(
+  tenant: Tenant,
+  posts: Post[],
+  origin: string,
+  analyticsConsentRequired = true,
+  rankedPopularPosts: Post[] = []
+): string {
   const topics = tenantTopics(tenant);
   const art = (post: Post, index: number, rank?: number) =>
     post.featured_image_key
@@ -645,13 +661,15 @@ export function renderHome(tenant: Tenant, posts: Post[], origin: string): strin
   const ownerScript = `<script>(function(){var link=document.querySelector("[data-blog-edit]");if(!link)return;fetch("/_blognice/blog-edit-link?tenant=${encodeURIComponent(tenant.public_id)}",{credentials:"include",headers:{accept:"application/json"}}).then(function(r){if(!r.ok)throw new Error();return r.json()}).then(function(d){if(d.url){link.href=d.url;link.hidden=false}}).catch(function(){if(location.origin!==${JSON.stringify(origin)})fetch(${JSON.stringify(origin)}+"/_blognice/blog-edit-link?tenant=${encodeURIComponent(tenant.public_id)}",{credentials:"include"}).then(function(r){return r.ok?r.json():null}).then(function(d){if(d&&d.url){link.href=d.url;link.hidden=false}}).catch(function(){})});})();</script>`;
   if (!posts.length) {
     return shell({
-      tenant, pageTitle: tenant.title, description: tenant.description || tenant.title,
+      tenant, pageTitle: tenant.title, description: tenant.description || tenant.title, analyticsConsentRequired,
       canonical: origin + "/", ownerEdit: { href: `${origin}/admin/b/${tenant.public_id}/settings`, dataAttr: "blog-edit", label: "Open blog settings" }, body: `${header(`<div class="blog-avatar">${monogram(tenant.title)}</div>`)}${topics.length ? `<div class="blog-topics" aria-label="Blog topics">${topics.map((topic) => `<span>#${esc(topic)}</span>`).join("")}</div>` : ""}<section class="blog-section"><p class="feed-meta">No posts yet.</p></section><div id="subscribe" class="blog-subscribe-wrap">${subscribeBox(tenant)}</div>${ownerScript}`,
     });
   }
   const featured = posts[0];
   const more = posts.slice(1, 7);
-  const popular = posts.slice(0, 3);
+  // Do not label recent posts as popular. Until the materialized metrics have
+  // enough evidence for three posts, omit this section entirely.
+  const popular = rankedPopularPosts.length >= 3 ? rankedPopularPosts.slice(0, 3) : [];
   const avatar = tenant.avatar_key
     ? `<img class="blog-avatar" src="/media/${esc(tenant.avatar_key)}" alt="">`
     : `<div class="blog-avatar">${monogram(tenant.title)}</div>`;
@@ -684,7 +702,8 @@ export function renderPost(
   post: Post,
   htmlBody: string,
   origin: string,
-  adminOrigin: string
+  adminOrigin: string,
+  analyticsConsentRequired = true
 ): string {
   const shareUrl = `${origin}/${post.slug}`;
   const shareTitle = post.title;
@@ -735,6 +754,7 @@ export function renderPost(
     canonical: `${origin}/${post.slug}`,
     ownerEdit: { href: `${adminOrigin}/admin/b/${tenant.public_id}/edit/${post.id}`, dataAttr: "owner-edit", label: "Edit post" },
     ogType: "article",
+    analyticsConsentRequired,
     image: post.featured_image_key ? `${origin}/media/${post.featured_image_key}` : (tenant.avatar_key ? `${origin}/media/${tenant.avatar_key}` : undefined),
     imageAlt: post.featured_image_key ? post.title : tenant.title,
     publishedAt: post.created_at,

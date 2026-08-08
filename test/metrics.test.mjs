@@ -5,6 +5,7 @@ import {
   archivePreviousDay,
   auditReport,
   metricsBeacon,
+  analyticsConsentRequired,
   recordCustomEvent,
   recordAuditEvent,
   recordPageView,
@@ -80,10 +81,27 @@ test("audit events use the shared Analytics Engine dataset and a 90-day query", 
 test("public beacon avoids query strings and raw referrer storage", () => {
   const script = metricsBeacon();
   assert.match(script, /path:location\.pathname/);
-  assert.match(script, /referrer:document\.referrer/);
+  assert.match(script, /referrer:referrerHost\(\)/);
   assert.doesNotMatch(script, /location\.search/);
-  assert.match(script, /navigator\.sendBeacon/);
+  assert.match(script, /x-blognice-consent/);
+  assert.match(script, /blognice-analytics-consent-v1/);
   assert.match(script, /_blognice\/events/);
+  assert.match(script, /https:\/\/www\.blognice\.com\/privacy/);
+});
+
+test("public beacon browser script is syntactically valid", () => {
+  for (const required of [true, false]) {
+    const beacon = metricsBeacon(required);
+    const script = beacon.slice(beacon.indexOf("<script>") + 8, beacon.lastIndexOf("</script>"));
+    assert.doesNotThrow(() => new Function(script));
+  }
+});
+
+test("analytics consent is required for EEA, UK, Switzerland, and unknown countries", () => {
+  for (const country of ["DE", "IS", "LI", "NO", "GB", "CH", ""]) assert.equal(analyticsConsentRequired(country), true, country);
+  for (const country of ["TH", "US", "AU"]) assert.equal(analyticsConsentRequired(country), false, country);
+  assert.match(metricsBeacon(true), /Help us improve blognice/);
+  assert.match(metricsBeacon(false), /Help us improve blognice/);
 });
 
 test("report queries include aggregate audience and audio breakdowns", () => {

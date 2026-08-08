@@ -10,6 +10,9 @@ test("www homepage asset is complete and contains the supplied landing page", ()
   assert.match(homepage, /<!DOCTYPE html>/i);
   assert.match(homepage, /A nicer way to blog/);
   assert.match(homepage, /<\/html>/i);
+  assert.match(homepage, /footer-inner/);
+  assert.match(homepage, /href="\/privacy"/);
+  assert.match(homepage, /Create your blog/);
 });
 
 test("marketing homepage provides a central login button", () => {
@@ -43,7 +46,7 @@ test("marketing homepage real example uses generic blogger imagery and address",
 test("www is routed to the dedicated landing page before tenant resolution", () => {
   assert.match(indexSource, /host === `www\.\$\{c\.env\.ROOT_DOMAIN\.toLowerCase\(\)\}`/);
   assert.match(indexSource, /new Response\(homepage/);
-  assert.match(indexSource, /cache-control.*s-maxage=3600/);
+  assert.match(indexSource, /cache-control.*s-maxage=0/);
 });
 
 test("tenant homepages use the mockup navigation without the legacy masthead", () => {

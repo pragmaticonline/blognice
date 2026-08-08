@@ -364,6 +364,33 @@ Queue and delivered by a retrying consumer in controlled batches. Delivery
 state is recorded in `email_delivery_log` so a retried queue message does not
 normally send the same notification twice.
 
+## NOWPayments crypto billing (annual secondary option)
+
+Stripe remains the primary billing provider. blognice also supports an optional
+NOWPayments annual prepaid checkout: customers pay $36 once for one year of Pro
+access, with no automatic renewal. NOWPayments presents its currently supported
+crypto assets and handles conversion to the merchant's configured settlement
+currency; access is granted only after a verified `finished` IPN and a server-side
+payment lookup. The browser return URL never grants access.
+
+Configure the NOWPayments API key and IPN secret as Worker secrets:
+
+```sh
+npx wrangler secret put NOWPAYMENTS_API_KEY --config wrangler.production.jsonc
+npx wrangler secret put NOWPAYMENTS_IPN_SECRET --config wrangler.production.jsonc
+```
+
+Register `https://www.blognice.com/nowpayments/webhook` as the IPN callback in
+NOWPayments, then apply the account migration before deploying:
+
+```sh
+npx wrangler d1 execute blognice --remote --file=./migrations/041-nowpayments-crypto.sql --config wrangler.production.jsonc
+```
+
+Crypto payments are recorded in the separate `crypto_payments` ledger and are
+idempotent. Failed, expired, partial, refunded, or merely confirming payments do
+not grant Pro access.
+
 ## Stripe billing (initial foundation)
 
 blognice uses Stripe-hosted Checkout for starting a subscription and Stripe's
