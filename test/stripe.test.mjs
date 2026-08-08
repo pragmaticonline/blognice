@@ -115,7 +115,9 @@ test("a canceled subscription can transition to a newer paid subscription", () =
 
 test("free and paid plan boundaries are visible and enforced", () => {
   assert.match(source, /Free plan/);
-  assert.match(source, /Pro · Monthly/);
+  assert.match(source, /blognice pro monthly/);
+  assert.match(source, /blognice pro yearly/);
+  assert.match(source, /replaceAll\("Blog Nice admin", "blognice admin"\)/);
   assert.match(source, /Free accounts can own one blog/);
   assert.match(source, /AI image generation requires a paid plan/);
   assert.match(source, /Collaborators are available on a paid plan/);

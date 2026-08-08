@@ -1,4 +1,4 @@
-# Blog Nice
+# blognice
 
 A deliberately tiny multi-tenant blogging platform that runs entirely on
 Cloudflare Workers. Each customer gets their own blog, addressed either by a
@@ -7,7 +7,7 @@ subdomain (`theirname.blognice.com`) or their own domain
 fast, server-rendered pages.
 
 > [!NOTE]
-> **Built by humans, developed with AI.** Blog Nice is human-owned and human-directed, but in 2026 AI does much of the day-to-day development: reading the codebase, proposing architecture, implementing features, writing tests, and investigating failures. Humans occasionally write code directly too; they set the goals, review the decisions, and remain accountable for the result. Meet the authors of our development blog: [AI & BIG AI](https://development.blognice.com/meet-the-authors-ai-and-big-ai).
+> **Built by humans, developed with AI.** blognice is human-owned and human-directed, but in 2026 AI does much of the day-to-day development: reading the codebase, proposing architecture, implementing features, writing tests, and investigating failures. Humans occasionally write code directly too; they set the goals, review the decisions, and remain accountable for the result. Meet the authors of our development blog: [AI & BIG AI](https://development.blognice.com/meet-the-authors-ai-and-big-ai).
 
 ## What's in the box
 
@@ -89,7 +89,7 @@ fast, server-rendered pages.
 
 ## Two databases
 
-Blog Nice uses two D1 databases from the start:
+blognice uses two D1 databases from the start:
 
 - **`DB`** (`blognice`) — the *index*: accounts, memberships, tenants, sessions,
   domains. Small, and always queried per account/blog. An **account** is a login;
@@ -124,7 +124,7 @@ editable blog addresses:
 
     npx wrangler d1 execute blognice --remote --file=./migrations/008-tenant-slug-aliases.sql --config wrangler.production.jsonc
 
-Owners can change a blog address from its settings. BlogNice keeps the former
+Owners can change a blog address from its settings. blognice keeps the former
 address as a permanent alias and sends visitors to the new address with a
 301 redirect; the old address remains reserved so it cannot be claimed by a
 different blog.
@@ -335,7 +335,7 @@ unique unsubscribe token). Authors manage the list at
 `/admin/b/<id>/subscribers` — see the count, remove people, and **export CSV**.
 Unsubscribe works via a tokened link (`/unsubscribe/<token>`), including
 one-click `List-Unsubscribe` support in emails. Each email also includes a
-private **Manage subscriptions** link where readers can see all Blog Nice blogs
+private **Manage subscriptions** link where readers can see all blognice blogs
 they follow and opt out individually or entirely.
 
 **Capture and unsubscribe need nothing extra.** Even with no email provider, the
@@ -362,7 +362,7 @@ normally send the same notification twice.
 
 ## Stripe billing (initial foundation)
 
-Blog Nice uses Stripe-hosted Checkout for starting a subscription and Stripe's
+blognice uses Stripe-hosted Checkout for starting a subscription and Stripe's
 hosted Customer Portal for payment methods, invoices, billing details, and
 cancellation. Billing belongs to the account owner, not collaborators. Access
 is updated only from verified Stripe webhooks; returning from Checkout never
@@ -388,7 +388,7 @@ as `STRIPE_PORTAL_CONFIGURATION_ID`. The account billing page is
 
 ### Plans and feature boundaries
 
-The free plan includes one Blog Nice subdomain and the core writing experience:
+The free plan includes one blognice subdomain and the core writing experience:
 posts, drafts, image uploads, RSS, themes, tags, sharing, and basic metrics.
 Free accounts do not have AI image/narration, collaborators, custom domains,
 custom favicons, or API keys.
@@ -584,7 +584,7 @@ List posts, fetch one, update it, and delete it:
       -H "Authorization: Bearer $KEY"
 
 Re-queue IndexNow discovery after an external edit or if a notification was
-missed. With an empty JSON body, Blog Nice queues the homepage, sitemap, and
+missed. With an empty JSON body, blognice queues the homepage, sitemap, and
 RSS feed. You can also provide published post IDs or paths:
 
     curl -X POST "$API/blogs/$BLOG_ID/indexnow" \
@@ -653,7 +653,7 @@ Built to run on Cloudflare Workers, D1, and Cloudflare for SaaS.
 
 ## Collaborators
 
-Blog owners can invite existing BlogNice accounts from **Collaborators** in a
+Blog owners can invite existing blognice accounts from **Collaborators** in a
 blog's admin navigation. Invitations are single-use links that expire after
 seven days and are bound to the invited email address. Roles are:
 
@@ -674,5 +674,5 @@ npx wrangler d1 execute blognice-posts --remote --file=./migrations/006-post-aut
 
 Copyright (C) 2026 Pragmatic Online Co., Ltd.
 
-BlogNice is free software licensed under the **GNU Affero General Public License, version 3 or later** (`AGPL-3.0-or-later`). See [`LICENSE`](LICENSE) for the complete license terms.
+blognice is free software licensed under the **GNU Affero General Public License, version 3 or later** (`AGPL-3.0-or-later`). See [`LICENSE`](LICENSE) for the complete license terms.
 
