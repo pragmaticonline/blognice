@@ -114,6 +114,14 @@ const ADMIN_STYLES = /* css */ `
 
   .page { width: min(var(--admin-measure), calc(100% - 2 * var(--admin-gutter))); max-width: none; margin: 0 auto; padding: 2rem 0 4rem; }
   .page.narrow { width: min(24rem, calc(100% - 2 * var(--admin-gutter))); }
+  .page-nav-settings { margin: 1.5rem 0; padding: 1rem 1.1rem; border: 1px solid var(--rule); border-radius: 8px; background: color-mix(in srgb, var(--panel) 94%, var(--accent) 6%); }
+  .page-nav-settings h2 { margin: 0 0 .3rem; font-size: 1rem; }
+  .page-nav-settings > p { margin: 0 0 .9rem; color: var(--muted); font-size: .88rem; }
+  .page-nav-settings .check { margin: .65rem 0 1rem; }
+  .page-nav-settings .nav-fields { display: grid; grid-template-columns: minmax(0, 1fr) 8rem; gap: 1rem; align-items: end; }
+  .page-nav-settings .nav-fields label { margin: 0; }
+  .page-nav-settings .nav-fields input { margin-top: .35rem; }
+  @media (max-width: 560px) { .page-nav-settings .nav-fields { grid-template-columns: 1fr; gap: .75rem; } }
   h1 { font-size: 1.4rem; margin: 0 0 1.4rem; }
 
   .row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.4rem; }
@@ -734,9 +742,7 @@ export function pageEditorPage(account: Account, tenant: Tenant, page: Partial<P
     <label for="page-meta">Meta description <span style="color:var(--muted)">(optional)</span></label><textarea id="page-meta" name="meta_description" rows="2" maxlength="300">${esc(page?.meta_description ?? "")}</textarea>
     <label for="page-body">Page content</label><textarea id="page-body" name="body_md" rows="20" placeholder="Write this page in Markdown…">${body}</textarea>
     <div class="check"><input id="page-published" name="published" type="checkbox" ${published ? "checked" : ""}><label for="page-published">Published</label></div>
-    <div class="check"><input id="page-navigation" name="show_in_navigation" type="checkbox" ${navigation ? "checked" : ""}><label for="page-navigation">Show in blog navigation</label></div>
-    <label for="page-nav-label">Navigation label <span style="color:var(--muted)">(optional)</span></label><input id="page-nav-label" name="navigation_label" type="text" value="${esc(page?.navigation_label ?? "")}" maxlength="40" placeholder="About">
-    <label for="page-nav-order">Navigation order</label><input id="page-nav-order" name="navigation_order" type="number" min="0" max="999" value="${Number.isFinite(page?.navigation_order) ? page!.navigation_order : 0}">
+    <fieldset class="page-nav-settings"><h2>Blog navigation</h2><p>Optionally add this page to the links at the top of your blog. Pages stay available at their public URL either way.</p><div class="check"><input id="page-navigation" name="show_in_navigation" type="checkbox" ${navigation ? "checked" : ""}><label for="page-navigation">Show this page in navigation</label></div><div class="nav-fields"><label for="page-nav-label">Link label <span style="color:var(--muted)">(optional)</span><input id="page-nav-label" name="navigation_label" type="text" value="${esc(page?.navigation_label ?? "")}" maxlength="40" placeholder="About"></label><label for="page-nav-order">Position <span style="color:var(--muted)">(lower numbers first)</span><input id="page-nav-order" name="navigation_order" type="number" min="0" max="999" value="${Number.isFinite(page?.navigation_order) ? page!.navigation_order : 0}"></label></div></fieldset>
     <div class="actions"><button class="btn" type="submit">Save page</button><a class="btn ghost" href="${base}/pages">Cancel</a></div>
   </form></div>`, account, tenant);
 }
