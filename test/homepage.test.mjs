@@ -69,3 +69,12 @@ test("tag pages use the same homepage shell and card layout", () => {
   assert.match(renderSource, /class="tag-page-title"/);
   assert.match(renderSource, /class="blog-cards"/);
 });
+
+test("evergreen pages have a dedicated public route and admin lifecycle", () => {
+  assert.match(indexSource, /app\.get\("\/pages\/:slug"/);
+  assert.match(indexSource, /SELECT \* FROM pages WHERE tenant_id = \? AND slug = \?/);
+  assert.match(indexSource, /app\.get\("\/admin\/b\/:blogId\/pages"/);
+  assert.match(indexSource, /app\.post\("\/admin\/b\/:blogId\/pages\/save"/);
+  assert.match(renderSource, /export function renderPage/);
+  assert.match(indexSource, /pageListPage\(/);
+});

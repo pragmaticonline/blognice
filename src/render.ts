@@ -55,6 +55,22 @@ export type Post = {
   updated_at: number;
 };
 
+export type Page = {
+  id: number;
+  tenant_id: number;
+  slug: string;
+  title: string;
+  body_md: string;
+  published: number;
+  show_in_navigation?: number;
+  navigation_label?: string | null;
+  navigation_order?: number;
+  meta_description?: string | null;
+  created_at: number;
+  updated_at: number;
+  published_at?: number | null;
+};
+
 // Escape text that gets dropped into HTML (titles, descriptions, etc.).
 export function esc(s: string): string {
   return s
@@ -403,6 +419,10 @@ const STYLES = /* css */ `
   .post-audio { display: block; width: 19rem; height: 2rem; margin-left: auto; flex: 0 1 19rem; }
 
   .prose > *:first-child { margin-top: 0; }
+  .page-content { max-width: 760px; margin: 0 auto; padding: 3.5rem 1.25rem 5rem; }
+  .page-content-inner > h1 { font-size: clamp(2rem, 5vw, 3.2rem); line-height: 1.12; margin: 0 0 2.2rem; letter-spacing: -0.025em; }
+  .page-prose { font-family: var(--serif); font-size: 1.12rem; line-height: 1.78; }
+  .page-prose > *:first-child { margin-top: 0; }
   .prose p, .prose ul, .prose ol { margin: 1.5rem 0; }
   .prose ul, .prose ol { padding-left: 1.5rem; }
   .prose li { margin: 0.3rem 0; }
@@ -651,7 +671,8 @@ export function renderHome(
   posts: Post[],
   origin: string,
   analyticsConsentRequired = true,
-  rankedPopularPosts: Post[] = []
+  rankedPopularPosts: Post[] = [],
+  navigationPages: Array<{ slug: string; label: string }> = []
 ): string {
   const topics = tenantTopics(tenant);
   const art = (post: Post, index: number, rank?: number) =>
@@ -662,10 +683,13 @@ export function renderHome(
         : "";
   const header = (avatar: string) => `<div class="blog-owner-actions"><a class="owner-edit" data-blog-edit hidden href="${esc(origin)}/admin/b/${esc(tenant.public_id)}/settings" aria-label="Open blog settings" title="Open blog settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/><path d="m19.4 15 .1.1a1.8 1.8 0 0 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-3.1 1.3v.2a1.8 1.8 0 0 1-3.6 0v-.2a1.8 1.8 0 0 0-3.1-1.3l-.1.1a1.8 1.8 0 1 1-2.5-2.5l.1-.1A1.8 1.8 0 0 0 5.3 12a1.8 1.8 0 0 0-1.3-3.1h-.2a1.8 1.8 0 0 1 0-3.6H4a1.8 1.8 0 0 0 1.3-3.1l-.1-.1a1.8 1.8 0 1 1 2.5-2.5l.1.1A1.8 1.8 0 0 0 10.9 1.3v-.2a1.8 1.8 0 0 1 3.6 0v.2a1.8 1.8 0 0 0 3.1 1.3l.1-.1a1.8 1.8 0 1 1 2.5 2.5l-.1.1A1.8 1.8 0 0 0 19.4 8h.2a1.8 1.8 0 0 1 0 3.6h-.2a1.8 1.8 0 0 0 0 3.4Z"/></svg><span class="sr-only">Open blog settings</span></a></div><nav class="blog-nav"><div class="blog-header-id"><a href="/"><div>${avatar}</div><div class="blog-header-text"><div class="site-title">${esc(tenant.title)}</div>${tenant.description ? `<div class="blog-tagline">${esc(tenant.description)}</div>` : ""}</div></a></div><a class="subscribe-link" href="#subscribe">Subscribe</a></nav>`;
   const ownerScript = `<script>(function(){var link=document.querySelector("[data-blog-edit]");if(!link)return;fetch("/_blognice/blog-edit-link?tenant=${encodeURIComponent(tenant.public_id)}",{credentials:"include",headers:{accept:"application/json"}}).then(function(r){if(!r.ok)throw new Error();return r.json()}).then(function(d){if(d.url){link.href=d.url;link.hidden=false}}).catch(function(){if(location.origin!==${JSON.stringify(origin)})fetch(${JSON.stringify(origin)}+"/_blognice/blog-edit-link?tenant=${encodeURIComponent(tenant.public_id)}",{credentials:"include"}).then(function(r){return r.ok?r.json():null}).then(function(d){if(d&&d.url){link.href=d.url;link.hidden=false}}).catch(function(){})});})();</script>`;
+  const withNavigation = (markup: string) => navigationPages.length
+    ? markup.replace('<a class="subscribe-link"', `<div class="blog-nav-links">${navigationPages.map((page) => `<a href="/pages/${esc(page.slug)}">${esc(page.label)}</a>`).join("")}</div><a class="subscribe-link"`)
+    : markup;
   if (!posts.length) {
     return shell({
       tenant, pageTitle: tenant.title, description: tenant.description || tenant.title, analyticsConsentRequired,
-      canonical: origin + "/", ownerEdit: { href: `${origin}/admin/b/${tenant.public_id}/settings`, dataAttr: "blog-edit", label: "Open blog settings" }, body: `${header(`<div class="blog-avatar">${monogram(tenant.title)}</div>`)}${topics.length ? `<div class="blog-topics" aria-label="Blog topics">${topics.map((topic) => `<span>#${esc(topic)}</span>`).join("")}</div>` : ""}<section class="blog-section"><p class="feed-meta">No posts yet.</p></section><div id="subscribe" class="blog-subscribe-wrap">${subscribeBox(tenant)}</div>${ownerScript}`,
+      canonical: origin + "/", ownerEdit: { href: `${origin}/admin/b/${tenant.public_id}/settings`, dataAttr: "blog-edit", label: "Open blog settings" }, body: `${withNavigation(header(`<div class="blog-avatar">${monogram(tenant.title)}</div>`))}${topics.length ? `<div class="blog-topics" aria-label="Blog topics">${topics.map((topic) => `<span>#${esc(topic)}</span>`).join("")}</div>` : ""}<section class="blog-section"><p class="feed-meta">No posts yet.</p></section><div id="subscribe" class="blog-subscribe-wrap">${subscribeBox(tenant)}</div>${ownerScript}`,
     });
   }
   const featured = posts[0];
@@ -678,7 +702,7 @@ export function renderHome(
     : `<div class="blog-avatar">${monogram(tenant.title)}</div>`;
   const card = (p: Post, index: number) => `<article class="blog-card"><a class="blog-art" href="/${esc(p.slug)}">${art(p, index)}</a><h3><a href="/${esc(p.slug)}">${esc(p.title)}</a></h3><p class="blog-excerpt">${esc(excerpt(p.body_md, 125))}</p><div class="blog-meta">${formatDate(p.created_at)} · ${readingTime(p.body_md)} min read</div></article>`;
   const popularCard = (p: Post, index: number) => `<article class="blog-popular-card"><a class="blog-art" href="/${esc(p.slug)}">${art(p, index)}</a><h3><a href="/${esc(p.slug)}">${esc(p.title)}</a></h3><div class="blog-meta">${readingTime(p.body_md)} min read</div></article>`;
-  const body = `${header(avatar)}
+  const body = `${withNavigation(header(avatar))}
     ${topics.length ? `<div class="blog-topics" aria-label="Blog topics">${topics.map((topic) => `<span>#${esc(topic)}</span>`).join("")}</div>` : ""}
     <section class="blog-section"><div class="blog-kicker">Featured post</div><article class="blog-featured"><a class="blog-art" href="/${esc(featured.slug)}">${art(featured, 0)}</a><div><h2><a href="/${esc(featured.slug)}">${esc(featured.title)}</a></h2><p class="blog-excerpt">${esc(excerpt(featured.body_md))}</p><div class="blog-meta">${formatDate(featured.created_at)} · ${readingTime(featured.body_md)} min read</div></div></article></section>
     ${more.length ? `<section class="blog-section" style="padding-top:0"><div class="blog-grid-head"><h2>More posts</h2></div><div class="blog-cards">${more.map(card).join("")}</div></section>` : ""}
@@ -724,6 +748,30 @@ export function renderTagPage(
     ownerEdit: { href: `${origin}/admin/b/${tenant.public_id}/settings`, dataAttr: "blog-edit", label: "Open blog settings" },
     analyticsConsentRequired,
     body,
+  });
+}
+
+export function renderPage(
+  tenant: Tenant,
+  page: Page,
+  htmlBody: string,
+  origin: string,
+  analyticsConsentRequired = true,
+  isOwner = false
+): string {
+  const description = page.meta_description?.trim() || excerpt(page.body_md, 180) || page.title;
+  const canonical = `${origin}/pages/${encodeURIComponent(page.slug)}`;
+  const edit = isOwner
+    ? { href: `${origin}/admin/b/${tenant.public_id}/pages/edit/${page.id}`, dataAttr: "page-edit", label: "Edit page" }
+    : undefined;
+  return shell({
+    tenant,
+    pageTitle: `${page.title} — ${tenant.title}`,
+    description,
+    canonical,
+    analyticsConsentRequired,
+    ownerEdit: edit,
+    body: `<main class="page-content"><div class="page-content-inner"><h1>${esc(page.title)}</h1><div class="page-prose">${htmlBody}</div></div></main>`,
   });
 }
 
