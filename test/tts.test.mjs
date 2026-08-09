@@ -100,6 +100,15 @@ test("calmer uses its tested spoken form", () => {
   assert.match(narrationText("A calmer introduction", "The tone is calmer."), /carlmar/);
 });
 
+test("audio removal invalidates queued narration before it can attach", () => {
+  const source = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
+  assert.match(source, /audio_generation_id = NULL/);
+  assert.match(source, /audio_generation_id = \?/);
+  assert.match(source, /status = "cancelled"/);
+  assert.match(source, /releaseTerminalAudioGeneration/);
+  assert.match(source, /published && !can\(role, "posts.publish"\)/);
+});
+
 test("title is a standalone neutral statement before the article body", () => {
   const sections = narrationSections("AI and the UK", "## Opening\n\nThe article begins.");
   assert.equal(sections.title, "aiye eye and the U K.");
@@ -125,6 +134,13 @@ test("narration removes separators inside numbers", () => {
   assert.doesNotMatch(text, /1,000/);
   assert.match(text, /1000/);
   assert.doesNotMatch(text, /1,2/);
+});
+
+test("hostnames are spoken with explicit dots", () => {
+  const text = narrationText("Visit development.blognice.com", "Read development.blognice.com or https://www.blognice.com for more.");
+  assert.match(text, /development dot blognice dot com/);
+  assert.match(text, /www dot blognice dot com/);
+  assert.doesNotMatch(text, /https:\/\//);
 });
 
 test("headings and spoken numbered markers receive explicit pauses", () => {
@@ -248,6 +264,9 @@ test("narration is persisted safely and rendered only when assigned", () => {
   assert.match(admin, /status\?job=/);
   assert.match(index, /async queue\(batch, env\)/);
   assert.match(index, /processAudioJob\(env, jobMessage\.jobKey\)/);
+  assert.match(index, /app\.delete\("\/api\/v1\/blogs\/:blogId\/posts\/:id\/audio"/);
+  assert.match(index, /UPDATE posts SET audio_key = NULL/);
+  assert.match(index, /c\.env\.MEDIA\.delete\(post\.audio_key\)/);
   assert.match(index, /new FixedLengthStream\(assembly\.size\)/);
   assert.match(index, /MEDIA\.put\(key, fixed\.readable/);
   assert.match(index, /async function preparePronunciations/);

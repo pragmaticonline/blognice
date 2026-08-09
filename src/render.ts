@@ -48,6 +48,7 @@ export type Post = {
   title: string;
   featured_image_key: string | null;
   audio_key: string | null;
+  audio_generation_id?: string | null;
   body_md: string;
   tags_json: string | null;
   published: number;
@@ -263,6 +264,8 @@ const STYLES = /* css */ `
   .homepage-wrap .blog-nav .subscribe-link { display:none; }
   .homepage-wrap .site-controls { margin-bottom:-3.15rem; position:relative; z-index:2; }
   .homepage-wrap .blog-nav { padding-right:9.5rem; }
+  .homepage-wrap .blog-featured-section { padding-top: 1rem; }
+  .homepage-wrap .blog-topics-bottom { padding: 1.25rem 0 0; }
   .homepage-wrap .blog-topics + .blog-section { padding-top: 1rem; }
   @media (max-width:640px) { .homepage-wrap .blog-nav { padding-right:8.5rem; } }
   .to-top { position: fixed; right: max(1rem, calc((100vw - var(--measure) - 2.8rem) / 2)); bottom: 1.2rem; z-index: 30; width: 2.5rem; height: 2.5rem; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--accent); border-radius: 999px; background: var(--accent); color: var(--accent-ink); cursor: pointer; font: inherit; font-size: 1.3rem; font-weight: 700; line-height: 1; box-shadow: 0 4px 14px rgb(0 0 0 / .24); opacity: 0; pointer-events: none; transform: translateY(.5rem); transition: opacity .2s ease, transform .2s ease, filter .2s ease; }
@@ -692,7 +695,7 @@ export function renderHome(
   if (!posts.length) {
     return shell({
       tenant, pageTitle: tenant.title, description: tenant.description || tenant.title, analyticsConsentRequired,
-      canonical: origin + "/", ownerEdit: { href: `${origin}/admin/b/${tenant.public_id}/settings`, dataAttr: "blog-edit", label: "Open blog settings" }, body: `${withNavigation(header(`<div class="blog-avatar">${monogram(tenant.title)}</div>`))}${topics.length ? `<div class="blog-topics" aria-label="Blog topics">${topics.map((topic) => `<span>#${esc(topic)}</span>`).join("")}</div>` : ""}<section class="blog-section"><p class="feed-meta">No posts yet.</p></section><div id="subscribe" class="blog-subscribe-wrap">${subscribeBox(tenant)}</div>${ownerScript}`,
+      canonical: origin + "/", ownerEdit: { href: `${origin}/admin/b/${tenant.public_id}/settings`, dataAttr: "blog-edit", label: "Open blog settings" }, body: `${withNavigation(header(`<div class="blog-avatar">${monogram(tenant.title)}</div>`))}<section class="blog-section blog-featured-section"><p class="feed-meta">No posts yet.</p></section>${topics.length ? `<div class="blog-topics blog-topics-bottom" aria-label="Blog topics">${topics.map((topic) => `<span>#${esc(topic)}</span>`).join("")}</div>` : ""}<div id="subscribe" class="blog-subscribe-wrap">${subscribeBox(tenant)}</div>${ownerScript}`,
     });
   }
   const featured = posts[0];
@@ -706,10 +709,10 @@ export function renderHome(
   const card = (p: Post, index: number) => `<article class="blog-card"><a class="blog-art" href="/${esc(p.slug)}">${art(p, index)}</a><h3><a href="/${esc(p.slug)}">${esc(p.title)}</a></h3><p class="blog-excerpt">${esc(excerpt(p.body_md, 125))}</p><div class="blog-meta">${formatDate(p.created_at)} · ${readingTime(p.body_md)} min read</div></article>`;
   const popularCard = (p: Post, index: number) => `<article class="blog-popular-card"><a class="blog-art" href="/${esc(p.slug)}">${art(p, index)}</a><h3><a href="/${esc(p.slug)}">${esc(p.title)}</a></h3><div class="blog-meta">${readingTime(p.body_md)} min read</div></article>`;
   const body = `${withNavigation(header(avatar))}
-    ${topics.length ? `<div class="blog-topics" aria-label="Blog topics">${topics.map((topic) => `<span>#${esc(topic)}</span>`).join("")}</div>` : ""}
-    <section class="blog-section"><div class="blog-kicker">Featured post</div><article class="blog-featured"><a class="blog-art" href="/${esc(featured.slug)}">${art(featured, 0)}</a><div><h2><a href="/${esc(featured.slug)}">${esc(featured.title)}</a></h2><p class="blog-excerpt">${esc(excerpt(featured.body_md))}</p><div class="blog-meta">${formatDate(featured.created_at)} · ${readingTime(featured.body_md)} min read</div></div></article></section>
+    <section class="blog-section blog-featured-section"><div class="blog-kicker">Featured post</div><article class="blog-featured"><a class="blog-art" href="/${esc(featured.slug)}">${art(featured, 0)}</a><div><h2><a href="/${esc(featured.slug)}">${esc(featured.title)}</a></h2><p class="blog-excerpt">${esc(excerpt(featured.body_md))}</p><div class="blog-meta">${formatDate(featured.created_at)} · ${readingTime(featured.body_md)} min read</div></div></article></section>
     ${more.length ? `<section class="blog-section" style="padding-top:0"><div class="blog-grid-head"><h2>More posts</h2></div><div class="blog-cards">${more.map(card).join("")}</div></section>` : ""}
     ${popular.length ? `<section class="blog-popular-section blog-section"><div class="blog-grid-head"><h2>Popular posts</h2></div><div class="blog-popular-cards">${popular.map(popularCard).join("")}</div></section>` : ""}
+    ${topics.length ? `<div class="blog-topics blog-topics-bottom" aria-label="Blog topics">${topics.map((topic) => `<span>#${esc(topic)}</span>`).join("")}</div>` : ""}
     <div id="subscribe" class="blog-subscribe-wrap">${subscribeBox(tenant)}</div>`;
 
   return shell({
