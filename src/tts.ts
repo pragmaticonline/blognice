@@ -125,8 +125,16 @@ function removeNumericSeparators(value: string): string {
   return value.replace(/(?<=\d),(?=\d)/g, "");
 }
 
+function spokenDomains(value: string): string {
+  // MeloTTS tends to swallow dots in hostnames. Spell the protocol-free host
+  // out explicitly while leaving ordinary sentence punctuation untouched.
+  return value
+    .replace(/\bhttps?:\/\/\s*/gi, "")
+    .replace(/\b((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,})(?=\b)/gi, (domain) => domain.split(".").join(" dot "));
+}
+
 function cleanSpeech(value: string, overrides: PronunciationReplacement[] = []): string {
-  return disambiguateRead(spokenForms(applyManagedSpokenForms(removeNumericSeparators(removeEmoji(value)), overrides)))
+  return disambiguateRead(spokenForms(applyManagedSpokenForms(spokenDomains(removeNumericSeparators(removeEmoji(value))), overrides)))
     .replace(/\s*[—–]\s*/g, ", ")
     .replace(/\s*&\s*/g, " and ")
     .replace(/\s+([.,!?;:])(?!\.\.)/g, "$1")
