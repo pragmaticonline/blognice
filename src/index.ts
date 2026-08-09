@@ -3,6 +3,7 @@ import { verifyPlatformBearer } from "./platform-auth";
 import {
   esc,
   renderHome,
+  renderTagPage,
   renderPost,
   renderNotFound,
   renderSimplePage,
@@ -869,15 +870,12 @@ app.get("/tag/:tag", async (c) => {
   if (!tenant) return c.text("Not found", 404);
   const tag = String(c.req.param("tag") || "").trim().toLowerCase();
   const { results } = await tenantDb(c.env, tenant).prepare(
-    "SELECT slug, title, body_md, created_at, tags_json FROM posts WHERE tenant_id = ? AND published = 1 ORDER BY created_at DESC LIMIT 200"
-  ).bind(tenant.id).all<{ slug: string; title: string; body_md: string; created_at: number; tags_json: string | null }>();
+    "SELECT * FROM posts WHERE tenant_id = ? AND published = 1 ORDER BY created_at DESC LIMIT 200"
+  ).bind(tenant.id).all<Post>();
   const posts = results.filter((post) => {
     try { return JSON.parse(post.tags_json || "[]").includes(tag); } catch { return false; }
   });
-  const inner = posts.length
-    ? `<ul class="feed">${posts.map((post) => `<li><h2><a href="/${esc(post.slug)}">${esc(post.title)}</a></h2><p>${esc(post.body_md.replace(/[#>*_`~]/g, " ").replace(/\s+/g, " ").trim().slice(0, 220))}</p><small>${new Date(post.created_at * 1000).toLocaleDateString("en-US", { timeZone: "UTC" })}</small></li>`).join("")}</ul>`
-    : `<p>No published posts use this tag yet.</p>`;
-  return c.html(renderSimplePage(tenant, `#${tag}`, inner));
+  return c.html(renderTagPage(tenant, tag, posts, originOf(c), analyticsConsentRequired(c.req.raw.cf?.country)));
 });
 
 // Create or upsert a post. Auth: Authorization: Bearer <API_TOKEN>.
