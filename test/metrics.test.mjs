@@ -102,6 +102,7 @@ test("analytics consent is required for EEA, UK, Switzerland, and unknown countr
   for (const country of ["TH", "US", "AU"]) assert.equal(analyticsConsentRequired(country), false, country);
   assert.match(metricsBeacon(true), /Help us improve blognice/);
   assert.match(metricsBeacon(false), /Help us improve blognice/);
+  assert.doesNotMatch(metricsBeacon(true), /createElement\("button"\).*Analytics preferences/);
 });
 
 test("report queries include aggregate audience and audio breakdowns", () => {
