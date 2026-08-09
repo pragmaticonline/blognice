@@ -51,6 +51,9 @@ test("www is routed to the dedicated landing page before tenant resolution", () 
 
 test("tenant homepages use the mockup navigation without the legacy masthead", () => {
   assert.match(renderSource, /showMasthead: false/);
+  assert.match(renderSource, /blog-featured-section/);
+  assert.match(renderSource, /blog-topics-bottom/);
+  assert.ok(renderSource.indexOf("blog-featured-section") < renderSource.indexOf("blog-topics-bottom"));
 });
 
 test("tenant homepages advertise an RSS feed and expose published posts as RSS", () => {
