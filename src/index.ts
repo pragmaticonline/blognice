@@ -7,7 +7,9 @@ import {
   renderPost,
   renderNotFound,
   renderSimplePage,
+  renderPage,
   type Post,
+  type Page,
   type Tenant,
 } from "./render";
 import { sendEmail, sendEmailDetailed, emailEnabled } from "./email";
@@ -40,6 +42,8 @@ import {
   forgotPasswordPage,
   resetPasswordPage,
   postListPage,
+  pageListPage,
+  pageEditorPage,
   editorPage,
   signupPage,
   domainsPage,
@@ -818,6 +822,9 @@ app.get("/sitemap.xml", async (c) => {
     )
       .bind(tenant.id)
       .all<{ slug: string; updated_at: number }>();
+    const pages = await tenantDb(c.env, tenant).prepare(
+      "SELECT slug, updated_at FROM pages WHERE tenant_id = ? AND published = 1 ORDER BY updated_at DESC"
+    ).bind(tenant.id).all<{ slug: string; updated_at: number }>();
 
     const urls = [
       `<url><loc>${esc(origin)}/</loc></url>`,
@@ -826,6 +833,7 @@ app.get("/sitemap.xml", async (c) => {
           `<url><loc>${esc(origin)}/${esc(r.slug)}</loc>` +
           `<lastmod>${new Date(r.updated_at * 1000).toISOString()}</lastmod></url>`
       ),
+      ...pages.results.map((page) => `<url><loc>${esc(origin)}/pages/${esc(page.slug)}</loc><lastmod>${new Date(page.updated_at * 1000).toISOString()}</lastmod></url>`),
     ].join("");
 
     const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`;
@@ -1970,6 +1978,89 @@ app.get("/admin/b/:blogId", async (c) => {
     .bind(ctx.tenant.id)
     .all<Post>();
   return c.html(postListPage(ctx.account, ctx.tenant, results, c.env.ROOT_DOMAIN));
+});
+
+// --- Blog-scoped evergreen pages ------------------------------------------
+app.get("/admin/b/:blogId/pages", async (c) => {
+  const ctx = await blogContext(c);
+  if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  const denied = requireBlogCapability(c, ctx, "posts.create");
+  if (denied) return denied;
+  const { results } = await tenantDb(c.env, ctx.tenant).prepare(
+    "SELECT * FROM pages WHERE tenant_id = ? ORDER BY navigation_order, updated_at DESC"
+  ).bind(ctx.tenant.id).all<Page>();
+  return c.html(pageListPage(ctx.account, ctx.tenant, results, c.env.ROOT_DOMAIN));
+});
+
+app.get("/admin/b/:blogId/pages/new", async (c) => {
+  const ctx = await blogContext(c);
+  if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  const denied = requireBlogCapability(c, ctx, "posts.create");
+  if (denied) return denied;
+  return c.html(pageEditorPage(ctx.account, ctx.tenant, null));
+});
+
+app.get("/admin/b/:blogId/pages/edit/:id", async (c) => {
+  const ctx = await blogContext(c);
+  if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  const page = await tenantDb(c.env, ctx.tenant).prepare(
+    "SELECT * FROM pages WHERE id = ? AND tenant_id = ?"
+  ).bind(c.req.param("id"), ctx.tenant.id).first<Page>();
+  if (!page) return c.redirect(`/admin/b/${ctx.tenant.public_id}/pages`);
+  const denied = requireBlogCapability(c, ctx, "posts.create");
+  if (denied) return denied;
+  return c.html(pageEditorPage(ctx.account, ctx.tenant, page));
+});
+
+app.post("/admin/b/:blogId/pages/save", async (c) => {
+  const ctx = await blogContext(c);
+  if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  const denied = requireBlogCapability(c, ctx, "posts.create");
+  if (denied) return denied;
+  const form = await c.req.formData();
+  const idParam = c.req.query("id");
+  const title = String(form.get("title") || "").trim().slice(0, 200);
+  const body_md = String(form.get("body_md") || "");
+  let slug = slugify(String(form.get("slug") || "")).slice(0, 100);
+  if (!slug) slug = slugify(title).slice(0, 100);
+  const published = form.get("published") ? 1 : 0;
+  const showInNavigation = form.get("show_in_navigation") ? 1 : 0;
+  const navigationLabel = String(form.get("navigation_label") || "").trim().slice(0, 40) || null;
+  const navigationOrder = Math.max(0, Math.min(999, Number(form.get("navigation_order") || 0) || 0));
+  const metaDescription = String(form.get("meta_description") || "").trim().slice(0, 300) || null;
+  if (published && !can(ctx.role, "posts.publish")) return c.text("You do not have permission to publish pages.", 403);
+  if (!title || !slug) return c.html(pageEditorPage(ctx.account, ctx.tenant, { id: idParam ? Number(idParam) : undefined, title, slug, body_md, published, show_in_navigation: showInNavigation, navigation_label: navigationLabel, navigation_order: navigationOrder, meta_description: metaDescription }, "A title is required (and it must produce a valid slug)."), 400);
+  const now = Math.floor(Date.now() / 1000);
+  try {
+    if (idParam) {
+      const previous = await tenantDb(c.env, ctx.tenant).prepare("SELECT slug, published_at FROM pages WHERE id = ? AND tenant_id = ?").bind(idParam, ctx.tenant.id).first<{ slug: string; published_at: number | null }>();
+      if (!previous) return c.redirect(`/admin/b/${ctx.tenant.public_id}/pages`);
+      await tenantDb(c.env, ctx.tenant).prepare("UPDATE pages SET slug = ?, title = ?, body_md = ?, published = ?, show_in_navigation = ?, navigation_label = ?, navigation_order = ?, meta_description = ?, updated_at = ?, published_at = ? WHERE id = ? AND tenant_id = ?")
+        .bind(slug, title, body_md, published, showInNavigation, navigationLabel, navigationOrder, metaDescription, now, published ? (previous.published_at || now) : null, idParam, ctx.tenant.id).run();
+      purgeTenant(c.env, ctx.tenant, ["/", `/pages/${previous.slug}`, `/pages/${slug}`, "/sitemap.xml"]);
+    } else {
+      await tenantDb(c.env, ctx.tenant).prepare("INSERT INTO pages (tenant_id, slug, title, body_md, published, show_in_navigation, navigation_label, navigation_order, meta_description, created_at, updated_at, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind(ctx.tenant.id, slug, title, body_md, published, showInNavigation, navigationLabel, navigationOrder, metaDescription, now, now, published ? now : null).run();
+      purgeTenant(c.env, ctx.tenant, ["/", `/pages/${slug}`, "/sitemap.xml"]);
+    }
+  } catch (error) {
+    const message = String(error).includes("UNIQUE") ? "That page slug is already in use." : "Could not save this page.";
+    return c.html(pageEditorPage(ctx.account, ctx.tenant, { id: idParam ? Number(idParam) : undefined, title, slug, body_md, published, show_in_navigation: showInNavigation, navigation_label: navigationLabel, navigation_order: navigationOrder, meta_description: metaDescription }, message), 400);
+  }
+  return c.redirect(`/admin/b/${ctx.tenant.public_id}/pages`);
+});
+
+app.post("/admin/b/:blogId/pages/delete/:id", async (c) => {
+  const ctx = await blogContext(c);
+  if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  const denied = requireBlogCapability(c, ctx, "posts.delete");
+  if (denied) return denied;
+  const page = await tenantDb(c.env, ctx.tenant).prepare("SELECT slug FROM pages WHERE id = ? AND tenant_id = ?").bind(c.req.param("id"), ctx.tenant.id).first<{ slug: string }>();
+  if (page) {
+    await tenantDb(c.env, ctx.tenant).prepare("DELETE FROM pages WHERE id = ? AND tenant_id = ?").bind(c.req.param("id"), ctx.tenant.id).run();
+    purgeTenant(c.env, ctx.tenant, ["/", `/pages/${page.slug}`, "/sitemap.xml"]);
+  }
+  return c.redirect(`/admin/b/${ctx.tenant.public_id}/pages`);
 });
 
 // --- Collaborators --------------------------------------------------------
@@ -4406,6 +4497,9 @@ app.get("/", async (c) => {
     const postsPromise = tenantDb(c.env, tenant).prepare(
       "SELECT * FROM posts WHERE tenant_id = ? AND published = 1 ORDER BY created_at DESC"
     ).bind(tenant.id).all<Post>();
+    const navigationPagesPromise = tenantDb(c.env, tenant).prepare(
+      "SELECT slug, COALESCE(navigation_label, title) AS label FROM pages WHERE tenant_id = ? AND published = 1 AND show_in_navigation = 1 ORDER BY navigation_order, title LIMIT 6"
+    ).bind(tenant.id).all<{ slug: string; label: string }>();
     const popularityPromise = c.env.DB.prepare(
       `SELECT path, score, reader_days_30
          FROM post_popularity
@@ -4422,13 +4516,13 @@ app.get("/", async (c) => {
       }));
       return { results: [] as { path: string; score: number; reader_days_30: number }[] };
     });
-    const [{ results }, popularity] = await Promise.all([postsPromise, popularityPromise]);
+    const [{ results }, popularity, navigationPages] = await Promise.all([postsPromise, popularityPromise, navigationPagesPromise]);
     const postsByPath = new Map(results.map((post) => [`/${post.slug}`, post]));
     const popularPosts = popularity.results
       .map((row) => postsByPath.get(row.path))
       .filter((post): post is Post => Boolean(post));
 
-    return new Response(renderHome(tenant, results, originOf(c), analyticsConsentRequired(c.req.raw.cf?.country), popularPosts), {
+    return new Response(renderHome(tenant, results, originOf(c), analyticsConsentRequired(c.req.raw.cf?.country), popularPosts, navigationPages.results), {
       status: 200,
       headers: { "content-type": "text/html; charset=utf-8" },
     });
@@ -4436,6 +4530,19 @@ app.get("/", async (c) => {
 });
 
 // A single post: /<slug>. This is the catch-all, so it goes last.
+app.get("/pages/:slug", async (c) => {
+  const tenant = await resolveTenant(c.env, c.req.header("host") || "");
+  if (!tenant) return c.text("Not found", 404);
+  const page = await tenantDb(c.env, tenant).prepare(
+    "SELECT * FROM pages WHERE tenant_id = ? AND slug = ? AND published = 1"
+  ).bind(tenant.id, c.req.param("slug")).first<Page>();
+  if (!page) return c.html(renderNotFound(tenant), 404);
+  const navigationPages = await tenantDb(c.env, tenant).prepare(
+    "SELECT slug, COALESCE(navigation_label, title) AS label FROM pages WHERE tenant_id = ? AND published = 1 AND show_in_navigation = 1 ORDER BY navigation_order, title LIMIT 6"
+  ).bind(tenant.id).all<{ slug: string; label: string }>();
+  return c.html(renderPage(tenant, page, renderMarkdown(page.body_md), originOf(c), analyticsConsentRequired(c.req.raw.cf?.country), false, navigationPages.results));
+});
+
 app.get("/:slug", async (c) => {
   const legacy = await legacySlugRedirect(c);
   if (legacy) return legacy;

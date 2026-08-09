@@ -1,5 +1,5 @@
 // Server-rendered admin UI. Utilitarian but styled to match the public theme.
-import { accentTextColor, esc, formatDate, normalizeAccentColor, type Post, type Tenant } from "./render";
+import { accentTextColor, esc, formatDate, normalizeAccentColor, type Page, type Post, type Tenant } from "./render";
 import { accountHasPaidPlan, type Account } from "./auth";
 import type { AuditEntry, MetricsReport } from "./metrics";
 
@@ -114,6 +114,14 @@ const ADMIN_STYLES = /* css */ `
 
   .page { width: min(var(--admin-measure), calc(100% - 2 * var(--admin-gutter))); max-width: none; margin: 0 auto; padding: 2rem 0 4rem; }
   .page.narrow { width: min(24rem, calc(100% - 2 * var(--admin-gutter))); }
+  .page-nav-settings { min-width: 0; margin: 1.5rem 0; padding: 1rem 1.1rem; border: 1px solid var(--rule); border-radius: 8px; background: color-mix(in srgb, var(--panel) 94%, var(--accent) 6%); }
+  .page-nav-settings h2 { margin: 0 0 .3rem; font-size: 1rem; }
+  .page-nav-settings > p { margin: 0 0 .9rem; color: var(--muted); font-size: .88rem; }
+  .page-nav-settings .check { margin: .65rem 0 1rem; }
+  .page-nav-settings .nav-fields { display: grid; grid-template-columns: minmax(0, 1fr) 8rem; gap: 1rem; align-items: end; }
+  .page-nav-settings .nav-fields label { margin: 0; }
+  .page-nav-settings .nav-fields input, .page-nav-settings .nav-fields select { width: 100%; margin-top: .35rem; }
+  @media (max-width: 560px) { .page-nav-settings .nav-fields { grid-template-columns: 1fr; gap: .75rem; } }
   h1 { font-size: 1.4rem; margin: 0 0 1.4rem; }
 
   .row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.4rem; }
@@ -331,7 +339,8 @@ export function shell(
   let bar = "";
   if (account && tenant) {
     const titleKey = title.toLowerCase();
-    const activeNav = titleKey.startsWith("media") ? "media"
+    const activeNav = titleKey.startsWith("page") ? "pages"
+      : titleKey.startsWith("media") ? "media"
       : titleKey.startsWith("subscriber") ? "subscribers"
       : titleKey.startsWith("collaborator") || titleKey.startsWith("author") ? "authors"
       : titleKey.startsWith("metric") ? "metrics"
@@ -340,6 +349,7 @@ export function shell(
       : titleKey.startsWith("setting") ? "settings" : "posts";
     const navItems = [
       ["posts", "Posts", `/admin/b/${tenant.public_id}`],
+      ["pages", "Pages", `/admin/b/${tenant.public_id}/pages`],
       ["media", "Media", `/admin/b/${tenant.public_id}/media`],
       ["subscribers", "Subscribers", `/admin/b/${tenant.public_id}/subscribers`],
       ["authors", "Collaborators", `/admin/b/${tenant.public_id}/authors`],
@@ -702,6 +712,39 @@ export function postListPage(
     account,
     tenant
   );
+}
+
+export function pageListPage(account: Account, tenant: Tenant, pages: Page[], rootDomain: string): string {
+  const base = `/admin/b/${tenant.public_id}`;
+  const publicHost = tenant.custom_domain || `${tenant.slug}.${rootDomain}`;
+  const rows = pages.length ? `<ul class="posts">${pages.map((page) => `<li>
+    <div class="post-summary"><div><div class="t"><a href="${base}/pages/edit/${page.id}">${esc(page.title)}</a></div><div class="sub">${formatDate(page.updated_at)} · /pages/${esc(page.slug)}</div></div></div>
+    <div class="acts"><span class="tag ${page.published ? "live" : ""}">${page.published ? "Published" : "Draft"}</span>${page.show_in_navigation ? `<span class="tag">Navigation</span>` : ""}
+      <a class="btn ghost icon-btn" href="${base}/pages/edit/${page.id}" aria-label="Edit ${esc(page.title)}" title="Edit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg></a>
+      <a class="btn ghost icon-btn" href="https://${esc(publicHost)}/pages/${esc(page.slug)}" target="_blank" rel="noopener noreferrer" aria-label="View ${esc(page.title)}" title="View"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg></a>
+      <form method="post" action="${base}/pages/delete/${page.id}" onsubmit="return confirm('Delete this page?')"><button class="btn danger icon-btn" type="submit" aria-label="Delete ${esc(page.title)}" title="Delete"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 14h10l1-14"/><path d="M9 7V4h6v3"/></svg></button></form>
+    </div></li>`).join("")}</ul>` : `<p style="color:var(--muted)">No pages yet. Create an About page or another evergreen reference.</p>`;
+  return shell(`Pages — ${tenant.title}`, `<div class="page"><div class="row"><h1 style="margin:0">Pages</h1><a class="btn" href="${base}/pages/new">New page</a></div><p style="color:var(--muted);margin-top:-.8rem">Pages are for evergreen information such as About, Contact, or FAQ. They are separate from posts and do not trigger subscriber emails.</p>${rows}</div>`, account, tenant);
+}
+
+export function pageEditorPage(account: Account, tenant: Tenant, page: Partial<Page> | null, error?: string): string {
+  const base = `/admin/b/${tenant.public_id}`;
+  const isEdit = !!page?.id;
+  const action = isEdit ? `${base}/pages/save?id=${page!.id}` : `${base}/pages/save`;
+  const title = esc(page?.title ?? "");
+  const slug = esc(page?.slug ?? "");
+  const body = esc(page?.body_md ?? "");
+  const published = page ? page.published !== 0 : false;
+  const navigation = page?.show_in_navigation === 1;
+  return shell(isEdit ? `Edit page — ${tenant.title}` : `New page — ${tenant.title}`, `<div class="page"><p class="breadcrumb"><a href="${base}/pages">Pages</a> › ${isEdit ? "Edit page" : "New page"}</p><h1>${isEdit ? "Edit page" : "New page"}</h1>${error ? `<div class="error">${esc(error)}</div>` : ""}<form method="post" action="${action}">
+    <label for="page-title">Title</label><input id="page-title" name="title" type="text" value="${title}" required>
+    <label for="page-slug">URL slug <span style="color:var(--muted)">(the public URL will be /pages/…)</span></label><input id="page-slug" name="slug" type="text" value="${slug}" placeholder="about">
+    <label for="page-meta">Meta description <span style="color:var(--muted)">(optional)</span></label><textarea id="page-meta" name="meta_description" rows="2" maxlength="300">${esc(page?.meta_description ?? "")}</textarea>
+    <label for="page-body">Page content</label><textarea id="page-body" name="body_md" rows="20" placeholder="Write this page in Markdown…">${body}</textarea>
+    <div class="check"><input id="page-published" name="published" type="checkbox" ${published ? "checked" : ""}><label for="page-published">Published</label></div>
+    <fieldset class="page-nav-settings"><h2>Blog navigation</h2><p>Optionally add this page to the links at the top of your blog. Pages stay available at their public URL either way.</p><div class="check"><input id="page-navigation" name="show_in_navigation" type="checkbox" ${navigation ? "checked" : ""}><label for="page-navigation">Show this page in navigation</label></div><div class="nav-fields"><label for="page-nav-label">Link label <span style="color:var(--muted)">(optional)</span><input id="page-nav-label" name="navigation_label" type="text" value="${esc(page?.navigation_label ?? "")}" maxlength="40" placeholder="About"></label><label for="page-nav-order">Position <select id="page-nav-order" name="navigation_order">${[0,1,2,3,4,5].map((value) => `<option value="${value}"${(page?.navigation_order ?? 0) === value ? " selected" : ""}>${value + 1}</option>`).join("")}</select></label></div></fieldset>
+    <div class="actions"><button class="btn" type="submit">Save page</button><a class="btn ghost" href="${base}/pages">Cancel</a></div>
+  </form></div>`, account, tenant);
 }
 
 export function metricsPage(

@@ -55,6 +55,22 @@ export type Post = {
   updated_at: number;
 };
 
+export type Page = {
+  id: number;
+  tenant_id: number;
+  slug: string;
+  title: string;
+  body_md: string;
+  published: number;
+  show_in_navigation?: number;
+  navigation_label?: string | null;
+  navigation_order?: number;
+  meta_description?: string | null;
+  created_at: number;
+  updated_at: number;
+  published_at?: number | null;
+};
+
 // Escape text that gets dropped into HTML (titles, descriptions, etc.).
 export function esc(s: string): string {
   return s
@@ -247,7 +263,7 @@ const STYLES = /* css */ `
   .homepage-wrap .blog-nav .subscribe-link { display:none; }
   .homepage-wrap .site-controls { margin-bottom:-3.15rem; position:relative; z-index:2; }
   .homepage-wrap .blog-nav { padding-right:9.5rem; }
-  .homepage-wrap .blog-topics + .blog-section { padding-top: 2rem; }
+  .homepage-wrap .blog-topics + .blog-section { padding-top: 1rem; }
   @media (max-width:640px) { .homepage-wrap .blog-nav { padding-right:8.5rem; } }
   .to-top { position: fixed; right: max(1rem, calc((100vw - var(--measure) - 2.8rem) / 2)); bottom: 1.2rem; z-index: 30; width: 2.5rem; height: 2.5rem; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--accent); border-radius: 999px; background: var(--accent); color: var(--accent-ink); cursor: pointer; font: inherit; font-size: 1.3rem; font-weight: 700; line-height: 1; box-shadow: 0 4px 14px rgb(0 0 0 / .24); opacity: 0; pointer-events: none; transform: translateY(.5rem); transition: opacity .2s ease, transform .2s ease, filter .2s ease; }
   .to-top.visible { opacity: 1; pointer-events: auto; transform: translateY(0); }
@@ -306,10 +322,13 @@ const STYLES = /* css */ `
   .blog-tagline { color:var(--muted); font-size:.86rem; font-style:italic; margin:.05rem 0 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .blog-nav .subscribe-link { flex:0 0 auto; font-family:var(--sans); font-size:.84rem; border:1px solid var(--rule); border-radius:999px; padding:.45rem 1rem; color:var(--muted); text-decoration:none; }
   .blog-nav .subscribe-link:hover { color:var(--accent); border-color:var(--accent); }
+  .blog-nav-links { display:flex; align-items:center; gap:.9rem; flex-wrap:wrap; padding:.7rem 0 .85rem; border-top:1px solid var(--rule); }
+  .blog-nav-links a { display:inline-flex; align-items:center; min-height:2rem; padding:.25rem .15rem; color:var(--muted); font-family:var(--sans); font-size:.84rem; text-decoration:none; }
+  .blog-nav-links a:hover, .blog-nav-links a:focus-visible, .blog-nav-links a[aria-current="page"] { color:var(--accent); text-decoration:underline; text-underline-offset:3px; }
   .blog-nav-actions { display:flex; align-items:center; gap:.55rem; flex:0 0 auto; }
   .blog-nav .rss-link { font-family:var(--sans); font-size:.84rem; border:1px solid var(--accent); border-radius:999px; padding:.45rem 1rem; color:var(--accent); text-decoration:none; font-weight:600; }
   .blog-nav .rss-link:hover { color:var(--accent-ink); background:var(--accent); }
-  .blog-topics { display:flex; flex-wrap:wrap; gap:.45rem; padding-top:1.5rem; }
+  .blog-topics { display:flex; flex-wrap:wrap; gap:.45rem; padding-top:.5rem; }
   .blog-topics span { color:var(--accent); font-family:var(--sans); font-size:.8rem; font-weight:600; }
   .homepage-wrap a { color:inherit; }
   .blog-section { padding:3.5rem 0; }
@@ -403,6 +422,10 @@ const STYLES = /* css */ `
   .post-audio { display: block; width: 19rem; height: 2rem; margin-left: auto; flex: 0 1 19rem; }
 
   .prose > *:first-child { margin-top: 0; }
+  .page-content { max-width: 760px; margin: 0 auto; padding: .5rem 1.25rem 5rem; }
+  .page-content-inner > h1 { font-size: clamp(2rem, 5vw, 3.2rem); line-height: 1.12; margin: 0 0 2.2rem; letter-spacing: -0.025em; }
+  .page-prose { font-family: var(--serif); font-size: 1.12rem; line-height: 1.78; }
+  .page-prose > *:first-child { margin-top: 0; }
   .prose p, .prose ul, .prose ol { margin: 1.5rem 0; }
   .prose ul, .prose ol { padding-left: 1.5rem; }
   .prose li { margin: 0.3rem 0; }
@@ -651,7 +674,8 @@ export function renderHome(
   posts: Post[],
   origin: string,
   analyticsConsentRequired = true,
-  rankedPopularPosts: Post[] = []
+  rankedPopularPosts: Post[] = [],
+  navigationPages: Array<{ slug: string; label: string }> = []
 ): string {
   const topics = tenantTopics(tenant);
   const art = (post: Post, index: number, rank?: number) =>
@@ -662,10 +686,13 @@ export function renderHome(
         : "";
   const header = (avatar: string) => `<div class="blog-owner-actions"><a class="owner-edit" data-blog-edit hidden href="${esc(origin)}/admin/b/${esc(tenant.public_id)}/settings" aria-label="Open blog settings" title="Open blog settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/><path d="m19.4 15 .1.1a1.8 1.8 0 0 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-3.1 1.3v.2a1.8 1.8 0 0 1-3.6 0v-.2a1.8 1.8 0 0 0-3.1-1.3l-.1.1a1.8 1.8 0 1 1-2.5-2.5l.1-.1A1.8 1.8 0 0 0 5.3 12a1.8 1.8 0 0 0-1.3-3.1h-.2a1.8 1.8 0 0 1 0-3.6H4a1.8 1.8 0 0 0 1.3-3.1l-.1-.1a1.8 1.8 0 1 1 2.5-2.5l.1.1A1.8 1.8 0 0 0 10.9 1.3v-.2a1.8 1.8 0 0 1 3.6 0v.2a1.8 1.8 0 0 0 3.1 1.3l.1-.1a1.8 1.8 0 1 1 2.5 2.5l-.1.1A1.8 1.8 0 0 0 19.4 8h.2a1.8 1.8 0 0 1 0 3.6h-.2a1.8 1.8 0 0 0 0 3.4Z"/></svg><span class="sr-only">Open blog settings</span></a></div><nav class="blog-nav"><div class="blog-header-id"><a href="/"><div>${avatar}</div><div class="blog-header-text"><div class="site-title">${esc(tenant.title)}</div>${tenant.description ? `<div class="blog-tagline">${esc(tenant.description)}</div>` : ""}</div></a></div><a class="subscribe-link" href="#subscribe">Subscribe</a></nav>`;
   const ownerScript = `<script>(function(){var link=document.querySelector("[data-blog-edit]");if(!link)return;fetch("/_blognice/blog-edit-link?tenant=${encodeURIComponent(tenant.public_id)}",{credentials:"include",headers:{accept:"application/json"}}).then(function(r){if(!r.ok)throw new Error();return r.json()}).then(function(d){if(d.url){link.href=d.url;link.hidden=false}}).catch(function(){if(location.origin!==${JSON.stringify(origin)})fetch(${JSON.stringify(origin)}+"/_blognice/blog-edit-link?tenant=${encodeURIComponent(tenant.public_id)}",{credentials:"include"}).then(function(r){return r.ok?r.json():null}).then(function(d){if(d&&d.url){link.href=d.url;link.hidden=false}}).catch(function(){})});})();</script>`;
+  const withNavigation = (markup: string) => navigationPages.length
+    ? markup.replace('</nav>', `</nav><div class="blog-nav-links" aria-label="Page navigation"><a href="/" aria-current="page">Home</a>${navigationPages.map((page) => `<a href="/pages/${esc(page.slug)}">${esc(page.label)}</a>`).join("")}</div>`)
+    : markup;
   if (!posts.length) {
     return shell({
       tenant, pageTitle: tenant.title, description: tenant.description || tenant.title, analyticsConsentRequired,
-      canonical: origin + "/", ownerEdit: { href: `${origin}/admin/b/${tenant.public_id}/settings`, dataAttr: "blog-edit", label: "Open blog settings" }, body: `${header(`<div class="blog-avatar">${monogram(tenant.title)}</div>`)}${topics.length ? `<div class="blog-topics" aria-label="Blog topics">${topics.map((topic) => `<span>#${esc(topic)}</span>`).join("")}</div>` : ""}<section class="blog-section"><p class="feed-meta">No posts yet.</p></section><div id="subscribe" class="blog-subscribe-wrap">${subscribeBox(tenant)}</div>${ownerScript}`,
+      canonical: origin + "/", ownerEdit: { href: `${origin}/admin/b/${tenant.public_id}/settings`, dataAttr: "blog-edit", label: "Open blog settings" }, body: `${withNavigation(header(`<div class="blog-avatar">${monogram(tenant.title)}</div>`))}${topics.length ? `<div class="blog-topics" aria-label="Blog topics">${topics.map((topic) => `<span>#${esc(topic)}</span>`).join("")}</div>` : ""}<section class="blog-section"><p class="feed-meta">No posts yet.</p></section><div id="subscribe" class="blog-subscribe-wrap">${subscribeBox(tenant)}</div>${ownerScript}`,
     });
   }
   const featured = posts[0];
@@ -678,7 +705,7 @@ export function renderHome(
     : `<div class="blog-avatar">${monogram(tenant.title)}</div>`;
   const card = (p: Post, index: number) => `<article class="blog-card"><a class="blog-art" href="/${esc(p.slug)}">${art(p, index)}</a><h3><a href="/${esc(p.slug)}">${esc(p.title)}</a></h3><p class="blog-excerpt">${esc(excerpt(p.body_md, 125))}</p><div class="blog-meta">${formatDate(p.created_at)} · ${readingTime(p.body_md)} min read</div></article>`;
   const popularCard = (p: Post, index: number) => `<article class="blog-popular-card"><a class="blog-art" href="/${esc(p.slug)}">${art(p, index)}</a><h3><a href="/${esc(p.slug)}">${esc(p.title)}</a></h3><div class="blog-meta">${readingTime(p.body_md)} min read</div></article>`;
-  const body = `${header(avatar)}
+  const body = `${withNavigation(header(avatar))}
     ${topics.length ? `<div class="blog-topics" aria-label="Blog topics">${topics.map((topic) => `<span>#${esc(topic)}</span>`).join("")}</div>` : ""}
     <section class="blog-section"><div class="blog-kicker">Featured post</div><article class="blog-featured"><a class="blog-art" href="/${esc(featured.slug)}">${art(featured, 0)}</a><div><h2><a href="/${esc(featured.slug)}">${esc(featured.title)}</a></h2><p class="blog-excerpt">${esc(excerpt(featured.body_md))}</p><div class="blog-meta">${formatDate(featured.created_at)} · ${readingTime(featured.body_md)} min read</div></div></article></section>
     ${more.length ? `<section class="blog-section" style="padding-top:0"><div class="blog-grid-head"><h2>More posts</h2></div><div class="blog-cards">${more.map(card).join("")}</div></section>` : ""}
@@ -724,6 +751,40 @@ export function renderTagPage(
     ownerEdit: { href: `${origin}/admin/b/${tenant.public_id}/settings`, dataAttr: "blog-edit", label: "Open blog settings" },
     analyticsConsentRequired,
     body,
+  });
+}
+
+export function renderPage(
+  tenant: Tenant,
+  page: Page,
+  htmlBody: string,
+  origin: string,
+  analyticsConsentRequired = true,
+  isOwner = false,
+  navigationPages: Array<{ slug: string; label: string }> = []
+): string {
+  const description = page.meta_description?.trim() || excerpt(page.body_md, 180) || page.title;
+  const canonical = `${origin}/pages/${encodeURIComponent(page.slug)}`;
+  const edit = isOwner
+    ? { href: `${origin}/admin/b/${tenant.public_id}/pages/edit/${page.id}`, dataAttr: "page-edit", label: "Edit page" }
+    : undefined;
+  const avatar = tenant.avatar_key
+    ? `<img class="blog-avatar" src="/media/${esc(tenant.avatar_key)}" alt="">`
+    : `<div class="blog-avatar">${monogram(tenant.title)}</div>`;
+  const owner = isOwner ? `<div class="blog-owner-actions"><a class="owner-edit" data-page-edit hidden href="${esc(origin)}/admin/b/${esc(tenant.public_id)}/pages/edit/${page.id}" aria-label="Edit page" title="Edit page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.7 6.3 3 3M4 20l4.2-1 9.9-9.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Z"/></svg><span class="sr-only">Edit page</span></a></div>` : "";
+  const pageLinks = `<div class="blog-nav-links" aria-label="Page navigation"><a href="/">Home</a>${navigationPages.map((item) => `<a href="/pages/${esc(item.slug)}"${item.slug === page.slug ? ` aria-current="page"` : ""}>${esc(item.label)}</a>`).join("")}</div>`;
+  const header = `${owner}<nav class="blog-nav"><div class="blog-header-id"><a href="/"><div>${avatar}</div><div class="blog-header-text"><div class="site-title">${esc(tenant.title)}</div>${tenant.description ? `<div class="blog-tagline">${esc(tenant.description)}</div>` : ""}</div></a></div><a class="subscribe-link" href="/#subscribe">Subscribe</a></nav>${pageLinks}`;
+  return shell({
+    tenant,
+    pageTitle: `${page.title} — ${tenant.title}`,
+    description,
+    canonical,
+    analyticsConsentRequired,
+    ownerEdit: edit,
+    wide: true,
+    showMasthead: false,
+    showRss: true,
+    body: `${header}<main class="page-content"><div class="page-content-inner"><h1>${esc(page.title)}</h1><div class="page-prose">${htmlBody}</div></div></main>`,
   });
 }
 
