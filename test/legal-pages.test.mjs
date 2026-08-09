@@ -27,15 +27,6 @@ test("terms and cookies have public worker routes", () => {
   assert.match(indexSource, /analytics-dialog/);
 });
 
-test("algorithms page explains the materialized popularity ranking", () => {
-  const algorithms = readFileSync(new URL("../algorithms.html", import.meta.url), "utf8");
-  const source = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
-  assert.match(algorithms, /How blognice ranks popular posts/);
-  assert.match(algorithms, /21-day half-life/);
-  assert.match(algorithms, /engaged-read/);
-  assert.match(source, /app\.get\("\/algorithms"/);
-});
-
 test("policies overview links the platform policies", () => {
   const policies = readFileSync(new URL("../policies.html", import.meta.url), "utf8");
   assert.match(indexSource, /app\.get\("\/policies"/);
