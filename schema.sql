@@ -49,6 +49,7 @@ CREATE TABLE tenants (
   favicon_key   TEXT,                             -- R2 key of the blog's browser icon (nullable)
   accent_color  TEXT    NOT NULL DEFAULT '#1a8917', -- six-digit hex branding accent
   topics_json   TEXT    NOT NULL DEFAULT '[]',     -- normalized blog topics
+  social_links_json TEXT NOT NULL DEFAULT '{}',    -- normalized social profile URLs
   shard         TEXT    NOT NULL DEFAULT 'primary', -- which POSTS database holds this tenant's posts (see src/db.ts)
   created_at    INTEGER NOT NULL                  -- unix seconds
 );

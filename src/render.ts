@@ -19,6 +19,7 @@ export type Tenant = {
   favicon_key: string | null; // R2 key of the blog's favicon
   accent_color: string | null; // hex accent used for this blog's branding
   topics_json: string | null;
+  social_links_json?: string | null;
   shard: string; // which database holds this tenant's posts (see src/db.ts)
   created_at: number;
 };
