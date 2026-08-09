@@ -23,6 +23,7 @@ test("blog branding is persisted and injected into public and admin pages", () =
   assert.match(admin, /name="social_\$\{key\}"/);
   assert.match(admin, /\["bluesky", "Bluesky"\]/);
   assert.match(admin, /\["bitchute", "BitChute"\]/);
+  assert.match(admin, /\["telegram", "Telegram"\]/);
   assert.match(admin, /ACCENT_PRESETS/);
   assert.match(admin, /blognice green/);
   assert.match(admin, /data-accent-preset/);
