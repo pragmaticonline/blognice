@@ -4576,9 +4576,13 @@ app.get("/", async (c) => {
         headers: { "content-type": "text/html; charset=utf-8" },
       });
 
+    const requestedPage = Number(c.req.query("page") || "1");
+    const pageNumber = Number.isInteger(requestedPage) ? Math.max(1, Math.min(requestedPage, 100)) : 1;
+    const pageSize = 6;
+    const offset = pageNumber === 1 ? 0 : 1 + (pageNumber - 1) * pageSize;
     const postsPromise = tenantDb(c.env, tenant).prepare(
-      "SELECT * FROM posts WHERE tenant_id = ? AND published = 1 ORDER BY created_at DESC"
-    ).bind(tenant.id).all<Post>();
+      "SELECT * FROM posts WHERE tenant_id = ? AND published = 1 ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    ).bind(tenant.id, pageNumber === 1 ? pageSize + 2 : pageSize + 1, offset).all<Post>();
     const navigationPagesPromise = tenantDb(c.env, tenant).prepare(
       "SELECT slug, COALESCE(navigation_label, title) AS label FROM pages WHERE tenant_id = ? AND published = 1 AND show_in_navigation = 1 ORDER BY navigation_order, title LIMIT 6"
     ).bind(tenant.id).all<{ slug: string; label: string }>();
@@ -4598,13 +4602,24 @@ app.get("/", async (c) => {
       }));
       return { results: [] as { path: string; score: number; reader_days_30: number }[] };
     });
-    const [{ results }, popularity, navigationPages] = await Promise.all([postsPromise, popularityPromise, navigationPagesPromise]);
-    const postsByPath = new Map(results.map((post) => [`/${post.slug}`, post]));
-    const popularPosts = popularity.results
-      .map((row) => postsByPath.get(row.path))
-      .filter((post): post is Post => Boolean(post));
+    const [{ results: queriedPosts }, popularity, navigationPages] = await Promise.all([postsPromise, popularityPromise, navigationPagesPromise]);
+    const displayLimit = pageNumber === 1 ? pageSize + 1 : pageSize;
+    const hasMorePosts = queriedPosts.length > displayLimit;
+    const results = queriedPosts.slice(0, displayLimit);
+    let popularPosts: Post[] = [];
+    if (pageNumber === 1 && popularity.results.length) {
+      const popularSlugs = popularity.results.map((row) => row.path.replace(/^\/+/, "")).filter(Boolean).slice(0, 3);
+      if (popularSlugs.length) {
+        const placeholders = popularSlugs.map(() => "?").join(",");
+        const popularRows = await tenantDb(c.env, tenant).prepare(
+          `SELECT * FROM posts WHERE tenant_id = ? AND published = 1 AND slug IN (${placeholders})`
+        ).bind(tenant.id, ...popularSlugs).all<Post>();
+        const postsBySlug = new Map(popularRows.results.map((post) => [post.slug, post]));
+        popularPosts = popularSlugs.map((slug) => postsBySlug.get(slug)).filter((post): post is Post => Boolean(post));
+      }
+    }
 
-    return new Response(renderHome(tenant, results, originOf(c), analyticsConsentRequired(c.req.raw.cf?.country), popularPosts, navigationPages.results), {
+    return new Response(renderHome(tenant, results, originOf(c), analyticsConsentRequired(c.req.raw.cf?.country), popularPosts, navigationPages.results, pageNumber, hasMorePosts), {
       status: 200,
       headers: { "content-type": "text/html; charset=utf-8" },
     });
