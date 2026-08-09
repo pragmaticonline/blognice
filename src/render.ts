@@ -313,6 +313,8 @@ const STYLES = /* css */ `
   .blog-topics span { color:var(--accent); font-family:var(--sans); font-size:.8rem; font-weight:600; }
   .homepage-wrap a { color:inherit; }
   .blog-section { padding:3.5rem 0; }
+  .tag-page { padding-top: 3rem; }
+  .tag-page-title { margin: 0 0 2rem; font-family: var(--sans); font-size: clamp(2rem, 4vw, 3rem); line-height: 1.1; letter-spacing: -.03em; }
   .blog-kicker { display:block; font-family:var(--sans); font-size:.76rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--accent); margin-bottom:1.2rem; }
   .blog-featured { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,1fr); gap:2.75rem; align-items:center; }
   .blog-art { display:block; aspect-ratio:16 / 9; border-radius:9px; background:linear-gradient(135deg,var(--accent),color-mix(in srgb,var(--accent) 35%,var(--ink))); overflow:hidden; }
@@ -695,6 +697,33 @@ export function renderHome(
     showRss: true,
     image: featured.featured_image_key ? `${origin}/media/${featured.featured_image_key}` : (tenant.avatar_key ? `${origin}/media/${tenant.avatar_key}` : undefined),
     imageAlt: featured.featured_image_key ? featured.title : tenant.title,
+  });
+}
+
+export function renderTagPage(
+  tenant: Tenant,
+  tag: string,
+  posts: Post[],
+  origin: string,
+  analyticsConsentRequired = true
+): string {
+  const avatar = tenant.avatar_key
+    ? `<img class="blog-avatar" src="/media/${esc(tenant.avatar_key)}" alt="">`
+    : `<div class="blog-avatar">${monogram(tenant.title)}</div>`;
+  const header = `<nav class="blog-nav"><div class="blog-header-id"><a href="/"><div>${avatar}</div><div class="blog-header-text"><div class="site-title">${esc(tenant.title)}</div>${tenant.description ? `<div class="blog-tagline">${esc(tenant.description)}</div>` : ""}</div></a></div><a class="subscribe-link" href="#subscribe">Subscribe</a></nav>`;
+  const cards = posts.map((post) => `<article class="blog-card"><a class="blog-art" href="/${esc(post.slug)}">${post.featured_image_key ? `<img src="/media/${esc(post.featured_image_key)}" alt="" loading="lazy">` : ""}</a><h3><a href="/${esc(post.slug)}">${esc(post.title)}</a></h3><p class="blog-excerpt">${esc(excerpt(post.body_md, 125))}</p><div class="blog-meta">${formatDate(post.created_at)} · ${readingTime(post.body_md)} min read</div></article>`).join("");
+  const body = `${header}<section class="blog-section tag-page"><div class="blog-kicker">Posts tagged</div><h1 class="tag-page-title">#${esc(tag)}</h1>${posts.length ? `<div class="blog-cards">${cards}</div>` : `<p class="feed-meta">No published posts use this tag yet.</p>`}</section><div id="subscribe" class="blog-subscribe-wrap">${subscribeBox(tenant)}</div>`;
+  return shell({
+    tenant,
+    pageTitle: `#${tag} — ${tenant.title}`,
+    description: `Posts tagged ${tag} on ${tenant.title}`,
+    canonical: `${origin}/tag/${encodeURIComponent(tag)}`,
+    showMasthead: false,
+    wide: true,
+    showRss: true,
+    ownerEdit: { href: `${origin}/admin/b/${tenant.public_id}/settings`, dataAttr: "blog-edit", label: "Open blog settings" },
+    analyticsConsentRequired,
+    body,
   });
 }
 

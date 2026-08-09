@@ -60,3 +60,12 @@ test("tenant homepages advertise an RSS feed and expose published posts as RSS",
   assert.match(indexSource, /<rss version=\"2\.0\">/);
   assert.match(indexSource, /published = 1/);
 });
+
+test("tag pages use the same homepage shell and card layout", () => {
+  assert.match(indexSource, /app\.get\("\/tag\/:tag"/);
+  assert.match(indexSource, /renderTagPage\(tenant, tag, posts/);
+  assert.match(renderSource, /export function renderTagPage/);
+  assert.match(renderSource, /class="blog-nav"/);
+  assert.match(renderSource, /class="tag-page-title"/);
+  assert.match(renderSource, /class="blog-cards"/);
+});
