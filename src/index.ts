@@ -64,7 +64,6 @@ import privacyPage from "../privacy.html";
 import termsPage from "../terms.html";
 import cookiesPage from "../cookies.html";
 import securityPage from "../security.html";
-import algorithmsPage from "../algorithms.html";
 import policiesPage from "../policies.html";
 import faviconSvg from "../favicon.svg";
 import { findMediaUse, mediaKey, mediaUrl, validLibraryFile } from "./media";
@@ -4045,7 +4044,6 @@ function legalPage(c: any, page: string): Response {
 app.get("/terms", (c) => legalPage(c, termsPage));
 app.get("/cookies", (c) => legalPage(c, cookiesPage));
 app.get("/security", (c) => legalPage(c, securityPage));
-app.get("/algorithms", (c) => legalPage(c, algorithmsPage));
 app.get("/policies", (c) => legalPage(c, policiesPage));
 
 app.get("/.well-known/security.txt", (c) => {
