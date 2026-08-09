@@ -20,6 +20,8 @@ The free plan currently includes one blognice subdomain blog and does not includ
 
 Monthly and card payments are processed through Stripe and renew until cancelled. Annual cryptocurrency payments are prepaid through NOWPayments and do not automatically renew. Taxes, currency conversion, network fees, and provider charges may apply where stated at checkout.
 
+Founder pricing: US$5 per month, billed monthly, or US$36 per year, billed annually, plus applicable taxes. Your subscription renews at the price and billing interval selected for as long as it remains continuously active. If you cancel, allow it to lapse, or switch to another plan, the founder rate ends; a later subscription uses the then-current price. We may offer different prices to later subscribers.
+
 New paid subscriptions may be refunded within 14 days of the first charge if you contact support@blognice.com. Renewal charges are not normally refundable. Cancellation takes effect at the end of the paid period. Failed or reversed payments may result in a downgrade after reasonable notice; we will not delete content solely because of a payment failure without notice.
 
 ## 4. Your content and licence
