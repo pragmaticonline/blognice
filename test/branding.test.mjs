@@ -21,9 +21,10 @@ test("blog branding is persisted and injected into public and admin pages", () =
   assert.match(socialMigration, /ADD COLUMN social_links_json TEXT NOT NULL DEFAULT '\{\}'/);
   assert.match(admin, /name="accent_color"/);
   assert.match(admin, /name="social_\$\{key\}"/);
-  assert.match(admin, /\["bluesky", "Bluesky"\]/);
-  assert.match(admin, /\["bitchute", "BitChute"\]/);
-  assert.match(admin, /\["telegram", "Telegram"\]/);
+  assert.match(admin, /\["bluesky", "Bluesky",/);
+  assert.match(admin, /\["bitchute", "BitChute",/);
+  assert.match(admin, /\["telegram", "Telegram channel or group",/);
+  assert.match(admin, /class="social-grid"/);
   assert.match(admin, /ACCENT_PRESETS/);
   assert.match(admin, /blognice green/);
   assert.match(admin, /data-accent-preset/);
