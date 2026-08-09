@@ -3147,7 +3147,7 @@ app.post("/admin/b/:blogId/settings", async (c) => {
   const accentColor = String(form.get("accent_color") ?? "").trim();
   const normalizedTopics = normalizeTopics(String(form.get("topics") ?? ""));
   const socialLinks: Record<string, string> = {};
-  for (const key of ["x", "facebook", "instagram", "linkedin", "youtube", "tiktok", "bluesky", "mastodon"]) {
+  for (const key of ["x", "facebook", "instagram", "linkedin", "youtube", "tiktok", "bluesky", "mastodon", "bitchute"]) {
     const value = String(form.get(`social_${key}`) ?? "").trim();
     if (!value) continue;
     if (value.length > 500) return c.html(settingsPage(ctx.account, ctx.tenant, { error: `${key} social link must be 500 characters or fewer.` }), 400);
