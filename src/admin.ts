@@ -331,7 +331,8 @@ export function shell(
   let bar = "";
   if (account && tenant) {
     const titleKey = title.toLowerCase();
-    const activeNav = titleKey.startsWith("media") ? "media"
+    const activeNav = titleKey.startsWith("page") ? "pages"
+      : titleKey.startsWith("media") ? "media"
       : titleKey.startsWith("subscriber") ? "subscribers"
       : titleKey.startsWith("collaborator") || titleKey.startsWith("author") ? "authors"
       : titleKey.startsWith("metric") ? "metrics"
