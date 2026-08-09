@@ -28,6 +28,12 @@ test("post sharing includes an accessible Reddit link with the title and URL", (
   assert.match(render, /aria-label="Share on Reddit"/);
 });
 
+test("post pages place a home control on the left", () => {
+  assert.match(render, /class="post-home" href="\/"/);
+  assert.match(render, /Back to blog home/);
+  assert.match(render, /\.post-home svg/);
+});
+
 test("marketing homepage has canonical and social metadata", () => {
   assert.match(homepage, /<meta name="description"/);
   assert.match(homepage, /<link rel="canonical" href="https:\/\/www\.blognice\.com\/"/);

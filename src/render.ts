@@ -264,7 +264,8 @@ const STYLES = /* css */ `
   .homepage-wrap .blog-nav .subscribe-link { display:none; }
   .homepage-wrap .site-controls { margin-bottom:-3.15rem; position:relative; z-index:2; }
   .homepage-wrap .blog-nav { padding-right:9.5rem; }
-  .homepage-wrap .blog-featured-section { padding-top: 1rem; }
+  .homepage-wrap .blog-featured-section { padding-top: 1rem; padding-bottom: 2rem; }
+  .homepage-wrap .blog-more-section { padding-bottom: 2rem; }
   .homepage-wrap .blog-topics-bottom { padding: 1.25rem 0 0; }
   .homepage-wrap .blog-topics + .blog-section { padding-top: 1rem; }
   @media (max-width:640px) { .homepage-wrap .blog-nav { padding-right:8.5rem; } }
@@ -348,12 +349,15 @@ const STYLES = /* css */ `
   .blog-meta { font-family:var(--sans); font-size:.82rem; color:var(--muted); }
   .blog-grid-head { display:flex; align-items:baseline; justify-content:space-between; gap:1rem; margin-bottom:1.5rem; }
   .blog-grid-head h2 { font-family:var(--sans); font-size:1.35rem; margin:0; }
-  .blog-see-all { font-family:var(--sans); font-size:.85rem; color:var(--accent); }
+  .blog-see-all { font-family:var(--sans); font-size:.95rem; font-weight:600; color:var(--accent); }
   .blog-cards, .blog-popular-cards { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:2.4rem 2.2rem; }
   .blog-card, .blog-popular-card { min-width:0; }
   .blog-card .blog-art, .blog-popular-card .blog-art { margin-bottom:.9rem; }
   .blog-card h3, .blog-popular-card h3 { font-family:var(--sans); font-size:1.08rem; line-height:1.25; margin:0 0 .45rem; }
-  .blog-popular-section { background:color-mix(in srgb,var(--ink) 3%,transparent); }
+  .blog-pagination { display:flex; justify-content:center; gap:.65rem; margin:2rem 0 .5rem; }
+  .blog-pagination a { display:inline-flex; align-items:center; justify-content:center; min-width:5.5rem; padding:.55rem .9rem; border:1px solid var(--rule); border-radius:999px; color:var(--ink); text-decoration:none; font-size:.9rem; }
+  .blog-pagination a:hover, .blog-pagination a:focus-visible { color:var(--accent); border-color:var(--accent); }
+  .blog-popular-section { background:color-mix(in srgb,var(--ink) 3%,transparent); padding:2rem 1.4rem; }
   .blog-subscribe-wrap { padding:3.5rem 0; }
   @media (max-width: 860px) { .blog-featured { grid-template-columns:1fr; gap:1.5rem; } }
   @media (max-width: 640px) {
@@ -386,6 +390,10 @@ const STYLES = /* css */ `
   .owner-edit:hover, .owner-edit:focus-visible { color: var(--accent); border-color: var(--accent); }
   .owner-edit[hidden] { display: none; }
   .blog-owner-actions, .post-owner-actions { display: none; }
+  .post-home { width: 2.35rem; height: 2.35rem; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--rule); border-radius: 999px; background: color-mix(in srgb, var(--bg) 90%, transparent); color: var(--muted); text-decoration: none; box-shadow: 0 2px 8px rgb(0 0 0 / .08); }
+  .site-controls .post-home { margin-right: auto; }
+  .post-home svg { width: 1.1rem; height: 1.1rem; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .post-home:hover, .post-home:focus-visible { color: var(--accent); border-color: var(--accent); }
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
   .byline { display: flex; align-items: center; gap: 0.75rem; margin: 0 0 2.6rem; }
   .post-page { padding-top: 1.5rem; }
@@ -608,6 +616,7 @@ function shell(opts: {
   wide?: boolean;
   showRss?: boolean;
   ownerEdit?: { href: string; dataAttr: string; label: string };
+  homeControl?: boolean;
   image?: string;
   imageAlt?: string;
   ogType?: "website" | "article";
@@ -615,7 +624,7 @@ function shell(opts: {
   modifiedAt?: number;
   analyticsConsentRequired?: boolean;
 }): string {
-  const { tenant, pageTitle, description, canonical, body, showMasthead = true, wide = false, showRss = false, ownerEdit, image, imageAlt, ogType = "website", publishedAt, modifiedAt, analyticsConsentRequired = true } = opts;
+  const { tenant, pageTitle, description, canonical, body, showMasthead = true, wide = false, showRss = false, ownerEdit, homeControl = false, image, imageAlt, ogType = "website", publishedAt, modifiedAt, analyticsConsentRequired = true } = opts;
   const ownerEditControl = ownerEdit ? `<a class="owner-edit" data-${ownerEdit.dataAttr} hidden href="${esc(ownerEdit.href)}" aria-label="${esc(ownerEdit.label)}" title="${esc(ownerEdit.label)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${ownerEdit.dataAttr === "blog-edit" ? "M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" : "m14.7 6.3 3 3M4 20l4.2-1 9.9-9.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Z"}"/><path d="${ownerEdit.dataAttr === "blog-edit" ? "m19.4 15 .1.1a1.8 1.8 0 0 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-3.1 1.3v.2a1.8 1.8 0 0 1-3.6 0v-.2a1.8 1.8 0 0 0-3.1-1.3l-.1.1a1.8 1.8 0 1 1-2.5-2.5l.1-.1A1.8 1.8 0 0 0 5.3 12a1.8 1.8 0 0 0-1.3-3.1h-.2a1.8 1.8 0 0 1 0-3.6H4a1.8 1.8 0 0 0 1.3-3.1l-.1-.1a1.8 1.8 0 1 1 2.5-2.5l.1.1A1.8 1.8 0 0 0 10.9 1.3v-.2a1.8 1.8 0 0 1 3.6 0v.2a1.8 1.8 0 0 0 3.1 1.3l-.1-.1a1.8 1.8 0 1 1 2.5 2.5l-.1.1A1.8 1.8 0 0 0 19.4 8h.2a1.8 1.8 0 0 1 0 3.6h-.2a1.8 1.8 0 0 0 0 3.4Z" : "m13.5 7.5 3 3"}"/></svg><span class="sr-only">${esc(ownerEdit.label)}</span></a>` : "";
   const canonicalTag = canonical ? `<link rel="canonical" href="${esc(canonical)}">` : "";
   const imageTags = image ? `
@@ -651,7 +660,7 @@ ${canonical ? `<meta property="og:url" content="${esc(canonical)}">` : ""}${imag
 </head>
 <body>
   <div class="wrap${wide ? " homepage-wrap" : ""}">
-  <div class="site-controls">${ownerEditControl}${showRss ? `<div class="rss-global"><a href="/rss.xml" aria-label="RSS feed" title="RSS feed"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18.5a2 2 0 1 0 0 4 2 2 0 0 0 0-4ZM4 10v3a7 7 0 0 1 7 7h3A10 10 0 0 0 4 10Zm0-6v3c8.3 0 15 6.7 15 15h3C22 12.2 13.8 4 4 4Z"/></svg><span class="sr-only">RSS feed</span></a></div><a class="subscribe-link" href="#subscribe" aria-label="Subscribe" title="Subscribe"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg><span class="sr-only">Subscribe</span></a>` : ""}<button class="theme-toggle" id="theme-toggle" type="button" aria-label="Use dark theme" aria-pressed="false" title="Use dark theme"><span class="sun" aria-hidden="true">☀</span><span class="moon" aria-hidden="true">☾</span></button></div>
+  <div class="site-controls">${homeControl ? `<a class="post-home" href="/" aria-label="Back to blog home" title="Back to blog home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7"/><path d="M5 9.5V21h14V9.5M9 21v-6h6v6"/></svg><span class="sr-only">Back to blog home</span></a>` : ""}${ownerEditControl}${showRss ? `<div class="rss-global"><a href="/rss.xml" aria-label="RSS feed" title="RSS feed"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18.5a2 2 0 1 0 0 4 2 2 0 0 0 0-4ZM4 10v3a7 7 0 0 1 7 7h3A10 10 0 0 0 4 10Zm0-6v3c8.3 0 15 6.7 15 15h3C22 12.2 13.8 4 4 4Z"/></svg><span class="sr-only">RSS feed</span></a></div><a class="subscribe-link" href="#subscribe" aria-label="Subscribe" title="Subscribe"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg><span class="sr-only">Subscribe</span></a>` : ""}<button class="theme-toggle" id="theme-toggle" type="button" aria-label="Use dark theme" aria-pressed="false" title="Use dark theme"><span class="sun" aria-hidden="true">☀</span><span class="moon" aria-hidden="true">☾</span></button></div>
   <button class="to-top" id="to-top" type="button" aria-label="Back to top" title="Back to top">↑</button>
   ${showMasthead ? `<header class="masthead">
     <a href="/">
@@ -678,7 +687,9 @@ export function renderHome(
   origin: string,
   analyticsConsentRequired = true,
   rankedPopularPosts: Post[] = [],
-  navigationPages: Array<{ slug: string; label: string }> = []
+  navigationPages: Array<{ slug: string; label: string }> = [],
+  pageNumber = 1,
+  hasMorePosts = false
 ): string {
   const topics = tenantTopics(tenant);
   const art = (post: Post, index: number, rank?: number) =>
@@ -692,11 +703,18 @@ export function renderHome(
   const withNavigation = (markup: string) => navigationPages.length
     ? markup.replace('</nav>', `</nav><div class="blog-nav-links" aria-label="Page navigation"><a href="/" aria-current="page">Home</a>${navigationPages.map((page) => `<a href="/pages/${esc(page.slug)}">${esc(page.label)}</a>`).join("")}</div>`)
     : markup;
+  const card = (p: Post, index: number) => `<article class="blog-card"><a class="blog-art" href="/${esc(p.slug)}">${art(p, index)}</a><h3><a href="/${esc(p.slug)}">${esc(p.title)}</a></h3><p class="blog-excerpt">${esc(excerpt(p.body_md, 125))}</p><div class="blog-meta">${formatDate(p.created_at)} · ${readingTime(p.body_md)} min read</div></article>`;
   if (!posts.length) {
     return shell({
       tenant, pageTitle: tenant.title, description: tenant.description || tenant.title, analyticsConsentRequired,
       canonical: origin + "/", ownerEdit: { href: `${origin}/admin/b/${tenant.public_id}/settings`, dataAttr: "blog-edit", label: "Open blog settings" }, body: `${withNavigation(header(`<div class="blog-avatar">${monogram(tenant.title)}</div>`))}<section class="blog-section blog-featured-section"><p class="feed-meta">No posts yet.</p></section>${topics.length ? `<div class="blog-topics blog-topics-bottom" aria-label="Blog topics">${topics.map((topic) => `<span>#${esc(topic)}</span>`).join("")}</div>` : ""}<div id="subscribe" class="blog-subscribe-wrap">${subscribeBox(tenant)}</div>${ownerScript}`,
     });
+  }
+  if (pageNumber > 1) {
+    const archiveCards = posts.map(card).join("");
+    const pager = `<nav class="blog-pagination" aria-label="Post pages">${pageNumber > 2 ? `<a href="/?page=${pageNumber - 1}">Previous</a>` : `<a href="/">Previous</a>`}${hasMorePosts ? `<a href="/?page=${pageNumber + 1}">Next</a>` : ""}</nav>`;
+    const archiveBody = `${withNavigation(header(tenant.avatar_key ? `<img class="blog-avatar" src="/media/${esc(tenant.avatar_key)}" alt="">` : `<div class="blog-avatar">${monogram(tenant.title)}</div>`))}<section class="blog-section blog-archive-section"><div class="blog-grid-head"><h1>More posts</h1><p class="feed-meta">Page ${pageNumber}</p></div><div class="blog-cards">${archiveCards}</div>${pager}</section><div id="subscribe" class="blog-subscribe-wrap">${subscribeBox(tenant)}</div>${ownerScript}`;
+    return shell({ tenant, pageTitle: `${tenant.title} — More posts`, description: tenant.description || tenant.title, canonical: `${origin}/?page=${pageNumber}`, analyticsConsentRequired, ownerEdit: { href: `${origin}/admin/b/${tenant.public_id}/settings`, dataAttr: "blog-edit", label: "Open blog settings" }, body: archiveBody, showMasthead: false, wide: true, showRss: true });
   }
   const featured = posts[0];
   const more = posts.slice(1, 7);
@@ -706,11 +724,10 @@ export function renderHome(
   const avatar = tenant.avatar_key
     ? `<img class="blog-avatar" src="/media/${esc(tenant.avatar_key)}" alt="">`
     : `<div class="blog-avatar">${monogram(tenant.title)}</div>`;
-  const card = (p: Post, index: number) => `<article class="blog-card"><a class="blog-art" href="/${esc(p.slug)}">${art(p, index)}</a><h3><a href="/${esc(p.slug)}">${esc(p.title)}</a></h3><p class="blog-excerpt">${esc(excerpt(p.body_md, 125))}</p><div class="blog-meta">${formatDate(p.created_at)} · ${readingTime(p.body_md)} min read</div></article>`;
   const popularCard = (p: Post, index: number) => `<article class="blog-popular-card"><a class="blog-art" href="/${esc(p.slug)}">${art(p, index)}</a><h3><a href="/${esc(p.slug)}">${esc(p.title)}</a></h3><div class="blog-meta">${readingTime(p.body_md)} min read</div></article>`;
   const body = `${withNavigation(header(avatar))}
     <section class="blog-section blog-featured-section"><div class="blog-kicker">Featured post</div><article class="blog-featured"><a class="blog-art" href="/${esc(featured.slug)}">${art(featured, 0)}</a><div><h2><a href="/${esc(featured.slug)}">${esc(featured.title)}</a></h2><p class="blog-excerpt">${esc(excerpt(featured.body_md))}</p><div class="blog-meta">${formatDate(featured.created_at)} · ${readingTime(featured.body_md)} min read</div></div></article></section>
-    ${more.length ? `<section class="blog-section" style="padding-top:0"><div class="blog-grid-head"><h2>More posts</h2></div><div class="blog-cards">${more.map(card).join("")}</div></section>` : ""}
+    ${more.length ? `<section class="blog-section blog-more-section" style="padding-top:0"><div class="blog-grid-head"><h2>More posts</h2>${hasMorePosts ? `<a class="blog-see-all" href="/?page=2">See all <span aria-hidden="true">→</span></a>` : ""}</div><div class="blog-cards">${more.map(card).join("")}</div></section>` : ""}
     ${popular.length ? `<section class="blog-popular-section blog-section"><div class="blog-grid-head"><h2>Popular posts</h2></div><div class="blog-popular-cards">${popular.map(popularCard).join("")}</div></section>` : ""}
     ${topics.length ? `<div class="blog-topics blog-topics-bottom" aria-label="Blog topics">${topics.map((topic) => `<span>#${esc(topic)}</span>`).join("")}</div>` : ""}
     <div id="subscribe" class="blog-subscribe-wrap">${subscribeBox(tenant)}</div>`;
@@ -847,6 +864,7 @@ export function renderPost(
     description: excerpt(post.body_md, 155) || tenant.description,
     canonical: `${origin}/${post.slug}`,
     ownerEdit: { href: `${adminOrigin}/admin/b/${tenant.public_id}/edit/${post.id}`, dataAttr: "owner-edit", label: "Edit post" },
+    homeControl: true,
     ogType: "article",
     analyticsConsentRequired,
     image: post.featured_image_key ? `${origin}/media/${post.featured_image_key}` : (tenant.avatar_key ? `${origin}/media/${tenant.avatar_key}` : undefined),

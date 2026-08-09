@@ -56,6 +56,15 @@ test("tenant homepages use the mockup navigation without the legacy masthead", (
   assert.ok(renderSource.indexOf("blog-featured-section") < renderSource.indexOf("blog-topics-bottom"));
 });
 
+test("tenant homepages paginate posts beyond the first six", () => {
+  assert.match(indexSource, /c\.req\.query\("page"\)/);
+  assert.match(indexSource, /LIMIT \? OFFSET \?/);
+  assert.match(indexSource, /hasMorePosts/);
+      assert.match(renderSource, /blog-pagination/);
+      assert.match(renderSource, /See all <span aria-hidden="true">→<\/span>/);
+      assert.match(renderSource, /pageNumber \+ 1/);
+});
+
 test("tenant homepages advertise an RSS feed and expose published posts as RSS", () => {
   assert.match(renderSource, /application\/rss\+xml/);
   assert.match(renderSource, /rss-global/);
