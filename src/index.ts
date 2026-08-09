@@ -4537,7 +4537,10 @@ app.get("/pages/:slug", async (c) => {
     "SELECT * FROM pages WHERE tenant_id = ? AND slug = ? AND published = 1"
   ).bind(tenant.id, c.req.param("slug")).first<Page>();
   if (!page) return c.html(renderNotFound(tenant), 404);
-  return c.html(renderPage(tenant, page, renderMarkdown(page.body_md), originOf(c), analyticsConsentRequired(c.req.raw.cf?.country)));
+  const navigationPages = await tenantDb(c.env, tenant).prepare(
+    "SELECT slug, COALESCE(navigation_label, title) AS label FROM pages WHERE tenant_id = ? AND published = 1 AND show_in_navigation = 1 ORDER BY navigation_order, title LIMIT 6"
+  ).bind(tenant.id).all<{ slug: string; label: string }>();
+  return c.html(renderPage(tenant, page, renderMarkdown(page.body_md), originOf(c), analyticsConsentRequired(c.req.raw.cf?.country), false, navigationPages.results));
 });
 
 app.get("/:slug", async (c) => {

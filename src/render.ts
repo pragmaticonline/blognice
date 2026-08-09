@@ -760,13 +760,20 @@ export function renderPage(
   htmlBody: string,
   origin: string,
   analyticsConsentRequired = true,
-  isOwner = false
+  isOwner = false,
+  navigationPages: Array<{ slug: string; label: string }> = []
 ): string {
   const description = page.meta_description?.trim() || excerpt(page.body_md, 180) || page.title;
   const canonical = `${origin}/pages/${encodeURIComponent(page.slug)}`;
   const edit = isOwner
     ? { href: `${origin}/admin/b/${tenant.public_id}/pages/edit/${page.id}`, dataAttr: "page-edit", label: "Edit page" }
     : undefined;
+  const avatar = tenant.avatar_key
+    ? `<img class="blog-avatar" src="/media/${esc(tenant.avatar_key)}" alt="">`
+    : `<div class="blog-avatar">${monogram(tenant.title)}</div>`;
+  const owner = isOwner ? `<div class="blog-owner-actions"><a class="owner-edit" data-page-edit hidden href="${esc(origin)}/admin/b/${esc(tenant.public_id)}/pages/edit/${page.id}" aria-label="Edit page" title="Edit page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.7 6.3 3 3M4 20l4.2-1 9.9-9.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Z"/></svg><span class="sr-only">Edit page</span></a></div>` : "";
+  const pageLinks = navigationPages.length ? `<div class="blog-nav-links" aria-label="Page navigation">${navigationPages.map((item) => `<a href="/pages/${esc(item.slug)}">${esc(item.label)}</a>`).join("")}</div>` : "";
+  const header = `${owner}<nav class="blog-nav"><div class="blog-header-id"><a href="/"><div>${avatar}</div><div class="blog-header-text"><div class="site-title">${esc(tenant.title)}</div>${tenant.description ? `<div class="blog-tagline">${esc(tenant.description)}</div>` : ""}</div></a></div><a class="subscribe-link" href="/#subscribe">Subscribe</a></nav>${pageLinks}`;
   return shell({
     tenant,
     pageTitle: `${page.title} — ${tenant.title}`,
@@ -774,7 +781,10 @@ export function renderPage(
     canonical,
     analyticsConsentRequired,
     ownerEdit: edit,
-    body: `<main class="page-content"><div class="page-content-inner"><h1>${esc(page.title)}</h1><div class="page-prose">${htmlBody}</div></div></main>`,
+    wide: true,
+    showMasthead: false,
+    showRss: true,
+    body: `${header}<main class="page-content"><div class="page-content-inner"><h1>${esc(page.title)}</h1><div class="page-prose">${htmlBody}</div></div></main>`,
   });
 }
 
