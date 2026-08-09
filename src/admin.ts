@@ -24,16 +24,16 @@ function tenantTopics(tenant: Tenant): string[] {
 }
 
 const SOCIAL_LINK_FIELDS = [
-  ["x", "X / Twitter"],
-  ["facebook", "Facebook"],
-  ["instagram", "Instagram"],
-  ["linkedin", "LinkedIn"],
-  ["youtube", "YouTube"],
-  ["tiktok", "TikTok"],
-  ["bluesky", "Bluesky"],
-  ["mastodon", "Mastodon"],
-  ["bitchute", "BitChute"],
-  ["telegram", "Telegram"],
+  ["instagram", "Instagram", "https://instagram.com/yourname"],
+  ["youtube", "YouTube channel", "https://youtube.com/@yourchannel"],
+  ["x", "X (formerly Twitter)", "https://x.com/yourname"],
+  ["facebook", "Facebook", "https://facebook.com/yourpage"],
+  ["linkedin", "LinkedIn profile or company page", "https://linkedin.com/in/yourname"],
+  ["tiktok", "TikTok", "https://tiktok.com/@yourname"],
+  ["bluesky", "Bluesky", "https://bsky.app/profile/yourname"],
+  ["mastodon", "Mastodon profile", "https://your-instance.example/@yourname"],
+  ["telegram", "Telegram channel or group", "https://t.me/yourchannel"],
+  ["bitchute", "BitChute", "https://bitchute.com/channel/yourchannel"],
 ] as const;
 
 function tenantSocialLinks(tenant: Tenant): Record<string, string> {
@@ -154,6 +154,13 @@ const ADMIN_STYLES = /* css */ `
   }
   textarea { font-family: var(--mono); font-size: 13.5px; line-height: 1.55; resize: vertical; }
   input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+  .settings-card { border: 1px solid var(--rule); border-radius: 8px; padding: 1rem; margin: 0 0 1.4rem; }
+  .settings-card legend { padding: 0; font-weight: 650; }
+  .settings-card .help { color: var(--muted); font-size: .85rem; margin: .25rem 0 .9rem; }
+  .social-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 1rem; }
+  .social-grid input { margin-bottom: .85rem; }
+  .social-more { color: var(--muted); font-size: .86rem; font-weight: 650; margin: .35rem 0 .7rem; }
+  @media (max-width: 720px) { .social-grid { grid-template-columns: 1fr; } }
   .check { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.2rem; }
   .check input { width: auto; margin: 0; }
   .check label { margin: 0; color: var(--ink); }
@@ -1447,9 +1454,15 @@ export function settingsPage(
         <label for="topics">Blog topics</label>
         <textarea id="topics" name="topics" rows="3" placeholder="technology, photography, travel">${esc(tenantTopics(tenant).join(", "))}</textarea>
         <p style="color:var(--muted);font-size:.85rem;margin:-.5rem 0 1.2rem">Add up to 50 topics, separated by commas. They help group blogs with similar themes; the first six appear publicly.</p>
-        <fieldset style="border:0;padding:0;margin:0 0 1.4rem"><legend style="font-weight:650;margin-bottom:.5rem">Social media links</legend>
-          <p style="color:var(--muted);font-size:.85rem;margin:0 0 .8rem">Add profile URLs now; they can be displayed on your blog later.</p>
-          ${SOCIAL_LINK_FIELDS.map(([key, label]) => `<label for="social-${key}">${esc(label)}</label><input id="social-${key}" name="social_${key}" type="url" value="${esc(tenantSocialLinks(tenant)[key] || "")}" placeholder="https://" maxlength="500" inputmode="url" autocomplete="url">`).join("")}
+        <fieldset class="settings-card social-links-card"><legend>Social profiles</legend>
+          <p class="help">These links are public and will appear on your blog when social links are enabled. Leave a field blank to hide it. Use your profile or channel URL, not an individual post.</p>
+          <div class="social-grid">
+            ${SOCIAL_LINK_FIELDS.slice(0, 6).map(([key, label, placeholder]) => `<div><label for="social-${key}">${esc(label)}</label><input id="social-${key}" name="social_${key}" type="url" value="${esc(tenantSocialLinks(tenant)[key] || "")}" placeholder="${esc(placeholder)}" maxlength="500" inputmode="url" autocomplete="url"></div>`).join("")}
+          </div>
+          <div class="social-more">More platforms</div>
+          <div class="social-grid">
+            ${SOCIAL_LINK_FIELDS.slice(6).map(([key, label, placeholder]) => `<div><label for="social-${key}">${esc(label)}</label><input id="social-${key}" name="social_${key}" type="url" value="${esc(tenantSocialLinks(tenant)[key] || "")}" placeholder="${esc(placeholder)}" maxlength="500" inputmode="url" autocomplete="url"></div>`).join("")}
+          </div>
         </fieldset>
         <label for="accent-color">Brand colour</label>
         <div class="accent-presets" role="group" aria-label="Brand colour presets">
