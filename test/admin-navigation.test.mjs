@@ -12,6 +12,9 @@ test("admin navigation keeps global and current-blog contexts visible", () => {
   assert.match(admin, /\/admin\/blogs\.json/);
   assert.match(indexSource, /app\.get\("\/admin\/blogs\.json"/);
   assert.match(admin, /Current blog/);
+  assert.match(admin, /--admin-measure: 76\.25rem/);
+  assert.match(admin, /\.page \{ width: min\(var\(--admin-measure\), calc\(100% - 2 \* var\(--admin-gutter\)\)\)/);
+  assert.match(admin, /\.owner-topbar-inner, \.owner-toolbar-inner \{ width: min\(var\(--admin-measure\), calc\(100% - 2 \* var\(--admin-gutter\)\)\)/);
   assert.match(admin, /opaque.*public_id/s);
   assert.match(admin, /aria-label="Blog navigation"/);
   assert.match(admin, /owner-drawer/);
