@@ -33,6 +33,7 @@ const SOCIAL_LINK_FIELDS = [
   ["bluesky", "Bluesky"],
   ["mastodon", "Mastodon"],
   ["bitchute", "BitChute"],
+  ["telegram", "Telegram"],
 ] as const;
 
 function tenantSocialLinks(tenant: Tenant): Record<string, string> {
