@@ -54,7 +54,7 @@ const ADMIN_STYLES = /* css */ `
   .topbar .right { display: flex; gap: 1.2rem; align-items: center; font-size: 0.9rem; }
   .plan-badge { display:inline-flex; align-items:center; gap:.35rem; padding:.2rem .55rem; border:1px solid var(--rule); border-radius:999px; color:var(--ink); text-decoration:none; font-size:.78rem; font-weight:600; }
   .plan-badge.free { color:var(--muted); }
-  .plan-badge.paid { color:var(--accent); border-color:color-mix(in srgb, var(--accent) 45%, var(--rule)); }
+  .plan-badge.paid { color:#fff; background:var(--accent); border-color:var(--accent); box-shadow:0 2px 7px color-mix(in srgb, var(--accent) 28%, transparent); }
   .topbar form { margin: 0; }
   .linkbtn {
     background: none; border: none; color: var(--muted); cursor: pointer;
