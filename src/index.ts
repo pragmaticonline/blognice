@@ -3146,6 +3146,19 @@ app.post("/admin/b/:blogId/settings", async (c) => {
   const footerName = String(form.get("footer_name") ?? "").trim().slice(0, 160);
   const accentColor = String(form.get("accent_color") ?? "").trim();
   const normalizedTopics = normalizeTopics(String(form.get("topics") ?? ""));
+  const socialLinks: Record<string, string> = {};
+  for (const key of ["x", "facebook", "instagram", "linkedin", "youtube", "tiktok", "bluesky", "mastodon"]) {
+    const value = String(form.get(`social_${key}`) ?? "").trim();
+    if (!value) continue;
+    if (value.length > 500) return c.html(settingsPage(ctx.account, ctx.tenant, { error: `${key} social link must be 500 characters or fewer.` }), 400);
+    try {
+      const url = new URL(value);
+      if (url.protocol !== "https:") throw new Error("https required");
+      socialLinks[key] = url.toString();
+    } catch {
+      return c.html(settingsPage(ctx.account, ctx.tenant, { error: `${key} social link must be a valid HTTPS URL.` }), 400);
+    }
+  }
   const slugError = validateSlug(slug);
   if (slugError)
     return c.html(settingsPage(ctx.account, ctx.tenant, { error: slugError }), 400);
@@ -3166,13 +3179,13 @@ app.post("/admin/b/:blogId/settings", async (c) => {
     await c.env.DB.prepare("INSERT INTO tenant_slug_aliases (old_slug, tenant_id, created_at) VALUES (?, ?, ?)")
       .bind(ctx.tenant.slug, ctx.tenant.id, now).run();
   }
-  await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, footer_name = ?, accent_color = ?, topics_json = ? WHERE id = ?")
-    .bind(slug, title, description, footerName, accentColor.toLowerCase(), JSON.stringify(normalizedTopics.topics), ctx.tenant.id)
+  await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, footer_name = ?, accent_color = ?, topics_json = ?, social_links_json = ? WHERE id = ?")
+    .bind(slug, title, description, footerName, accentColor.toLowerCase(), JSON.stringify(normalizedTopics.topics), JSON.stringify(socialLinks), ctx.tenant.id)
     .run();
   queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "blog_settings_updated", "settings");
 
   c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant));
-  const updated = { ...ctx.tenant, slug, title, description, footer_name: footerName, accent_color: accentColor.toLowerCase(), topics_json: JSON.stringify(normalizedTopics.topics) };
+  const updated = { ...ctx.tenant, slug, title, description, footer_name: footerName, accent_color: accentColor.toLowerCase(), topics_json: JSON.stringify(normalizedTopics.topics), social_links_json: JSON.stringify(socialLinks) };
   return c.html(settingsPage(ctx.account, updated, { notice: "Saved." }));
 });
 

@@ -6,6 +6,7 @@ const admin = readFileSync(new URL("../src/admin.ts", import.meta.url), "utf8");
 const render = readFileSync(new URL("../src/render.ts", import.meta.url), "utf8");
 const indexSource = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
 const migration = readFileSync(new URL("../migrations/004-tenant-accent-color.sql", import.meta.url), "utf8");
+const socialMigration = readFileSync(new URL("../migrations/044-tenant-social-links.sql", import.meta.url), "utf8");
 const publicIdMigration = readFileSync(new URL("../migrations/005-tenant-public-id.sql", import.meta.url), "utf8");
 
 test("accent colours are validated and choose readable button text", () => {
@@ -17,11 +18,16 @@ test("accent colours are validated and choose readable button text", () => {
 
 test("blog branding is persisted and injected into public and admin pages", () => {
   assert.match(migration, /ADD COLUMN accent_color TEXT NOT NULL DEFAULT '#1a8917'/);
+  assert.match(socialMigration, /ADD COLUMN social_links_json TEXT NOT NULL DEFAULT '\{\}'/);
   assert.match(admin, /name="accent_color"/);
+  assert.match(admin, /name="social_\$\{key\}"/);
+  assert.match(admin, /\["bluesky", "Bluesky"\]/);
   assert.match(admin, /ACCENT_PRESETS/);
   assert.match(admin, /blognice green/);
   assert.match(admin, /data-accent-preset/);
-  assert.match(indexSource, /UPDATE tenants SET slug = \?, title = \?, description = \?, footer_name = \?, accent_color = \?, topics_json = \?/);
+  assert.match(indexSource, /UPDATE tenants SET slug = \?, title = \?, description = \?, footer_name = \?, accent_color = \?, topics_json = \?, social_links_json = \?/);
+  assert.match(indexSource, /socialLinks\[key\] = url\.toString\(\)/);
+  assert.match(indexSource, /url\.protocol !== "https:"/);
   assert.match(indexSource, /INSERT INTO tenant_slug_aliases/);
   assert.doesNotMatch(indexSource, /confirm_slug_change/);
   assert.match(render, /--accent: \$\{normalizeAccentColor\(tenant\.accent_color\)\}/);

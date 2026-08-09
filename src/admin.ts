@@ -23,6 +23,29 @@ function tenantTopics(tenant: Tenant): string[] {
   }
 }
 
+const SOCIAL_LINK_FIELDS = [
+  ["x", "X / Twitter"],
+  ["facebook", "Facebook"],
+  ["instagram", "Instagram"],
+  ["linkedin", "LinkedIn"],
+  ["youtube", "YouTube"],
+  ["tiktok", "TikTok"],
+  ["bluesky", "Bluesky"],
+  ["mastodon", "Mastodon"],
+] as const;
+
+function tenantSocialLinks(tenant: Tenant): Record<string, string> {
+  try {
+    const value = JSON.parse(tenant.social_links_json || "{}");
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+    return Object.fromEntries(Object.entries(value).filter(([key, url]) =>
+      SOCIAL_LINK_FIELDS.some(([field]) => field === key) && typeof url === "string"
+    )) as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
 const ADMIN_STYLES = /* css */ `
   :root {
     --bg: #fdfdfc; --panel: #ffffff; --ink: #1a1a18; --muted: #6a6a66;
@@ -1422,6 +1445,10 @@ export function settingsPage(
         <label for="topics">Blog topics</label>
         <textarea id="topics" name="topics" rows="3" placeholder="technology, photography, travel">${esc(tenantTopics(tenant).join(", "))}</textarea>
         <p style="color:var(--muted);font-size:.85rem;margin:-.5rem 0 1.2rem">Add up to 50 topics, separated by commas. They help group blogs with similar themes; the first six appear publicly.</p>
+        <fieldset style="border:0;padding:0;margin:0 0 1.4rem"><legend style="font-weight:650;margin-bottom:.5rem">Social media links</legend>
+          <p style="color:var(--muted);font-size:.85rem;margin:0 0 .8rem">Add profile URLs now; they can be displayed on your blog later.</p>
+          ${SOCIAL_LINK_FIELDS.map(([key, label]) => `<label for="social-${key}">${esc(label)}</label><input id="social-${key}" name="social_${key}" type="url" value="${esc(tenantSocialLinks(tenant)[key] || "")}" placeholder="https://" maxlength="500" inputmode="url" autocomplete="url">`).join("")}
+        </fieldset>
         <label for="accent-color">Brand colour</label>
         <div class="accent-presets" role="group" aria-label="Brand colour presets">
           ${ACCENT_PRESETS.map(([label, value]) => `<button class="accent-preset${normalizeAccentColor(tenant.accent_color) === value ? " selected" : ""}" type="button" data-accent-preset="${value}" aria-label="${esc(label)}" aria-pressed="${normalizeAccentColor(tenant.accent_color) === value ? "true" : "false"}"><span class="accent-swatch" style="background:${value}"></span>${esc(label)}</button>`).join("")}
