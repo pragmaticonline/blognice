@@ -422,7 +422,7 @@ const STYLES = /* css */ `
   .post-audio { display: block; width: 19rem; height: 2rem; margin-left: auto; flex: 0 1 19rem; }
 
   .prose > *:first-child { margin-top: 0; }
-  .page-content { max-width: 760px; margin: 0 auto; padding: 1rem 1.25rem 5rem; }
+  .page-content { max-width: 760px; margin: 0 auto; padding: .5rem 1.25rem 5rem; }
   .page-content-inner > h1 { font-size: clamp(2rem, 5vw, 3.2rem); line-height: 1.12; margin: 0 0 2.2rem; letter-spacing: -0.025em; }
   .page-prose { font-family: var(--serif); font-size: 1.12rem; line-height: 1.78; }
   .page-prose > *:first-child { margin-top: 0; }
