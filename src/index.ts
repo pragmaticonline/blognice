@@ -965,10 +965,14 @@ app.post("/api/posts", async (c) => {
 // Everything is scoped to blogs the account owns (membership check).
 // ---------------------------------------------------------------------------
 
-async function apiAccount(c: any): Promise<Account | null> {
+async function apiAuthenticatedAccount(c: any): Promise<Account | null> {
   const m = (c.req.header("authorization") || "").match(/^Bearer\s+(.+)$/i);
   if (!m) return null;
-  const account = await accountFromApiKey(c.env.DB, m[1].trim());
+  return accountFromApiKey(c.env.DB, m[1].trim());
+}
+
+async function apiAccount(c: any): Promise<Account | null> {
+  const account = await apiAuthenticatedAccount(c);
   return account && accountHasPaidPlan(account) ? account : null;
 }
 
@@ -1366,6 +1370,46 @@ app.get("/api/v1/blogs/:blogId/audio/generations/:jobId", async (c) => {
     if (job.tenantId !== tenant.id) return c.json({ error: "audio job not found" }, 404);
     return c.json({ job_id: jobId, post_id: job.postId, status: job.status, completed: job.completed, segments: job.prompts.length, url: job.audioKey ? `/media/${job.audioKey}` : undefined, error: job.error });
   } catch { return c.json({ error: "audio job not found" }, 404); }
+});
+
+// Remove a post's narration. This is intentionally available even after a
+// blog is downgraded: deleting existing media is not an AI entitlement.
+// Repeated deletion is idempotent and returns 204 when no audio is attached.
+app.delete("/api/v1/blogs/:blogId/posts/:id/audio", async (c) => {
+  const account = await apiAuthenticatedAccount(c);
+  if (!account) return c.json({ error: "unauthorized" }, 401);
+  const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
+  if (!tenant) return c.json({ error: "blog not found" }, 404);
+  const role = await membershipRoleFor(c.env, account.id, tenant.id);
+  if (!role) return c.json({ error: "forbidden" }, 403);
+  const pdb = tenantDb(c.env, tenant);
+  const post = await pdb.prepare(
+    "SELECT id, slug, audio_key, audio_generation_id, author_account_id, published FROM posts WHERE id = ? AND tenant_id = ?"
+  ).bind(c.req.param("id"), tenant.id).first<{ id: number; slug: string; audio_key: string | null; audio_generation_id: string | null; author_account_id: number | null; published: number }>();
+  if (!post) return c.json({ error: "post not found" }, 404);
+  if (!can(role, "posts.edit.any") && !(can(role, "posts.edit.own") && post.author_account_id === account.id)) return c.json({ error: "forbidden" }, 403);
+  if (post.published && !can(role, "posts.publish")) return c.json({ error: "publishing permission required for public posts" }, 403);
+  const generationId = post.audio_generation_id;
+
+  await pdb.prepare(
+    "UPDATE posts SET audio_key = NULL, audio_generation_id = NULL, updated_at = ? WHERE id = ? AND tenant_id = ?"
+  ).bind(Math.floor(Date.now() / 1000), post.id, tenant.id).run();
+  c.executionCtx.waitUntil((async () => {
+    if (post.audio_key) await c.env.MEDIA.delete(post.audio_key).catch((error) => console.error(JSON.stringify({ message: "audio cleanup failed", key: post.audio_key, error: error instanceof Error ? error.message : String(error) })));
+    if (generationId) {
+      const jobKey = `${tenant.id}/.audio-jobs/${generationId}.json`;
+      try {
+        const job = await readAudioJob(c.env, jobKey);
+        job.status = "cancelled";
+        job.error = "Narration was removed before generation completed.";
+        await writeAudioJob(c.env, jobKey, job);
+        await c.env.MEDIA.delete(job.checkpointKeys);
+      } catch { /* stale or already-cleaned job */ }
+    }
+    await purgeTenant(c.env, tenant, ["/" + post.slug, ...(post.audio_key ? ["/media/" + post.audio_key] : [])]).catch((error) => console.error("audio cache purge failed", error));
+    if (await tenantHasPaidPlan(c.env, tenant.id)) recordAuditEvent(c.env, tenant.id, { action: "audio_removed", target: post.slug, actor: String(account.id) });
+  })());
+  return new Response(null, { status: 204 });
 });
 
 // ---------------------------------------------------------------------------
@@ -2479,7 +2523,10 @@ async function generateSpeechWithRecovery(ai: Ai, prompt: string, depth = 0): Pr
 async function readAudioJob(env: Bindings, jobKey: string): Promise<AudioJobManifest> {
   const object = await env.MEDIA.get(jobKey);
   if (!object) throw new Error("Audio job manifest not found.");
-  return JSON.parse(await object.text()) as AudioJobManifest;
+  const job = JSON.parse(await object.text()) as AudioJobManifest;
+  // Older manifests predate the explicit field; recover it from their R2 key.
+  if (!job.jobId) job.jobId = jobKey.split("/").pop()?.replace(/\.json$/, "") || "";
+  return job;
 }
 
 async function writeAudioJob(env: Bindings, jobKey: string, job: AudioJobManifest): Promise<void> {
@@ -2491,13 +2538,20 @@ async function writeAudioJob(env: Bindings, jobKey: string, job: AudioJobManifes
 
 async function processAudioJob(env: Bindings, jobKey: string): Promise<void> {
   const job = await readAudioJob(env, jobKey);
-  if (job.status === "complete") return;
+  if (job.status === "complete" || job.status === "cancelled") return;
   const tenant = await tenantById(env, job.tenantId);
   if (!tenant) throw new Error("Audio job blog no longer exists.");
   const pdb = tenantDb(env, tenant);
-  const post = await pdb.prepare("SELECT id, slug, audio_key FROM posts WHERE id = ? AND tenant_id = ?")
-    .bind(job.postId, job.tenantId).first<{ id: number; slug: string; audio_key: string | null }>();
+  const post = await pdb.prepare("SELECT id, slug, audio_key, audio_generation_id FROM posts WHERE id = ? AND tenant_id = ?")
+    .bind(job.postId, job.tenantId).first<{ id: number; slug: string; audio_key: string | null; audio_generation_id: string | null }>();
   if (!post) throw new Error("Audio job post no longer exists.");
+  if (post.audio_generation_id !== job.jobId) {
+    job.status = "cancelled";
+    job.error = "Narration was removed before generation completed.";
+    await writeAudioJob(env, jobKey, job);
+    await env.MEDIA.delete(job.checkpointKeys).catch(() => undefined);
+    return;
+  }
 
   job.status = "generating";
   await writeAudioJob(env, jobKey, job);
@@ -2539,8 +2593,16 @@ async function processAudioJob(env: Bindings, jobKey: string): Promise<void> {
       await writer.abort(error).catch(() => undefined);
       throw error;
     }
-    await pdb.prepare("UPDATE posts SET audio_key = ?, updated_at = ? WHERE id = ? AND tenant_id = ?")
-      .bind(audioKey, Math.floor(Date.now() / 1000), job.postId, job.tenantId).run();
+    const attached = await pdb.prepare("UPDATE posts SET audio_key = ?, updated_at = ? WHERE id = ? AND tenant_id = ? AND audio_generation_id = ? AND audio_key IS NULL")
+      .bind(audioKey, Math.floor(Date.now() / 1000), job.postId, job.tenantId, job.jobId).run();
+    if (!attached.meta.changes) {
+      await env.MEDIA.delete(audioKey).catch(() => undefined);
+      await env.MEDIA.delete(job.checkpointKeys).catch(() => undefined);
+      job.status = "cancelled";
+      job.error = "Narration was removed before generation completed.";
+      await writeAudioJob(env, jobKey, job);
+      return;
+    }
     await env.MEDIA.delete(job.checkpointKeys);
     job.status = "complete";
     job.audioKey = audioKey;
@@ -2619,11 +2681,15 @@ async function createAudioJob(env: Bindings, tenant: Tenant, post: Pick<Post, "i
   const jobKey = `${tenant.id}/.audio-jobs/${jobId}.json`;
   const checkpointHash = await sha256hex(`${TTS_MODEL}\n${preparedTitle}\n${preparedBody}`);
   const checkpointPrefix = `${tenant.id}/.audio-checkpoints/${post.id}-${checkpointHash}`;
-  const job: AudioJobManifest = { tenantId: tenant.id, postId: post.id, postSlug: post.slug, prompts, checkpointKeys: prompts.map((_, index) => `${checkpointPrefix}/${index}.wav`), status: "queued", completed: 0, creditCost: audioCost, creditAccountId: audioReservation.accountId, creditPeriod: audioReservation.period };
+  const job: AudioJobManifest = { jobId, tenantId: tenant.id, postId: post.id, postSlug: post.slug, prompts, checkpointKeys: prompts.map((_, index) => `${checkpointPrefix}/${index}.wav`), status: "queued", completed: 0, creditCost: audioCost, creditAccountId: audioReservation.accountId, creditPeriod: audioReservation.period };
   try {
+    const claimed = await tenantDb(env, tenant).prepare("UPDATE posts SET audio_generation_id = ?, updated_at = ? WHERE id = ? AND tenant_id = ? AND audio_key IS NULL AND audio_generation_id IS NULL")
+      .bind(jobId, Math.floor(Date.now() / 1000), post.id, tenant.id).run();
+    if (!claimed.meta.changes) throw new Error("A narration is already being generated or attached to this post.");
     await writeAudioJob(env, jobKey, job);
     await env.AUDIO_QUEUE.send({ jobKey, tenantId: tenant.id, postId: post.id });
   } catch (error) {
+    await tenantDb(env, tenant).prepare("UPDATE posts SET audio_generation_id = NULL WHERE id = ? AND tenant_id = ? AND audio_generation_id = ?").bind(post.id, tenant.id, jobId).run().catch(() => undefined);
     await refundAiCredits(env, audioReservation.accountId, audioReservation.period, audioCost);
     throw error;
   }
@@ -2698,15 +2764,19 @@ app.post("/admin/b/:blogId/audio/:id", async (c) => {
   const checkpointHash = await sha256hex(`${TTS_MODEL}\n${preparedTitle}\n${preparedBody}`);
   const checkpointPrefix = `${ctx.tenant.id}/.audio-checkpoints/${post.id}-${checkpointHash}`;
   const job: AudioJobManifest = {
-    tenantId: ctx.tenant.id, postId: post.id, postSlug: post.slug, prompts,
+    jobId, tenantId: ctx.tenant.id, postId: post.id, postSlug: post.slug, prompts,
     checkpointKeys: prompts.map((_, index) => `${checkpointPrefix}/${index}.wav`),
     status: "queued", completed: 0,
     creditCost: audioCost, creditAccountId: audioReservation.accountId, creditPeriod: audioReservation.period,
   };
   try {
+    const claimed = await pdb.prepare("UPDATE posts SET audio_generation_id = ?, updated_at = ? WHERE id = ? AND tenant_id = ? AND audio_key IS NULL AND audio_generation_id IS NULL")
+      .bind(jobId, Math.floor(Date.now() / 1000), post.id, ctx.tenant.id).run();
+    if (!claimed.meta.changes) throw new Error("A narration is already being generated or attached to this post.");
     await writeAudioJob(c.env, jobKey, job);
     await c.env.AUDIO_QUEUE.send({ jobKey, tenantId: ctx.tenant.id, postId: post.id });
   } catch (error) {
+    await pdb.prepare("UPDATE posts SET audio_generation_id = NULL WHERE id = ? AND tenant_id = ? AND audio_generation_id = ?").bind(post.id, ctx.tenant.id, jobId).run().catch(() => undefined);
     await refundAiCredits(c.env, audioReservation.accountId, audioReservation.period, audioCost);
     throw error;
   }
@@ -2856,16 +2926,16 @@ app.delete("/admin/b/:blogId/audio/:id", async (c) => {
   if (!can(ctx.role, "media.delete")) return c.json({ error: "forbidden" }, 403);
   const pdb = tenantDb(c.env, ctx.tenant);
   const post = await pdb.prepare(
-    "SELECT id, slug, audio_key FROM posts WHERE id = ? AND tenant_id = ?"
+    "SELECT id, slug, audio_key, audio_generation_id, published FROM posts WHERE id = ? AND tenant_id = ?"
   ).bind(c.req.param("id"), ctx.tenant.id)
-    .first<Pick<Post, "id" | "slug" | "audio_key">>();
+    .first<Pick<Post, "id" | "slug" | "audio_key"> & { audio_generation_id: string | null; published: number }>();
   if (!post) return c.json({ error: "Post not found." }, 404);
-  if (!post.audio_key) return c.json({ ok: true });
+  if (post.published && !can(ctx.role, "posts.publish")) return c.json({ error: "publishing permission required for public posts" }, 403);
 
-  await pdb.prepare("UPDATE posts SET audio_key = NULL, updated_at = ? WHERE id = ? AND tenant_id = ?")
+  await pdb.prepare("UPDATE posts SET audio_key = NULL, audio_generation_id = NULL, updated_at = ? WHERE id = ? AND tenant_id = ?")
     .bind(Math.floor(Date.now() / 1000), post.id, ctx.tenant.id)
     .run();
-  await c.env.MEDIA.delete(post.audio_key);
+  if (post.audio_key) await c.env.MEDIA.delete(post.audio_key);
   c.executionCtx.waitUntil(purgeTenant(c.env, ctx.tenant, ["/" + post.slug]));
   return c.json({ ok: true });
 });
@@ -2922,12 +2992,13 @@ type EmailJobMessage = {
 };
 type EmailFanoutMessage = { kind: "email-fanout"; campaignId: string; tenantId: number; postSlug: string; postTitle: string; afterId: number };
 type AudioJobManifest = {
+  jobId: string;
   tenantId: number;
   postId: number;
   postSlug: string;
   prompts: Array<{ text: string; pauseAfter: number }>;
   checkpointKeys: string[];
-  status: "queued" | "generating" | "complete" | "failed";
+  status: "queued" | "generating" | "complete" | "failed" | "cancelled";
   completed: number;
   audioKey?: string;
   error?: string;
@@ -3004,6 +3075,19 @@ async function refundTerminalAiJob(env: Bindings, jobKey: string, kind: "audio" 
   job.creditsRefunded = true;
   if (kind === "audio") await writeAudioJob(env, jobKey, job as AudioJobManifest);
   else await writeImageJob(env, jobKey, job as ImageJobManifest);
+}
+
+async function releaseTerminalAudioGeneration(env: Bindings, jobKey: string): Promise<void> {
+  try {
+    const job = await readAudioJob(env, jobKey);
+    const tenant = await tenantById(env, job.tenantId);
+    if (!tenant) return;
+    await tenantDb(env, tenant).prepare(
+      "UPDATE posts SET audio_generation_id = NULL, updated_at = ? WHERE id = ? AND tenant_id = ? AND audio_generation_id = ?"
+    ).bind(Math.floor(Date.now() / 1000), job.postId, tenant.id, job.jobId).run();
+  } catch (error) {
+    console.error(JSON.stringify({ message: "terminal audio generation lock cleanup failed", jobKey, error: error instanceof Error ? error.message : String(error) }));
+  }
 }
 
 const AI_REQUEST_MAX = 64 * 1024;
@@ -4596,6 +4680,7 @@ export default {
         const isAudioJob = "jobKey" in jobMessage && !("kind" in jobMessage);
         if (attempts >= 6 && (isImageJob || isAudioJob) && "jobKey" in jobMessage) {
           await refundTerminalAiJob(env, jobMessage.jobKey, isImageJob ? "image" : "audio").catch((refundError) => console.error(JSON.stringify({ message: "terminal AI credit refund failed", error: refundError instanceof Error ? refundError.message : String(refundError) })));
+          if (isAudioJob) await releaseTerminalAudioGeneration(env, jobMessage.jobKey);
         }
         console.error(JSON.stringify({
           message: "Queued job failed; retrying",

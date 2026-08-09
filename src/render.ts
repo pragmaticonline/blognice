@@ -48,6 +48,7 @@ export type Post = {
   title: string;
   featured_image_key: string | null;
   audio_key: string | null;
+  audio_generation_id?: string | null;
   body_md: string;
   tags_json: string | null;
   published: number;

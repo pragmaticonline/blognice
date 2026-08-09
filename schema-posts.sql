@@ -16,6 +16,7 @@ CREATE TABLE posts (
   title      TEXT    NOT NULL,
   featured_image_key TEXT,                              -- optional R2 key used as the post's lead/list image
   audio_key  TEXT,                                      -- optional generated MP3 narration in R2
+  audio_generation_id TEXT,                             -- active narration job; invalidated on removal
   body_md    TEXT    NOT NULL,                     -- the post, written in Markdown
   tags_json  TEXT    NOT NULL DEFAULT '[]',       -- normalized post tags
   published  INTEGER NOT NULL DEFAULT 1,           -- 1 = live, 0 = draft

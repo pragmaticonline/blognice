@@ -650,6 +650,13 @@ Generate narration asynchronously and poll it until complete:
     curl "$API/blogs/$BLOG_ID/audio/generations/$AUDIO_JOB_ID" \
       -H "Authorization: Bearer $KEY"
 
+Remove existing narration (safe to repeat; returns `204` even when none is
+attached). It also invalidates queued narration for the post, so stale work
+cannot attach audio after removal:
+
+    curl -X DELETE "$API/blogs/$BLOG_ID/posts/$POST_ID/audio" \
+      -H "Authorization: Bearer $KEY"
+
 Image and audio generation return `202` with a job ID. Poll the corresponding
 status endpoint until `complete` or `failed`; ordinary post creation never
 triggers paid AI work. Every request is checked against the account's
