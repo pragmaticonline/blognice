@@ -422,7 +422,7 @@ const STYLES = /* css */ `
   .post-audio { display: block; width: 19rem; height: 2rem; margin-left: auto; flex: 0 1 19rem; }
 
   .prose > *:first-child { margin-top: 0; }
-  .page-content { max-width: 760px; margin: 0 auto; padding: 3.5rem 1.25rem 5rem; }
+  .page-content { max-width: 760px; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
   .page-content-inner > h1 { font-size: clamp(2rem, 5vw, 3.2rem); line-height: 1.12; margin: 0 0 2.2rem; letter-spacing: -0.025em; }
   .page-prose { font-family: var(--serif); font-size: 1.12rem; line-height: 1.78; }
   .page-prose > *:first-child { margin-top: 0; }
@@ -772,7 +772,7 @@ export function renderPage(
     ? `<img class="blog-avatar" src="/media/${esc(tenant.avatar_key)}" alt="">`
     : `<div class="blog-avatar">${monogram(tenant.title)}</div>`;
   const owner = isOwner ? `<div class="blog-owner-actions"><a class="owner-edit" data-page-edit hidden href="${esc(origin)}/admin/b/${esc(tenant.public_id)}/pages/edit/${page.id}" aria-label="Edit page" title="Edit page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.7 6.3 3 3M4 20l4.2-1 9.9-9.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Z"/></svg><span class="sr-only">Edit page</span></a></div>` : "";
-  const pageLinks = navigationPages.length ? `<div class="blog-nav-links" aria-label="Page navigation">${navigationPages.map((item) => `<a href="/pages/${esc(item.slug)}">${esc(item.label)}</a>`).join("")}</div>` : "";
+  const pageLinks = `<div class="blog-nav-links" aria-label="Page navigation"><a href="/">Home</a>${navigationPages.map((item) => `<a href="/pages/${esc(item.slug)}">${esc(item.label)}</a>`).join("")}</div>`;
   const header = `${owner}<nav class="blog-nav"><div class="blog-header-id"><a href="/"><div>${avatar}</div><div class="blog-header-text"><div class="site-title">${esc(tenant.title)}</div>${tenant.description ? `<div class="blog-tagline">${esc(tenant.description)}</div>` : ""}</div></a></div><a class="subscribe-link" href="/#subscribe">Subscribe</a></nav>${pageLinks}`;
   return shell({
     tenant,

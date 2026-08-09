@@ -76,5 +76,6 @@ test("evergreen pages have a dedicated public route and admin lifecycle", () => 
   assert.match(indexSource, /app\.get\("\/admin\/b\/:blogId\/pages"/);
   assert.match(indexSource, /app\.post\("\/admin\/b\/:blogId\/pages\/save"/);
   assert.match(renderSource, /export function renderPage/);
+  assert.match(renderSource, /<a href=\"\/\">Home<\/a>/);
   assert.match(indexSource, /pageListPage\(/);
 });
