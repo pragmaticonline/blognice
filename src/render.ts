@@ -559,12 +559,13 @@ const STYLES = /* css */ `
     display: grid; gap: .9rem;
   }
   footer.site-footer.homepage-footer { max-width: 82.5rem; }
-  .site-footer-row { display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; }
-  .site-footer-brand { color:var(--ink); font-weight:600; }
-  .site-footer-links { display:flex; gap:.9rem; flex-wrap:wrap; }
+  .site-footer-inner { display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; gap:1rem; }
+  .site-footer-publisher { color:var(--ink); font-weight:600; }
+  .site-footer-links { display:flex; justify-content:center; gap:1rem; flex-wrap:wrap; }
+  .site-footer-powered { justify-self:end; text-align:right; }
   .site-footer a { color:inherit; text-decoration:none; }
   .site-footer a:hover, .site-footer a:focus-visible { color:var(--accent); text-decoration:underline; }
-  @media (max-width: 640px) { .site-footer-row { align-items:flex-start; flex-direction:column; } .site-footer-links a, .site-footer button { padding:.55rem .2rem; } }
+  @media (max-width: 640px) { .site-footer-inner { display:flex; align-items:flex-start; flex-direction:column; } .site-footer-links { justify-content:flex-start; } .site-footer-powered { justify-self:auto; text-align:left; } .site-footer-links a, .site-footer-powered a { padding:.55rem .2rem; } }
 
   a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
 
@@ -605,6 +606,13 @@ const STYLES = /* css */ `
     .share-inline .share-rail { flex-direction: row; justify-content: flex-start; }
   }
 `;
+
+function publicFooter(tenant: Tenant, wide: boolean): string {
+  const publisher = tenant.footer_name?.trim() || tenant.title;
+  return `<footer class="site-footer${wide ? " homepage-footer" : ""}">
+  <div class="site-footer-inner"><span class="site-footer-publisher">© ${new Date().getFullYear()} ${esc(publisher)}</span><nav class="site-footer-links" aria-label="Blog links"><a href="/rss.xml">RSS</a><a href="https://www.blognice.com/policies">Blognice policies</a></nav><span class="site-footer-powered">Powered by <a href="https://www.blognice.com" target="_blank" rel="noopener noreferrer">blognice</a></span></div>
+</footer>`;
+}
 
 function shell(opts: {
   tenant: Tenant;
@@ -670,10 +678,7 @@ ${canonical ? `<meta property="og:url" content="${esc(canonical)}">` : ""}${imag
   </header>` : ""}
   ${body}
 </div>
-<footer class="site-footer${wide ? " homepage-footer" : ""}">
-  <div class="site-footer-row"><span class="site-footer-brand">${esc(tenant.footer_name?.trim() || tenant.title)} <span style="font-weight:400;color:var(--muted)">· powered by <a href="https://www.blognice.com" target="_blank" rel="noopener noreferrer">blognice</a></span></span><nav class="site-footer-links" aria-label="Legal"><a href="https://www.blognice.com/policies">Policies</a></nav></div>
-  <div class="site-footer-row"><span>© 2026 Pragmatic Online Co., Ltd.</span></div>
-</footer>
+${publicFooter(tenant, wide)}
 <style>#blognice-consent{position:fixed;z-index:100;left:1rem;right:1rem;bottom:1rem;max-width:760px;margin:auto;padding:.85rem 1rem;border:1px solid var(--rule);border-radius:10px;background:var(--bg);box-shadow:0 8px 28px #0002;display:flex;align-items:center;gap:.65rem;flex-wrap:wrap;font:14px/1.45 system-ui,sans-serif}#blognice-consent[hidden]{display:none}#blognice-consent span{flex:1 1 100%;color:var(--soft)}#blognice-consent button,#blognice-consent a{font:inherit;padding:.45rem .7rem;border:1px solid var(--rule);border-radius:6px;background:var(--bg);color:var(--ink);cursor:pointer}#blognice-consent button:focus-visible,#blognice-consent a:focus-visible{color:var(--accent);text-decoration:underline;outline:2px solid var(--accent);outline-offset:2px}</style>
 ${metricsBeacon(analyticsConsentRequired)}
 <script>(function(){var button=document.getElementById("theme-toggle");if(button){function update(){var dark=document.documentElement.dataset.theme==="dark";button.setAttribute("aria-label",dark?"Use light theme":"Use dark theme");button.setAttribute("title",dark?"Use light theme":"Use dark theme");button.setAttribute("aria-pressed",dark?"true":"false")}update();button.addEventListener("click",function(){var dark=document.documentElement.dataset.theme!=="dark";document.documentElement.dataset.theme=dark?"dark":"light";try{localStorage.setItem("blognice-theme",dark?"dark":"light")}catch(e){}update()})}var top=document.getElementById("to-top");if(!top)return;function reveal(){var max=document.documentElement.scrollHeight-window.innerHeight;top.classList.toggle("visible",max>0&&window.scrollY/max>.35)}window.addEventListener("scroll",reveal,{passive:true});reveal();top.addEventListener("click",function(){window.scrollTo({top:0,behavior:"smooth"})})})();</script>
