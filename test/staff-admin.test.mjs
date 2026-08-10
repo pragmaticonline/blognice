@@ -90,11 +90,21 @@ test("staff deployment is a separate Worker route", () => {
 });
 
 test("all staff pages expose the shared navigation", () => {
+  assert.match(staff, /app\.get\("\/dashboard"/);
+  assert.match(staff, /Recent staff activity/);
+  assert.match(staff, /crypto_paid_through/);
   assert.match(staff, /Pronunciation dictionary.*TTS test/s);
   assert.ok(staff.includes("blognice staff") && staff.includes("<nav"));
   assert.match(staff, /staff-footer/);
   assert.match(staff, /href="https:\/\/www\.blognice\.com\/policies"/);
   assert.doesNotMatch(staff, /staff-footer[\s\S]*mailto:/);
+});
+
+test("transactional email links use the Blognice palette", () => {
+  const email = readFileSync(new URL("../src/email.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(email, /#9098a0/);
+  assert.match(email, /href="\$\{unsub\}" style="color:#5c6455"/);
+  assert.match(email, /href="\$\{manage\}" style="color:#5c6455"/);
 });
 
 test("staff panel exposes logout, audit history, search, and read-only account context", () => {
