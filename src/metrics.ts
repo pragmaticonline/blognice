@@ -9,7 +9,7 @@ const CONSENT_COUNTRIES = new Set([
 /** Country-gated consent is a product decision, not proof of residency. */
 export function analyticsConsentRequired(country: unknown): boolean {
   const code = String(country ?? "").trim().toUpperCase();
-  return !code || CONSENT_COUNTRIES.has(code);
+  return CONSENT_COUNTRIES.has(code);
 }
 
 /**
@@ -129,7 +129,7 @@ export function reportQueries(tenantId: number, days: number) {
     devices: `SELECT blob5 AS name, ${views} AS views FROM ${METRICS_DATASET} WHERE ${where} AND blob5 != '' GROUP BY name ORDER BY views DESC LIMIT 10`,
     browsers: `SELECT blob6 AS name, ${views} AS views FROM ${METRICS_DATASET} WHERE ${where} AND blob6 != '' GROUP BY name ORDER BY views DESC LIMIT 10`,
     audioSummary: `SELECT sumIf(_sample_interval, blob1 = 'audio_start') AS starts, sumIf(_sample_interval, blob1 = 'audio_complete') AS completions FROM ${EVENTS_DATASET} WHERE ${where}`,
-    audioPages: `SELECT blob2 AS path, sumIf(_sample_interval, blob1 = 'audio_start') AS starts, sumIf(_sample_interval, blob1 = 'audio_complete') AS completions FROM ${EVENTS_DATASET} WHERE ${where} GROUP BY path ORDER BY starts DESC LIMIT 25`,
+    audioPages: `SELECT blob2 AS path, sumIf(_sample_interval, blob1 = 'audio_start') AS starts, sumIf(_sample_interval, blob1 = 'audio_complete') AS completions FROM ${EVENTS_DATASET} WHERE ${where} AND blob1 IN ('audio_start', 'audio_complete') GROUP BY path ORDER BY starts DESC LIMIT 25`,
   };
 }
 

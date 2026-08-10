@@ -281,13 +281,20 @@ function customDomainRedirect(c: any, tenant: Tenant): Response | null {
 // ---------------------------------------------------------------------------
 async function serveCached(
   c: any,
-  build: () => Promise<Response>
+  build: () => Promise<Response>,
+  varyConsent = false
 ): Promise<Response> {
   const cache = caches.default;
   // Bump this when public shell markup/CSS changes so old edge HTML cannot
   // hide newly shipped controls until the normal five-minute TTL expires.
   const cacheUrl = new URL(c.req.url);
   cacheUrl.searchParams.set("_bn_shell", CACHE_VERSION);
+  // Keep public HTML in two consent cohorts, without fragmenting RSS/sitemap
+  // caches by country.
+  if (varyConsent) {
+    const country = String(c.req.raw.cf?.country || "").trim().toUpperCase();
+    cacheUrl.searchParams.set("_bn_consent", analyticsConsentRequired(country) ? "required" : "optional");
+  }
   const key = new Request(cacheUrl.toString(), { method: "GET" });
   const hit = await cache.match(key);
   if (hit) return hit;
@@ -300,11 +307,23 @@ async function serveCached(
   return res;
 }
 
+function cachePurgeVariants(url: string): string[] {
+  return cacheVariants(url).flatMap((candidate) => {
+    const parsed = new URL(candidate);
+    if (!parsed.searchParams.has("_bn_shell")) return [candidate];
+    return [candidate, ...["required", "optional"].map((cohort) => {
+      const variant = new URL(parsed);
+      variant.searchParams.set("_bn_consent", cohort);
+      return variant.toString();
+    })];
+  });
+}
+
 async function purge(c: any, paths: string[]): Promise<void> {
   const cache = caches.default;
   const origin = originOf(c);
   await Promise.all(
-    paths.flatMap((p) => cacheVariants(origin + p).map((url) => cache.delete(new Request(url, { method: "GET" }))))
+    paths.flatMap((p) => cachePurgeVariants(origin + p).map((url) => cache.delete(new Request(url, { method: "GET" }))))
   );
 }
 
@@ -313,7 +332,7 @@ async function purge(c: any, paths: string[]): Promise<void> {
 async function purgeHost(hostname: string, paths: string[]): Promise<void> {
   const cache = caches.default;
   await Promise.all(
-    paths.flatMap((p) => cacheVariants(`https://${hostname}${p}`).map((url) =>
+    paths.flatMap((p) => cachePurgeVariants(`https://${hostname}${p}`).map((url) =>
       cache.delete(new Request(url, { method: "GET" }))
     ))
   );
@@ -398,7 +417,7 @@ async function purgeTenant(
   const purgePaths = Array.from(new Set([...paths, "/rss.xml"]));
   for (const host of hosts)
     for (const p of purgePaths)
-      for (const url of cacheVariants(`https://${host}${p}`))
+      for (const url of cachePurgeVariants(`https://${host}${p}`))
         jobs.push(cache.delete(new Request(url, { method: "GET" })));
   await Promise.all(jobs);
 }
@@ -1702,7 +1721,10 @@ async function checkedFeaturedImage(
 
 app.get("/admin/login", async (c) => {
   if (await currentAccount(c)) return c.redirect("/admin");
-  return c.html(loginPage());
+  clearSessionCookie(c);
+  const response = c.html(loginPage());
+  response.headers.set("Cache-Control", "no-store, max-age=0");
+  return response;
 });
 
 async function forgotPasswordHandler(c: Context<{ Bindings: Bindings }>) {
@@ -1819,6 +1841,7 @@ async function applyPasswordResetHandler(c: Context<{ Bindings: Bindings }>) {
       return c.html(resetPasswordPage("", "This reset link is invalid or has expired."), 400);
     }
     const session = await createSession(c.env.DB, reset.account_id);
+    clearSessionCookie(c);
     setSessionCookie(c, session);
     return c.redirect("/admin?message=Password%20updated");
   } catch (error) {
@@ -1897,9 +1920,15 @@ app.post("/admin/login", async (c) => {
     .first<{ id: number; pw_hash: string }>();
 
   const ok = account ? await verifyPassword(password, account.pw_hash) : false;
-  if (!ok) return c.html(loginPage("Wrong email or password."), 401);
+  if (!ok) {
+    clearSessionCookie(c);
+    const response = c.html(loginPage("Wrong email or password."), 401);
+    response.headers.set("Cache-Control", "no-store, max-age=0");
+    return response;
+  }
 
   const token = await createSession(c.env.DB, account!.id);
+  clearSessionCookie(c);
   setSessionCookie(c, token);
   return c.redirect("/admin");
 });
@@ -3690,6 +3719,7 @@ app.post("/signup", async (c) => {
     }));
     const tenant = await c.env.DB.prepare("SELECT public_id FROM tenants WHERE id = ?").bind(invite.tenant_id).first<{ public_id: string }>();
     const token = await createSession(c.env.DB, accountId);
+    clearSessionCookie(c);
     setSessionCookie(c, token);
     return c.redirect(`/admin/b/${tenant?.public_id ?? ""}`);
   }
@@ -3722,6 +3752,7 @@ app.post("/signup", async (c) => {
   }));
 
   const token = await createSession(c.env.DB, accountId);
+  clearSessionCookie(c);
   setSessionCookie(c, token);
   return c.redirect(`/admin/b/${publicId}`);
   // TODO: before a public launch, add email verification here (send a confirm
@@ -4623,7 +4654,7 @@ app.get("/", async (c) => {
       status: 200,
       headers: { "content-type": "text/html; charset=utf-8" },
     });
-  });
+  }, true);
 });
 
 // A single post: /<slug>. This is the catch-all, so it goes last.
@@ -4669,7 +4700,7 @@ app.get("/:slug", async (c) => {
       status: 200,
       headers: { "content-type": "text/html; charset=utf-8" },
     });
-  });
+  }, true);
 });
 
 export default {
