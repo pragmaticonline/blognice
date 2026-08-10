@@ -1,0 +1,67 @@
+# Development blog writing workflow
+
+Use this handoff when preparing a post for `development.blognice.com`. The
+workflow is deliberately human-approved: drafting, image generation, audio, and
+reviews may be automated, but publication requires an explicit final approval.
+
+## Writer brief
+
+```text
+Write a development-blog post for development.blognice.com.
+
+Topic: [INSERT TOPIC]
+
+Explain the decision, implementation, trade-offs, failures, and fixes in a
+technically honest way that a non-specialist can follow. Do not repeat the
+title in the body. Do not invent measurements, deployments, reviews, or user
+impact; mark anything unverified as unknown.
+
+Use the Blognice API rather than direct database writes. Create the draft first
+and keep it unpublished until review is complete. Add up to five relevant blog
+topics/hashtags. Generate a 16:9 featured image through the Blognice image API,
+with no visible text, logos, or watermarks. Generate narration through the
+audio API and check technical pronunciations before accepting it.
+
+Ask BIG AI to review the technical accuracy and ask Zuck to perform an
+independent QA review. Resolve disagreements explicitly. Publish only after
+both reviews pass and a human gives final approval.
+
+Use `The Dev Team` as the public author unless a specific contributor is being
+credited. Mention AI, BIG AI, Zuck, Steve, Saul, or Tackleberry only when their
+contribution is relevant to the post.
+```
+
+## Required sequence
+
+1. Confirm the topic, scope, and intended public author.
+2. Gather verified facts from the code, tests, deployment logs, and relevant
+   support responses. Do not include secrets or private customer data.
+3. Create a draft through the account API.
+4. Add topics/tags and generate a 16:9 featured image.
+5. Request narration and check the resulting audio job until it completes.
+6. Ask BIG AI for a technical review.
+7. Ask Zuck through the read-only QA bridge, for example:
+
+   ```powershell
+   npm run qa:zuck -- --prompt "Review this development-blog draft for factual accuracy, unsupported claims, security disclosures, and missing tests." --file src/index.ts --file src/metrics.ts
+   ```
+
+8. Apply or reject findings based on evidence. Record any rejected finding in
+   the working notes.
+9. Confirm the title appears only in the title field, the image exists, audio
+   completed, topics are present, and the post is still a draft.
+10. Obtain explicit human approval, then publish once.
+
+## Publication checklist
+
+- [ ] Title is not duplicated in the body.
+- [ ] Public author is intentional; otherwise use `The Dev Team`.
+- [ ] No secrets, API keys, private emails, or customer data are included.
+- [ ] Claims are supported by code, tests, logs, or clearly labelled as opinion.
+- [ ] Featured image is present, 16:9, and contains no generated text.
+- [ ] Audio is complete and technical terms have been pronunciation-tested.
+- [ ] Topics/tags are relevant and within the platform limit.
+- [ ] BIG AI review is complete.
+- [ ] Zuck QA report is `PASS` or all findings are resolved.
+- [ ] Human approval was received before publishing.
+

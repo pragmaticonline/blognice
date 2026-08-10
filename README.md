@@ -91,6 +91,28 @@ fast, server-rendered pages.
     migrations/       One-off SQL migrations for existing databases
     wrangler.jsonc    Cloudflare config
 
+## Zuck QA bridge
+
+Zuck is Blognice's explicitly invoked, read-only external QA agent. It uses
+Muse only through the local bridge; it does not modify files or deploy anything.
+Keep the API key in the shell environment (never in Git or Worker files):
+
+    $env:MODEL_API_KEY = "your-key"
+
+Invoke it with a prompt and optional context files:
+
+    npm run qa:zuck -- --prompt "Review the latest changes" --file src/index.ts --file test/example.test.mjs
+
+Optional context can be supplied with `--diff "..."` and `--tests "..."`.
+The bridge bounds and redacts submitted context and excludes environment files,
+secrets, `.wrangler`, dependencies, and build artifacts. It prints a structured
+PASS or NEEDS CHANGES report; it never prints the API key.
+
+The reusable handoff for writing and reviewing development-blog posts is in
+[`docs/development-blog-workflow.md`](docs/development-blog-workflow.md). It
+covers API-first drafting, topics, featured images, narration, BIG AI review,
+Zuck QA, and explicit human approval before publication.
+
 ## Two databases
 
 blognice uses two D1 databases from the start:
