@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { passwordResetEmail, postNotificationEmail, subscriberWelcomeEmail } from "../src/email.ts";
 
 const email = readFileSync(new URL("../src/email.ts", import.meta.url), "utf8");
 const index = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
@@ -46,16 +47,27 @@ test("subscriber notification claims are atomic and one-time", () => {
 
 test("email templates use branded reset links and enriched post notifications", () => {
   assert.match(index, /https:\/\/www\.blognice\.com\/admin\/reset\?token=/);
-  assert.match(index, /Or copy and paste this link into your browser/);
-  assert.match(index, /featured_image_key/);
-  assert.match(index, /List-Unsubscribe-Post/);
-  assert.match(index, /Read it &rarr;/);
+  const reset = passwordResetEmail({ resetUrl: "https://www.blognice.com/admin/reset?token=test" });
+  const post = postNotificationEmail({ blogTitle: "Example Blog", postTitle: "A safe title", postUrl: "https://example.blognice.com/a-safe-title", imageUrl: "https://example.blognice.com/media/1/image.jpg", publishedLabel: "Aug 8, 2026", readingMinutes: 2, excerpt: "A short excerpt.", unsubscribeUrl: "https://example.blognice.com/unsubscribe/test", manageUrl: "https://www.blognice.com/manage-subscriptions/test" });
+  assert.match(reset.html, /Or copy and paste this link into your browser/);
+  assert.match(post.html, /media\/1\/image\.jpg/);
+  assert.equal(post.headers["List-Unsubscribe-Post"], "List-Unsubscribe=One-Click");
+  assert.match(post.html, /Read it/);
 });
 
 test("subscription emails include one-click and manage-subscriptions links", () => {
-  assert.match(index, /List-Unsubscribe-Post/);
-  assert.match(index, /manage-subscriptions/);
+  const welcome = subscriberWelcomeEmail({ blogTitle: "Example Blog", unsubscribeUrl: "https://example.blognice.com/unsubscribe/test", manageUrl: "https://www.blognice.com/manage-subscriptions/test" });
+  assert.equal(welcome.headers["List-Unsubscribe-Post"], "List-Unsubscribe=One-Click");
+  assert.match(welcome.html, /manage-subscriptions/);
   assert.match(index, /subscription_manage_tokens/);
+});
+
+test("email subjects and unsubscribe headers reject control characters", () => {
+  const post = postNotificationEmail({ blogTitle: "Example", postTitle: "Hello\r\nBcc: attacker@example.com", postUrl: "https://example.blognice.com/post", publishedLabel: "Aug 8, 2026", readingMinutes: 1, excerpt: "Excerpt", unsubscribeUrl: "https://example.blognice.com/unsubscribe/test\r\nBcc: attacker@example.com", manageUrl: "https://www.blognice.com/manage-subscriptions/test" });
+  const welcome = subscriberWelcomeEmail({ blogTitle: "Example\nBcc: attacker@example.com", unsubscribeUrl: "https://example.blognice.com/unsubscribe/test", manageUrl: "https://www.blognice.com/manage-subscriptions/test" });
+  assert.doesNotMatch(post.subject, /[\r\n]/);
+  assert.doesNotMatch(post.headers["List-Unsubscribe"], /[\r\n]/);
+  assert.doesNotMatch(welcome.subject, /[\r\n]/);
 });
 
 test("subscriber confirmation uses the shared Maew template", () => {

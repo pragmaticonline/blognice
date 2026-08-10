@@ -7,6 +7,7 @@ const auth = readFileSync(new URL("../src/auth.ts", import.meta.url), "utf8");
 const migration = readFileSync(new URL("../migrations/014-staff-administration.sql", import.meta.url), "utf8");
 const config = readFileSync(new URL("../wrangler.staff.production.example.jsonc", import.meta.url), "utf8");
 const mailnice = readFileSync(new URL("../src/mailnice.ts", import.meta.url), "utf8");
+const email = readFileSync(new URL("../src/email.ts", import.meta.url), "utf8");
 
 test("staff Worker validates Access JWTs and keeps staff identity separate", () => {
   assert.match(staff, /Cf-Access-Jwt-Assertion/);
@@ -33,7 +34,7 @@ test("staff phase 1 mutations require role, same origin, reason, and audit", () 
   assert.match(staff, /new-post/);
   assert.match(staff, /password-reset/);
   assert.match(staff, /Reset your password/);
-  assert.match(staff, /List-Unsubscribe/);
+  assert.match(email, /List-Unsubscribe/);
   assert.match(staff, /sendEmailDetailed/);
   assert.match(staff, /headers: template\.headers/);
   assert.match(staff, /emailKind: type === "subscriber-confirmation"/);

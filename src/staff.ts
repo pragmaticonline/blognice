@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { esc } from "./render";
-import { sendEmailDetailed, registrationWelcomeEmail, subscriptionActiveEmail, subscriberConfirmationEmail } from "./email";
+import { sendEmailDetailed, registrationWelcomeEmail, subscriptionActiveEmail, subscriberConfirmationEmail, passwordResetEmail, subscriberWelcomeEmail, postNotificationEmail } from "./email";
 import { generateResetToken, sha256hex } from "./auth";
 import { ttsBytes, TTS_MODEL } from "./tts";
 
@@ -337,23 +337,9 @@ app.post("/api/test-email", async (c) => {
     },
     "subscription-active": (() => { const email = subscriptionActiveEmail({ billingUrl: "https://www.blognice.com/admin/billing", plan: "yearly" }); return { subject: email.subject, plainBody: email.plainText, html: email.html }; })(),
     "subscriber-confirmation": (() => { const email = subscriberConfirmationEmail({ blogTitle, confirmUrl: `${origin}/subscribe/confirm?token=staff-preview-token` }); return { subject: email.subject, plainBody: email.plainText, html: email.html }; })(),
-    "subscriber-welcome": {
-      subject: `You're subscribed to ${blogTitle}`,
-      plainBody: `Thanks for subscribing to ${blogTitle}. You'll get new posts by email.\n\nUnsubscribe: ${unsubscribe}`,
-      html: `<p>Thanks for subscribing to <strong>${esc(blogTitle)}</strong>. You'll get new posts by email.</p><hr><p><a href="${unsubscribe}">Unsubscribe</a> anytime.</p>`,
-      headers: { "List-Unsubscribe": `<${unsubscribe}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
-    },
-    "new-post": {
-      subject: `A new post on ${blogTitle}`,
-      plainBody: `New post on ${blogTitle}:\n\nA sample new post\n${origin}/sample-post\n\nUnsubscribe: ${unsubscribe}`,
-      html: `<p>New post on <strong>${esc(blogTitle)}</strong>:</p><h2><a href="${origin}/sample-post">A sample new post</a></h2><p><a href="${origin}/sample-post">Read it →</a></p><hr><p>You're subscribed to ${esc(blogTitle)}. <a href="${unsubscribe}">Unsubscribe</a>.</p>`,
-      headers: { "List-Unsubscribe": `<${unsubscribe}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
-    },
-    "password-reset": {
-      subject: "Reset your blognice password",
-      plainBody: "We received a request to reset your blognice password.\n\nReset it here: https://blognice.com/admin/reset?token=staff-email-preview-token\n\nThis link expires in one hour. If you did not request this, you can ignore this email.",
-      html: "<p>We received a request to reset your blognice password.</p><p><a href=\"https://blognice.com/admin/reset?token=staff-email-preview-token\">Reset your password</a></p><p style=\"color:#687064;font-size:13px\">This link expires in one hour. If you did not request this, you can ignore this email.</p>",
-    },
+    "subscriber-welcome": (() => { const email = subscriberWelcomeEmail({ blogTitle, unsubscribeUrl: unsubscribe, manageUrl: `${origin}/manage-subscriptions/test-token` }); return { subject: email.subject, plainBody: email.plainText, html: email.html, headers: email.headers }; })(),
+    "new-post": (() => { const email = postNotificationEmail({ blogTitle, postTitle: "A sample new post", postUrl: `${origin}/sample-post`, imageUrl: "https://blognice.blognice.com/media/1/1786199075885-baa60ce1-ai.jpg", authorLabel: "By The blognice team", publishedLabel: "Aug 8, 2026", readingMinutes: 2, excerpt: "A sample new post, written and published on blognice.", unsubscribeUrl: unsubscribe, manageUrl: `${origin}/manage-subscriptions/test-token` }); return { subject: email.subject, plainBody: email.plainText, html: email.html, headers: email.headers }; })(),
+    "password-reset": (() => { const email = passwordResetEmail({ resetUrl: "https://www.blognice.com/admin/reset?token=staff-email-preview-token" }); return { subject: email.subject, plainBody: email.plainText, html: email.html }; })(),
   };
   const template = templates[type];
   const result = await sendEmailDetailed(c.env, {
