@@ -1,0 +1,24 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "blognice-staff",
+	"main": "src/staff.ts",
+	"compatibility_date": "2026-06-20",
+	"compatibility_flags": ["nodejs_compat"],
+	"vars": {
+		"ACCESS_TEAM_DOMAIN": "https://pragmaticonline.cloudflareaccess.com",
+      "ACCESS_AUD": "7d2a38820e0e45966e130ba5c0bb2a411c1552dd7fe3000827f31f67a3eea16d",
+      "STAFF_ALLOWED_EMAILS": "ray@pragmaticonline.com,scott@pragmaticonline.com,maew@pragmaticonline.com,alex@pragmaticonline.com",
+      "EMAIL_FROM": "Blog Nice <support@mailer.blognice.com>"
+	},
+	"routes": [
+		{ "pattern": "staff.blognice.com/*", "zone_name": "blognice.com" }
+	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "blognice",
+			"database_id": "228b44b6-806a-4730-8c44-1b44d01a6536"
+		}
+	],
+	"ai": { "binding": "AI" }
+}
