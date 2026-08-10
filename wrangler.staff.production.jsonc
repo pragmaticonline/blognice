@@ -8,7 +8,10 @@
 		"ACCESS_TEAM_DOMAIN": "https://pragmaticonline.cloudflareaccess.com",
       "ACCESS_AUD": "7d2a38820e0e45966e130ba5c0bb2a411c1552dd7fe3000827f31f67a3eea16d",
       "STAFF_ALLOWED_EMAILS": "ray@pragmaticonline.com,scott@pragmaticonline.com,maew@pragmaticonline.com,alex@pragmaticonline.com",
-      "EMAIL_FROM": "Blog Nice <support@mailer.blognice.com>"
+      "EMAIL_FROM": "Blog Nice <support@mailer.blognice.com>",
+      "ROOT_DOMAIN": "blognice.com",
+      "STRIPE_MONTHLY_PRICE_ID": "price_1U15hNPBZtWrx4qGbiLxr4HL",
+      "STRIPE_YEARLY_PRICE_ID": "price_1U15hOPBZtWrx4qGIp4ariDb"
 	},
 	"routes": [
 		{ "pattern": "staff.blognice.com/*", "zone_name": "blognice.com" }
