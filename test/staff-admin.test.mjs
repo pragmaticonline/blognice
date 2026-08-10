@@ -116,9 +116,10 @@ test("staff panel exposes logout, audit history, search, and read-only account c
   assert.match(staff, /scrollbar-gutter:stable/);
   assert.match(staff, /staff-sidebar\{visibility:hidden;position:fixed/);
   assert.match(staff, /event\.key==='Escape'/);
-  assert.match(staff, /path\.indexOf\('\/accounts\/'\)===0/);
+  assert.match(staff, /location\.pathname\.indexOf\('\/accounts\/'\)===0/);
   assert.match(staff, /id="email-preview"/);
   assert.match(staff, /hash!==\'#email-preview\'/);
+  assert.match(staff, /addEventListener\('hashchange',setActive\)/);
   assert.match(staff, /app\.get\("\/audit"/);
   assert.match(staff, /FROM staff_audit_events ORDER BY occurred_at DESC/);
   assert.match(staff, /Search by email, account ID, blog title/);
