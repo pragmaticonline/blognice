@@ -181,13 +181,17 @@ export async function currentAccount(c: any): Promise<Account | null> {
 }
 
 // --- cookie set/clear ------------------------------------------------------
-export function setSessionCookie(c: any, token: string): void {
-  const secure = new URL(c.req.url).protocol === "https:";
+function sessionCookieDomain(c: any): string | undefined {
   const requestHost = new URL(c.req.url).hostname.toLowerCase();
   const rootDomain = String(c.env?.ROOT_DOMAIN ?? "").trim().toLowerCase();
-  const cookieDomain = rootDomain && (requestHost === rootDomain || requestHost.endsWith(`.${rootDomain}`))
+  return rootDomain && (requestHost === rootDomain || requestHost.endsWith(`.${rootDomain}`))
     ? `.${rootDomain}`
     : undefined;
+}
+
+export function setSessionCookie(c: any, token: string): void {
+  const secure = new URL(c.req.url).protocol === "https:";
+  const cookieDomain = sessionCookieDomain(c);
   setCookie(c, SESSION_COOKIE, token, {
     httpOnly: true,
     secure, // off on http://localhost so the cookie is still sent in dev
@@ -200,6 +204,11 @@ export function setSessionCookie(c: any, token: string): void {
 
 export function clearSessionCookie(c: any): void {
   deleteCookie(c, SESSION_COOKIE, { path: "/" });
+  // Older deployments issued a host-only cookie before the shared
+  // `.blognice.com` cookie was introduced. Clear both variants so a stale
+  // duplicate cannot win cookie parsing in the browser.
+  const domain = sessionCookieDomain(c);
+  if (domain) deleteCookie(c, SESSION_COOKIE, { path: "/", domain });
 }
 
 export function getSessionToken(c: any): string | undefined {

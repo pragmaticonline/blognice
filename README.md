@@ -94,7 +94,9 @@ fast, server-rendered pages.
 ## Zuck QA bridge
 
 Zuck is Blognice's explicitly invoked, read-only external QA agent. It uses
-Muse only through the local bridge; it does not modify files or deploy anything.
+Muse Spark Contributor (`muse-spark-1.2-contributor`) only through the local
+bridge; it does not modify files or deploy anything. This project accepts the
+Contributor privacy trade-off for open-source QA work.
 Keep the API key in the shell environment (never in Git or Worker files):
 
     $env:MODEL_API_KEY = "your-key"
