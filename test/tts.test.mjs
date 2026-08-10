@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { applyManagedSpokenForms, applyPronunciations, mergeWav, narrationChunks, narrationSections, narrationText, pronunciationReplacements, ttsBytes, wavAssembly, TTS_CHUNK_MAX, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "../src/tts.ts";
+import { applyManagedSpokenForms, applyPronunciations, classifyTtsError, mergeWav, narrationChunks, narrationSections, narrationText, pronunciationReplacements, ttsBytes, wavAssembly, TTS_CHUNK_MAX, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "../src/tts.ts";
 
 function wav(samples) {
   const bytes = new Uint8Array(44 + samples.length);
@@ -189,6 +189,14 @@ test("MeloTTS output supports both binary and base64 binding responses", () => {
   assert.deepEqual([...ttsBytes({ audio: btoa("mp3") })], [109, 112, 51]);
 });
 
+test("TTS errors classify known transient upstream failures without storing raw messages", () => {
+  assert.deepEqual(classifyTtsError(new Error("3043: Internal server error")), { transient: true, category: "upstream", code: "3043" });
+  assert.deepEqual(classifyTtsError({ code: 3040 }), { transient: true, category: "upstream", code: "3040" });
+  assert.deepEqual(classifyTtsError(new Error("quota reached 3036")), { transient: false, category: "quota", code: "3036" });
+  assert.deepEqual(classifyTtsError(new Error("The model returned no audio."), true), { transient: false, category: "empty_audio", code: "EMPTY_AUDIO" });
+  assert.equal(TTS_RETRY_DELAYS.length, 12);
+});
+
 test("pronunciation replacements are constrained and cannot rewrite narration", () => {
   const source = "Siobhan visited Worcestershire with the API team.";
   const replacements = pronunciationReplacements(JSON.stringify({ replacements: [
@@ -280,9 +288,9 @@ test("narration is persisted safely and rendered only when assigned", () => {
   assert.match(index, /async function generateSpeechWithRecovery/);
   assert.match(index, /function splitSpeechPrompt/);
   assert.match(index, /depth < 3 && prompt\.length >= 240/);
-  assert.match(index, /3040\|3043\|internal server error\|temporar\|timeout\|overload\|unavailable/);
+  assert.match(index, /classifyTtsError\(error\)\.transient/);
   assert.match(index, /Workers AI narration quota reached \(3036\)/);
-  assert.match(index, /retryDelays = \[250, 500, 1_000, 1_500, 2_000, 2_000/);
+  assert.match(index, /TTS_RETRY_DELAYS\[attempt\]/);
   assert.match(index, /if \(index > 0\) await new Promise\(\(resolve\) => setTimeout\(resolve, 350\)\)/);
   assert.match(index, /const generated = await generateSpeechWithRecovery\(c\.env\.AI, prompt\)/);
   assert.match(index, /audio-checkpoints/);

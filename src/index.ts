@@ -82,7 +82,7 @@ import {
   type ImageContextMode,
   type ImageStyle,
 } from "./ai-image";
-import { applyPronunciations, mergeWav, narrationChunks, narrationSections, pronunciationReplacements, ttsBytes, wavAssembly, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "./tts";
+import { applyPronunciations, classifyTtsError, mergeWav, narrationChunks, narrationSections, pronunciationReplacements, ttsBytes, wavAssembly, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "./tts";
 import {
   archivePreviousDay,
   archivePreviousDayEvents,
@@ -2492,9 +2492,8 @@ async function generateSpeechWithRetry(ai: Ai, prompt: string): Promise<Uint8Arr
   // instance instead of exhausting every attempt in one short burst.
   // 3043 is an intermittent upstream failure. Keep the retry window focused
   // (rather than sleeping for one long interval) so capacity can recover.
-  const retryDelays = [250, 500, 1_000, 1_500, 2_000, 2_000, 2_000, 2_000, 2_000, 2_000, 2_000, 2_000];
   let lastError: unknown;
-  for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
+  for (let attempt = 0; attempt <= TTS_RETRY_DELAYS.length; attempt++) {
     try {
       const generated = await ai.run(TTS_MODEL, { prompt, lang: "en" });
       const bytes = ttsBytes(generated);
@@ -2503,16 +2502,16 @@ async function generateSpeechWithRetry(ai: Ai, prompt: string): Promise<Uint8Arr
     } catch (error) {
       lastError = error;
       const message = error instanceof Error ? error.message : String(error);
-      if (/3036/.test(message)) throw new Error("Workers AI narration quota reached (3036). Please try again after the daily limit resets or upgrade your Workers AI plan.");
-      const transient = /3040|3043|internal server error|temporar|timeout|overload|unavailable/i.test(message);
-      if (!transient || attempt === retryDelays.length) throw error;
+      if (classifyTtsError(error).category === "quota") throw new Error("Workers AI narration quota reached (3036). Please try again after the daily limit resets or upgrade your Workers AI plan.");
+      const transient = classifyTtsError(error).transient;
+      if (!transient || attempt === TTS_RETRY_DELAYS.length) throw error;
       console.warn(JSON.stringify({
         message: "Transient MeloTTS failure; retrying",
         error: message,
         attempt: attempt + 1,
       }));
       const jitter = Math.floor(Math.random() * 250);
-      await new Promise((resolve) => setTimeout(resolve, retryDelays[attempt] + jitter));
+      await new Promise((resolve) => setTimeout(resolve, TTS_RETRY_DELAYS[attempt] + jitter));
     }
   }
   throw lastError;
@@ -2540,8 +2539,7 @@ async function generateSpeechWithRecovery(ai: Ai, prompt: string, depth = 0): Pr
   try {
     return await generateSpeechWithRetry(ai, prompt);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const parts = depth < 3 && prompt.length >= 240 && /3040|3043|internal server error|temporar|timeout|overload|unavailable/i.test(message)
+    const parts = depth < 3 && prompt.length >= 240 && classifyTtsError(error).transient
       ? splitSpeechPrompt(prompt)
       : null;
     if (!parts) throw error;

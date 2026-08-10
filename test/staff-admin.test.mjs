@@ -64,7 +64,10 @@ test("staff can generate short pronunciation samples", () => {
   assert.match(staff, /short phrase/);
   assert.match(config, /"ai":\s*\{\s*"binding":\s*"AI"\s*\}/);
   assert.match(staff, /ttsTestWithRetry/);
-  assert.match(staff, /retryDelays = \[350, 750, 1_500, 2_500\]/);
+  assert.match(staff, /TTS_RETRY_DELAYS/);
+  assert.match(staff, /classifyTtsError/);
+  assert.match(staff, /attempts/);
+  assert.match(staff, /transient/);
 });
 
 test("staff can send a rate-limited password reset email with an audit trail", () => {
