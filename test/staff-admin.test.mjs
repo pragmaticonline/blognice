@@ -28,10 +28,15 @@ test("staff phase 1 mutations require role, same origin, reason, and audit", () 
   assert.match(staff, /test-email/);
   assert.match(staff, /Send test email/);
   assert.match(staff, /subscriber-welcome/);
+  assert.match(staff, /subscriber-confirmation/);
   assert.match(staff, /new-post/);
   assert.match(staff, /password-reset/);
   assert.match(staff, /Reset your password/);
   assert.match(staff, /List-Unsubscribe/);
+  assert.match(staff, /sendEmailDetailed/);
+  assert.match(staff, /headers: template\.headers/);
+  assert.match(staff, /emailKind: type === "subscriber-confirmation"/);
+  assert.match(staff, /senderName: type === "subscriber-confirmation"/);
 });
 
 test("staff test email uses MailNice without exposing its API key", () => {
