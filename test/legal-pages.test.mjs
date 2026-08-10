@@ -14,7 +14,7 @@ for (const [file, title] of [["terms.html", "Terms of Service"], ["cookies.html"
   });
 }
 test("terms and cookies have public worker routes", () => {
-  assert.match(indexSource, /import termsPage from "\.\.\/terms\.html"/);
+  assert.match(indexSource, /import termsPageSource from "\.\.\/terms\.html"/);
   assert.match(indexSource, /import cookiesPage from "\.\.\/cookies\.html"/);
   assert.match(indexSource, /app\.get\("\/terms"/);
   assert.match(indexSource, /app\.get\("\/cookies"/);
@@ -25,6 +25,16 @@ test("terms and cookies have public worker routes", () => {
   assert.match(indexSource, /class="theme-toggle"/);
   assert.match(indexSource, /Analytics preferences/);
   assert.match(indexSource, /analytics-dialog/);
+});
+
+test("terms do not use subjective hate wording or obsolete email provider", () => {
+  const terms = readFileSync(new URL("../terms.html", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../TERMS_OF_SERVICE.md", import.meta.url), "utf8");
+  assert.doesNotMatch(terms, /hateful|hatred/i);
+  assert.doesNotMatch(terms, /Resend/i);
+  assert.doesNotMatch(source, /hateful|hatred/i);
+  assert.doesNotMatch(source, /Resend/i);
+  assert.match(indexSource, /termsPageSource\.replaceAll\("hateful, ", ""\)/);
 });
 
 test("policies overview links the platform policies", () => {

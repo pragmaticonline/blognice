@@ -11,5 +11,5 @@ test("public privacy policy is complete and linked by the worker", () => {
   assert.match(privacy, /Analytics and technical data/);
   assert.match(privacy, /Your choices and rights/);
   assert.match(indexSource, /app\.get\("\/privacy"/);
-  assert.match(indexSource, /import privacyPage from "\.\.\/privacy\.html"/);
+assert.match(indexSource, /import privacyPageSource from "\.\.\/privacy\.html"/);
 });
