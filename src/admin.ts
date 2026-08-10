@@ -65,6 +65,9 @@ const ADMIN_STYLES = /* css */ `
     }
   }
   * { box-sizing: border-box; }
+  /* Keep the content column fixed when one admin page needs a scrollbar and
+     another does not. This prevents horizontal movement between sections. */
+  html { overflow-y: scroll; scrollbar-gutter: stable; }
   body {
     margin: 0; background: var(--bg); color: var(--ink);
     font-family: var(--sans); font-size: 15px; line-height: 1.5;
