@@ -5,6 +5,7 @@
   "description": "A super-simple multi-tenant blogging platform on Cloudflare Workers",
   "scripts": {
     "test": "node --experimental-strip-types --test test/*.test.mjs",
+    "qa:zuck": "node tools/zuck-qa.mjs",
     "typecheck": "tsc --noEmit",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
