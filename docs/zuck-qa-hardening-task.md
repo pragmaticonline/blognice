@@ -186,7 +186,6 @@ repository read-only checks are all addressed.
 BIG's operating guidance remains: Zuck's PASS is valid review evidence when
 used alongside deterministic tests and normal human/BIG oversight; it does not
 replace typecheck, the test suite, or security review.
-
 ## Blog post review: onboarding Zuck
 
 Zuck reviewed the proposed developer post and returned **NEEDS CHANGES**. Its
