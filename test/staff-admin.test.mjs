@@ -99,6 +99,16 @@ test("all staff pages expose the shared navigation", () => {
 
 test("staff panel exposes logout, audit history, search, and read-only account context", () => {
   assert.match(staff, /cdn-cgi\/access\/logout/);
+  assert.match(staff, /class="staff-top"/);
+  assert.match(staff, /class="staff-sidebar"/);
+  assert.match(staff, /data-staff-nav/);
+  assert.match(staff, /staff-menu-toggle/);
+  assert.match(staff, /scrollbar-gutter:stable/);
+  assert.match(staff, /staff-sidebar\{visibility:hidden;position:fixed/);
+  assert.match(staff, /event\.key==='Escape'/);
+  assert.match(staff, /path\.indexOf\('\/accounts\/'\)===0/);
+  assert.match(staff, /id="email-preview"/);
+  assert.match(staff, /hash!==\'#email-preview\'/);
   assert.match(staff, /app\.get\("\/audit"/);
   assert.match(staff, /FROM staff_audit_events ORDER BY occurred_at DESC/);
   assert.match(staff, /Search by email, account ID, blog title/);
