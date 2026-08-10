@@ -91,6 +91,7 @@ test("staff deployment is a separate Worker route", () => {
 
 test("all staff pages expose the shared navigation", () => {
   assert.match(staff, /app\.get\("\/dashboard"/);
+  assert.match(staff, /app\.get\("\/email-preview"/);
   assert.match(staff, /Recent staff activity/);
   assert.match(staff, /crypto_paid_through/);
   assert.match(staff, /Pronunciation dictionary.*TTS test/s);
@@ -116,10 +117,9 @@ test("staff panel exposes logout, audit history, search, and read-only account c
   assert.match(staff, /scrollbar-gutter:stable/);
   assert.match(staff, /staff-sidebar\{visibility:hidden;position:fixed/);
   assert.match(staff, /event\.key==='Escape'/);
-  assert.match(staff, /location\.pathname\.indexOf\('\/accounts\/'\)===0/);
+  assert.match(staff, /path\.indexOf\('\/accounts\/'\)===0/);
   assert.match(staff, /id="email-preview"/);
-  assert.match(staff, /hash!==\'#email-preview\'/);
-  assert.match(staff, /addEventListener\('hashchange',setActive\)/);
+  assert.match(staff, /href="\/email-preview" data-staff-nav>Email preview/);
   assert.match(staff, /app\.get\("\/audit"/);
   assert.match(staff, /FROM staff_audit_events ORDER BY occurred_at DESC/);
   assert.match(staff, /Search by email, account ID, blog title/);
