@@ -195,7 +195,7 @@ function billingPlan(account: any, c: any): string {
 }
 
 function staffPage(title: string, body: string): string {
-  body = `<style>html{scrollbar-gutter:stable}body{overflow-y:scroll}</style>${body}`;
+  body = `<style>html{scrollbar-gutter:stable}body{overflow-y:scroll}.staff-content a:not(.btn){color:#1a8917;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:2px}.staff-content a:not(.btn):visited{color:#1a8917}.staff-content a:not(.btn):hover,.staff-content a:not(.btn):focus-visible{color:#0e5a0c}.staff-content a.btn,.staff-content a.btn:visited{color:#171914;text-decoration:none}</style>${body}`;
   // Normalize branding before the shell is assembled; the shell must not rewrite
   // arbitrary rendered values such as account emails, blog titles, or audit reasons.
   // Static staff copy is normalized at its source; do not rewrite rendered user data.

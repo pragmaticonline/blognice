@@ -115,6 +115,7 @@ test("staff panel exposes logout, audit history, search, and read-only account c
   assert.match(staff, /data-staff-nav/);
   assert.match(staff, /staff-menu-toggle/);
   assert.match(staff, /scrollbar-gutter:stable/);
+  assert.match(staff, /staff-content a:not\(\.btn\).*#1a8917/);
   assert.match(staff, /staff-sidebar\{visibility:hidden;position:fixed/);
   assert.match(staff, /event\.key==='Escape'/);
   assert.match(staff, /path\.indexOf\('\/accounts\/'\)===0/);
