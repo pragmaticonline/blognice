@@ -42,7 +42,8 @@ function withIdentityFooter(msg: EmailMessage): EmailMessage {
   const bulk = msg.emailKind === "post-notification" || msg.emailKind === "subscription-welcome" || msg.emailKind === "subscriber-confirmation";
   const plainFooter = `\n\nSent by ${sender} via blognice.\nSupport: ${PLATFORM_SUPPORT}\nPrivacy: ${PLATFORM_PRIVACY}${bulk ? `\n\n${PLATFORM_POSTAL}` : ""}`;
   const htmlFooter = `<hr><p style="color:#687064;font-size:12px">Sent by ${senderHtml} via blognice · <a href="mailto:${PLATFORM_SUPPORT}">Support</a> · <a href="${PLATFORM_PRIVACY}">Privacy</a>${bulk ? `<br>${PLATFORM_POSTAL}` : ""}</p>`;
-  return { ...msg, plainText: `${msg.plainText || msg.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()}${plainFooter}`, html: `${msg.html}${htmlFooter}` };
+  const html = `<div style="margin:0;background:#f1f2ed;padding:32px 16px;font-family:Arial,sans-serif;color:#171914;line-height:1.55"><div style="max-width:600px;margin:0 auto;background:#fff;border:1px solid #e3e7dd;border-radius:10px;overflow:hidden"><div style="padding:28px 32px 12px;text-align:center;font-size:20px;font-weight:700">blognice</div><div style="padding:0 32px 28px">${msg.html}${htmlFooter}</div></div></div>`;
+  return { ...msg, plainText: `${msg.plainText || msg.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()}${plainFooter}`, html };
 }
 
 export type EmailDeliveryResult = {
