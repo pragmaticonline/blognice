@@ -25,6 +25,22 @@ test("report queries are tenant scoped, time bounded, and sampling aware", () =>
   assert.doesNotMatch(queries.daily, /toDate\(/);
 });
 
+test("audit timestamps use minutes rather than ClickHouse month names", async () => {
+  const originalFetch = globalThis.fetch;
+  let query = "";
+  globalThis.fetch = async (_input, init) => {
+    query = String(init?.body || "");
+    return new Response(JSON.stringify({ data: [] }), { status: 200 });
+  };
+  try {
+    await auditReport({ CF_ACCOUNT_ID: "account", CF_ANALYTICS_TOKEN: "token" }, 7);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.match(query, /formatDateTime\(timestamp, '%Y-%m-%d %H:%i:%S'\)/);
+  assert.doesNotMatch(query, /%H:%M:%S/);
+});
+
 test("recorded page views follow the documented Analytics Engine schema", () => {
   let point;
   const env = { METRICS: { writeDataPoint(value) { point = value; } } };
