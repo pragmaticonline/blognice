@@ -60,10 +60,16 @@ import {
 } from "./admin";
 import { tenantDb } from "./db";
 import homepage from "../homepage.html";
-import privacyPage from "../privacy.html";
-import termsPage from "../terms.html";
+import privacyPageSource from "../privacy.html";
+import termsPageSource from "../terms.html";
 import cookiesPage from "../cookies.html";
 import securityPage from "../security.html";
+
+// Keep the published legal text aligned with the maintained policy sources.
+// Resend is no longer an email provider, and the Terms avoid subjective
+// speech-based wording while retaining concrete abuse and safety restrictions.
+const privacyPage = privacyPageSource.replaceAll("<li>Resend, only where configured as an email fallback.</li>", "");
+const termsPage = termsPageSource.replaceAll("hateful, ", "").replaceAll("Resend, ", "");
 import policiesPage from "../policies.html";
 import faviconSvg from "../favicon.svg";
 import { findMediaUse, mediaKey, mediaUrl, validLibraryFile } from "./media";

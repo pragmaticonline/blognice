@@ -28,7 +28,7 @@ We do not currently operate a fixed bug-bounty programme. Meaningful, responsibl
 
 blognice runs on Cloudflare Workers, D1, R2, and Analytics Engine. Traffic is served over HTTPS and certificates are managed by Cloudflare. Passwords use a memory-hard hash; sessions use cryptographically random server-side tokens and are invalidated on logout; API keys are stored only as one-way hashes and shown once.
 
-Blog data is tenant-scoped in application queries and authenticated API access. Admin access requires authentication, while staff administration is separately protected by Cloudflare Access identity checks and application role controls. Database bindings are not public. Cloudflare, Stripe, NOWPayments, MailNice, and optionally Resend process data for the features described in the Privacy Policy under their own terms and applicable agreements.
+Blog data is tenant-scoped in application queries and authenticated API access. Admin access requires authentication, while staff administration is separately protected by Cloudflare Access identity checks and application role controls. Database bindings are not public. Cloudflare, Stripe, NOWPayments, and MailNice process data for the features described in the Privacy Policy under their own terms and applicable agreements.
 
 These are high-level controls, not a guarantee that every attack is impossible. Generated AI content is not guaranteed accurate or rights-cleared.
 

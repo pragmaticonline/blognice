@@ -51,7 +51,6 @@ Depending on the features used, information may be processed by:
 - Stripe, for card subscriptions and hosted billing management.
 - NOWPayments, for annual prepaid cryptocurrency payments and payment-status notifications.
 - MailNice, for transactional and subscriber email delivery.
-- Resend, only where configured as an email fallback.
 
 These providers may process information under their own terms and privacy notices. We share only what is needed for the relevant feature and do not sell personal information.
 
