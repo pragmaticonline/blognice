@@ -207,7 +207,7 @@ export async function auditReport(
   const interval = Math.max(1, Math.min(90, Math.trunc(days)));
   const rows = await analyticsSql(
     env,
-    `SELECT formatDateTime(timestamp, '%Y-%m-%d %H:%M:%S') AS occurred_at,
+    `SELECT formatDateTime(timestamp, '%Y-%m-%d %H:%i:%S') AS occurred_at,
             blob1 AS action, blob2 AS target, blob3 AS actor,
             SUM(_sample_interval) AS events
        FROM ${EVENTS_DATASET}
