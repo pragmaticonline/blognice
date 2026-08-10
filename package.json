@@ -10,6 +10,7 @@
     "deploy": "wrangler deploy",
     "deploy:production": "wrangler deploy --config wrangler.production.jsonc",
     "deploy:production:check": "wrangler deploy --dry-run --config wrangler.production.jsonc",
+    "deploy:staff:production:check": "wrangler deploy --dry-run --config wrangler.staff.production.jsonc",
     "deploy:staff:production": "wrangler deploy --config wrangler.staff.production.jsonc",
     "db:init": "wrangler d1 execute blognice --file=./schema.sql",
     "db:init:local": "wrangler d1 execute blognice --local --file=./schema.sql",

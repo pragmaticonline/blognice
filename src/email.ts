@@ -55,6 +55,26 @@ export function invitationWelcomeEmail(input: { signInUrl: string; blogTitle: st
     html: `<h2 style="font-family:Arial,sans-serif;text-align:center">You’re invited to collaborate</h2><p style="text-align:center;color:#687064;font-size:13px">${title} on blognice</p><p>Your role on <strong>${title}</strong> is <strong>${htmlEscape(input.role)}</strong>.</p><p style="text-align:center;margin:24px 0"><a href="${url}" style="display:inline-block;background:#168b16;color:#fff;text-decoration:none;font-weight:700;padding:12px 24px;border-radius:7px">Open the blog</a></p><p>You can write and contribute according to the permissions set by the blog owner. If you did not expect this invitation, you can ignore this email.</p>`,
   };
 }
+export function subscriptionActiveEmail(input: { billingUrl: string; plan?: "monthly" | "yearly" }) {
+  const url = htmlEscape(input.billingUrl);
+  const plan = input.plan ? ` (${input.plan})` : "";
+  return {
+    subject: "Your blognice pro subscription is active",
+    plainText: `Your blognice pro subscription is active${plan}.\n\nYou can now use AI features, collaborators, custom domains, favicons, and up to five blogs.\n\nManage billing: ${input.billingUrl}\n\nStripe will send your payment receipt separately.\n\nNeed a hand? Reply to this email or reach us at ${PLATFORM_SUPPORT}`,
+    html: `<div style="text-align:center"><div style="display:inline-grid;place-items:center;width:64px;height:64px;margin:4px auto 18px;border-radius:50%;background:#168b16;color:#fff;box-shadow:0 5px 0 #dcebd8;font-size:34px;font-weight:700;line-height:64px">✓</div><h2 style="font-family:Arial,sans-serif;margin:0 0 14px">Your blognice pro subscription is active.</h2><p style="margin:0 auto;max-width:540px">You can now use AI features, collaborators, custom domains, favicons, and up to five blogs.</p><p style="margin:28px 0"><a href="${url}" style="display:inline-block;background:#168b16;color:#fff;text-decoration:none;font-weight:700;padding:12px 28px;border-radius:7px">Manage billing</a></p></div><p style="background:#f7f8f3;border:1px solid #e3e7dd;padding:16px;text-align:center;color:#5c6455">Stripe will send your payment receipt separately.</p><hr><p><strong>Need a hand?</strong><br>Reply to this email or reach us at <a href="mailto:${PLATFORM_SUPPORT}">${PLATFORM_SUPPORT}</a>.</p>`,
+  };
+}
+
+export function subscriberConfirmationEmail(input: { blogTitle: string; confirmUrl: string }) {
+  const title = htmlEscape(input.blogTitle);
+  const subjectTitle = input.blogTitle.replace(/[\r\n]+/g, " ").trim().slice(0, 200);
+  const url = htmlEscape(input.confirmUrl);
+  return {
+    subject: `Confirm your subscription to ${subjectTitle}`,
+    plainText: `Please confirm your subscription to ${input.blogTitle}.\n\nConfirm your subscription: ${input.confirmUrl}\n\nThis link expires in 24 hours. If you did not request this, you can ignore this email — you won't be subscribed unless you confirm.`,
+    html: `<div style="text-align:center"><h2 style="font-family:Arial,sans-serif;margin:0 0 24px">Confirm your subscription</h2><p>Please confirm your subscription to <strong>${title}</strong>.</p><p style="margin:26px 0"><a href="${url}" style="display:inline-block;background:#168b16;color:#fff;text-decoration:none;font-weight:700;padding:12px 28px;border-radius:7px">Confirm subscription</a></p><p style="color:#687064;font-size:13px;margin:0 0 8px">Or copy and paste this link into your browser:</p><p style="font-family:monospace;font-size:12px;line-height:1.5;overflow-wrap:anywhere;word-break:break-word;margin:0 0 24px"><a href="${url}" style="color:#168b16;overflow-wrap:anywhere;word-break:break-word">${url}</a></p></div><p style="background:#f7f8f3;border:1px solid #e3e7dd;padding:16px;color:#5c6455">This link expires in 24 hours. If you did not request this, you can ignore this email — you won't be subscribed unless you confirm.</p>`,
+  };
+}
 function withIdentityFooter(msg: EmailMessage): EmailMessage {
   const sender = msg.senderName?.trim() || "blognice";
   const senderHtml = htmlEscape(sender);

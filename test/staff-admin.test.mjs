@@ -29,6 +29,7 @@ test("staff phase 1 mutations require role, same origin, reason, and audit", () 
   assert.match(staff, /Send test email/);
   assert.match(staff, /subscriber-welcome/);
   assert.match(staff, /subscriber-confirmation/);
+  assert.match(staff, /subscription-active/);
   assert.match(staff, /new-post/);
   assert.match(staff, /password-reset/);
   assert.match(staff, /Reset your password/);
