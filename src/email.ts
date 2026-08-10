@@ -55,7 +55,6 @@ export function invitationWelcomeEmail(input: { signInUrl: string; blogTitle: st
     html: `<h2 style="font-family:Arial,sans-serif;text-align:center">You’re invited to collaborate</h2><p style="text-align:center;color:#687064;font-size:13px">${title} on blognice</p><p>Your role on <strong>${title}</strong> is <strong>${htmlEscape(input.role)}</strong>.</p><p style="text-align:center;margin:24px 0"><a href="${url}" style="display:inline-block;background:#168b16;color:#fff;text-decoration:none;font-weight:700;padding:12px 24px;border-radius:7px">Open the blog</a></p><p>You can write and contribute according to the permissions set by the blog owner. If you did not expect this invitation, you can ignore this email.</p>`,
   };
 }
-
 export function subscriptionActiveEmail(input: { billingUrl: string; plan?: "monthly" | "yearly" }) {
   const url = htmlEscape(input.billingUrl);
   const plan = input.plan ? ` (${input.plan})` : "";
