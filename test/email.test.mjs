@@ -56,11 +56,16 @@ test("subscription emails include one-click and manage-subscriptions links", () 
 });
 
 test("subscriber signup requires double opt-in and cannot resend pending confirmations", () => {
+  const subscribeBlock = index.slice(index.indexOf('app.post("/subscribe"'), index.indexOf('app.get("/privacy"'));
   assert.match(index, /subscriber_confirmations/);
   assert.match(index, /app\.get\("\/subscribe\/confirm"/);
   assert.match(index, /app\.post\("\/subscribe\/confirm"/);
   assert.match(subscriberOptin, /method === "GET/);
   assert.match(index, /Confirm your subscription/);
+  assert.match(subscribeBlock, /senderName: tenant\.title/);
+  assert.match(subscribeBlock, /only if you made this request/);
+  assert.match(subscribeBlock, /No subscription will be created unless you confirm/);
+  assert.match(subscribeBlock, /overflow-wrap:anywhere/);
   assert.match(index, /INSERT OR IGNORE INTO subscriber_confirmations/);
   assert.match(index, /sent_at <= \?/);
   assert.match(index, /subscriber-confirmation:/);

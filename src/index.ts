@@ -4000,8 +4000,9 @@ app.post("/subscribe", async (c) => {
     idempotencyKey: `subscriber-confirmation:${tokenHash}`,
     to: email,
     subject: `Confirm your subscription to ${tenant.title}`,
-    plainText: `Please confirm your subscription to ${tenant.title}.\n\nConfirm here: ${confirmUrl}\n\nThis link expires in 24 hours. If you did not request this, you can ignore this email.`,
-    html: `<p>Please confirm your subscription to <strong>${esc(tenant.title)}</strong>.</p><p><a href="${confirmUrl}">Confirm subscription</a></p><p style="color:#687064;font-size:13px">This link expires in 24 hours. If you did not request this, you can ignore this email.</p>`,
+    senderName: tenant.title,
+    plainText: `You requested to receive new posts from ${tenant.title} at this email address.\n\nConfirm your subscription only if you made this request:\n${confirmUrl}\n\nThis link expires in 24 hours. If you did not request this, you can ignore this email. No subscription will be created unless you confirm.`,
+    html: `<p>You requested to receive new posts from <strong>${esc(tenant.title)}</strong> at this email address.</p><p>Click below only if you made this request.</p><p style="margin:24px 0;text-align:center"><a href="${esc(confirmUrl)}" style="display:inline-block;background:#168b16;color:#fff;text-decoration:none;font-weight:700;padding:12px 24px;border-radius:7px">Confirm subscription</a></p><p style="color:#687064;font-size:13px;margin:0 0 8px">This link expires in 24 hours. If you did not request this, you can ignore this email — no subscription will be created unless you confirm.</p><p style="color:#687064;font-size:12px;overflow-wrap:anywhere;word-break:break-word">Or copy and paste this link into your browser:<br><a href="${esc(confirmUrl)}" style="color:#168b16;overflow-wrap:anywhere;word-break:break-word">${esc(confirmUrl)}</a></p>`,
   };
   const result = await requestSubscriberConfirmation({
     isConfirmed: async () => Boolean(existing),
