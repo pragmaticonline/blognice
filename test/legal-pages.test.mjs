@@ -45,4 +45,5 @@ test("policies overview links the platform policies", () => {
   assert.ok(indexSource.includes('["/security", "Security"]'));
   assert.ok(indexSource.includes('const canonicalFooter = \'<footer class="footer">'));
   assert.ok(indexSource.includes('const withCanonicalShell = consistentTheme.replace(/<footer class="footer">'));
+  assert.match(indexSource, /html\{scrollbar-gutter:stable\}body\{overflow-y:scroll\}/);
 });
