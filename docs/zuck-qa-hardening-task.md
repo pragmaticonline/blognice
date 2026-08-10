@@ -186,3 +186,98 @@ repository read-only checks are all addressed.
 BIG's operating guidance remains: Zuck's PASS is valid review evidence when
 used alongside deterministic tests and normal human/BIG oversight; it does not
 replace typecheck, the test suite, or security review.
+
+## Blog post review: onboarding Zuck
+
+Zuck reviewed the proposed developer post and returned **NEEDS CHANGES**. Its
+recommendations were to explain read-only as a capability/tooling guarantee,
+disclose that Zuck is an external model with scope and bias, describe residual
+false-positive and false-negative risk, and define the bridge's canonicalization,
+redaction, omission-marker, and character-budget behavior.
+
+BIG independently agreed. Recommended title:
+
+> When AI Reviews AI: Hardening Blognice's External QA Workflow
+
+Alternative:
+
+> Onboarding Zuck: Building a Read-Only AI Review Gate Without Trusting the First PASS
+
+BIG's recommended narrative is: noisy early reviews; explicit Zuck onboarding;
+truncated-context false positives; Zuck and BIG finding weaknesses in the
+bridge; canonical ranges, omission manifests, redaction, hard limits, and
+incomplete-context safeguards; then the final Zuck-plus-BIG workflow backed by
+deterministic tests and human accountability.
+
+Required caveats for the post:
+
+- The bridge gives Zuck submitted text over HTTP and no file-editing, shell,
+  Git, deployment, or production tools; do not call this OS-level isolation.
+- Submitted context leaves the local environment and goes to an external Meta
+  API under the accepted Contributor data-use/privacy trade-off.
+- Context is explicitly selected, bounded, filtered, and redacted; redaction is
+  conservative and imperfect.
+- Omitted, excluded, and truncated context is marked, and incomplete context
+  cannot produce an unqualified PASS.
+- A Zuck PASS is evidence, not proof. Zuck can still be wrong, incomplete, or
+  malformed; BIG and deterministic tests remain necessary.
+- BIG's strongest independence comes from reviewing the code and criteria
+  directly before seeing Zuck's verdict; reviewing Zuck's report is an
+  adversarial second opinion rather than fully independent first-pass review.
+
+The strongest before/after example is the original 12,000-character head
+truncation: targeted ranges, original line numbers, omission manifests,
+canonical paths, and incomplete-context safeguards made the evidence
+inspectable without pretending to make Zuck infallible.
+
+## Draft review report
+
+BIG's technical review of `docs/onboarding-zuck-blog-draft.md` returned
+**NEEDS CHANGES**. BIG required: a dated and clearly qualified dashboard
+snapshot; API-key wording that promises non-persistence and intentional
+non-printing rather than impossible absolute non-exposure; explicit character
+and range limits; a distinction between redaction placeholders and omission
+manifests; precise local-Node versus Cloudflare-Worker wording; and an
+authoritative current Contributor data-use link with access date before
+publication. The draft was updated with all of those corrections except the
+terms link, which remains an explicit publication blocker until verified.
+
+Zuck's independent review of the corrected draft returned **PASS**, with no
+critical, high, or medium findings and no recommended fixes. Zuck confirmed the
+dated usage observation and approximate dollar conversion, API-key wording,
+redaction/omission distinction, local Node scope, bounded context limits, and
+privacy caveats. The Contributor-terms item remains provisional until the
+authoritative link and access date are added before publication.
+
+BIG's follow-up review of the corrected draft still returned **NEEDS CHANGES**
+for three publication details: remove a duplicated “In”; distinguish visible
+redaction placeholders from omission-manifest entries because whole-file
+truncation is marked in place; and add an authoritative Contributor data-use
+link plus access date. The draft now addresses the wording and truncation
+distinction. Meta's general [AI Terms of Use](https://www.facebook.com/legal/ai-terms)
+was checked on August 11, 2026, but publication must still verify whether the
+account/API dashboard provides a separate Contributor-specific document.
+
+## Final draft review
+
+After the author supplied the regional Meta AI Terms text, the draft was
+updated to link the official terms page, record the August 11, 2026 check date,
+note the May 13, 2026 effective date, explain regional applicability, and
+accurately disclose potential retention and automated or human review of AI
+interactions.
+
+BIG's final review returned **PASS** with no remaining editorial or technical
+corrections. BIG noted only the operational publication checklist: generate and
+verify the featured image, generate and pronunciation-test narration, confirm
+the post remains unpublished during preparation, and obtain explicit human
+approval. BIG also advised verifying that the terms link opens anonymously
+before publication.
+
+Zuck's final publication-readiness review returned **PASS**. It confirmed the
+usage metrics wording, terms/privacy disclosure, read-only bridge qualification,
+technical limits, redaction and omission behavior, and the fact that image,
+narration, unpublished-state, and human-approval items remain checklist items
+rather than unsupported completion claims.
+BIG's anonymous-link verification recommendation is now complete: the author
+confirmed that the Meta AI Terms page opens without authentication and displays
+the regional terms, effective date, and personal-information sections.
