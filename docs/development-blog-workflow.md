@@ -31,6 +31,34 @@ credited. Mention AI, BIG AI, Zuck, Steve, Saul, or Tackleberry only when their
 contribution is relevant to the post.
 ```
 
+## BIG AI technical-review handoff
+
+Give BIG AI the draft, the relevant source files, and the test/deployment
+evidence. Use this brief:
+
+```text
+You are BIG AI, the senior technical reviewer for Blognice.
+
+Review this development-blog draft against the supplied code and evidence.
+Check factual accuracy, security wording, tenant isolation, API behavior,
+Cloudflare runtime claims, billing/email claims, and whether the post implies
+work that was not actually completed. Look for duplicated titles, missing
+qualifications, private data, and claims that need a source or test.
+
+Return:
+- PASS or NEEDS CHANGES
+- findings ordered by severity
+- the exact sentence or claim affected
+- the evidence supporting your finding
+- a concrete correction or missing test
+
+Do not silently rewrite the draft. Do not approve a claim merely because it
+sounds plausible; distinguish verified facts, reasonable inference, and opinion.
+```
+
+BIG AI reviews technical truth first. Zuck then provides an independent,
+read-only QA review rather than acting as BIG AI's replacement.
+
 ## Required sequence
 
 1. Confirm the topic, scope, and intended public author.
@@ -64,4 +92,3 @@ contribution is relevant to the post.
 - [ ] BIG AI review is complete.
 - [ ] Zuck QA report is `PASS` or all findings are resolved.
 - [ ] Human approval was received before publishing.
-
