@@ -559,13 +559,15 @@ const STYLES = /* css */ `
     display: grid; gap: .9rem;
   }
   footer.site-footer.homepage-footer { max-width: 82.5rem; }
-  .site-footer-inner { display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; gap:1rem; }
+  .site-footer-inner { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:1rem; }
+  .site-footer-left { display:flex; align-items:center; gap:.8rem; flex-wrap:wrap; }
   .site-footer-publisher { color:var(--ink); font-weight:600; }
-  .site-footer-links { display:flex; justify-content:center; gap:1rem; flex-wrap:wrap; }
+  .site-footer-links { display:flex; align-items:center; gap:.8rem; flex-wrap:wrap; }
+  .site-footer-separator { color:var(--rule); }
   .site-footer-powered { justify-self:end; text-align:right; }
   .site-footer a { color:inherit; text-decoration:none; }
   .site-footer a:hover, .site-footer a:focus-visible { color:var(--accent); text-decoration:underline; }
-  @media (max-width: 640px) { .site-footer-inner { display:flex; align-items:flex-start; flex-direction:column; } .site-footer-links { justify-content:flex-start; } .site-footer-powered { justify-self:auto; text-align:left; } .site-footer-links a, .site-footer-powered a { padding:.55rem .2rem; } }
+  @media (max-width: 640px) { .site-footer-inner { display:flex; align-items:center; flex-direction:column; text-align:center; } .site-footer-left { justify-content:center; } .site-footer-powered { justify-self:auto; text-align:center; } .site-footer-links a, .site-footer-powered a { padding:.55rem .2rem; } }
 
   a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
 
@@ -610,7 +612,7 @@ const STYLES = /* css */ `
 function publicFooter(tenant: Tenant, wide: boolean): string {
   const publisher = tenant.footer_name?.trim() || tenant.title;
   return `<footer class="site-footer${wide ? " homepage-footer" : ""}">
-  <div class="site-footer-inner"><span class="site-footer-publisher">© ${new Date().getFullYear()} ${esc(publisher)}</span><nav class="site-footer-links" aria-label="Blog links"><a href="/rss.xml">RSS</a><a href="https://www.blognice.com/policies">Blognice policies</a></nav><span class="site-footer-powered">Powered by <a href="https://www.blognice.com" target="_blank" rel="noopener noreferrer">blognice</a></span></div>
+  <div class="site-footer-inner"><div class="site-footer-left"><span class="site-footer-publisher">© ${new Date().getFullYear()} ${esc(publisher)}</span><span class="site-footer-separator" aria-hidden="true">·</span><nav class="site-footer-links" aria-label="Blog links"><a href="/rss.xml">RSS</a><span class="site-footer-separator" aria-hidden="true">·</span><a href="https://www.blognice.com/policies">Blognice policies</a></nav></div><span class="site-footer-powered">Powered by <a href="https://www.blognice.com" target="_blank" rel="noopener noreferrer">blognice</a></span></div>
 </footer>`;
 }
 
