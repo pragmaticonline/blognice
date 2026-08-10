@@ -24,7 +24,9 @@ test("MailNice is preferred for transactional email", () => {
 
 test("signup queues a registration welcome without blocking account creation", () => {
   assert.match(index, /registrationWelcomeEmail\(\{ signInUrl: "https:\/\/www\.blognice\.com\/admin" \}\)/);
+  assert.match(index, /invitationWelcomeEmail\(\{ signInUrl: `https:\/\/www\.blognice\.com\/admin\/b\/\$\{tenant\.public_id\}`/);
   assert.match(email, /export function registrationWelcomeEmail/);
+  assert.match(email, /export function invitationWelcomeEmail/);
   assert.match(index, /c\.executionCtx\.waitUntil\(sendEmail\(c\.env/);
 });
 
