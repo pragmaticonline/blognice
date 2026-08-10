@@ -12,7 +12,7 @@ import {
   type Page,
   type Tenant,
 } from "./render";
-import { sendEmail, sendEmailDetailed, emailEnabled } from "./email";
+import { sendEmail, sendEmailDetailed, emailEnabled, registrationWelcomeEmail } from "./email";
 import {
   createCustomHostname,
   getCustomHostname,
@@ -3712,12 +3712,7 @@ app.post("/signup", async (c) => {
     await c.env.DB.prepare("INSERT INTO memberships (account_id, tenant_id, role, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(account_id, tenant_id) DO UPDATE SET role = excluded.role")
       .bind(accountId, invite.tenant_id, invite.role, now).run();
     await c.env.DB.prepare("UPDATE blog_invitations SET accepted_at = ? WHERE id = ?").bind(now, invite.id).run();
-    c.executionCtx.waitUntil(sendEmail(c.env, {
-      to: email,
-      subject: "Welcome to blognice",
-      plainText: "Welcome to blognice!\n\nYour account is ready. Sign in to create and publish your first blog.",
-      html: "<h2>Welcome to blognice!</h2><p>Your account is ready. Sign in to create and publish your first blog.</p>",
-    }));
+    c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...registrationWelcomeEmail({ signInUrl: "https://www.blognice.com/admin" }) }));
     const tenant = await c.env.DB.prepare("SELECT public_id FROM tenants WHERE id = ?").bind(invite.tenant_id).first<{ public_id: string }>();
     const token = await createSession(c.env.DB, accountId);
     clearSessionCookie(c);
@@ -3745,12 +3740,7 @@ app.post("/signup", async (c) => {
   )
     .bind(accountId, blogId, now)
     .run();
-  c.executionCtx.waitUntil(sendEmail(c.env, {
-    to: email,
-    subject: "Welcome to blognice",
-    plainText: "Welcome to blognice!\n\nYour account is ready. Sign in to create and publish your first blog.",
-    html: "<h2>Welcome to blognice!</h2><p>Your account is ready. Sign in to create and publish your first blog.</p>",
-  }));
+  c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...registrationWelcomeEmail({ signInUrl: "https://www.blognice.com/admin" }) }));
 
   const token = await createSession(c.env.DB, accountId);
   clearSessionCookie(c);
