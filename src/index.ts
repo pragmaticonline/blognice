@@ -12,7 +12,7 @@ import {
   type Page,
   type Tenant,
 } from "./render";
-import { sendEmail, sendEmailDetailed, emailEnabled, registrationWelcomeEmail, invitationWelcomeEmail } from "./email";
+import { sendEmail, sendEmailDetailed, emailEnabled, registrationWelcomeEmail, invitationWelcomeEmail, subscriptionActiveEmail, subscriberConfirmationEmail } from "./email";
 import {
   createCustomHostname,
   getCustomHostname,
@@ -3011,7 +3011,7 @@ type EmailJobMessage = {
   kind: "email-delivery";
   idempotencyKey: string;
   subscriberId?: number;
-  emailKind?: "post-notification" | "subscription-welcome" | "password-reset" | "subscriber-confirmation";
+  emailKind?: "post-notification" | "subscription-welcome" | "subscription-active" | "password-reset" | "subscriber-confirmation";
   to: string;
   subject: string;
   plainText: string;
@@ -3992,10 +3992,8 @@ app.post("/subscribe", async (c) => {
     emailKind: "subscriber-confirmation",
     idempotencyKey: `subscriber-confirmation:${tokenHash}`,
     to: email,
-    subject: `Confirm your subscription to ${tenant.title}`,
+    ...subscriberConfirmationEmail({ blogTitle: tenant.title, confirmUrl }),
     senderName: tenant.title,
-    plainText: `You requested to receive new posts from ${tenant.title} at this email address.\n\nConfirm your subscription only if you made this request:\n${confirmUrl}\n\nThis link expires in 24 hours. If you did not request this, you can ignore this email. No subscription will be created unless you confirm.`,
-    html: `<p>You requested to receive new posts from <strong>${esc(tenant.title)}</strong> at this email address.</p><p>Click below only if you made this request.</p><p style="margin:24px 0;text-align:center"><a href="${esc(confirmUrl)}" style="display:inline-block;background:#168b16;color:#fff;text-decoration:none;font-weight:700;padding:12px 24px;border-radius:7px">Confirm subscription</a></p><p style="color:#687064;font-size:13px;margin:0 0 8px">This link expires in 24 hours. If you did not request this, you can ignore this email — no subscription will be created unless you confirm.</p><p style="color:#687064;font-size:12px;overflow-wrap:anywhere;word-break:break-word">Or copy and paste this link into your browser:<br><a href="${esc(confirmUrl)}" style="color:#168b16;overflow-wrap:anywhere;word-break:break-word">${esc(confirmUrl)}</a></p>`,
   };
   const result = await requestSubscriberConfirmation({
     isConfirmed: async () => Boolean(existing),
@@ -4487,25 +4485,42 @@ app.post("/stripe/webhook", async (c) => {
     const subscriptionUpdate = await c.env.DB.prepare("UPDATE accounts SET stripe_customer_id = COALESCE(?, stripe_customer_id), stripe_subscription_id = ?, billing_subscription_created_at = COALESCE(?, billing_subscription_created_at), billing_status = ?, billing_price_id = ?, billing_period_end = ?, billing_cancel_at_period_end = ?, billing_updated_at = ?, billing_event_created_at = ?, billing_event_id = ? WHERE id = ? AND (COALESCE(billing_event_created_at, 0) < ? OR (COALESCE(billing_event_created_at, 0) = ? AND COALESCE(billing_event_id, '') < ?))")
       .bind(customerId, subscriptionObject.id || object.id || null, subscriptionObject.created || null, status, subscriptionObject.items?.data?.[0]?.price?.id || null, periodEnd, subscriptionObject.cancel_at_period_end ? 1 : 0, Math.floor(Date.now() / 1000), eventCreated, event.id, accountId, eventCreated, eventCreated, event.id).run();
     await c.env.DB.prepare("UPDATE stripe_events SET account_id = ? WHERE id = ?").bind(accountId, event.id).run();
-    if (subscriptionUpdate.meta.changes && event.type === "customer.subscription.created" && ["active", "trialing"].includes(status) && c.env.EMAIL_QUEUE && emailEnabled(c.env)) {
-      const account = await c.env.DB.prepare("SELECT email FROM accounts WHERE id = ?").bind(accountId).first<{ email: string }>();
-      if (account?.email && object.id) {
+    if (event.type === "customer.subscription.created" && ["active", "trialing"].includes(status) && c.env.EMAIL_QUEUE && emailEnabled(c.env)) {
+      const account = await c.env.DB.prepare("SELECT email, stripe_subscription_id, billing_status FROM accounts WHERE id = ?").bind(accountId).first<{ email: string; stripe_subscription_id: string | null; billing_status: string }>();
+      if (account?.email && object.id && account.stripe_subscription_id === String(object.id) && ["active", "trialing"].includes(account.billing_status)) {
         const idempotencyKey = `subscription-welcome:${accountId}:${String(object.id)}`;
         const welcome = await c.env.DB.prepare(
           `INSERT OR IGNORE INTO email_delivery_log (idempotency_key, status, recipient, kind, created_at)
            VALUES (?, 'pending', ?, 'subscription-welcome', ?)`
         ).bind(idempotencyKey, account.email, Math.floor(Date.now() / 1000)).run();
-        if (welcome.meta.changes) {
+        let shouldQueue = Boolean(welcome.meta.changes);
+        if (!welcome.meta.changes) {
+          const existing = await c.env.DB.prepare("SELECT status, created_at FROM email_delivery_log WHERE idempotency_key = ?").bind(idempotencyKey).first<{ status: string; created_at: number }>();
+          if (existing?.status === "sent" || existing?.status === "queued") shouldQueue = false;
+          else if (existing?.status === "pending" && Math.floor(Date.now() / 1000) - Number(existing.created_at || 0) < 300) {
+            throw new Error("Subscription activation email is already being queued.");
+          } else {
+            const reclaimed = await c.env.DB.prepare("UPDATE email_delivery_log SET status = 'pending', created_at = ? WHERE idempotency_key = ? AND status = 'pending' AND created_at < ?")
+              .bind(Math.floor(Date.now() / 1000), idempotencyKey, Math.floor(Date.now() / 1000) - 300).run();
+            if (reclaimed.meta.changes !== 1) throw new Error("Subscription activation email claim could not be recovered.");
+            shouldQueue = true;
+          }
+        }
+        if (shouldQueue) {
           const billingUrl = `https://www.${c.env.ROOT_DOMAIN}/admin/billing`;
-          await c.env.EMAIL_QUEUE.send({
-            kind: "email-delivery",
-            emailKind: "subscription-welcome",
-            idempotencyKey,
-            to: account.email,
-            subject: "Welcome to blognice Pro",
-            plainText: `Your blognice Pro subscription is active.\n\nYou can now use AI features, collaborators, custom domains, favicons, and up to five blogs.\n\nManage billing: ${billingUrl}\n\nStripe will send your payment receipt separately.`,
-            html: `<p>Your <strong>blognice Pro</strong> subscription is active.</p><p>You can now use AI features, collaborators, custom domains, favicons, and up to five blogs.</p><p><a href="${billingUrl}">Manage billing</a></p><p style="color:#687064;font-size:13px">Stripe will send your payment receipt separately.</p>`,
-          } satisfies EmailJobMessage);
+          try {
+            await c.env.EMAIL_QUEUE.send({
+              kind: "email-delivery",
+              emailKind: "subscription-active",
+              idempotencyKey,
+              to: account.email,
+              ...subscriptionActiveEmail({ billingUrl, plan: subscriptionObject.items?.data?.[0]?.price?.id === c.env.STRIPE_YEARLY_PRICE_ID ? "yearly" : subscriptionObject.items?.data?.[0]?.price?.id === c.env.STRIPE_MONTHLY_PRICE_ID ? "monthly" : undefined }),
+            } satisfies EmailJobMessage);
+            await c.env.DB.prepare("UPDATE email_delivery_log SET status = 'queued' WHERE idempotency_key = ? AND status = 'pending'").bind(idempotencyKey).run();
+          } catch (error) {
+            await c.env.DB.prepare("DELETE FROM email_delivery_log WHERE idempotency_key = ? AND status = 'pending'").bind(idempotencyKey).run();
+            throw error;
+          }
         }
       }
     }

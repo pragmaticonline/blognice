@@ -58,17 +58,23 @@ test("subscription emails include one-click and manage-subscriptions links", () 
   assert.match(index, /subscription_manage_tokens/);
 });
 
+test("subscriber confirmation uses the shared Maew template", () => {
+  assert.match(index, /subscriberConfirmationEmail/);
+  assert.match(email, /Confirm your subscription/);
+  assert.match(email, /won't be subscribed unless you confirm/);
+  assert.match(email, /subjectTitle/);
+});
+
 test("subscriber signup requires double opt-in and cannot resend pending confirmations", () => {
   const subscribeBlock = index.slice(index.indexOf('app.post("/subscribe"'), index.indexOf('app.get("/privacy"'));
   assert.match(index, /subscriber_confirmations/);
   assert.match(index, /app\.get\("\/subscribe\/confirm"/);
   assert.match(index, /app\.post\("\/subscribe\/confirm"/);
   assert.match(subscriberOptin, /method === "GET/);
-  assert.match(index, /Confirm your subscription/);
+  assert.match(email, /Confirm your subscription/);
   assert.match(subscribeBlock, /senderName: tenant\.title/);
-  assert.match(subscribeBlock, /only if you made this request/);
-  assert.match(subscribeBlock, /No subscription will be created unless you confirm/);
-  assert.match(subscribeBlock, /overflow-wrap:anywhere/);
+  assert.match(email, /won't be subscribed unless you confirm/);
+  assert.match(email, /overflow-wrap:anywhere/);
   assert.match(index, /INSERT OR IGNORE INTO subscriber_confirmations/);
   assert.match(index, /sent_at <= \?/);
   assert.match(index, /subscriber-confirmation:/);
@@ -159,9 +165,14 @@ test("confirmation delivery failures retain the generic subscription response", 
 test("verified Stripe activation queues one idempotent Pro welcome email", () => {
   assert.match(index, /customer\.subscription\.created/);
   assert.match(index, /subscription-welcome:/);
-  assert.match(index, /Welcome to blognice Pro/);
+  assert.match(index, /subscriptionActiveEmail/);
+  assert.match(index, /emailKind: "subscription-active"/);
+  assert.match(index, /DELETE FROM email_delivery_log WHERE idempotency_key/);
+  assert.match(index, /stripe_subscription_id === String\(object\.id\)/);
+  assert.match(index, /already being queued/);
+  assert.match(index, /status = 'queued'/);
   assert.match(index, /INSERT OR IGNORE INTO email_delivery_log/);
-  assert.match(index, /Stripe will send your payment receipt separately/);
+  assert.match(email, /Stripe will send your payment receipt separately/);
 });
 
 test("password reset is one-time, hashed, expiring, and emailed without account enumeration", () => {

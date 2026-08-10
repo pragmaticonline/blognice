@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { esc } from "./render";
-import { sendEmailDetailed, registrationWelcomeEmail } from "./email";
+import { sendEmailDetailed, registrationWelcomeEmail, subscriptionActiveEmail, subscriberConfirmationEmail } from "./email";
 import { generateResetToken, sha256hex } from "./auth";
 import { ttsBytes, TTS_MODEL } from "./tts";
 
@@ -18,7 +18,7 @@ type StaffBindings = {
   EMAIL_FROM?: string;
 };
 
-type TestEmailType = "registration" | "subscriber-confirmation" | "subscriber-welcome" | "new-post" | "password-reset";
+type TestEmailType = "registration" | "subscription-active" | "subscriber-confirmation" | "subscriber-welcome" | "new-post" | "password-reset";
 
 type AccessClaims = {
   sub?: string;
@@ -298,7 +298,7 @@ app.post("/api/test-email", async (c) => {
   const to = String(input.to || "").trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to) || to.length > 254) return c.json({ error: "Enter a valid recipient email address." }, 400);
   const type = input.type as TestEmailType;
-  if (!["registration", "subscriber-confirmation", "subscriber-welcome", "new-post", "password-reset"].includes(type)) return c.json({ error: "Choose a valid email type." }, 400);
+  if (!["registration", "subscription-active", "subscriber-confirmation", "subscriber-welcome", "new-post", "password-reset"].includes(type)) return c.json({ error: "Choose a valid email type." }, 400);
   const blogTitle = "Example Blog";
   const origin = "https://example.blognice.com";
   const unsubscribe = `${origin}/unsubscribe/test-token`;
@@ -309,11 +309,8 @@ app.post("/api/test-email", async (c) => {
       plainBody: registration.plainText,
       html: registration.html,
     },
-    "subscriber-confirmation": {
-      subject: `Confirm your subscription to ${blogTitle}`,
-      plainBody: `You requested to receive new posts from ${blogTitle} at this email address.\n\nConfirm your subscription only if you made this request:\n${origin}/subscribe/confirm?token=staff-preview-token\n\nThis link expires in 24 hours. If you did not request this, you can ignore this email. No subscription will be created unless you confirm.`,
-      html: `<p>You requested to receive new posts from <strong>${esc(blogTitle)}</strong> at this email address.</p><p>Click below only if you made this request.</p><p style="margin:24px 0;text-align:center"><a href="${origin}/subscribe/confirm?token=staff-preview-token" style="display:inline-block;background:#168b16;color:#fff;text-decoration:none;font-weight:700;padding:12px 24px;border-radius:7px">Confirm subscription</a></p><p style="color:#687064;font-size:13px;margin:0 0 8px">This link expires in 24 hours. If you did not request this, you can ignore this email — no subscription will be created unless you confirm.</p><p style="color:#687064;font-size:12px;overflow-wrap:anywhere;word-break:break-word">Or copy and paste this link into your browser:<br><a href="${origin}/subscribe/confirm?token=staff-preview-token" style="color:#168b16;overflow-wrap:anywhere;word-break:break-word">${origin}/subscribe/confirm?token=staff-preview-token</a></p>`,
-    },
+    "subscription-active": (() => { const email = subscriptionActiveEmail({ billingUrl: "https://www.blognice.com/admin/billing", plan: "yearly" }); return { subject: email.subject, plainBody: email.plainText, html: email.html }; })(),
+    "subscriber-confirmation": (() => { const email = subscriberConfirmationEmail({ blogTitle, confirmUrl: `${origin}/subscribe/confirm?token=staff-preview-token` }); return { subject: email.subject, plainBody: email.plainText, html: email.html }; })(),
     "subscriber-welcome": {
       subject: `You're subscribed to ${blogTitle}`,
       plainBody: `Thanks for subscribing to ${blogTitle}. You'll get new posts by email.\n\nUnsubscribe: ${unsubscribe}`,
@@ -339,7 +336,7 @@ app.post("/api/test-email", async (c) => {
     plainText: template.plainBody,
     html: template.html,
     headers: template.headers,
-    emailKind: type === "subscriber-confirmation" ? "subscriber-confirmation" : type === "subscriber-welcome" ? "subscription-welcome" : type === "new-post" ? "post-notification" : type === "password-reset" ? "password-reset" : undefined,
+    emailKind: type === "subscriber-confirmation" ? "subscriber-confirmation" : type === "subscriber-welcome" ? "subscription-welcome" : type === "subscription-active" ? "subscription-active" : type === "new-post" ? "post-notification" : type === "password-reset" ? "password-reset" : undefined,
     senderName: type === "subscriber-confirmation" || type === "subscriber-welcome" || type === "new-post" ? blogTitle : "blognice",
   });
   await audit(c, staff, {
@@ -434,7 +431,7 @@ app.get("/", async (c) => {
        FROM accounts a ${where} ORDER BY a.created_at DESC LIMIT 50`
   ).bind(...(q ? [pattern] : [])).all<{ id: number; email: string; status: string; created_at: number; blog_count: number }>();
   const rows = accounts.results.map((account) => `<tr><td><a href="/accounts/${account.id}">${esc(account.email)}</a><br><small>#${account.id}</small></td><td><span class="badge ${account.status === "suspended" ? "suspended" : ""}">${esc(account.status)}</span></td><td>${account.blog_count}</td><td>${new Date(account.created_at * 1000).toISOString().slice(0, 10)}</td></tr>`).join("");
-  const emailPreview = canMutate(staff) ? `<div class="card"><h2>Email preview</h2><p class="muted">Send a production-format sample to any address you control. This tool uses the same branded delivery wrapper as live email. Preview links are non-functional.</p><form id="test-email-form"><label>To <input name="to" type="email" required placeholder="you@example.com" style="padding:8px;border:1px solid var(--rule);border-radius:5px;min-width:280px"></label> <label>Type <select name="type" style="padding:8px;border:1px solid var(--rule);border-radius:5px"><option value="registration">Registration</option><option value="subscriber-confirmation">Confirm subscription</option><option value="subscriber-welcome">Subscriber welcome</option><option value="new-post">New-post notification</option><option value="password-reset">Password reset</option></select></label> <button class="btn" type="submit">Send test email</button></form><p id="test-email-status" class="muted" aria-live="polite"></p></div><script>document.getElementById('test-email-form').addEventListener('submit',async function(event){event.preventDefault();var form=this;var status=document.getElementById('test-email-status');if(!confirm('Send this email now?'))return;var button=form.querySelector('button');button.disabled=true;status.textContent='Sending…';var response=await fetch('/api/test-email',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({to:form.elements.to.value,type:form.elements.type.value})});var data=await response.json();button.disabled=false;status.textContent=response.ok?'Sent to '+data.recipient+'.':'Error: '+(data.error||'Test email failed.');})</script>` : `<p class="muted">Your role is read-only; email testing requires support or admin access.</p>`;
+  const emailPreview = canMutate(staff) ? `<div class="card"><h2>Email preview</h2><p class="muted">Send a production-format sample to any address you control. This tool uses the same branded delivery wrapper as live email. Preview links are non-functional.</p><form id="test-email-form"><label>To <input name="to" type="email" required placeholder="you@example.com" style="padding:8px;border:1px solid var(--rule);border-radius:5px;min-width:280px"></label> <label>Type <select name="type" style="padding:8px;border:1px solid var(--rule);border-radius:5px"><option value="registration">Registration</option><option value="subscription-active">Subscription active</option><option value="subscriber-confirmation">Confirm subscription</option><option value="subscriber-welcome">Subscriber welcome</option><option value="new-post">New-post notification</option><option value="password-reset">Password reset</option></select></label> <button class="btn" type="submit">Send test email</button></form><p id="test-email-status" class="muted" aria-live="polite"></p></div><script>document.getElementById('test-email-form').addEventListener('submit',async function(event){event.preventDefault();var form=this;var status=document.getElementById('test-email-status');if(!confirm('Send this email now?'))return;var button=form.querySelector('button');button.disabled=true;status.textContent='Sending…';var response=await fetch('/api/test-email',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({to:form.elements.to.value,type:form.elements.type.value})});var data=await response.json();button.disabled=false;status.textContent=response.ok?'Sent to '+data.recipient+'.':'Error: '+(data.error||'Test email failed.');})</script>` : `<p class="muted">Your role is read-only; email testing requires support or admin access.</p>`;
   return c.html(staffPage("Accounts", `<header class="top"><h1>BlogNice staff</h1><small>${esc(staff.email)} · ${esc(staff.role)}</small></header><nav><a href="/">Accounts</a><a href="/pronunciations">Pronunciation dictionary</a><a href="/tts-test">TTS test</a></nav>${emailPreview}<h2>Accounts</h2><p class="muted">Read-only account overview. Account actions require a support or admin role.</p><form class="search" method="get"><input name="q" value="${esc(q)}" placeholder="Search by email"><button class="btn" type="submit">Search</button></form><div class="card"><table><thead><tr><th>Account</th><th>Status</th><th>Blogs</th><th>Created</th></tr></thead><tbody>${rows || `<tr><td colspan="4" class="empty">No accounts found.</td></tr>`}</tbody></table></div>`));
 });
 
