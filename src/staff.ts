@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { esc } from "./render";
 import { sendEmailDetailed, registrationWelcomeEmail, subscriptionActiveEmail, subscriberConfirmationEmail, passwordResetEmail, subscriberWelcomeEmail, postNotificationEmail } from "./email";
 import { generateResetToken, sha256hex } from "./auth";
-import { ttsBytes, TTS_MODEL } from "./tts";
+import { classifyTtsError, ttsBytes, TTS_MODEL, TTS_RETRY_DELAYS } from "./tts";
 
 type StaffRole = "read_only" | "support" | "admin";
 type StaffIdentity = { subject: string; email: string; role: StaffRole };
@@ -125,22 +125,23 @@ function sameOrigin(c: any): boolean {
   }
 }
 
-async function ttsTestWithRetry(ai: Ai, prompt: string): Promise<Uint8Array> {
-  const retryDelays = [350, 750, 1_500, 2_500];
+async function ttsTestWithRetry(ai: Ai, prompt: string): Promise<{ bytes: Uint8Array; attempts: number; retries: Array<{ attempt: number; category: string; code: string | null; delayMs: number }> }> {
   let lastError: unknown;
-  for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
+  const retries: Array<{ attempt: number; category: string; code: string | null; delayMs: number }> = [];
+  for (let attempt = 0; attempt <= TTS_RETRY_DELAYS.length; attempt++) {
     try {
       const generated = await ai.run(TTS_MODEL, { prompt, lang: "en" }) as Uint8Array | { audio: string };
       const bytes = ttsBytes(generated);
-      if (!bytes.length) throw new Error("The model returned no audio.");
-      return bytes;
+      if (!bytes.length) throw Object.assign(new Error("The model returned no audio."), { code: "EMPTY_AUDIO" });
+      return { bytes, attempts: attempt + 1, retries };
     } catch (error) {
       lastError = error;
-      const message = error instanceof Error ? error.message : String(error);
-      const transient = /3040|3043|internal server error|temporar|timeout|overload|unavailable/i.test(message);
-      if (!transient || attempt === retryDelays.length) throw error;
+      const info = classifyTtsError(error, (error as { code?: unknown })?.code === "EMPTY_AUDIO");
+      if (!info.transient || attempt === TTS_RETRY_DELAYS.length) throw Object.assign(error instanceof Error ? error : new Error(String(error)), { ttsErrorInfo: info, ttsRetries: retries });
       const jitter = Math.floor(Math.random() * 250);
-      await new Promise((resolve) => setTimeout(resolve, retryDelays[attempt] + jitter));
+      const delayMs = TTS_RETRY_DELAYS[attempt] + jitter;
+      retries.push({ attempt: attempt + 1, category: info.category, code: info.code, delayMs });
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
   throw lastError;
@@ -392,11 +393,13 @@ app.post("/api/tts-test", async (c) => {
   const text = String(input.text || "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 240);
   if (!text) return c.json({ error: "Enter a short phrase first." }, 400);
   try {
-    const bytes = await ttsTestWithRetry(c.env.AI, text);
-    await audit(c, staff, { action: "tts-test", targetType: "tts", targetId: TTS_MODEL, reason: "Generate short pronunciation sample", result: "success", after: { characters: text.length } });
-    return new Response(bytes, { headers: { "content-type": "audio/wav", "cache-control": "no-store", "x-content-type-options": "nosniff" } });
+    const generated = await ttsTestWithRetry(c.env.AI, text);
+    await audit(c, staff, { action: "tts-test", targetType: "tts", targetId: TTS_MODEL, reason: "Generate short pronunciation sample", result: "success", after: { characters: text.length, attempts: generated.attempts, retries: generated.retries } });
+    return new Response(generated.bytes, { headers: { "content-type": "audio/wav", "cache-control": "no-store", "x-content-type-options": "nosniff" } });
   } catch (error) {
-    await audit(c, staff, { action: "tts-test", targetType: "tts", targetId: TTS_MODEL, reason: "Generate short pronunciation sample", result: "failure", after: { error: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200) } });
+    const info = (error as { ttsErrorInfo?: ReturnType<typeof classifyTtsError> })?.ttsErrorInfo || classifyTtsError(error);
+    const retries = (error as { ttsRetries?: unknown })?.ttsRetries;
+    await audit(c, staff, { action: "tts-test", targetType: "tts", targetId: TTS_MODEL, reason: "Generate short pronunciation sample", result: "failure", after: { characters: text.length, error: info.category, code: info.code, transient: info.transient, retries: Array.isArray(retries) ? retries : [] } });
     return c.json({ error: "TTS sample generation failed." }, 502);
   }
 });

@@ -105,10 +105,24 @@ Invoke it with a prompt and optional context files:
 
     npm run qa:zuck -- --prompt "Review the latest changes" --file src/index.ts --file test/example.test.mjs
 
-Optional context can be supplied with `--diff "..."` and `--tests "..."`.
+For large files, submit only relevant 1-indexed inclusive line ranges. Repeat
+`--range` for multiple files or regions; `--file` continues to mean a whole
+file. Overlapping ranges are merged, and the bridge reports any omitted lines:
+
+    npm run qa:zuck -- --prompt "Review TTS retry handling" --range "src/index.ts:2480-2650" --range "src/staff.ts:120-180" --file src/tts.ts
+
+The older `--file path:start-end` form is also accepted. Optional context can
+be supplied with `--diff "..."` and `--tests "..."`.
 The bridge bounds and redacts submitted context and excludes environment files,
 secrets, `.wrangler`, dependencies, and build artifacts. It prints a structured
-PASS or NEEDS CHANGES report; it never prints the API key.
+PASS or NEEDS CHANGES report with affected files, recommendations, and missing
+tests; it marks incomplete context and will not return an unqualified PASS when
+context was omitted. It never prints the API key or modifies repository files.
+Ranges are limited to 4,000 lines each, 12,000 merged lines total, and 40
+range requests; whole-file context is limited to 12,000 characters and total
+submitted context to 36,000 characters. Empty diff/test values are ignored;
+empty prompt, file, or range values fail with a diagnostic. Truncation and
+omission markers are included in the bounded context.
 
 The reusable handoff for writing and reviewing development-blog posts is in
 [`docs/development-blog-workflow.md`](docs/development-blog-workflow.md). It

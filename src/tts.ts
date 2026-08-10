@@ -1,4 +1,5 @@
 export const TTS_MODEL = "@cf/myshell-ai/melotts" as const;
+export const TTS_RETRY_DELAYS = [250, 500, 1_000, 1_500, 2_000, 2_000, 2_000, 2_000, 2_000, 2_000, 2_000, 2_000] as const;
 export const TTS_CHUNK_MAX = 3_500;
 export const TTS_TEXT_MAX = 10_000;
 export const TTS_TITLE_PAUSE_SECONDS = 1.5;
@@ -8,6 +9,21 @@ export const TTS_HARD_PAUSE = "\u241E";
 export const TTS_SOFT_PAUSE = "\u241F";
 
 export type PronunciationReplacement = { original: string; spoken: string };
+
+export type TtsErrorInfo = { transient: boolean; category: "quota" | "upstream" | "timeout" | "empty_audio" | "unknown"; code: string | null };
+
+export function classifyTtsError(error: unknown, emptyAudio = false): TtsErrorInfo {
+  if (emptyAudio) return { transient: false, category: "empty_audio", code: "EMPTY_AUDIO" };
+  const value = error as { message?: unknown; code?: unknown; status?: unknown; cause?: unknown } | null;
+  const message = value && typeof value.message === "string" ? value.message : String(error ?? "");
+  const details = [message, value && value.code, value && value.status, value && value.cause].map((part) => String(part ?? "")).join(" ");
+  const code = details.match(/\b(3036|3040|3043)\b/)?.[1] ?? null;
+  if (code === "3036") return { transient: false, category: "quota", code };
+  if (code === "3040" || code === "3043" || /internal server error|temporar|timeout|overload|unavailable/i.test(details)) {
+    return { transient: true, category: /timeout/i.test(details) ? "timeout" : "upstream", code };
+  }
+  return { transient: false, category: "unknown", code };
+}
 
 function decodeEntities(value: string): string {
   return value
