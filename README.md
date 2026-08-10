@@ -42,8 +42,8 @@ fast, server-rendered pages.
   browser and stored in R2 like other images.
 - **Subscriptions** — readers subscribe from a box on the home page and under
   every post; authors see the list at `/admin/b/<public-id>/subscribers` with CSV
-  export. Capture and unsubscribe work with no dependencies. Add a Resend API
-  key to also send a welcome email and notify subscribers on each new post.
+  export. Capture and unsubscribe work without email configuration. MailNice
+  sends welcome messages and subscriber notifications when configured.
 - **Image uploads** — drag, paste, or pick images in the editor. They're
   downscaled and recompressed to WebP in the browser, stored in an R2 bucket,
   served through the Worker with a one-year immutable cache, and inserted into
@@ -82,7 +82,7 @@ fast, server-rendered pages.
     src/auth.ts       Password hashing, sessions, cookies
     src/db.ts         The data split + sharding seam (index vs posts database)
     src/cloudflare.ts Cloudflare for SaaS custom-hostname API wrapper
-    src/email.ts      Optional transactional email via Resend
+    src/email.ts      Transactional email via MailNice
     src/metrics.ts    Analytics Engine writes/queries + daily R2 rollups
     schema.sql        Index database: accounts, memberships, tenants, sessions, domains
     schema-posts.sql  Posts database: post bodies
@@ -356,8 +356,7 @@ subscribe, and a notification when a post first goes live — connect MailNice:
 
 Once both are set, `src/email.ts` starts sending through MailNice; until then
 it is a silent no-op. A registration welcome is queued after each successful
-signup and never blocks account creation. The legacy `RESEND_API_KEY` remains
-supported as a fallback.
+signup and never blocks account creation.
 
 New-post notifications are placed on the dedicated `blognice-email` Cloudflare
 Queue and delivered by a retrying consumer in controlled batches. Delivery
@@ -434,8 +433,8 @@ the existing `blognice_events` Analytics Engine dataset rather than D1, retains
 the latest 90 days, and records only action names, targets, and internal actor
 IDs—never post content, passwords, tokens, or API keys.
 Notifications fire on the draft→published transition, so re-saving a live post
-won't re-send. Note Resend's free tier caps (100/day, 3000/month) — fine to
-start; add batching/queueing before large lists.
+won't re-send. Delivery is queued and retried by the email worker so large
+subscriber lists do not block publishing.
 
 ## How tenants and domains work
 
