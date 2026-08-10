@@ -27,7 +27,21 @@ type EmailMessage = {
   html: string;
   plainText?: string;
   headers?: Record<string, string>;
+  emailKind?: string;
+  senderName?: string;
 };
+
+const PLATFORM_SUPPORT = "support@blognice.com";
+const PLATFORM_PRIVACY = "https://www.blognice.com/privacy";
+const PLATFORM_POSTAL = "Pragmatic Online Co., Ltd., Prego Mall, 229/14 Moo 8, Tonpao, San Kamphaeng, Chiang Mai 50130, Thailand";
+
+function withIdentityFooter(msg: EmailMessage): EmailMessage {
+  const sender = msg.senderName?.trim() || "blognice";
+  const bulk = msg.emailKind === "post-notification" || msg.emailKind === "subscription-welcome" || msg.emailKind === "subscriber-confirmation";
+  const plainFooter = `\n\nSent by ${sender} via blognice.\nSupport: ${PLATFORM_SUPPORT}\nPrivacy: ${PLATFORM_PRIVACY}${bulk ? `\n\n${PLATFORM_POSTAL}` : ""}`;
+  const htmlFooter = `<hr><p style="color:#687064;font-size:12px">Sent by ${sender} via blognice · <a href="mailto:${PLATFORM_SUPPORT}">Support</a> · <a href="${PLATFORM_PRIVACY}">Privacy</a>${bulk ? `<br>${PLATFORM_POSTAL}` : ""}</p>`;
+  return { ...msg, plainText: `${msg.plainText || msg.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()}${plainFooter}`, html: `${msg.html}${htmlFooter}` };
+}
 
 export type EmailDeliveryResult = {
   ok: boolean;
@@ -40,13 +54,14 @@ export async function sendEmailDetailed(
   msg: EmailMessage,
 ): Promise<EmailDeliveryResult> {
   if (!emailEnabled(env)) return { ok: false, provider: "none", detail: "Email integration is not configured." };
+  const outgoing = withIdentityFooter(msg);
   if (env.MAILNICE_API_KEY) {
     const result = await sendMailNice(env, {
-      to: msg.to,
-      subject: msg.subject,
-      plainBody: msg.plainText || msg.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
-      html: msg.html,
-      headers: msg.headers,
+      to: outgoing.to,
+      subject: outgoing.subject,
+      plainBody: outgoing.plainText || "",
+      html: outgoing.html,
+      headers: outgoing.headers,
     });
     return { ...result, provider: "mailnice" };
   }
@@ -59,10 +74,11 @@ export async function sendEmailDetailed(
       },
       body: JSON.stringify({
         from: env.EMAIL_FROM,
-        to: msg.to,
-        subject: msg.subject,
-        html: msg.html,
-        headers: msg.headers,
+        to: outgoing.to,
+        subject: outgoing.subject,
+        html: outgoing.html,
+        text: outgoing.plainText,
+        headers: outgoing.headers,
       }),
     });
     return res.ok

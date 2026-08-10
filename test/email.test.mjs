@@ -17,6 +17,9 @@ test("MailNice is preferred for transactional email", () => {
   assert.match(email, /plainBody/);
   assert.match(email, /sendEmailDetailed/);
   assert.match(email, /provider: "mailnice"/);
+  assert.match(email, /Sent by .* via blognice/);
+  assert.match(email, /PLATFORM_SUPPORT/);
+  assert.match(email, /PLATFORM_POSTAL/);
 });
 
 test("signup queues a registration welcome without blocking account creation", () => {
