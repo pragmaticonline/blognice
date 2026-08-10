@@ -281,13 +281,20 @@ function customDomainRedirect(c: any, tenant: Tenant): Response | null {
 // ---------------------------------------------------------------------------
 async function serveCached(
   c: any,
-  build: () => Promise<Response>
+  build: () => Promise<Response>,
+  varyConsent = false
 ): Promise<Response> {
   const cache = caches.default;
   // Bump this when public shell markup/CSS changes so old edge HTML cannot
   // hide newly shipped controls until the normal five-minute TTL expires.
   const cacheUrl = new URL(c.req.url);
   cacheUrl.searchParams.set("_bn_shell", CACHE_VERSION);
+  // Keep public HTML in two consent cohorts, without fragmenting RSS/sitemap
+  // caches by country.
+  if (varyConsent) {
+    const country = String(c.req.raw.cf?.country || "").trim().toUpperCase();
+    cacheUrl.searchParams.set("_bn_consent", analyticsConsentRequired(country) ? "required" : "optional");
+  }
   const key = new Request(cacheUrl.toString(), { method: "GET" });
   const hit = await cache.match(key);
   if (hit) return hit;
@@ -300,11 +307,23 @@ async function serveCached(
   return res;
 }
 
+function cachePurgeVariants(url: string): string[] {
+  return cacheVariants(url).flatMap((candidate) => {
+    const parsed = new URL(candidate);
+    if (!parsed.searchParams.has("_bn_shell")) return [candidate];
+    return [candidate, ...["required", "optional"].map((cohort) => {
+      const variant = new URL(parsed);
+      variant.searchParams.set("_bn_consent", cohort);
+      return variant.toString();
+    })];
+  });
+}
+
 async function purge(c: any, paths: string[]): Promise<void> {
   const cache = caches.default;
   const origin = originOf(c);
   await Promise.all(
-    paths.flatMap((p) => cacheVariants(origin + p).map((url) => cache.delete(new Request(url, { method: "GET" }))))
+    paths.flatMap((p) => cachePurgeVariants(origin + p).map((url) => cache.delete(new Request(url, { method: "GET" }))))
   );
 }
 
@@ -313,7 +332,7 @@ async function purge(c: any, paths: string[]): Promise<void> {
 async function purgeHost(hostname: string, paths: string[]): Promise<void> {
   const cache = caches.default;
   await Promise.all(
-    paths.flatMap((p) => cacheVariants(`https://${hostname}${p}`).map((url) =>
+    paths.flatMap((p) => cachePurgeVariants(`https://${hostname}${p}`).map((url) =>
       cache.delete(new Request(url, { method: "GET" }))
     ))
   );
@@ -398,7 +417,7 @@ async function purgeTenant(
   const purgePaths = Array.from(new Set([...paths, "/rss.xml"]));
   for (const host of hosts)
     for (const p of purgePaths)
-      for (const url of cacheVariants(`https://${host}${p}`))
+      for (const url of cachePurgeVariants(`https://${host}${p}`))
         jobs.push(cache.delete(new Request(url, { method: "GET" })));
   await Promise.all(jobs);
 }
@@ -1702,7 +1721,10 @@ async function checkedFeaturedImage(
 
 app.get("/admin/login", async (c) => {
   if (await currentAccount(c)) return c.redirect("/admin");
-  return c.html(loginPage());
+  clearSessionCookie(c);
+  const response = c.html(loginPage());
+  response.headers.set("Cache-Control", "no-store, max-age=0");
+  return response;
 });
 
 async function forgotPasswordHandler(c: Context<{ Bindings: Bindings }>) {
@@ -1731,15 +1753,15 @@ async function sendForgotPasswordHandler(c: Context<{ Bindings: Bindings }>) {
       await c.env.DB.prepare("DELETE FROM password_resets WHERE account_id = ?").bind(account.id).run();
       await c.env.DB.prepare("INSERT INTO password_resets (token_hash, account_id, created_at, expires_at, used) VALUES (?, ?, ?, ?, 0)")
         .bind(tokenHash, account.id, now, now + 3600).run();
-      const resetUrl = `https://blognice.com/admin/reset?token=${encodeURIComponent(rawToken)}`;
+      const resetUrl = `https://www.blognice.com/admin/reset?token=${encodeURIComponent(rawToken)}`;
       const job: EmailJobMessage = {
         kind: "email-delivery",
         emailKind: "password-reset",
         idempotencyKey: `password-reset:${tokenHash}`,
         to: account.email,
         subject: "Reset your blognice password",
-        plainText: `We received a request to reset your blognice password.\n\nReset it here: ${resetUrl}\n\nThis link expires in one hour. If you did not request this, you can ignore this email.`,
-        html: `<p>We received a request to reset your blognice password.</p><p><a href="${resetUrl}">Reset your password</a></p><p style="color:#687064;font-size:13px">This link expires in one hour. If you did not request this, you can ignore this email.</p>`,
+        plainText: `We received a request to reset your blognice password.\n\nReset your password: ${resetUrl}\n\nThis link expires in one hour. If you did not request this, you can ignore this email — your password will stay the same.`,
+        html: `<h2 style="font-family:Arial,sans-serif;text-align:center">Reset password</h2><p>We received a request to reset your blognice password.</p><p style="text-align:center"><a href="${resetUrl}" style="display:inline-block;background:#1a8917;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:700">Reset your password</a></p><p style="color:#687064;font-size:13px;text-align:center">Or copy and paste this link into your browser:<br><a href="${resetUrl}" style="word-break:break-all">${resetUrl}</a></p><p style="background:#fff8e8;border:1px solid #ead9a9;padding:14px;color:#694d08">This link expires in one hour. If you did not request this, you can ignore this email — your password will stay the same.</p><hr><p><strong>Need a hand?</strong><br>Reply to this email or contact <a href="mailto:support@blognice.com">support@blognice.com</a>.</p>`,
       };
       if (emailEnabled(c.env) || c.env.MAILNICE_API_KEY || c.env.RESEND_API_KEY) {
         // Password resets are transactional and time-sensitive. Await the
@@ -1819,6 +1841,7 @@ async function applyPasswordResetHandler(c: Context<{ Bindings: Bindings }>) {
       return c.html(resetPasswordPage("", "This reset link is invalid or has expired."), 400);
     }
     const session = await createSession(c.env.DB, reset.account_id);
+    clearSessionCookie(c);
     setSessionCookie(c, session);
     return c.redirect("/admin?message=Password%20updated");
   } catch (error) {
@@ -1897,9 +1920,15 @@ app.post("/admin/login", async (c) => {
     .first<{ id: number; pw_hash: string }>();
 
   const ok = account ? await verifyPassword(password, account.pw_hash) : false;
-  if (!ok) return c.html(loginPage("Wrong email or password."), 401);
+  if (!ok) {
+    clearSessionCookie(c);
+    const response = c.html(loginPage("Wrong email or password."), 401);
+    response.headers.set("Cache-Control", "no-store, max-age=0");
+    return response;
+  }
 
   const token = await createSession(c.env.DB, account!.id);
+  clearSessionCookie(c);
   setSessionCookie(c, token);
   return c.redirect("/admin");
 });
@@ -2988,6 +3017,7 @@ type EmailJobMessage = {
   plainText: string;
   html: string;
   headers?: Record<string, string>;
+  senderName?: string;
 };
 type EmailFanoutMessage = { kind: "email-fanout"; campaignId: string; tenantId: number; postSlug: string; postTitle: string; afterId: number };
 type AudioJobManifest = {
@@ -3690,6 +3720,7 @@ app.post("/signup", async (c) => {
     }));
     const tenant = await c.env.DB.prepare("SELECT public_id FROM tenants WHERE id = ?").bind(invite.tenant_id).first<{ public_id: string }>();
     const token = await createSession(c.env.DB, accountId);
+    clearSessionCookie(c);
     setSessionCookie(c, token);
     return c.redirect(`/admin/b/${tenant?.public_id ?? ""}`);
   }
@@ -3722,6 +3753,7 @@ app.post("/signup", async (c) => {
   }));
 
   const token = await createSession(c.env.DB, accountId);
+  clearSessionCookie(c);
   setSessionCookie(c, token);
   return c.redirect(`/admin/b/${publicId}`);
   // TODO: before a public launch, add email verification here (send a confirm
@@ -3968,8 +4000,9 @@ app.post("/subscribe", async (c) => {
     idempotencyKey: `subscriber-confirmation:${tokenHash}`,
     to: email,
     subject: `Confirm your subscription to ${tenant.title}`,
-    plainText: `Please confirm your subscription to ${tenant.title}.\n\nConfirm here: ${confirmUrl}\n\nThis link expires in 24 hours. If you did not request this, you can ignore this email.`,
-    html: `<p>Please confirm your subscription to <strong>${esc(tenant.title)}</strong>.</p><p><a href="${confirmUrl}">Confirm subscription</a></p><p style="color:#687064;font-size:13px">This link expires in 24 hours. If you did not request this, you can ignore this email.</p>`,
+    senderName: tenant.title,
+    plainText: `You requested to receive new posts from ${tenant.title} at this email address.\n\nConfirm your subscription only if you made this request:\n${confirmUrl}\n\nThis link expires in 24 hours. If you did not request this, you can ignore this email. No subscription will be created unless you confirm.`,
+    html: `<p>You requested to receive new posts from <strong>${esc(tenant.title)}</strong> at this email address.</p><p>Click below only if you made this request.</p><p style="margin:24px 0;text-align:center"><a href="${esc(confirmUrl)}" style="display:inline-block;background:#168b16;color:#fff;text-decoration:none;font-weight:700;padding:12px 24px;border-radius:7px">Confirm subscription</a></p><p style="color:#687064;font-size:13px;margin:0 0 8px">This link expires in 24 hours. If you did not request this, you can ignore this email — no subscription will be created unless you confirm.</p><p style="color:#687064;font-size:12px;overflow-wrap:anywhere;word-break:break-word">Or copy and paste this link into your browser:<br><a href="${esc(confirmUrl)}" style="color:#168b16;overflow-wrap:anywhere;word-break:break-word">${esc(confirmUrl)}</a></p>`,
   };
   const result = await requestSubscriberConfirmation({
     isConfirmed: async () => Boolean(existing),
@@ -4088,6 +4121,7 @@ async function subscriberConfirmation(c: Context<{ Bindings: Bindings }>, rawTok
       emailKind: "subscription-welcome",
       idempotencyKey: `subscriber-welcome:${tenant.id}:${row.email}`,
       to: row.email,
+      senderName: tenant.title,
       subject: `You're subscribed to ${tenant.title}`,
       plainText: `Thanks for subscribing to ${tenant.title}. You'll get new posts by email.\n\nUnsubscribe: ${unsub}\nManage subscriptions: ${manageUrl}`,
       html: `<p>Thanks for subscribing to <strong>${esc(tenant.title)}</strong>. You'll get new posts by email.</p><hr><p style="color:#687064;font-size:13px"><a href="${unsub}">Unsubscribe</a> anytime · <a href="${manageUrl}">Manage subscriptions</a>.</p>`,
@@ -4116,10 +4150,18 @@ async function processEmailFanout(env: Bindings, job: EmailFanoutMessage): Promi
   if (!env.EMAIL_QUEUE) throw new Error("Email queue is not configured.");
   const tenant = await tenantById(env, job.tenantId);
   if (!tenant) return;
+  const post = await tenantDb(env, tenant).prepare(
+    "SELECT title, body_md, featured_image_key, author_name, author_visible, created_at FROM posts WHERE tenant_id = ? AND slug = ? AND published = 1"
+  ).bind(tenant.id, job.postSlug).first<{ title: string; body_md: string; featured_image_key?: string | null; author_name?: string | null; author_visible?: number; created_at: number }>();
+  if (!post) return;
   const subscribers = await env.DB.prepare("SELECT id, email, token FROM subscribers WHERE tenant_id = ? AND confirmed_at IS NOT NULL AND id > ? ORDER BY id LIMIT 100")
     .bind(job.tenantId, job.afterId).all<{ id: number; email: string; token: string }>();
   const origin = publicOrigin(env, tenant);
   const postUrl = `${origin}/${job.postSlug}`;
+  const imageUrl = post.featured_image_key ? `${origin}/media/${post.featured_image_key}` : "";
+  const excerpt = post.body_md.replace(/```[\s\S]*?```/g, " ").replace(/[#>*_`\[\]()>-]/g, " ").replace(/\s+/g, " ").trim().slice(0, 220);
+  const author = post.author_visible && post.author_name ? `By ${post.author_name} · ` : "";
+  const publishedLabel = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date(post.created_at * 1000));
   const deliveries: EmailJobMessage[] = [];
   for (const subscriber of subscribers.results) {
     const unsub = `${origin}/unsubscribe/${subscriber.token}`;
@@ -4130,8 +4172,9 @@ async function processEmailFanout(env: Bindings, job: EmailFanoutMessage): Promi
       subscriberId: subscriber.id,
       to: subscriber.email,
       subject: job.postTitle,
-      plainText: `New post on ${tenant.title}:\n\n${job.postTitle}\n${postUrl}\n\nUnsubscribe: ${unsub}\nManage subscriptions: ${manageUrl}`,
-      html: `<p>New post on <strong>${esc(tenant.title)}</strong>:</p><h2 style="font-family:sans-serif"><a href="${postUrl}">${esc(job.postTitle)}</a></h2><p><a href="${postUrl}">Read it &rarr;</a></p><hr><p style="color:#888;font-size:13px">You're subscribed to ${esc(tenant.title)}. <a href="${unsub}">Unsubscribe</a> · <a href="${manageUrl}">Manage subscriptions</a>.</p>`,
+      senderName: tenant.title,
+      plainText: `New post on ${tenant.title}:\n\n${job.postTitle}\n${author}${excerpt}\n\nRead it: ${postUrl}\n\nUnsubscribe: ${unsub}\nManage subscriptions: ${manageUrl}`,
+      html: `<p style="color:#236923;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;text-align:center">New post on ${esc(tenant.title)}</p>${imageUrl ? `<p><a href="${postUrl}"><img src="${esc(imageUrl)}" alt="${esc(job.postTitle)}" width="600" style="display:block;width:100%;max-width:600px;height:auto;border-radius:7px"></a></p>` : ""}<h2 style="font-family:Arial,sans-serif"><a href="${postUrl}" style="color:#171914;text-decoration:none">${esc(job.postTitle)}</a></h2><p style="color:#687064;font-size:13px">${esc(author)}${publishedLabel} · ${Math.max(1, Math.ceil(post.body_md.split(/\s+/).filter(Boolean).length / 200))} min read</p><p>${esc(excerpt)}</p><p style="text-align:center"><a href="${postUrl}" style="display:inline-block;background:#1a8917;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:700">Read it &rarr;</a></p><hr><p style="color:#687064;font-size:13px">You're subscribed to ${esc(tenant.title)}. <a href="${unsub}">Unsubscribe</a> · <a href="${manageUrl}">Manage subscriptions</a>.</p>`,
       headers: { "List-Unsubscribe": `<${unsub}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
     });
   }
@@ -4623,7 +4666,7 @@ app.get("/", async (c) => {
       status: 200,
       headers: { "content-type": "text/html; charset=utf-8" },
     });
-  });
+  }, true);
 });
 
 // A single post: /<slug>. This is the catch-all, so it goes last.
@@ -4669,7 +4712,7 @@ app.get("/:slug", async (c) => {
       status: 200,
       headers: { "content-type": "text/html; charset=utf-8" },
     });
-  });
+  }, true);
 });
 
 export default {

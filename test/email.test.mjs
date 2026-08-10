@@ -17,6 +17,9 @@ test("MailNice is preferred for transactional email", () => {
   assert.match(email, /plainBody/);
   assert.match(email, /sendEmailDetailed/);
   assert.match(email, /provider: "mailnice"/);
+  assert.match(email, /Sent by .* via blognice/);
+  assert.match(email, /PLATFORM_SUPPORT/);
+  assert.match(email, /PLATFORM_POSTAL/);
 });
 
 test("signup queues a registration welcome without blocking account creation", () => {
@@ -38,6 +41,14 @@ test("subscriber notification claims are atomic and one-time", () => {
   assert.match(postsSchema, /subscriber_notification_sent INTEGER NOT NULL DEFAULT 0/);
 });
 
+test("email templates use branded reset links and enriched post notifications", () => {
+  assert.match(index, /https:\/\/www\.blognice\.com\/admin\/reset\?token=/);
+  assert.match(index, /Or copy and paste this link into your browser/);
+  assert.match(index, /featured_image_key/);
+  assert.match(index, /List-Unsubscribe-Post/);
+  assert.match(index, /Read it &rarr;/);
+});
+
 test("subscription emails include one-click and manage-subscriptions links", () => {
   assert.match(index, /List-Unsubscribe-Post/);
   assert.match(index, /manage-subscriptions/);
@@ -45,11 +56,16 @@ test("subscription emails include one-click and manage-subscriptions links", () 
 });
 
 test("subscriber signup requires double opt-in and cannot resend pending confirmations", () => {
+  const subscribeBlock = index.slice(index.indexOf('app.post("/subscribe"'), index.indexOf('app.get("/privacy"'));
   assert.match(index, /subscriber_confirmations/);
   assert.match(index, /app\.get\("\/subscribe\/confirm"/);
   assert.match(index, /app\.post\("\/subscribe\/confirm"/);
   assert.match(subscriberOptin, /method === "GET/);
   assert.match(index, /Confirm your subscription/);
+  assert.match(subscribeBlock, /senderName: tenant\.title/);
+  assert.match(subscribeBlock, /only if you made this request/);
+  assert.match(subscribeBlock, /No subscription will be created unless you confirm/);
+  assert.match(subscribeBlock, /overflow-wrap:anywhere/);
   assert.match(index, /INSERT OR IGNORE INTO subscriber_confirmations/);
   assert.match(index, /sent_at <= \?/);
   assert.match(index, /subscriber-confirmation:/);

@@ -97,9 +97,9 @@ test("public beacon browser script is syntactically valid", () => {
   }
 });
 
-test("analytics consent is required for EEA, UK, Switzerland, and unknown countries", () => {
-  for (const country of ["DE", "IS", "LI", "NO", "GB", "CH", ""]) assert.equal(analyticsConsentRequired(country), true, country);
-  for (const country of ["TH", "US", "AU"]) assert.equal(analyticsConsentRequired(country), false, country);
+test("analytics consent is required for EEA, UK, and Switzerland, but unknown is off", () => {
+  for (const country of ["DE", "IS", "LI", "NO", "GB", "CH"]) assert.equal(analyticsConsentRequired(country), true, country);
+  for (const country of ["", "TH", "US", "AU"]) assert.equal(analyticsConsentRequired(country), false, country);
   assert.match(metricsBeacon(true), /Help us improve blognice/);
   assert.match(metricsBeacon(false), /Help us improve blognice/);
   assert.doesNotMatch(metricsBeacon(true), /createElement\("button"\).*Analytics preferences/);
@@ -112,6 +112,7 @@ test("report queries include aggregate audience and audio breakdowns", () => {
   assert.match(queries.browsers, /blob6 AS name/);
   assert.match(queries.audioSummary, /FROM blognice_events/);
   assert.match(queries.audioSummary, /sumIf\(_sample_interval, blob1 = 'audio_start'\)/);
+  assert.match(queries.audioPages, /blob1 IN \('audio_start', 'audio_complete'\)/);
 });
 
 test("daily archive stores aggregate rows under a date-partitioned R2 key", async () => {
