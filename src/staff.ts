@@ -16,6 +16,9 @@ type StaffBindings = {
   MAILNICE_API_KEY?: string;
   RESEND_API_KEY?: string;
   EMAIL_FROM?: string;
+  ROOT_DOMAIN?: string;
+  STRIPE_MONTHLY_PRICE_ID?: string;
+  STRIPE_YEARLY_PRICE_ID?: string;
 };
 
 type TestEmailType = "registration" | "subscription-active" | "subscriber-confirmation" | "subscriber-welcome" | "new-post" | "password-reset";
@@ -97,6 +100,11 @@ function requestId(c: any): string {
   return c.req.header("Cf-Ray") || c.req.header("X-Request-ID") || crypto.randomUUID();
 }
 
+function boundedPage(value: string | undefined): number {
+  const parsed = Number(value || 1);
+  return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 10_000_000 ? parsed : 1;
+}
+
 function sameOrigin(c: any): boolean {
   const origin = c.req.header("Origin");
   const requestUrl = new URL(c.req.url);
@@ -165,6 +173,8 @@ async function accountById(c: any, id: number) {
   return c.env.DB.prepare(
     `SELECT a.id, a.email, COALESCE(a.status, 'active') AS status,
             a.status_reason, a.status_changed_at, a.created_at,
+            a.stripe_customer_id, a.billing_status, a.billing_price_id,
+            a.billing_period_end, a.billing_cancel_at_period_end,
             a.api_key_hash IS NOT NULL AS has_api_key,
             (SELECT COUNT(*) FROM sessions s WHERE s.account_id = a.id AND s.expires_at > ?) AS active_sessions,
             (SELECT COUNT(*) FROM memberships m WHERE m.account_id = a.id) AS blog_count
@@ -172,10 +182,26 @@ async function accountById(c: any, id: number) {
   ).bind(Math.floor(Date.now() / 1000), id).first();
 }
 
+function staffHeader(staff: StaffIdentity): string {
+  return `<header class="top"><h1><a href="/">blognice staff</a></h1><div class="top-meta"><small>${esc(staff.email)} · ${esc(staff.role)}</small><a class="logout" href="/cdn-cgi/access/logout">Log out</a></div></header><nav aria-label="Staff navigation"><a href="/">Accounts</a><a href="/audit">Audit log</a><a href="/pronunciations">Pronunciation dictionary</a><a href="/tts-test">TTS test</a></nav>`;
+}
+
+function billingPlan(account: any, c: any): string {
+  if (!account.billing_status || !["active", "trialing", "past_due", "canceled"].includes(String(account.billing_status))) return "Free";
+  const price = String(account.billing_price_id || "");
+  if (c.env.STRIPE_YEARLY_PRICE_ID && price === c.env.STRIPE_YEARLY_PRICE_ID) return "Pro Yearly";
+  if (c.env.STRIPE_MONTHLY_PRICE_ID && price === c.env.STRIPE_MONTHLY_PRICE_ID) return "Pro Monthly";
+  return "Pro";
+}
+
 function staffPage(title: string, body: string): string {
+  body = `<a class="logout" style="position:fixed;top:18px;right:24px;z-index:2" href="/cdn-cgi/access/logout">Log out</a>${body}`;
+  // Normalize branding before the shell is assembled; the shell must not rewrite
+  // arbitrary rendered values such as account emails, blog titles, or audit reasons.
+  // Static staff copy is normalized at its source; do not rewrite rendered user data.
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · blognice staff</title><style>
-  :root{color-scheme:light;--ink:#171914;--muted:#687064;--rule:#dfe4da;--paper:#f7f8f3;--accent:#1a8917}*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}.wrap{max-width:1120px;margin:auto;padding:28px}.top{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid var(--rule);padding-bottom:18px;margin-bottom:24px}.top h1{font-size:1.25rem;margin:0}.top small{color:var(--muted)}nav{display:flex;gap:16px;margin-bottom:24px;font-size:.92rem}nav a{color:var(--muted)}nav a:hover{color:var(--ink)}h2{font-size:1.6rem;margin:0 0 8px}.muted{color:var(--muted)}.search{display:flex;gap:8px;margin:20px 0}.search input{flex:1;padding:10px 12px;border:1px solid var(--rule);border-radius:6px;font:inherit;background:#fff}.btn{border:1px solid var(--rule);background:#fff;border-radius:6px;padding:9px 13px;font:inherit;cursor:pointer}.btn:hover,.btn:focus-visible{border-color:var(--accent)}.btn-danger{color:#8d241b}.card{background:#fff;border:1px solid var(--rule);border-radius:9px;margin:14px 0;padding:18px}.card-head{display:flex;justify-content:space-between;gap:16px;align-items:center}.badge{display:inline-block;border-radius:999px;padding:3px 9px;font-size:.78rem;background:#eaf4e8;color:#20611e}.badge.suspended{background:#fae7e4;color:#8d241b}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--rule);vertical-align:top}th{font-size:.78rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}.actions form{display:inline-flex;gap:6px}.actions input{min-width:190px;padding:8px;border:1px solid var(--rule);border-radius:5px}.notice{padding:12px;border-radius:6px;background:#fff4d6;margin:12px 0}.empty{padding:28px;text-align:center;color:var(--muted)}
-  </style></head><body><main class="wrap">${body}</main><footer class="staff-footer"><span><strong>blognice</strong> · © 2026 Pragmatic Online Co., Ltd.</span><nav aria-label="Legal"><a href="https://www.blognice.com/policies">Policies</a></nav></footer></body></html>`.replace("</style>", ".staff-footer{max-width:1120px;margin:0 auto;padding:1.2rem 28px 2rem;border-top:1px solid var(--rule);display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;color:var(--muted);font-size:.82rem}.staff-footer nav{display:flex;gap:1rem;margin:0;flex-wrap:wrap}.staff-footer a{color:inherit;text-decoration:none}.staff-footer a:hover,.staff-footer a:focus-visible{color:var(--accent);text-decoration:underline}@media(max-width:640px){.staff-footer{align-items:flex-start;flex-direction:column}}</style>").replaceAll("BlogNice", "blognice").replaceAll("Blog Nice", "blognice");
+  :root{color-scheme:light;--ink:#171914;--muted:#687064;--rule:#dfe4da;--paper:#f7f8f3;--accent:#1a8917}*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}.wrap{max-width:1120px;margin:auto;padding:28px}.top{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid var(--rule);padding-bottom:18px;margin-bottom:18px}.top h1{font-size:1.25rem;margin:0}.top small{color:var(--muted)}.top-meta{display:flex;align-items:center;gap:14px}.logout{font-size:.86rem;color:var(--muted);border:1px solid var(--rule);padding:5px 9px;border-radius:5px}.logout:hover,.logout:focus-visible{color:var(--ink);border-color:var(--accent)}nav{display:flex;gap:16px;margin-bottom:24px;font-size:.92rem}nav a{color:var(--muted)}nav a:hover{color:var(--ink)}h2{font-size:1.6rem;margin:0 0 8px}.muted{color:var(--muted)}.search{display:flex;gap:8px;margin:20px 0}.search input{flex:1;padding:10px 12px;border:1px solid var(--rule);border-radius:6px;font:inherit;background:#fff}.btn{border:1px solid var(--rule);background:#fff;border-radius:6px;padding:9px 13px;font:inherit;cursor:pointer}.btn:hover,.btn:focus-visible{border-color:var(--accent)}.btn-danger{color:#8d241b}.card{background:#fff;border:1px solid var(--rule);border-radius:9px;margin:14px 0;padding:18px}.card-head{display:flex;justify-content:space-between;gap:16px;align-items:center}.badge{display:inline-block;border-radius:999px;padding:3px 9px;font-size:.78rem;background:#eaf4e8;color:#20611e}.badge.suspended{background:#fae7e4;color:#8d241b}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--rule);vertical-align:top}th{font-size:.78rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}.actions form{display:inline-flex;gap:6px}.actions input{min-width:190px;padding:8px;border:1px solid var(--rule);border-radius:5px}.notice{padding:12px;border-radius:6px;background:#fff4d6;margin:12px 0}.empty{padding:28px;text-align:center;color:var(--muted)}@media(max-width:640px){.top{align-items:flex-start;gap:12px;flex-direction:column}.top-meta{width:100%;justify-content:space-between}nav{flex-wrap:wrap}}
+  </style></head><body><main class="wrap">${body}</main><footer class="staff-footer"><span><strong>blognice</strong> · © 2026 Pragmatic Online Co., Ltd.</span><nav aria-label="Legal"><a href="https://www.blognice.com/policies">Policies</a></nav></footer></body></html>`.replace("</style>", ".staff-footer{max-width:1120px;margin:0 auto;padding:1.2rem 28px 2rem;border-top:1px solid var(--rule);display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;color:var(--muted);font-size:.82rem}.staff-footer nav{display:flex;gap:1rem;margin:0;flex-wrap:wrap}.staff-footer a{color:inherit;text-decoration:none}.staff-footer a:hover,.staff-footer a:focus-visible{color:var(--accent);text-decoration:underline}@media(max-width:640px){.staff-footer{align-items:flex-start;flex-direction:column}}</style>");
 }
 
 const app = new Hono<{ Bindings: StaffBindings; Variables: { staff: StaffIdentity } }>();
@@ -191,15 +217,15 @@ app.use("*", async (c, next) => {
 
 app.get("/api/accounts", async (c) => {
   const q = String(c.req.query("q") || "").trim().slice(0, 100);
-  const page = Math.max(1, Number(c.req.query("page") || 1) || 1);
+  const page = boundedPage(c.req.query("page"));
   const limit = 50;
   const pattern = `%${q.replace(/[\\%_]/g, "\\$&")}%`;
-  const where = q ? "WHERE a.email LIKE ? ESCAPE '\\'" : "";
-  const params = q ? [pattern] : [];
+  const where = q ? "WHERE a.email LIKE ? ESCAPE '\\' OR CAST(a.id AS TEXT) LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM memberships sm JOIN tenants st ON st.id = sm.tenant_id WHERE sm.account_id = a.id AND (st.title LIKE ? ESCAPE '\\' OR st.slug LIKE ? ESCAPE '\\' OR st.custom_domain LIKE ? ESCAPE '\\' OR st.public_id LIKE ? ESCAPE '\\'))" : "";
+  const params = q ? [pattern, pattern, pattern, pattern, pattern, pattern] : [];
   const rows = await c.env.DB.prepare(
     `SELECT a.id, a.email, COALESCE(a.status, 'active') AS status, a.created_at,
             (SELECT COUNT(*) FROM memberships m WHERE m.account_id = a.id) AS blog_count
-       FROM accounts a ${where} ORDER BY a.created_at DESC LIMIT ? OFFSET ?`
+       FROM accounts a ${where} ORDER BY a.created_at DESC, a.id DESC LIMIT ? OFFSET ?`
   ).bind(...params, limit, (page - 1) * limit).all();
   return c.json({ page, limit, accounts: rows.results });
 });
@@ -324,9 +350,9 @@ app.post("/api/test-email", async (c) => {
       headers: { "List-Unsubscribe": `<${unsubscribe}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
     },
     "password-reset": {
-      subject: "Reset your Blog Nice password",
-      plainBody: "We received a request to reset your Blog Nice password.\n\nReset it here: https://blognice.com/admin/reset?token=staff-email-preview-token\n\nThis link expires in one hour. If you did not request this, you can ignore this email.",
-      html: "<p>We received a request to reset your Blog Nice password.</p><p><a href=\"https://blognice.com/admin/reset?token=staff-email-preview-token\">Reset your password</a></p><p style=\"color:#687064;font-size:13px\">This link expires in one hour. If you did not request this, you can ignore this email.</p>",
+      subject: "Reset your blognice password",
+      plainBody: "We received a request to reset your blognice password.\n\nReset it here: https://blognice.com/admin/reset?token=staff-email-preview-token\n\nThis link expires in one hour. If you did not request this, you can ignore this email.",
+      html: "<p>We received a request to reset your blognice password.</p><p><a href=\"https://blognice.com/admin/reset?token=staff-email-preview-token\">Reset your password</a></p><p style=\"color:#687064;font-size:13px\">This link expires in one hour. If you did not request this, you can ignore this email.</p>",
     },
   };
   const template = templates[type];
@@ -356,11 +382,11 @@ app.get("/pronunciations", async (c) => {
   const { results } = await c.env.DB.prepare(
     "SELECT id, term, spoken, enabled, updated_at FROM pronunciation_overrides ORDER BY term COLLATE NOCASE"
   ).all<{ id: number; term: string; spoken: string; enabled: number; updated_at: number }>();
-  const rows = results.map((row) => `<tr><td><code>${esc(row.term)}</code></td><td>${esc(row.spoken)}</td><td>${row.enabled ? "Enabled" : "Disabled"}</td><td><form method="post" action="/api/pronunciations/${row.id}/delete" style="display:inline"><button class="btn btn-danger" type="submit">Delete</button></form></td></tr>`).join("");
+  const rows = results.map((row) => `<tr><td><code>${esc(row.term)}</code></td><td>${esc(row.spoken)}</td><td>${row.enabled ? "Enabled" : "Disabled"}</td><td><form method="post" action="/api/pronunciations/${row.id}/delete" style="display:inline" onsubmit="return confirm('Delete this pronunciation entry?')"><button class="btn btn-danger" type="submit">Delete</button></form></td></tr>`).join("");
   const editor = canMutate(staff)
     ? `<div class="card"><h2>Add pronunciation</h2><p class="muted">Use an exact term and the way it should be spoken. Entries apply to future narration jobs; existing audio is unchanged.</p><form id="pronunciation-form"><label>Term <input name="term" required maxlength="80" placeholder="UI" style="padding:9px;border:1px solid var(--rule);border-radius:5px;margin:0 8px 0 4px"></label><label>Spoken as <input name="spoken" required maxlength="160" placeholder="U I" style="padding:9px;border:1px solid var(--rule);border-radius:5px;margin:0 8px 0 4px"></label><button class="btn" type="submit">Save pronunciation</button></form><p id="pronunciation-status" class="muted" aria-live="polite"></p></div><script>(function(){var form=document.getElementById('pronunciation-form');var status=document.getElementById('pronunciation-status');form.addEventListener('submit',async function(event){event.preventDefault();var button=form.querySelector('button');button.disabled=true;status.textContent='Saving…';var response=await fetch('/api/pronunciations',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({term:form.elements.term.value,spoken:form.elements.spoken.value})});var data=await response.json().catch(function(){return {}});if(response.ok)location.reload();else{button.disabled=false;status.textContent=data.error||'Could not save pronunciation.';}});})();</script>`
     : `<div class="notice">Your role is read-only. Support or admin staff can edit this dictionary.</div>`;
-  return c.html(staffPage("Pronunciation dictionary", `<header class="top"><h1><a href="/">BlogNice staff</a></h1><small>${esc(staff.email)} · ${esc(staff.role)}</small></header><nav><a href="/">Accounts</a><a href="/pronunciations">Pronunciation dictionary</a><a href="/tts-test">TTS test</a></nav><h2>Pronunciation dictionary</h2><p class="muted">Global substitutions used when preparing Blog Nice narration. For example, <code>UI</code> becomes <code>U I</code>.</p>${editor}<div class="card"><table><thead><tr><th>Term</th><th>Spoken form</th><th>Status</th><th></th></tr></thead><tbody>${rows || `<tr><td colspan="4" class="empty">No custom entries yet.</td></tr>`}</tbody></table></div>`));
+  return c.html(staffPage("Pronunciation dictionary", `<header class="top"><h1><a href="/">blognice staff</a></h1><small>${esc(staff.email)} · ${esc(staff.role)}</small></header><nav><a href="/">Accounts</a><a href="/pronunciations">Pronunciation dictionary</a><a href="/tts-test">TTS test</a></nav><h2>Pronunciation dictionary</h2><p class="muted">Global substitutions used when preparing blognice narration. For example, <code>UI</code> becomes <code>U I</code>.</p>${editor}<div class="card"><table><thead><tr><th>Term</th><th>Spoken form</th><th>Status</th><th></th></tr></thead><tbody>${rows || `<tr><td colspan="4" class="empty">No custom entries yet.</td></tr>`}</tbody></table></div>`));
 });
 
 app.get("/tts-test", async (c) => {
@@ -368,7 +394,7 @@ app.get("/tts-test", async (c) => {
   const editor = canMutate(staff)
     ? `<div class="card"><h2>Short TTS test</h2><p class="muted">Generate a short sample without creating a post or consuming a customer’s AI allowance. Try variants such as <code>ay eye</code>, <code>eigh eye</code>, or <code>A, I</code>.</p><form id="tts-test-form"><label>Text <input name="text" required maxlength="240" value="AI is useful." style="padding:9px;border:1px solid var(--rule);border-radius:5px;min-width:360px"></label> <button class="btn" type="submit">Generate sample</button></form><p id="tts-test-status" class="muted" aria-live="polite"></p><audio id="tts-test-audio" controls hidden style="width:min(100%,520px)"></audio></div><script>(function(){var form=document.getElementById('tts-test-form');var status=document.getElementById('tts-test-status');var audio=document.getElementById('tts-test-audio');form.addEventListener('submit',async function(event){event.preventDefault();var button=form.querySelector('button');button.disabled=true;audio.hidden=true;status.textContent='Generating…';try{var response=await fetch('/api/tts-test',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:form.elements.text.value})});if(!response.ok){var data=await response.json().catch(function(){return {}});throw new Error(data.error||'Could not generate sample.');}var blob=await response.blob();if(audio.dataset.url)URL.revokeObjectURL(audio.dataset.url);audio.dataset.url=URL.createObjectURL(blob);audio.src=audio.dataset.url;audio.hidden=false;status.textContent='Sample ready.';await audio.play().catch(function(){});}catch(error){status.textContent=error.message||'Could not generate sample.';}finally{button.disabled=false;}});})();</script>`
     : `<div class="notice">Your role is read-only. TTS testing requires support or admin access.</div>`;
-  return c.html(staffPage("TTS test", `<header class="top"><h1><a href="/">BlogNice staff</a></h1><small>${esc(staff.email)} · ${esc(staff.role)}</small></header><nav><a href="/">Accounts</a><a href="/pronunciations">Pronunciation dictionary</a><a href="/tts-test">TTS test</a></nav><h2>TTS test</h2><p class="muted">Use this for quick pronunciation experiments before regenerating a full article.</p>${editor}`));
+  return c.html(staffPage("TTS test", `<header class="top"><h1><a href="/">blognice staff</a></h1><small>${esc(staff.email)} · ${esc(staff.role)}</small></header><nav><a href="/">Accounts</a><a href="/pronunciations">Pronunciation dictionary</a><a href="/tts-test">TTS test</a></nav><h2>TTS test</h2><p class="muted">Use this for quick pronunciation experiments before regenerating a full article.</p>${editor}`));
 });
 
 app.post("/api/tts-test", async (c) => {
@@ -420,19 +446,32 @@ async function deletePronunciation(c: any) {
 app.delete("/api/pronunciations/:id", deletePronunciation);
 app.post("/api/pronunciations/:id/delete", deletePronunciation);
 
+app.get("/audit", async (c) => {
+  const staff = c.get("staff") as StaffIdentity;
+  const rows = await c.env.DB.prepare(
+    `SELECT occurred_at, email, role, action, target_type, target_id, reason, result, request_id
+       FROM staff_audit_events ORDER BY occurred_at DESC LIMIT 200`
+  ).all<{ occurred_at: number; email: string; role: string; action: string; target_type: string; target_id: string; reason: string | null; result: string; request_id: string }>();
+  const body = rows.results.map((row) => `<tr><td>${new Date(row.occurred_at * 1000).toISOString().replace("T", " ").replace(".000Z", " UTC")}</td><td>${esc(row.email)}<br><small>${esc(row.role)}</small></td><td><strong>${esc(row.action)}</strong><br><small>${esc(row.target_type)}:${esc(row.target_id)}</small></td><td>${esc(row.reason || "—")}</td><td><span class="badge ${row.result === "success" ? "" : "suspended"}">${esc(row.result)}</span></td><td><code>${esc(row.request_id)}</code></td></tr>`).join("");
+  return c.html(staffPage("Staff audit log", `${staffHeader(staff)}<h2>Staff audit log</h2><p class="muted">The latest 200 staff actions, including who performed them, when, the reason supplied, and the result.</p><div class="card"><table><thead><tr><th>When</th><th>Staff member</th><th>Action</th><th>Reason</th><th>Result</th><th>Request</th></tr></thead><tbody>${body || `<tr><td colspan="6" class="empty">No staff actions recorded yet.</td></tr>`}</tbody></table></div>`));
+});
+
 app.get("/", async (c) => {
   const staff = c.get("staff") as StaffIdentity;
   const q = String(c.req.query("q") || "").trim().slice(0, 100);
+  const page = boundedPage(c.req.query("page"));
+  const limit = 50;
   const pattern = `%${q.replace(/[\\%_]/g, "\\$&")}%`;
-  const where = q ? "WHERE a.email LIKE ? ESCAPE '\\'" : "";
+  const where = q ? "WHERE a.email LIKE ? ESCAPE '\\' OR CAST(a.id AS TEXT) LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM memberships sm JOIN tenants st ON st.id = sm.tenant_id WHERE sm.account_id = a.id AND (st.title LIKE ? ESCAPE '\\' OR st.slug LIKE ? ESCAPE '\\' OR st.custom_domain LIKE ? ESCAPE '\\' OR st.public_id LIKE ? ESCAPE '\\'))" : "";
   const accounts = await c.env.DB.prepare(
     `SELECT a.id, a.email, COALESCE(a.status, 'active') AS status, a.created_at,
             (SELECT COUNT(*) FROM memberships m WHERE m.account_id = a.id) AS blog_count
-       FROM accounts a ${where} ORDER BY a.created_at DESC LIMIT 50`
-  ).bind(...(q ? [pattern] : [])).all<{ id: number; email: string; status: string; created_at: number; blog_count: number }>();
+       FROM accounts a ${where} ORDER BY a.created_at DESC, a.id DESC LIMIT ? OFFSET ?`
+  ).bind(...(q ? [pattern, pattern, pattern, pattern, pattern, pattern, limit, (page - 1) * limit] : [limit, (page - 1) * limit])).all<{ id: number; email: string; status: string; created_at: number; blog_count: number }>();
   const rows = accounts.results.map((account) => `<tr><td><a href="/accounts/${account.id}">${esc(account.email)}</a><br><small>#${account.id}</small></td><td><span class="badge ${account.status === "suspended" ? "suspended" : ""}">${esc(account.status)}</span></td><td>${account.blog_count}</td><td>${new Date(account.created_at * 1000).toISOString().slice(0, 10)}</td></tr>`).join("");
+  const pageLinks = `<p class="pagination" style="display:flex;align-items:center;gap:10px;justify-content:flex-end"><span>Page ${page}</span>${page > 1 ? `<a class="btn" href="/?q=${encodeURIComponent(q)}&page=${page - 1}">← Previous</a>` : ""}${accounts.results.length === limit ? `<a class="btn" href="/?q=${encodeURIComponent(q)}&page=${page + 1}">Next →</a>` : ""}</p>`;
   const emailPreview = canMutate(staff) ? `<div class="card"><h2>Email preview</h2><p class="muted">Send a production-format sample to any address you control. This tool uses the same branded delivery wrapper as live email. Preview links are non-functional.</p><form id="test-email-form"><label>To <input name="to" type="email" required placeholder="you@example.com" style="padding:8px;border:1px solid var(--rule);border-radius:5px;min-width:280px"></label> <label>Type <select name="type" style="padding:8px;border:1px solid var(--rule);border-radius:5px"><option value="registration">Registration</option><option value="subscription-active">Subscription active</option><option value="subscriber-confirmation">Confirm subscription</option><option value="subscriber-welcome">Subscriber welcome</option><option value="new-post">New-post notification</option><option value="password-reset">Password reset</option></select></label> <button class="btn" type="submit">Send test email</button></form><p id="test-email-status" class="muted" aria-live="polite"></p></div><script>document.getElementById('test-email-form').addEventListener('submit',async function(event){event.preventDefault();var form=this;var status=document.getElementById('test-email-status');if(!confirm('Send this email now?'))return;var button=form.querySelector('button');button.disabled=true;status.textContent='Sending…';var response=await fetch('/api/test-email',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({to:form.elements.to.value,type:form.elements.type.value})});var data=await response.json();button.disabled=false;status.textContent=response.ok?'Sent to '+data.recipient+'.':'Error: '+(data.error||'Test email failed.');})</script>` : `<p class="muted">Your role is read-only; email testing requires support or admin access.</p>`;
-  return c.html(staffPage("Accounts", `<header class="top"><h1>BlogNice staff</h1><small>${esc(staff.email)} · ${esc(staff.role)}</small></header><nav><a href="/">Accounts</a><a href="/pronunciations">Pronunciation dictionary</a><a href="/tts-test">TTS test</a></nav>${emailPreview}<h2>Accounts</h2><p class="muted">Read-only account overview. Account actions require a support or admin role.</p><form class="search" method="get"><input name="q" value="${esc(q)}" placeholder="Search by email"><button class="btn" type="submit">Search</button></form><div class="card"><table><thead><tr><th>Account</th><th>Status</th><th>Blogs</th><th>Created</th></tr></thead><tbody>${rows || `<tr><td colspan="4" class="empty">No accounts found.</td></tr>`}</tbody></table></div>`));
+  return c.html(staffPage("Accounts", `${staffHeader(staff)}${emailPreview}<h2>Accounts</h2><p class="muted">Search by email, account ID, blog title, Blognice address, or custom domain.</p><form class="search" method="get"><input name="q" value="${esc(q)}" placeholder="Search accounts, blogs, or domains"><button class="btn" type="submit">Search</button></form><div class="card"><table><thead><tr><th>Account</th><th>Status</th><th>Blogs</th><th>Created</th></tr></thead><tbody>${rows || `<tr><td colspan="4" class="empty">No accounts found.</td></tr>`}</tbody></table></div>${pageLinks}`));
 });
 
 app.get("/accounts/:id", async (c) => {
@@ -440,11 +479,15 @@ app.get("/accounts/:id", async (c) => {
   if (!Number.isSafeInteger(id) || id < 1) return c.text("Invalid account", 400);
   const account: any = await accountById(c, id);
   if (!account) return c.text("Account not found", 404);
-  const blogs = await c.env.DB.prepare("SELECT t.public_id, t.slug, t.title, m.role FROM memberships m JOIN tenants t ON t.id = m.tenant_id WHERE m.account_id = ? ORDER BY t.created_at DESC").bind(id).all<{ public_id: string; slug: string; title: string; role: string }>();
+  const blogs = await c.env.DB.prepare("SELECT t.public_id, t.slug, t.title, t.custom_domain, m.role, d.status AS domain_status FROM memberships m JOIN tenants t ON t.id = m.tenant_id LEFT JOIN domains d ON d.tenant_id = t.id AND d.hostname = t.custom_domain WHERE m.account_id = ? ORDER BY t.created_at DESC").bind(id).all<{ public_id: string; slug: string; title: string; custom_domain: string | null; role: string; domain_status: string | null }>();
   const staff = c.get("staff") as StaffIdentity;
   const actions = canMutate(staff) ? `<div class="actions"><form data-action="/api/accounts/${id}/${account.status === "suspended" ? "reactivate" : "suspend"}"><input name="reason" required placeholder="Reason"><button class="btn ${account.status === "suspended" ? "" : "btn-danger"}" type="submit">${account.status === "suspended" ? "Reactivate account" : "Suspend account"}</button></form><form data-action="/api/accounts/${id}/revoke-sessions"><input name="reason" required placeholder="Reason"><button class="btn" type="submit">Revoke sessions</button></form><form data-action="/api/accounts/${id}/revoke-api-key"><input name="reason" required placeholder="Reason"><button class="btn" type="submit">Revoke API key</button></form><form data-action="/api/accounts/${id}/send-password-reset"><input name="reason" required placeholder="Reason"><button class="btn" type="submit">Send password reset email</button></form></div><script>document.querySelectorAll('form[data-action]').forEach(function(form){form.addEventListener('submit',async function(event){event.preventDefault();if(!confirm('Confirm this support action?'))return;var reason=form.elements.reason.value;var response=await fetch(form.dataset.action,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({reason:reason})});var data=await response.json();if(!response.ok){alert(data.error||'Action failed');return}alert(data.recipient?'Reset email sent to '+data.recipient+'.':'Action complete.');location.reload()})})</script>` : `<p class="muted">Your role is read-only.</p>`;
-  const blogRows = blogs.results.map((blog) => `<tr><td>${esc(blog.title)}</td><td><code>${esc(blog.slug)}</code></td><td>${esc(blog.role)}</td></tr>`).join("");
-  return c.html(staffPage(`Account ${id}`, `<header class="top"><h1><a href="/">BlogNice staff</a></h1><small>${esc(staff.email)} · ${esc(staff.role)}</small></header><nav><a href="/">Accounts</a><a href="/pronunciations">Pronunciation dictionary</a><a href="/tts-test">TTS test</a></nav><p><a href="/">← All accounts</a></p><div class="card"><div class="card-head"><div><h2>${esc(account.email)}</h2><p class="muted">Account #${id} · created ${new Date(account.created_at * 1000).toISOString().slice(0, 10)}</p></div><span class="badge ${account.status === "suspended" ? "suspended" : ""}">${esc(account.status)}</span></div><p>Blogs: ${account.blog_count} · Active sessions: ${account.active_sessions} · API key: ${account.has_api_key ? "present" : "not present"}</p>${account.status_reason ? `<p class="notice">Status reason: ${esc(account.status_reason)}</p>` : ""}${actions}</div><div class="card"><h2>Blogs</h2><table><thead><tr><th>Title</th><th>Address</th><th>Role</th></tr></thead><tbody>${blogRows || `<tr><td colspan="3" class="empty">No blogs.</td></tr>`}</tbody></table></div>`));
+  const blogRows = blogs.results.map((blog) => { const host = blog.custom_domain || `${blog.slug}.${c.env.ROOT_DOMAIN || "blognice.com"}`; const domain = blog.custom_domain ? `${esc(blog.custom_domain)} <small>(${esc(blog.domain_status || "pending")})</small>` : "None"; return `<tr><td>${esc(blog.title)}</td><td><a href="https://${esc(host)}" target="_blank" rel="noopener noreferrer">${esc(host)}</a></td><td>${esc(blog.role)}</td><td>${domain}</td></tr>`; }).join("");
+  const plan = billingPlan(account, c);
+  const billingStatus = String(account.billing_status || "inactive");
+  const stripeLink = account.stripe_customer_id ? ` <a href="https://dashboard.stripe.com/customers/${encodeURIComponent(account.stripe_customer_id)}" target="_blank" rel="noopener noreferrer">Open in Stripe ↗</a>` : "";
+  const billingCard = `<div class="card"><h2>Billing</h2><p><strong>Plan:</strong> ${esc(plan)}<br><strong>Payment status:</strong> ${esc(billingStatus)}${account.billing_cancel_at_period_end ? " (cancels at period end)" : ""}${account.billing_period_end ? `<br><strong>Period end:</strong> ${new Date(Number(account.billing_period_end) * 1000).toISOString().slice(0, 10)}` : ""}${stripeLink}</p><p class="muted">Billing actions remain in Stripe; this panel is read-only.</p></div>`;
+  return c.html(staffPage(`Account ${id}`, `${staffHeader(staff)}<p><a href="/">← All accounts</a></p><div class="card"><div class="card-head"><div><h2>${esc(account.email)}</h2><p class="muted">Account #${id} · created ${new Date(account.created_at * 1000).toISOString().slice(0, 10)}</p></div><span class="badge ${account.status === "suspended" ? "suspended" : ""}">${esc(account.status)}</span></div><p>Blogs: ${account.blog_count} · Active sessions: ${account.active_sessions} · API key: ${account.has_api_key ? "present" : "not present"}</p>${account.status_reason ? `<p class="notice">Status reason: ${esc(account.status_reason)}</p>` : ""}${actions}</div>${billingCard}<div class="card"><h2>Blogs</h2><table><thead><tr><th>Title</th><th>View live blog</th><th>Role</th><th>Custom domain</th></tr></thead><tbody>${blogRows || `<tr><td colspan="4" class="empty">No blogs.</td></tr>`}</tbody></table></div>`));
 });
 
 export default app;

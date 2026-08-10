@@ -90,8 +90,22 @@ test("staff deployment is a separate Worker route", () => {
 
 test("all staff pages expose the shared navigation", () => {
   assert.match(staff, /Pronunciation dictionary.*TTS test/s);
-  assert.ok(staff.includes("BlogNice staff") && staff.includes("<nav>"));
+  assert.ok(staff.includes("blognice staff") && staff.includes("<nav"));
   assert.match(staff, /staff-footer/);
   assert.match(staff, /href="https:\/\/www\.blognice\.com\/policies"/);
   assert.doesNotMatch(staff, /staff-footer[\s\S]*mailto:/);
+});
+
+test("staff panel exposes logout, audit history, search, and read-only account context", () => {
+  assert.match(staff, /cdn-cgi\/access\/logout/);
+  assert.match(staff, /app\.get\("\/audit"/);
+  assert.match(staff, /FROM staff_audit_events ORDER BY occurred_at DESC/);
+  assert.match(staff, /Search by email, account ID, blog title/);
+  assert.match(staff, /Open in Stripe/);
+  assert.match(staff, /View live blog/);
+  assert.match(staff, /domain_status/);
+  assert.match(staff, /billing_price_id/);
+  assert.match(staff, /function boundedPage/);
+  assert.match(staff, /ORDER BY a\.created_at DESC, a\.id DESC/);
+  assert.match(staff, /Delete this pronunciation entry/);
 });
