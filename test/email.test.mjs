@@ -23,7 +23,8 @@ test("MailNice is preferred for transactional email", () => {
 });
 
 test("signup queues a registration welcome without blocking account creation", () => {
-  assert.match(index, /subject: "Welcome to blognice"/);
+  assert.match(index, /registrationWelcomeEmail\(\{ signInUrl: "https:\/\/www\.blognice\.com\/admin" \}\)/);
+  assert.match(email, /export function registrationWelcomeEmail/);
   assert.match(index, /c\.executionCtx\.waitUntil\(sendEmail\(c\.env/);
 });
 

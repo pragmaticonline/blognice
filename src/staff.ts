@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { esc } from "./render";
-import { sendEmailDetailed } from "./email";
+import { sendEmailDetailed, registrationWelcomeEmail } from "./email";
 import { generateResetToken, sha256hex } from "./auth";
 import { ttsBytes, TTS_MODEL } from "./tts";
 
@@ -302,11 +302,12 @@ app.post("/api/test-email", async (c) => {
   const blogTitle = "Example Blog";
   const origin = "https://example.blognice.com";
   const unsubscribe = `${origin}/unsubscribe/test-token`;
+  const registration = registrationWelcomeEmail({ signInUrl: "https://www.blognice.com/admin", greeting: "Hi there," });
   const templates: Record<TestEmailType, { subject: string; plainBody: string; html: string; headers?: Record<string, string> }> = {
     registration: {
-      subject: "Welcome to blognice",
-      plainBody: "Welcome to blognice!\n\nYour account is ready. Sign in to create and publish your first blog.",
-      html: "<h2>Welcome to blognice!</h2><p>Your account is ready. Sign in to create and publish your first blog.</p>",
+      subject: registration.subject,
+      plainBody: registration.plainText,
+      html: registration.html,
     },
     "subscriber-confirmation": {
       subject: `Confirm your subscription to ${blogTitle}`,
