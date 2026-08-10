@@ -41,6 +41,14 @@ test("subscriber notification claims are atomic and one-time", () => {
   assert.match(postsSchema, /subscriber_notification_sent INTEGER NOT NULL DEFAULT 0/);
 });
 
+test("email templates use branded reset links and enriched post notifications", () => {
+  assert.match(index, /https:\/\/www\.blognice\.com\/admin\/reset\?token=/);
+  assert.match(index, /Or copy and paste this link into your browser/);
+  assert.match(index, /featured_image_key/);
+  assert.match(index, /List-Unsubscribe-Post/);
+  assert.match(index, /Read it &rarr;/);
+});
+
 test("subscription emails include one-click and manage-subscriptions links", () => {
   assert.match(index, /List-Unsubscribe-Post/);
   assert.match(index, /manage-subscriptions/);

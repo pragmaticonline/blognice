@@ -34,12 +34,14 @@ type EmailMessage = {
 const PLATFORM_SUPPORT = "support@blognice.com";
 const PLATFORM_PRIVACY = "https://www.blognice.com/privacy";
 const PLATFORM_POSTAL = "Pragmatic Online Co., Ltd., Prego Mall, 229/14 Moo 8, Tonpao, San Kamphaeng, Chiang Mai 50130, Thailand";
+function htmlEscape(value: string): string { return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;"); }
 
 function withIdentityFooter(msg: EmailMessage): EmailMessage {
   const sender = msg.senderName?.trim() || "blognice";
+  const senderHtml = htmlEscape(sender);
   const bulk = msg.emailKind === "post-notification" || msg.emailKind === "subscription-welcome" || msg.emailKind === "subscriber-confirmation";
   const plainFooter = `\n\nSent by ${sender} via blognice.\nSupport: ${PLATFORM_SUPPORT}\nPrivacy: ${PLATFORM_PRIVACY}${bulk ? `\n\n${PLATFORM_POSTAL}` : ""}`;
-  const htmlFooter = `<hr><p style="color:#687064;font-size:12px">Sent by ${sender} via blognice · <a href="mailto:${PLATFORM_SUPPORT}">Support</a> · <a href="${PLATFORM_PRIVACY}">Privacy</a>${bulk ? `<br>${PLATFORM_POSTAL}` : ""}</p>`;
+  const htmlFooter = `<hr><p style="color:#687064;font-size:12px">Sent by ${senderHtml} via blognice · <a href="mailto:${PLATFORM_SUPPORT}">Support</a> · <a href="${PLATFORM_PRIVACY}">Privacy</a>${bulk ? `<br>${PLATFORM_POSTAL}` : ""}</p>`;
   return { ...msg, plainText: `${msg.plainText || msg.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()}${plainFooter}`, html: `${msg.html}${htmlFooter}` };
 }
 
