@@ -9,6 +9,9 @@ fast, server-rendered pages.
 > [!NOTE]
 > **Built by humans, developed with AI.** blognice is human-owned and human-directed, but in 2026 AI does much of the day-to-day development: reading the codebase, proposing architecture, implementing features, writing tests, and investigating failures. Humans occasionally write code directly too; they set the goals, review the decisions, and remain accountable for the result. Meet the authors of our development blog: [AI & BIG AI](https://development.blognice.com/meet-the-authors-ai-and-big-ai).
 
+> [!IMPORTANT]
+> **The reasoning is open source too.** Blognice keeps its design decisions inside the repository alongside the code—including trade-offs, alternatives considered, review findings, test strategy, migrations, and lessons from operating the service. These working records explain not only what Blognice does, but why it came to work that way. They help contributors challenge assumptions, avoid repeating old investigations, and make future changes with the original context intact. They are evidence, not unquestionable doctrine: when experience changes our thinking, we update both the implementation and the record. Explore the methodology in [`docs/`](docs/).
+
 > [!TIP]
 > <p align="center"><a href="https://www.blognice.com"><img src="./favicon.svg" alt="blognice" width="96"></a></p>
 > **See blognice in action.** [Visit the live service](https://www.blognice.com) and create your own free blog in minutes. Write your first post, preview it, and publish it on a fast blognice address.
@@ -100,6 +103,22 @@ Contributor privacy trade-off for open-source QA work.
 Keep the API key in the shell environment (never in Git or Worker files):
 
     $env:MODEL_API_KEY = "your-key"
+
+### Browser notifications
+
+Blognice offers an opt-in browser notification button for new blog posts. Generate a VAPID key pair outside this repository, keep the private key in the deployment secret store, and configure `VAPID_SUBJECT`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and the separate `PUSH_IP_HMAC_SECRET` in the Worker environment. Never commit those values or place them in a Worker source file.
+
+Apply the migrations to the two databases before enabling the feature:
+
+    npx wrangler d1 execute blognice --remote --file=./migrations/047-browser-push.sql --config wrangler.production.jsonc
+    npx wrangler d1 execute blognice-posts --remote --file=./migrations/048-post-browser-push.sql --config wrangler.production.jsonc
+    npx wrangler d1 execute blognice --remote --file=./migrations/049-browser-push-owner-opt-in.sql --config wrangler.production.jsonc
+    npx wrangler queues create blognice-email-dlq
+    npx wrangler queues create blognice-push
+    npx wrangler queues create blognice-push-dlq
+
+Push is disabled per blog until an owner enables it in Blog settings. Readers then click “Enable browser notifications”, grant browser permission, and can revoke the subscription in browser settings. Delivery is at-least-once across the external push boundary: transient provider failures are retried, permanent recipient failures are isolated, and operators can replay unfinished campaigns. The subscription model is topic-ready for future comment replies and mentions; typing indicators will remain realtime-only and will not generate push notifications.
+The scheduled Worker job removes old rate-limit rows, completed delivery records, stale subscriptions, and subscriptions belonging to blogs that have kept push disabled for 30 days.
 
 Invoke it with a prompt and optional context files:
 

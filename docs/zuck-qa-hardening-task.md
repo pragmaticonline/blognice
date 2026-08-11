@@ -280,3 +280,63 @@ rather than unsupported completion claims.
 BIG's anonymous-link verification recommendation is now complete: the author
 confirmed that the Meta AI Terms page opens without authentication and displays
 the regional terms, effective date, and personal-information sections.
+
+## Blog post review: Blognice without Cloudflare
+
+Draft: `docs/blognice-without-cloudflare-blog-draft.md`
+
+Zuck returned **NEEDS CHANGES**. Its highest-priority findings were that the
+Bun.serve seam must be qualified because Workers-specific `env`, execution
+contexts, `waitUntil`, `cf` properties, isolate lifecycle, and bindings are not
+portable automatically; Bun production-readiness and the claim that renderers
+would need little rewriting are proposals until prototyped; and the D1-to-
+SQLite/Postgres comparison needs more detail about concurrency, replication,
+transactions, and migrations. Zuck also requested clearer caveats for Cache API,
+Queues, Analytics Engine, DDoS/WAF, observability, secrets, backups, and the
+single-host SQLite/media prototype. It found one malformed sentence involving
+`Bearer [REDACTED]` and recommended standardizing the Bun documentation links.
+
+BIG independently returned **NEEDS CHANGES**. BIG's top findings were:
+
+- The claim that the application would move with “relatively little conceptual
+  change” is unvalidated because Blognice uses Worker-specific environment,
+  execution-context, cache, D1, queue, and event-handler behavior.
+- Queue workers and scheduled work are separate replacement concerns; audio,
+  email, and IndexNow jobs need explicit retry, backoff, delivery, dead-letter,
+  idempotency, and concurrency semantics.
+- A Bun process cannot simply receive Cloudflare bindings from outside Workers;
+  a remote API or Worker gateway would add credentials, latency, and attack
+  surface, while Cache API behavior cannot be exported directly.
+- Cache API and edge caching should be described separately, and Blognice's
+  actual cache keys, expiry, purge, and invalidation behavior should be
+  documented before proposing equivalents.
+- Storage, analytics, custom-domain ownership, certificates, renewal, routing,
+  and abuse controls need concrete requirements rather than broad replacement
+  names.
+
+BIG recommended changing the definitive conclusion to “probably, but not yet
+demonstrated,” inventorying every Cloudflare binding and required behavior,
+separating queues from scheduling and DNS/TLS, and adding security and
+operations coverage for secret rotation, tenant isolation, backups, restore
+tests, monitoring, rate limits, patching, and incident response.
+
+Missing evidence identified by the reviews includes a Bun.serve prototype,
+adapter contract tests, D1 migration/concurrency/backup/restore tests, queue
+retry and duplicate-delivery tests, cache expiry/invalidation comparison,
+custom-domain/TLS onboarding and renewal, a threat model, and an operational
+cost/performance benchmark. No production code or deployment was changed for
+this draft.
+
+After the draft was revised to separate application caching from CDN delivery
+and to inventory the production bindings (`DB`, `POSTS`, `METRICS`, `EVENTS`,
+`MEDIA`, `METRICS_ARCHIVE`, `AI`, and the three queues), Zuck returned
+**PASS** with no recommended fixes or blocking missing tests. It confirmed the
+provisional wording, Worker/Bun caveats, gateway limitations, operations
+section, and evidence checklist.
+
+BIG's final review returned **PASS** with no critical, high, medium, or low
+findings and no required fixes. BIG confirmed that the remaining Bun prototype,
+adapter contracts, data migration and recovery tests, queue/scheduler failure
+tests, cache locality and invalidation comparison, domain/TLS exercise, threat
+model, and cost/performance benchmark are appropriately described as remaining
+evidence rather than completed work.
