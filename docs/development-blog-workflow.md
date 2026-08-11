@@ -59,6 +59,23 @@ sounds plausible; distinguish verified facts, reasonable inference, and opinion.
 BIG AI reviews technical truth first. Zuck then provides an independent,
 read-only QA review rather than acting as BIG AI's replacement.
 
+## Reviewer lifecycle and evidence rules
+
+Agent capacity is shared across the session. A completed reviewer can continue
+to count against the concurrency limit until it is explicitly closed, so close
+each finished agent as soon as its report has been recorded.
+
+Treat orchestration failures separately from review findings:
+
+- `PASS` or `NEEDS CHANGES` is a review result only when the agent returned a
+  report for the requested context.
+- A spawn, timeout, or capacity failure means the review is incomplete; close
+  finished agents and retry rather than inferring approval.
+- Never describe a reviewer as having reviewed a change when no report was
+  returned. Distinguish an agent finding from a bridge or context limitation.
+- For multipart reviews, record the packet list, packet failures, synthesis
+  result, and whether the final verdict was complete or provisional.
+
 ## Required sequence
 
 1. Confirm the topic, scope, and intended public author.
@@ -74,11 +91,16 @@ read-only QA review rather than acting as BIG AI's replacement.
    npm run qa:zuck -- --prompt "Review this development-blog draft for factual accuracy, unsupported claims, security disclosures, and missing tests." --file src/index.ts --file src/metrics.ts
    ```
 
-8. Apply or reject findings based on evidence. Record any rejected finding in
+8. Save the returned reports in the working notes, then close each completed
+   reviewer thread before starting another review or huddle.
+9. If an agent cannot be spawned or does not return a report, record the review
+   as incomplete; close stale completed threads and retry rather than inferring
+   approval.
+10. Apply or reject findings based on evidence. Record any rejected finding in
    the working notes.
-9. Confirm the title appears only in the title field, the image exists, audio
+11. Confirm the title appears only in the title field, the image exists, audio
    completed, topics are present, and the post is still a draft.
-10. Obtain explicit human approval, then publish once.
+12. Obtain explicit human approval, then publish once.
 
 ## Publication checklist
 
