@@ -141,7 +141,14 @@ Ranges are limited to 4,000 lines each, 12,000 merged lines total, and 40
 range requests; whole-file context is limited to 12,000 characters and total
 submitted context to 36,000 characters. Empty diff/test values are ignored;
 empty prompt, file, or range values fail with a diagnostic. Truncation and
-omission markers are included in the bounded context.
+omission markers are included in the bounded context. If the selected context
+would exceed the global limit, the bridge automatically splits it into separate
+bounded review packets, then asks Zuck for a final bounded synthesis of those
+structured reports. A multipart PASS is emitted only when synthesis finds no
+unresolved critical/high or confirmed packet-local defect. Provisional notes
+about a packet not seeing another packet do not by themselves block the final
+decision. Incomplete or truncated packets, or an incomplete synthesis summary,
+remain conservative and cannot be treated as a complete review.
 
 The reusable handoff for writing and reviewing development-blog posts is in
 [`docs/development-blog-workflow.md`](docs/development-blog-workflow.md). It

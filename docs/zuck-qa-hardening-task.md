@@ -7,6 +7,67 @@ NEEDS CHANGES reports are safe to use as review evidence. The bridge must stay
 read-only, bounded, secret-safe, and explicitly invoked through
 `npm run qa:zuck`.
 
+## 2026-08-11 packet-overflow repair
+
+The bridge now detects a global context overflow and reviews each requested
+top-level file, range, diff, or test-output item in a separate bounded request.
+The structured reports are merged conservatively and multipart reviews receive
+a separate bounded synthesis covering cross-packet relationships. Findings, affected files,
+recommendations, and missing tests are retained. Regression coverage verifies
+packet splitting, prompt bounds, truncation-marker absence in complete packets,
+and mixed-result merging.
+
+Oversized whole files are split into line-aware range packets before review,
+with original line numbers and explicit packet scope. A packet that is still
+incomplete remains conservative and cannot produce an unqualified PASS.
+
+## 2026-08-11 post-repair review huddle
+
+The fresh review huddle did not approve the bridge for an unqualified PASS.
+Zuck returned `NEEDS CHANGES`, primarily because its bounded review packets did
+not contain the complete implementation context. BIG and an independent review
+also returned `NEEDS CHANGES` with these actionable blockers:
+
+- Replace marker-string overflow detection with an explicit structured flag;
+  source text containing `[GLOBAL CONTEXT TRUNCATED]` must not control bridge
+  behavior.
+- Bound prompt length, file count, packet count, aggregate submitted context,
+  and merged report size before making paid requests.
+- Mark oversized diff and test-output packets incomplete, just as oversized
+  file context is marked incomplete.
+- Do not treat isolated packet PASS results as proof that cross-file behavior
+  passes. Add a bounded synthesis stage or keep multipart reviews at
+  `NEEDS CHANGES` until cross-packet relationships are covered.
+- Add tests for marker collisions, no-marker budget exhaustion, oversized
+  prompts/diffs/tests, excessive packet counts, duplicate packet inputs, later
+  packet failure, and cross-packet dependencies.
+
+No deployment or merge should rely on the current multipart combined PASS.
+
+## 2026-08-11 second repair
+
+The follow-up implementation adds explicit prompt, file, packet, source-size,
+response-size, and merged-report limits; keeps the response timeout active
+through JSON-body parsing; bounds diff/test processing before redaction; and
+redacts and length-limits recovered transport errors before they enter reports
+or CLI output. Multipart reviews now perform a final bounded synthesis request
+over the packet reports. A multipart `PASS` requires synthesis to find no
+unresolved critical/high or confirmed packet-local defect; provisional scope
+notes alone do not block it. Packet hard findings and synthesis failures remain
+safe structured `NEEDS CHANGES` reports.
+
+The packet protocol marks each packet as an explicit scope. Whole-file packets
+may use the full bounded context allowance, while range packets report their
+included line ranges and treat lines outside that declared packet scope as
+expected rather than silently incomplete. The synthesis context is separately
+bounded and is never allowed to turn a truncated report summary into an
+unqualified pass.
+
+Validation after this repair: typecheck passes; the full suite has 206 passing
+tests and one Windows-only symlink skip. BIG and Zuck reviews identified and
+resolved the packet-failure false-PASS path; rerun the final review after any
+further bridge changes.
+
 ## Repository and scope
 
 - Repository: `pragmaticonline/blognice`
