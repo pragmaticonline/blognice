@@ -31,10 +31,13 @@
     "remark-parse": "^11.0.0",
     "remark-rehype": "^11.1.2",
     "unified": "^11.0.5",
-    "unist-util-visit": "^5.1.0"
+    "unist-util-visit": "^5.1.0",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260101.0",
+    "esbuild": "^0.28.1",
+    "miniflare": "^5.20260730.0-alpha",
     "typescript": "^5.5.0",
     "wrangler": "^4.118.0"
   },

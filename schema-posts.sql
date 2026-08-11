@@ -21,6 +21,7 @@ CREATE TABLE posts (
   tags_json  TEXT    NOT NULL DEFAULT '[]',       -- normalized post tags
   published  INTEGER NOT NULL DEFAULT 1,           -- 1 = live, 0 = draft
   subscriber_notification_sent INTEGER NOT NULL DEFAULT 0, -- one subscriber campaign per post
+  push_notification_sent INTEGER NOT NULL DEFAULT 0, -- one browser-push campaign per post; existing live posts are backfilled by migration
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   author_account_id INTEGER,

@@ -1495,6 +1495,10 @@ export function settingsPage(
         <input id="title" name="title" type="text" value="${esc(tenant.title)}" required>
         <label for="description">Tagline</label>
         <input id="description" name="description" type="text" value="${esc(tenant.description)}" placeholder="A short description of your blog">
+        <fieldset class="settings-card"><legend>Reader notifications</legend>
+          <p class="help">Allow readers to opt in to browser notifications when this blog publishes a new post. Readers must still grant permission in their browser.</p>
+          <label><input type="checkbox" name="browser_push_enabled" value="1"${tenant.browser_push_enabled ? " checked" : ""}> Enable browser notifications for this blog</label>
+        </fieldset>
         <label for="footer-name">Footer publisher name</label>
         <input id="footer-name" name="footer_name" type="text" value="${esc(tenant.footer_name || "")}" maxlength="160" placeholder="Defaults to your blog title">
         <p style="color:var(--muted);font-size:.85rem;margin:-.5rem 0 1.2rem">Shown in the public footer. This is useful when the blog represents a company or publication; leave blank to use the blog title.</p>

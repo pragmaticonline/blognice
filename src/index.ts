@@ -59,6 +59,8 @@ import {
   type MediaItem,
 } from "./admin";
 import { tenantDb } from "./db";
+import { pushConfigured, sendBrowserPush, validBrowserPushSubscription, type BrowserPushSubscription, type PushPayload } from "./push";
+import { classifyPushDelivery } from "./push-state";
 import homepage from "../homepage.html";
 import privacyPageSource from "../privacy.html";
 import termsPageSource from "../terms.html";
@@ -111,6 +113,11 @@ type Bindings = {
   AUDIO_QUEUE: Queue<AudioJobMessage | ImageJobMessage>; // queued AI media jobs
   INDEXNOW_QUEUE?: Queue<IndexNowMessage>; // search-engine discovery notifications
   EMAIL_QUEUE?: Queue<EmailJobMessage | EmailFanoutMessage>; // queued transactional email jobs
+  PUSH_QUEUE?: Queue<PushFanoutMessage>; // isolated browser notification fan-out
+  VAPID_SUBJECT?: string;
+  VAPID_PUBLIC_KEY?: string;
+  VAPID_PRIVATE_KEY?: string;
+  PUSH_IP_HMAC_SECRET?: string;
   METRICS: AnalyticsEngineDataset; // anonymous public page-view events
   EVENTS: AnalyticsEngineDataset; // audio engagement events
   METRICS_ARCHIVE: R2Bucket; // aggregate daily metrics retained beyond 90 days
@@ -538,6 +545,68 @@ async function queueSubscriberNotificationOnce(env: Bindings, tenant: Tenant, po
   }
 }
 
+async function pushEndpointHash(endpoint: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(endpoint));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function queueBrowserPushNotificationOnce(env: Bindings, tenant: Tenant, postId: number, post: { slug: string; title: string }): Promise<boolean> {
+  if (!tenant.browser_push_enabled || !pushConfigured(env) || !env.PUSH_QUEUE) return false;
+  const result = await tenantDb(env, tenant).prepare("UPDATE posts SET push_notification_sent = 1 WHERE id = ? AND tenant_id = ? AND published = 1 AND push_notification_sent = 0").bind(postId, tenant.id).run();
+  if (result.meta.changes !== 1) return false;
+  try {
+    const source = await tenantDb(env, tenant).prepare("SELECT body_md FROM posts WHERE id = ? AND tenant_id = ? AND published = 1").bind(postId, tenant.id).first<{ body_md: string }>();
+    const postExcerpt = source?.body_md.replace(/```[\s\S]*?```/g, " ").replace(/[#>*_`\[\]()>-]/g, " ").replace(/\s+/g, " ").trim().slice(0, 180) || "";
+    const campaignId = crypto.randomUUID();
+    const maxSubscription = await env.DB.prepare("SELECT COALESCE(MAX(id), 0) AS id FROM push_subscriptions WHERE tenant_id = ? AND topic = 'new-post'").bind(tenant.id).first<{ id: number }>();
+    const now = Math.floor(Date.now() / 1000);
+    await env.DB.prepare("INSERT INTO push_campaigns (campaign_id, tenant_id, topic, post_slug, post_title, post_excerpt, max_subscription_id, status, created_at) VALUES (?, ?, 'new-post', ?, ?, ?, ?, 'pending', ?)")
+      .bind(campaignId, tenant.id, post.slug, post.title, postExcerpt, maxSubscription?.id || 0, now).run();
+    await env.PUSH_QUEUE.send({ kind: "push-fanout", campaignId, tenantId: tenant.id, postSlug: post.slug, postTitle: post.title, postExcerpt, afterId: 0 } satisfies PushFanoutMessage);
+    return true;
+  } catch (error) {
+    await tenantDb(env, tenant).prepare("UPDATE posts SET push_notification_sent = 0 WHERE id = ? AND tenant_id = ? AND push_notification_sent = 1").bind(postId, tenant.id).run();
+    throw error;
+  }
+}
+
+async function allowPushSubscription(env: Bindings, tenantId: number, ip: string): Promise<boolean> {
+  if (!env.PUSH_IP_HMAC_SECRET) return false;
+  const now = Math.floor(Date.now() / 1000);
+  const windowStart = Math.floor(now / 3600) * 3600;
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.PUSH_IP_HMAC_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const digest = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(ip.trim().slice(0, 128)));
+  const ipHash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  await env.DB.prepare("INSERT OR IGNORE INTO push_subscription_limits (tenant_id, ip_hash, window_start, attempts) VALUES (?, ?, ?, 0)").bind(tenantId, ipHash, windowStart).run();
+  const row = await env.DB.prepare("UPDATE push_subscription_limits SET attempts = attempts + 1 WHERE tenant_id = ? AND ip_hash = ? AND window_start = ? RETURNING attempts").bind(tenantId, ipHash, windowStart).first<{ attempts: number }>();
+  return !!row && row.attempts <= 20;
+}
+
+async function readBoundedJson(request: Request, limit = 8192): Promise<unknown | null> {
+  const declared = Number(request.headers.get("content-length") || "0");
+  if (declared > limit) return null;
+  if (!(request.headers.get("content-type") || "").toLowerCase().startsWith("application/json")) return null;
+  if (!request.body) return null;
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      total += part.value.byteLength;
+      if (total > limit) { await reader.cancel(); return null; }
+      chunks.push(part.value);
+    }
+  } finally { reader.releaseLock(); }
+  try {
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch { return null; }
+}
+
 // ---------------------------------------------------------------------------
 // Routes. Static paths are registered before the /:slug catch-all.
 // ---------------------------------------------------------------------------
@@ -560,6 +629,48 @@ app.use("*", async (c, next) => {
     if (redirect) return redirect;
   }
   return next();
+});
+
+app.get("/sw.js", () => new Response(`self.addEventListener("push",function(event){var data={};try{data=event.data?event.data.json():{}}catch(_){}event.waitUntil(self.registration.showNotification(data.title||"New post",{body:data.body||"",icon:"/favicon.svg",badge:"/favicon.svg",tag:data.tag||"blognice-post",data:{url:data.url||"/"}}));});self.addEventListener("notificationclick",function(event){event.notification.close();var url=event.notification.data&&event.notification.data.url||"/";event.waitUntil(clients.matchAll({type:"window",includeUncontrolled:true}).then(function(list){for(var i=0;i<list.length;i++){if("focus" in list[i]){list[i].navigate(url);return list[i].focus();}}return clients.openWindow(url);}));});`, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "no-cache" } }));
+
+app.get("/push/public-key", async (c) => {
+  const tenant = await resolveTenant(c.env, new URL(c.req.url).hostname);
+  if (!tenant || !tenant.browser_push_enabled || !pushConfigured(c.env)) return c.json({ error: "Browser push is not available." }, 404);
+  return c.json({ publicKey: c.env.VAPID_PUBLIC_KEY });
+});
+
+app.post("/push/subscribe", async (c) => {
+  const tenant = await resolveTenant(c.env, new URL(c.req.url).hostname);
+  if (!tenant || !tenant.browser_push_enabled || !pushConfigured(c.env)) return c.json({ error: "Browser push is not available." }, 404);
+  const origin = c.req.header("Origin");
+  try { if (!origin || new URL(origin).origin !== new URL(c.req.url).origin) return c.json({ error: "Cross-origin requests are not allowed." }, 403); } catch { return c.json({ error: "Cross-origin requests are not allowed." }, 403); }
+  if (!await allowPushSubscription(c.env, tenant.id, c.req.header("CF-Connecting-IP") || "unknown")) return c.json({ error: "Too many subscription attempts." }, 429);
+  const value = await readBoundedJson(c.req.raw);
+  if (!value || !await validBrowserPushSubscription(value)) return c.json({ error: "Invalid subscription." }, 400);
+  const subscription = value as BrowserPushSubscription;
+  const now = Math.floor(Date.now() / 1000);
+  const endpointHash = await pushEndpointHash(subscription.endpoint);
+  const saved = await c.env.DB.prepare(`INSERT INTO push_subscriptions (tenant_id, endpoint, endpoint_hash, topic, p256dh, auth, created_at, updated_at)
+    SELECT ?, ?, ?, 'new-post', ?, ?, ?, ?
+    WHERE EXISTS (SELECT 1 FROM push_subscriptions WHERE tenant_id = ? AND endpoint_hash = ? AND topic = 'new-post')
+       OR (SELECT COUNT(*) FROM push_subscriptions WHERE tenant_id = ?) < 1000
+    ON CONFLICT (tenant_id, endpoint_hash, topic) DO UPDATE SET endpoint = excluded.endpoint, p256dh = excluded.p256dh, auth = excluded.auth, updated_at = excluded.updated_at`)
+    .bind(tenant.id, subscription.endpoint, endpointHash, subscription.keys.p256dh, subscription.keys.auth, now, now, tenant.id, endpointHash, tenant.id).run();
+  if (saved.meta.changes !== 1) return c.json({ error: "This blog has reached its notification subscription limit." }, 429);
+  return c.json({ ok: true });
+});
+
+app.delete("/push/subscribe", async (c) => {
+  const tenant = await resolveTenant(c.env, new URL(c.req.url).hostname);
+  if (!tenant) return c.json({ error: "Not found." }, 404);
+  const origin = c.req.header("Origin");
+  try { if (!origin || new URL(origin).origin !== new URL(c.req.url).origin) return c.json({ error: "Cross-origin requests are not allowed." }, 403); } catch { return c.json({ error: "Cross-origin requests are not allowed." }, 403); }
+  if (!await allowPushSubscription(c.env, tenant.id, c.req.header("CF-Connecting-IP") || "unknown")) return c.json({ error: "Too many subscription attempts." }, 429);
+  const value = await readBoundedJson(c.req.raw);
+  if (!value || !await validBrowserPushSubscription(value)) return c.json({ error: "Invalid subscription." }, 400);
+  const endpointHash = await pushEndpointHash((value as BrowserPushSubscription).endpoint);
+  await c.env.DB.prepare("DELETE FROM push_subscriptions WHERE tenant_id = ? AND endpoint_hash = ? AND topic = 'new-post'").bind(tenant.id, endpointHash).run();
+  return c.json({ ok: true });
 });
 
 app.get("/.well-known/indexnow/:key", async (c) => {
@@ -978,7 +1089,10 @@ app.post("/api/posts", async (c) => {
   await purge(c, ["/", "/" + slug, "/sitemap.xml"]);
   if (published) {
     queueIndexNow(c, tenant, ["/", "/" + slug]);
-    if (savedPost) c.executionCtx.waitUntil(queueSubscriberNotificationOnce(c.env, tenant, savedPost.id, { slug, title }));
+    if (savedPost) {
+      c.executionCtx.waitUntil(queueSubscriberNotificationOnce(c.env, tenant, savedPost.id, { slug, title }));
+      c.executionCtx.waitUntil(queueBrowserPushNotificationOnce(c.env, tenant, savedPost.id, { slug, title }));
+    }
   }
 
   return c.json({ ok: true, slug, tags: normalizedTags.tags, author_name: authorName, author_visible: !!authorVisible, published: !!published });
@@ -1196,6 +1310,7 @@ app.post("/api/v1/blogs/:blogId/posts", async (c) => {
   if (published) {
     queueIndexNow(c, tenant, ["/", "/" + slug]);
     c.executionCtx.waitUntil(queueSubscriberNotificationOnce(c.env, tenant, Number(res.meta.last_row_id), { slug, title }));
+    c.executionCtx.waitUntil(queueBrowserPushNotificationOnce(c.env, tenant, Number(res.meta.last_row_id), { slug, title }));
   }
   return c.json({ post: { id: res.meta.last_row_id, slug, title, featured_image_key: featuredImageKey, tags: normalizedTags.tags, author_name: authorName, author_visible: !!authorVisible, published: !!published } }, 201);
 });
@@ -1269,8 +1384,10 @@ app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
     purgeTenant(c.env, tenant, ["/", "/" + post.slug, "/" + slug, "/sitemap.xml"])
   );
   if (post.published || published) queueIndexNow(c, tenant, ["/", "/" + post.slug, "/" + slug]);
-  if (!post.published && published)
+  if (!post.published && published) {
     c.executionCtx.waitUntil(queueSubscriberNotificationOnce(c.env, tenant, post.id, { slug, title }));
+    c.executionCtx.waitUntil(queueBrowserPushNotificationOnce(c.env, tenant, post.id, { slug, title }));
+  }
   return c.json({ post: { id: post.id, slug, title, featured_image_key: featuredImageKey, tags: normalizedTags.tags, author_name: authorName, author_visible: !!authorVisible, published: !!published } });
 });
 
@@ -2351,8 +2468,10 @@ app.post("/admin/b/:blogId/save", async (c) => {
   );
   if (published === 1 || wasPublished === 1) queueIndexNow(c, ctx.tenant, ["/", ...(previousSlug ? ["/" + previousSlug] : []), "/" + slug]);
   // Email subscribers when a post first goes live (draft/new -> published).
-  if (published === 1 && wasPublished === 0 && savedId)
+  if (published === 1 && wasPublished === 0 && savedId) {
     c.executionCtx.waitUntil(queueSubscriberNotificationOnce(c.env, ctx.tenant, savedId, { slug, title }));
+    c.executionCtx.waitUntil(queueBrowserPushNotificationOnce(c.env, ctx.tenant, savedId, { slug, title }));
+  }
   queueBlogAudit(c, ctx.tenant.id, ctx.account.id, idParam ? "post_updated" : "post_created", slug);
   if (published === 1 && wasPublished === 0)
     queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "post_published", slug);
@@ -3022,6 +3141,7 @@ type EmailJobMessage = {
   senderName?: string;
 };
 type EmailFanoutMessage = { kind: "email-fanout"; campaignId: string; tenantId: number; postSlug: string; postTitle: string; afterId: number };
+type PushFanoutMessage = { kind: "push-fanout"; campaignId: string; tenantId: number; postSlug: string; postTitle: string; postExcerpt: string; afterId: number };
 type AudioJobManifest = {
   jobId: string;
   tenantId: number;
@@ -3343,10 +3463,16 @@ app.post("/admin/b/:blogId/settings", async (c) => {
   const denied = requireBlogCapability(c, ctx, "settings.manage");
   if (denied) return denied;
 
+  const origin = c.req.header("Origin");
+  try {
+    if (!origin || new URL(origin).origin !== new URL(c.req.url).origin) return c.text("Cross-origin requests are not allowed.", 403);
+  } catch { return c.text("Cross-origin requests are not allowed.", 403); }
+
   const form = await c.req.formData();
   const slug = String(form.get("slug") ?? "").trim().toLowerCase();
   const title = String(form.get("title") ?? "").trim();
   const description = String(form.get("description") ?? "").trim();
+  const browserPushEnabled = form.get("browser_push_enabled") === "1" ? 1 : 0;
   const footerName = String(form.get("footer_name") ?? "").trim().slice(0, 160);
   const accentColor = String(form.get("accent_color") ?? "").trim();
   const normalizedTopics = normalizeTopics(String(form.get("topics") ?? ""));
@@ -3383,14 +3509,43 @@ app.post("/admin/b/:blogId/settings", async (c) => {
     await c.env.DB.prepare("INSERT INTO tenant_slug_aliases (old_slug, tenant_id, created_at) VALUES (?, ?, ?)")
       .bind(ctx.tenant.slug, ctx.tenant.id, now).run();
   }
-  await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, footer_name = ?, accent_color = ?, topics_json = ?, social_links_json = ? WHERE id = ?")
-    .bind(slug, title, description, footerName, accentColor.toLowerCase(), JSON.stringify(normalizedTopics.topics), JSON.stringify(socialLinks), ctx.tenant.id)
+  await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, footer_name = ?, accent_color = ?, topics_json = ?, social_links_json = ?, browser_push_enabled = ? WHERE id = ?")
+    .bind(slug, title, description, footerName, accentColor.toLowerCase(), JSON.stringify(normalizedTopics.topics), JSON.stringify(socialLinks), browserPushEnabled, ctx.tenant.id)
     .run();
   queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "blog_settings_updated", "settings");
 
   c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant));
-  const updated = { ...ctx.tenant, slug, title, description, footer_name: footerName, accent_color: accentColor.toLowerCase(), topics_json: JSON.stringify(normalizedTopics.topics), social_links_json: JSON.stringify(socialLinks) };
+  const updated = { ...ctx.tenant, slug, title, description, footer_name: footerName, accent_color: accentColor.toLowerCase(), topics_json: JSON.stringify(normalizedTopics.topics), social_links_json: JSON.stringify(socialLinks), browser_push_enabled: browserPushEnabled };
   return c.html(settingsPage(ctx.account, updated, { notice: "Saved." }));
+});
+
+app.post("/admin/b/:blogId/push-campaigns/:campaignId/replay", async (c) => {
+  const ctx = await blogContext(c);
+  if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  const denied = requireBlogCapability(c, ctx, "settings.manage");
+  if (denied) return denied;
+  if (!ctx.tenant.browser_push_enabled || !pushConfigured(c.env) || !c.env.PUSH_QUEUE) return c.json({ error: "Browser push is not enabled or configured." }, 409);
+  const origin = c.req.header("Origin");
+  try {
+    if (!origin || new URL(origin).origin !== new URL(c.req.url).origin) return c.json({ error: "Cross-origin requests are not allowed." }, 403);
+  } catch { return c.json({ error: "Cross-origin requests are not allowed." }, 403); }
+  const campaign = await c.env.DB.prepare("SELECT campaign_id, tenant_id, post_slug, post_title, post_excerpt FROM push_campaigns WHERE campaign_id = ? AND tenant_id = ?")
+    .bind(c.req.param("campaignId"), ctx.tenant.id).first<{ campaign_id: string; tenant_id: number; post_slug: string; post_title: string; post_excerpt: string }>();
+  if (!campaign) return c.json({ error: "Campaign not found." }, 404);
+  const replayed = await c.env.DB.prepare("UPDATE push_campaigns SET status = 'pending', completed_at = NULL WHERE campaign_id = ? AND tenant_id = ? AND status IN ('failed', 'retry-exhausted')")
+    .bind(campaign.campaign_id, ctx.tenant.id).run();
+  if (!replayed.meta.changes) return c.json({ ok: true, queued: false });
+  await c.env.DB.prepare("UPDATE push_deliveries SET status = 'pending', claimed_at = NULL WHERE campaign_id = ? AND status != 'sent' AND EXISTS (SELECT 1 FROM push_campaigns WHERE campaign_id = ? AND tenant_id = ?)")
+    .bind(campaign.campaign_id, campaign.campaign_id, ctx.tenant.id).run();
+  try {
+    await c.env.PUSH_QUEUE.send({ kind: "push-fanout", campaignId: campaign.campaign_id, tenantId: ctx.tenant.id, postSlug: campaign.post_slug, postTitle: campaign.post_title, postExcerpt: campaign.post_excerpt, afterId: 0 } satisfies PushFanoutMessage);
+  } catch (error) {
+    await c.env.DB.prepare("UPDATE push_campaigns SET status = 'failed', completed_at = NULL WHERE campaign_id = ? AND tenant_id = ? AND status = 'pending'")
+      .bind(campaign.campaign_id, ctx.tenant.id).run();
+    throw error;
+  }
+  queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "push_campaign_replayed", campaign.campaign_id);
+  return c.json({ ok: true });
 });
 
 // Avatar upload → R2; stores the key on the blog. Client pre-shrinks it.
@@ -4169,6 +4324,69 @@ async function processEmailFanout(env: Bindings, job: EmailFanoutMessage): Promi
   if (subscribers.results.length === 100) await env.EMAIL_QUEUE.send({ ...job, afterId: subscribers.results[subscribers.results.length - 1].id });
 }
 
+async function processPushFanout(env: Bindings, job: PushFanoutMessage): Promise<void> {
+  if (!env.PUSH_QUEUE) throw new Error("Browser push queue is not configured.");
+  const tenant = await tenantById(env, job.tenantId);
+  if (!tenant) return;
+  if (!tenant.browser_push_enabled) return;
+  if (!pushConfigured(env)) throw new Error("Browser push is enabled but VAPID configuration is missing.");
+  const campaign = await env.DB.prepare("SELECT post_slug, post_title, post_excerpt, max_subscription_id, status FROM push_campaigns WHERE campaign_id = ? AND tenant_id = ? AND topic = 'new-post'").bind(job.campaignId, tenant.id).first<{ post_slug: string; post_title: string; post_excerpt: string; max_subscription_id: number; status: string }>();
+  if (!campaign || campaign.status === "completed" || campaign.status === "failed" || campaign.status === "retry-exhausted") return;
+  const subscriptions = await env.DB.prepare("SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE tenant_id = ? AND topic = 'new-post' AND id > ? AND id <= ? ORDER BY id LIMIT 50")
+    .bind(tenant.id, job.afterId, campaign.max_subscription_id).all<{ id: number; endpoint: string; p256dh: string; auth: string }>();
+  const payload: PushPayload = {
+    title: `New post on ${tenant.title}`,
+    body: `${campaign.post_title}${campaign.post_excerpt ? ` — ${campaign.post_excerpt}` : ""}`,
+    url: `${publicOrigin(env, tenant)}/${campaign.post_slug}`,
+    tag: `blognice-post-${campaign.post_slug}`,
+  };
+  let lastId = job.afterId;
+  let retryableFailure = false;
+  let campaignFailure = false;
+  for (const subscription of subscriptions.results) {
+    lastId = subscription.id;
+    const now = Math.floor(Date.now() / 1000);
+    await env.DB.prepare("INSERT OR IGNORE INTO push_deliveries (campaign_id, subscription_id, status, attempts) VALUES (?, ?, 'pending', 0)").bind(job.campaignId, subscription.id).run();
+    const claim = await env.DB.prepare("UPDATE push_deliveries SET status = 'claimed', claimed_at = ?, attempts = attempts + 1 WHERE campaign_id = ? AND subscription_id = ? AND (status = 'pending' OR (status = 'claimed' AND claimed_at < ?))").bind(now, job.campaignId, subscription.id, now - 300).run();
+    if (claim.meta.changes !== 1) continue;
+    try {
+      const status = await sendBrowserPush(env, { endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } }, payload);
+      const disposition = classifyPushDelivery(status);
+      if (disposition === "sent") {
+        await env.DB.prepare("UPDATE push_deliveries SET status = 'sent', sent_at = ? WHERE campaign_id = ? AND subscription_id = ?").bind(Math.floor(Date.now() / 1000), job.campaignId, subscription.id).run();
+        await env.DB.prepare("UPDATE push_subscriptions SET last_success_at = ?, updated_at = ? WHERE id = ? AND tenant_id = ?").bind(Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000), subscription.id, tenant.id).run();
+      } else if (disposition === "expired") await env.DB.prepare("DELETE FROM push_subscriptions WHERE id = ? AND tenant_id = ?").bind(subscription.id, tenant.id).run();
+    } catch (error) {
+      const status = Number((error as { statusCode?: number }).statusCode || 0);
+      const disposition = classifyPushDelivery(status);
+      if (disposition === "expired") await env.DB.prepare("DELETE FROM push_subscriptions WHERE id = ? AND tenant_id = ?").bind(subscription.id, tenant.id).run();
+      else if (disposition === "retry") {
+        retryableFailure = true;
+        await env.DB.prepare("UPDATE push_deliveries SET status = 'pending', claimed_at = NULL WHERE campaign_id = ? AND subscription_id = ?").bind(job.campaignId, subscription.id).run();
+      } else if (disposition === "campaign-failed") {
+        campaignFailure = true;
+        await env.DB.prepare("UPDATE push_deliveries SET status = 'dead' WHERE campaign_id = ? AND subscription_id = ?").bind(job.campaignId, subscription.id).run();
+      } else await env.DB.prepare("UPDATE push_deliveries SET status = 'dead' WHERE campaign_id = ? AND subscription_id = ?").bind(job.campaignId, subscription.id).run();
+    }
+  }
+  if (campaignFailure) {
+    await env.DB.prepare("UPDATE push_campaigns SET status = 'failed', completed_at = NULL WHERE campaign_id = ? AND tenant_id = ?").bind(job.campaignId, tenant.id).run();
+    return;
+  }
+  if (retryableFailure) throw new Error("One or more browser push deliveries are retryable.");
+  if (subscriptions.results.length === 50) await env.PUSH_QUEUE.send({ ...job, afterId: lastId });
+  else await env.DB.prepare("UPDATE push_campaigns SET status = 'completed', completed_at = ? WHERE campaign_id = ? AND tenant_id = ? AND status = 'pending'").bind(Math.floor(Date.now() / 1000), job.campaignId, tenant.id).run();
+}
+
+async function cleanupPushState(env: Bindings): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM push_subscription_limits WHERE window_start < ?").bind(now - 172800),
+    env.DB.prepare("DELETE FROM push_deliveries WHERE sent_at IS NOT NULL AND sent_at < ?").bind(now - 2592000),
+    env.DB.prepare("DELETE FROM push_subscriptions WHERE (last_success_at IS NOT NULL AND last_success_at < ?) OR (last_success_at IS NULL AND updated_at < ?) OR (tenant_id IN (SELECT id FROM tenants WHERE browser_push_enabled = 0) AND updated_at < ?)").bind(now - 7776000, now - 7776000, now - 2592000),
+  ]);
+}
+
 async function processEmailJob(env: Bindings, job: EmailJobMessage): Promise<void> {
   if (job.subscriberId != null) {
     const active = await env.DB.prepare("SELECT id FROM subscribers WHERE id = ? AND confirmed_at IS NOT NULL").bind(job.subscriberId).first();
@@ -4723,10 +4941,11 @@ export default {
   fetch: app.fetch,
   async queue(batch, env) {
     for (const message of batch.messages) {
-      const jobMessage = message.body as AudioJobMessage | ImageJobMessage | IndexNowMessage | EmailJobMessage | EmailFanoutMessage;
+      const jobMessage = message.body as AudioJobMessage | ImageJobMessage | IndexNowMessage | EmailJobMessage | EmailFanoutMessage | PushFanoutMessage;
       try {
         if ("kind" in jobMessage && jobMessage.kind === "indexnow") await processIndexNow(env, jobMessage);
         else if ("kind" in jobMessage && jobMessage.kind === "email-fanout") await processEmailFanout(env, jobMessage);
+        else if ("kind" in jobMessage && jobMessage.kind === "push-fanout") await processPushFanout(env, jobMessage);
         else if ("kind" in jobMessage && jobMessage.kind === "email-delivery") await processEmailJob(env, jobMessage);
         else if ("kind" in jobMessage && jobMessage.kind === "image") await processImageJob(env, jobMessage.jobKey);
         else await processAudioJob(env, jobMessage.jobKey);
@@ -4738,6 +4957,11 @@ export default {
         // retain their reservation while the queue retries.
         const isImageJob = "kind" in jobMessage && jobMessage.kind === "image";
         const isAudioJob = "jobKey" in jobMessage && !("kind" in jobMessage);
+        const isPushJob = "kind" in jobMessage && jobMessage.kind === "push-fanout";
+        if (attempts >= 6 && isPushJob) {
+          await env.DB.prepare("UPDATE push_campaigns SET status = 'retry-exhausted', completed_at = NULL WHERE campaign_id = ? AND tenant_id = ? AND status = 'pending'")
+            .bind(jobMessage.campaignId, jobMessage.tenantId).run();
+        }
         if (attempts >= 6 && (isImageJob || isAudioJob) && "jobKey" in jobMessage) {
           await refundTerminalAiJob(env, jobMessage.jobKey, isImageJob ? "image" : "audio").catch((refundError) => console.error(JSON.stringify({ message: "terminal AI credit refund failed", error: refundError instanceof Error ? refundError.message : String(refundError) })));
           if (isAudioJob) await releaseTerminalAudioGeneration(env, jobMessage.jobKey);
@@ -4754,7 +4978,7 @@ export default {
   },
   scheduled(_controller, env, ctx) {
     ctx.waitUntil(
-      Promise.all([archivePreviousDay(env), archivePreviousDayEvents(env), refreshPostPopularity(env)]).catch((error) => {
+      Promise.all([archivePreviousDay(env), archivePreviousDayEvents(env), refreshPostPopularity(env), cleanupPushState(env)]).catch((error) => {
         console.error(JSON.stringify({
           message: "scheduled metrics maintenance failed",
           error: error instanceof Error ? error.message : String(error),

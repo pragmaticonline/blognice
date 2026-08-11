@@ -20,6 +20,7 @@ export type Tenant = {
   accent_color: string | null; // hex accent used for this blog's branding
   topics_json: string | null;
   social_links_json?: string | null;
+  browser_push_enabled?: number;
   shard: string; // which database holds this tenant's posts (see src/db.ts)
   created_at: number;
 };
@@ -154,6 +155,12 @@ function subscribeBox(tenant: Tenant): string {
       <button type="submit">Subscribe</button>
     </form>
     <div class="sub-msg" data-sub-msg></div>
+    <div class="push-optin" data-push-box data-push-owner-enabled="${tenant.browser_push_enabled ? "1" : "0"}">
+      <p class="sub-sub">Optional: get one notification when this blog publishes a new post. You can turn it off in your browser settings.</p>
+      <button type="button" data-push-enable hidden>Enable browser notifications</button>
+      <button type="button" data-push-disable hidden>Turn off browser notifications</button>
+      <span class="sub-msg" data-push-msg aria-live="polite" role="status"></span>
+    </div>
   </section>
   <script>
     (function () {
@@ -176,6 +183,36 @@ function subscribeBox(tenant: Tenant): string {
           })
           .catch(function () { msg.textContent = "Something went wrong."; });
       });
+      var pushButton = document.querySelector("[data-push-enable]");
+      var pushDisable = document.querySelector("[data-push-disable]");
+      var pushMsg = document.querySelector("[data-push-msg]");
+      var pushOwnerEnabled = document.querySelector("[data-push-box]").getAttribute("data-push-owner-enabled") === "1";
+      function keyBytes(value) { var padding = "=".repeat((4 - value.length % 4) % 4); var raw = atob((value + padding).replace(/-/g, "+").replace(/_/g, "/")); var out = new Uint8Array(raw.length); for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i); return out; }
+      if (pushButton && pushDisable && pushMsg && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window) {
+        pushButton.hidden = !pushOwnerEnabled;
+        navigator.serviceWorker.register("/sw.js").then(function () { return navigator.serviceWorker.ready; }).then(function (registration) {
+          return registration.pushManager.getSubscription().then(function (subscription) {
+            if (subscription) { pushButton.hidden = true; pushDisable.hidden = false; }
+            pushButton.addEventListener("click", function () {
+              if (Notification.permission === "denied") { pushMsg.textContent = "Notifications are blocked in your browser."; return; }
+              Notification.requestPermission().then(function (permission) {
+                if (permission !== "granted") { pushMsg.textContent = "Notifications were not enabled."; return; }
+                return fetch("/push/public-key").then(function (r) { if (!r.ok) throw new Error(); return r.json(); }).then(function (data) {
+                  return registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(data.publicKey) });
+                }).then(function (newSubscription) {
+                  return fetch("/push/subscribe", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(newSubscription) });
+                }).then(function (r) { if (!r.ok) throw new Error(); pushButton.hidden = true; pushDisable.hidden = false; pushMsg.textContent = "You’ll be notified about new posts."; });
+              }).catch(function () { pushMsg.textContent = "Unable to enable notifications right now."; });
+            });
+            pushDisable.addEventListener("click", function () {
+              registration.pushManager.getSubscription().then(function (current) {
+                if (!current) return;
+                return fetch("/push/subscribe", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify(current) }).then(function () { return current.unsubscribe(); });
+              }).then(function () { pushDisable.hidden = true; pushButton.hidden = false; pushMsg.textContent = "Browser notifications turned off."; }).catch(function () { pushMsg.textContent = "Unable to turn off notifications right now."; });
+            });
+          });
+        }).catch(function () { pushButton.hidden = true; });
+      }
     })();
   </script>`;
 }

@@ -1,0 +1,1 @@
+ALTER TABLE tenants ADD COLUMN browser_push_enabled INTEGER NOT NULL DEFAULT 0;
