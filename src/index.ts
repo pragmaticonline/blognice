@@ -2135,7 +2135,7 @@ app.post("/admin/new-blog", async (c) => {
   const publicId = newPublicId();
   try {
     const res = await c.env.DB.prepare(
-      "INSERT INTO tenants (public_id, slug, title, description, shard, created_at) VALUES (?, ?, ?, '', 'primary', ?)"
+      "INSERT INTO tenants (public_id, slug, title, description, shard, browser_push_enabled, created_at) VALUES (?, ?, ?, '', 'primary', 1, ?)"
     )
       .bind(publicId, slug, title, now)
       .run();
@@ -3885,7 +3885,7 @@ app.post("/signup", async (c) => {
   const publicId = newPublicId();
   try {
     const res = await c.env.DB.prepare(
-      "INSERT INTO tenants (public_id, slug, title, description, shard, created_at) VALUES (?, ?, ?, '', 'primary', ?)"
+      "INSERT INTO tenants (public_id, slug, title, description, shard, browser_push_enabled, created_at) VALUES (?, ?, ?, '', 'primary', 1, ?)"
     )
       .bind(publicId, slug, title, now)
       .run();
