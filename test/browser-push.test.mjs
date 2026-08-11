@@ -83,3 +83,7 @@ test("push secrets are configuration-only", () => {
   assert.doesNotMatch(push, /BEGIN .*PRIVATE KEY/);
   assert.match(index, /Too many subscription attempts/);
 });
+test("new blog creation enables browser push by default", () => {
+  const tenantCreates = [...index.matchAll(/INSERT INTO tenants \(public_id, slug, title, description, shard, browser_push_enabled, created_at\) VALUES \(\?, \?, \?, '', 'primary', 1, \?\)/g)];
+  assert.equal(tenantCreates.length, 2);
+});
