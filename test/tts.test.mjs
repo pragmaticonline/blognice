@@ -100,6 +100,13 @@ test("calmer uses its tested spoken form", () => {
   assert.match(narrationText("A calmer introduction", "The tone is calmer."), /carlmar/);
 });
 
+test("narration skips Markdown tables", () => {
+  const text = narrationText("Table example", "Before the table.\n\n| Name | Status |\n| --- | :---: |\n| Audio | Ready |\n| Image | Pending |\n\nAfter the table.");
+  assert.match(text, /Before the table\./);
+  assert.match(text, /After the table\./);
+  assert.doesNotMatch(text, /Name|Status|Audio|Ready|Image|Pending|\|/);
+});
+
 test("audio removal invalidates queued narration before it can attach", () => {
   const source = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
   assert.match(source, /audio_generation_id = NULL/);

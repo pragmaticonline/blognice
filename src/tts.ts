@@ -149,6 +149,23 @@ function spokenDomains(value: string): string {
     .replace(/\b((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,})(?=\b)/gi, (domain) => domain.split(".").join(" dot "));
 }
 
+function removeMarkdownTables(value: string): string {
+  const lines = value.split("\n");
+  const kept: string[] = [];
+  const tableRow = (line: string) => /^\s*\|?[^\n|]+(?:\|[^\n|]+)+\|?\s*$/.test(line);
+  const separatorRow = (line: string) => /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
+  for (let index = 0; index < lines.length;) {
+    if (tableRow(lines[index]) && separatorRow(lines[index + 1] || "")) {
+      index += 2;
+      while (index < lines.length && (tableRow(lines[index]) || !lines[index].trim())) index++;
+      kept.push("");
+      continue;
+    }
+    kept.push(lines[index++]);
+  }
+  return kept.join("\n");
+}
+
 function cleanSpeech(value: string, overrides: PronunciationReplacement[] = []): string {
   return disambiguateRead(spokenForms(applyManagedSpokenForms(spokenDomains(removeNumericSeparators(removeEmoji(value))), overrides)))
     .replace(/\s*[—–]\s*/g, ", ")
@@ -170,7 +187,7 @@ function cleanSpeech(value: string, overrides: PronunciationReplacement[] = []):
 }
 
 export function narrationSections(title: string, markdown: string, overrides: PronunciationReplacement[] = []): { title: string; body: string } {
-  const cleaned = decodeEntities(markdown)
+  const cleaned = removeMarkdownTables(decodeEntities(markdown)
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
@@ -178,7 +195,7 @@ export function narrationSections(title: string, markdown: string, overrides: Pr
     .replace(/<[^>]+>/g, " ")
     .replace(/[*_~]/g, "")
     .replace(/^\s*[-*_]{3,}\s*$/gm, " ")
-    .replace(/\r/g, "");
+    .replace(/\r/g, ""));
   const blocks = cleaned.split(/\n\s*\n+/).map((block) => {
     let containsList = false;
     const lines = block.split("\n").map((line) => {
