@@ -19,6 +19,24 @@ test("marketing homepage provides a central login button", () => {
   assert.match(homepage, /href="https:\/\/www\.blognice\.com\/admin\/login"[^>]*>Log in<\/a>/);
 });
 
+test("marketing homepage protects narrow mobile layout and anchor targets", () => {
+  assert.match(homepage, /scroll-padding-top:74px/);
+  assert.match(homepage, /@media \(max-width: 560px\)[\s\S]*?scroll-padding-top:64px/);
+  assert.match(homepage, /class="nav-actions"/);
+  assert.match(homepage, /class="nav-cta-short">Start<\/span>/);
+  assert.match(homepage, /grid-template-columns:minmax\(0,1fr\) 20px/);
+  assert.match(homepage, /bottom:max\(16px, env\(safe-area-inset-bottom\)\)/);
+  assert.match(homepage, /\.footer-actions a\{min-height:44px;justify-content:center;\}/);
+});
+
+test("marketing homepage FAQ exposes accessible expansion state", () => {
+  assert.equal((homepage.match(/aria-expanded="false"/g) || []).length, 5);
+  assert.equal((homepage.match(/aria-controls="faq-a-[1-5]"/g) || []).length, 5);
+  assert.equal((homepage.match(/<div class="faq-a" id="faq-a-[1-5]" hidden>/g) || []).length, 5);
+  assert.match(homepage, /setAttribute\('aria-expanded', 'true'\)/);
+  assert.match(homepage, /ans\.hidden = false/);
+});
+
 test("marketing homepage showcases AI images and an opt-in voice sample", () => {
   assert.match(homepage, /id="ai"/);
   assert.match(homepage, /\/marketing-ai\/writing\.webp/);

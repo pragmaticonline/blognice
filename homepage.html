@@ -35,7 +35,7 @@
     --mono:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   }
   *{box-sizing:border-box; margin:0; padding:0;}
-  html{scroll-behavior:smooth;}
+  html{scroll-behavior:smooth; scroll-padding-top:74px;}
   body{
     background:var(--bg); color:var(--ink);
     font-family:var(--body); line-height:1.6;
@@ -54,7 +54,7 @@
     background:var(--green); z-index:200; transition:width .08s linear;
   }
   .to-top{
-    position:fixed; right:24px; bottom:24px; z-index:100;
+    position:fixed; right:24px; bottom:max(24px, env(safe-area-inset-bottom)); z-index:100;
     width:44px; height:44px; border-radius:50%;
     display:grid; place-items:center;
     background:var(--green); color:#fff;
@@ -363,9 +363,10 @@
   .faq-item{border-bottom:1px solid var(--rule);}
   .faq-q{
     width:100%; text-align:left; padding:22px 2px;
-    display:flex; justify-content:space-between; align-items:center; gap:20px;
+    display:grid; grid-template-columns:minmax(0,1fr) 20px; align-items:center; gap:20px;
     font-family:var(--display); font-weight:600; font-size:16.5px;
   }
+  .faq-q{overflow-wrap:anywhere;}
   .faq-q .plus{width:20px; height:20px; position:relative; flex-shrink:0;}
   .faq-q .plus::before, .faq-q .plus::after{content:''; position:absolute; background:var(--ink); border-radius:2px;}
   .faq-q .plus::before{width:13px; height:1.5px; top:9px; left:3.5px;}
@@ -384,6 +385,8 @@
   .footer-links a:hover,.footer-links a:focus-visible{color:var(--green-deep); text-decoration:underline;}
   .footer-actions{display:flex; flex-direction:column; align-items:stretch; gap:10px;}
   .footer-actions a{white-space:nowrap;}
+  .nav-actions{display:flex; align-items:center; gap:10px;}
+  .nav-cta-short{display:none;}
 
   /* ---------- RESPONSIVE ---------- */
   @media (max-width: 880px){
@@ -405,7 +408,21 @@
     .example-real > div{max-width:none; justify-self:stretch;}
     .footer-inner{grid-template-columns:1fr 1fr;}
   }
-  @media (max-width: 560px){.footer-inner{grid-template-columns:1fr;}.footer-links{flex-direction:row;flex-wrap:wrap;gap:10px 18px}.footer-actions{flex-direction:row;flex-wrap:wrap;align-items:center}}
+  @media (max-width: 560px){
+    html{scroll-padding-top:64px;}
+    .wrap{padding-left:16px;padding-right:16px;}
+    .nav-inner{height:64px;}
+    .logo{font-size:18px;}
+    .nav-actions{gap:6px;}
+    .nav-actions .btn{padding:8px 10px;font-size:13px;}
+    .nav-cta-full{display:none;}
+    .nav-cta-short{display:inline;}
+    .to-top{right:16px;bottom:max(16px, env(safe-area-inset-bottom));}
+    .footer-inner{grid-template-columns:1fr;padding-bottom:calc(32px + env(safe-area-inset-bottom));}
+    .footer-links{flex-direction:row;flex-wrap:wrap;gap:10px 18px}
+    .footer-actions{align-items:stretch;}
+    .footer-actions a{min-height:44px;justify-content:center;}
+  }
 </style>
 </head>
 <body>
@@ -423,9 +440,9 @@
       <a href="#pricing">Pricing</a>
       <a href="#faq">FAQ</a>
     </div>
-    <div style="display:flex;align-items:center;gap:10px">
+    <div class="nav-actions">
       <a href="https://www.blognice.com/admin/login" class="btn btn-line">Log in</a>
-      <a href="https://www.blognice.com/signup" class="btn btn-solid">Start your first blog</a>
+      <a href="https://www.blognice.com/signup" class="btn btn-solid"><span class="nav-cta-full">Start your first blog</span><span class="nav-cta-short">Start</span></a>
     </div>
   </div>
 </nav>
@@ -728,24 +745,24 @@ they hand you a blank page.
     </div>
     <div class="faq">
       <div class="faq-item">
-        <button class="faq-q">Can I run more than one blog?<span class="plus"></span></button>
-        <div class="faq-a"><div class="faq-a-inner">Yes, up to five, all from a single account. Each one has its own title, tagline, address, and can carry its own custom domain.</div></div>
+        <button class="faq-q" aria-expanded="false" aria-controls="faq-a-1">Can I run more than one blog?<span class="plus" aria-hidden="true"></span></button>
+        <div class="faq-a" id="faq-a-1" hidden><div class="faq-a-inner">Yes, up to five, all from a single account. Each one has its own title, tagline, address, and can carry its own custom domain.</div></div>
       </div>
       <div class="faq-item">
-        <button class="faq-q">What does it cost?<span class="plus"></span></button>
-        <div class="faq-a"><div class="faq-a-inner">Your first blog is free to try. When you're ready for up to five, it's $36 a year, recommended, or $5 a month if you'd rather pay monthly — either way, unlimited posts, image hosting, and custom-domain support are included, with nothing to upgrade to later.</div></div>
+        <button class="faq-q" aria-expanded="false" aria-controls="faq-a-2">What does it cost?<span class="plus" aria-hidden="true"></span></button>
+        <div class="faq-a" id="faq-a-2" hidden><div class="faq-a-inner">Your first blog is free to try. When you're ready for up to five, it's $36 a year, recommended, or $5 a month if you'd rather pay monthly — either way, unlimited posts, image hosting, and custom-domain support are included, with nothing to upgrade to later.</div></div>
       </div>
       <div class="faq-item">
-        <button class="faq-q">Do I need to know anything about DNS to connect my domain?<span class="plus"></span></button>
-        <div class="faq-a"><div class="faq-a-inner">Not really. From your dashboard you enter your domain and get the exact records to add at your domain provider — you don't need to understand how DNS works to follow the steps.</div></div>
+        <button class="faq-q" aria-expanded="false" aria-controls="faq-a-3">Do I need to know anything about DNS to connect my domain?<span class="plus" aria-hidden="true"></span></button>
+        <div class="faq-a" id="faq-a-3" hidden><div class="faq-a-inner">Not really. From your dashboard you enter your domain and get the exact records to add at your domain provider — you don't need to understand how DNS works to follow the steps.</div></div>
       </div>
       <div class="faq-item">
-        <button class="faq-q">Do you handle newsletter emails?<span class="plus"></span></button>
-        <div class="faq-a"><div class="faq-a-inner">The subscribe box on every blog captures reader emails, and you can export the list as CSV any time. New-post notifications can be sent once an email provider is connected.</div></div>
+        <button class="faq-q" aria-expanded="false" aria-controls="faq-a-4">Do you handle newsletter emails?<span class="plus" aria-hidden="true"></span></button>
+        <div class="faq-a" id="faq-a-4" hidden><div class="faq-a-inner">The subscribe box on every blog captures reader emails, and you can export the list as CSV any time. New-post notifications can be sent once an email provider is connected.</div></div>
       </div>
       <div class="faq-item">
-        <button class="faq-q">Am I locked in to blognice?<span class="plus"></span></button>
-        <div class="faq-a"><div class="faq-a-inner">Posts are stored as plain Markdown, not a proprietary format, and the project is open source under the AGPL v3. Your domain is always yours, too.</div></div>
+        <button class="faq-q" aria-expanded="false" aria-controls="faq-a-5">Am I locked in to blognice?<span class="plus" aria-hidden="true"></span></button>
+        <div class="faq-a" id="faq-a-5" hidden><div class="faq-a-inner">Posts are stored as plain Markdown, not a proprietary format, and the project is open source under the AGPL v3. Your domain is always yours, too.</div></div>
       </div>
     </div>
   </div>
@@ -813,19 +830,29 @@ they hand you a blank page.
   // FAQ accordion
   document.querySelectorAll('.faq-item').forEach(item => {
     const btn = item.querySelector('.faq-q');
-    const ans = item.querySelector('.faq-a');
-    btn.addEventListener('click', () => {
-      const isOpen = item.classList.contains('open');
-      document.querySelectorAll('.faq-item.open').forEach(o => {
-        if(o !== item){ o.classList.remove('open'); o.querySelector('.faq-a').style.maxHeight = null; }
-      });
-      if(isOpen){
-        item.classList.remove('open');
-        ans.style.maxHeight = null;
-      } else {
-        item.classList.add('open');
-        ans.style.maxHeight = ans.scrollHeight + 'px';
-      }
+      const ans = item.querySelector('.faq-a');
+      btn.addEventListener('click', () => {
+        const isOpen = item.classList.contains('open');
+        document.querySelectorAll('.faq-item.open').forEach(o => {
+          if(o !== item){
+            o.classList.remove('open');
+            o.querySelector('.faq-q').setAttribute('aria-expanded', 'false');
+            const otherAnswer = o.querySelector('.faq-a');
+            otherAnswer.style.maxHeight = null;
+            otherAnswer.hidden = true;
+          }
+        });
+        if(isOpen){
+          item.classList.remove('open');
+          ans.style.maxHeight = null;
+          btn.setAttribute('aria-expanded', 'false');
+          ans.hidden = true;
+        } else {
+          item.classList.add('open');
+          btn.setAttribute('aria-expanded', 'true');
+          ans.hidden = false;
+          ans.style.maxHeight = ans.scrollHeight + 'px';
+        }
     });
   });
 
