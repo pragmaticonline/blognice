@@ -35,6 +35,7 @@ import {
   sha256hex,
   accountFromApiKey,
   accountHasPaidPlan,
+  isSuspended,
   type Account,
 } from "./auth";
 import {
@@ -56,6 +57,7 @@ import {
   metricsPage,
   auditPage,
   shell,
+  suspendedAccountPage,
   type MediaItem,
 } from "./admin";
 import { tenantDb } from "./db";
@@ -1132,6 +1134,7 @@ async function ownedTenantById(
 app.get("/api/v1/me", async (c) => {
   const account = await apiAccount(c);
   if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const { results } = await c.env.DB.prepare(
     `SELECT t.public_id, t.slug, t.title FROM tenants t
        JOIN memberships m ON m.tenant_id = t.id
@@ -1149,6 +1152,7 @@ app.get("/api/v1/me", async (c) => {
 app.post("/api/v1/blogs/:blogId/indexnow", async (c) => {
   const account = await apiAccount(c);
   if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
   const role = await membershipRoleFor(c.env, account.id, tenant.id);
@@ -1219,6 +1223,7 @@ app.post("/api/v1/blogs/:blogId/indexnow", async (c) => {
 app.get("/api/v1/blogs/:blogId/posts", async (c) => {
   const account = await apiAccount(c);
   if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
   const { results } = await tenantDb(c.env, tenant).prepare(
@@ -1238,6 +1243,7 @@ app.get("/api/v1/blogs/:blogId/posts", async (c) => {
 app.get("/api/v1/blogs/:blogId/posts/:id", async (c) => {
   const account = await apiAccount(c);
   if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
   const post = await tenantDb(c.env, tenant).prepare(
@@ -1257,6 +1263,7 @@ app.get("/api/v1/blogs/:blogId/posts/:id", async (c) => {
 app.post("/api/v1/blogs/:blogId/posts", async (c) => {
   const account = await apiAccount(c);
   if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
   const role = await membershipRoleFor(c.env, account.id, tenant.id);
@@ -1319,6 +1326,7 @@ app.post("/api/v1/blogs/:blogId/posts", async (c) => {
 app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
   const account = await apiAccount(c);
   if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
   const role = await membershipRoleFor(c.env, account.id, tenant.id);
@@ -1395,6 +1403,7 @@ app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
 app.delete("/api/v1/blogs/:blogId/posts/:id", async (c) => {
   const account = await apiAccount(c);
   if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
   const role = await membershipRoleFor(c.env, account.id, tenant.id);
@@ -1421,6 +1430,7 @@ app.delete("/api/v1/blogs/:blogId/posts/:id", async (c) => {
 app.post("/api/v1/blogs/:blogId/images/generations", async (c) => {
   const account = await apiAccount(c);
   if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
   if (!(await tenantHasPaidPlan(c.env, tenant.id))) return c.json({ error: "AI image generation requires a paid plan." }, 402);
@@ -1468,6 +1478,7 @@ app.post("/api/v1/blogs/:blogId/images/generations", async (c) => {
 app.get("/api/v1/blogs/:blogId/images/generations/:jobId", async (c) => {
   const account = await apiAccount(c);
   if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
   const jobId = c.req.param("jobId");
@@ -1482,6 +1493,7 @@ app.get("/api/v1/blogs/:blogId/images/generations/:jobId", async (c) => {
 app.post("/api/v1/blogs/:blogId/posts/:id/audio/generations", async (c) => {
   const account = await apiAccount(c);
   if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
   if (!(await tenantHasPaidPlan(c.env, tenant.id))) return c.json({ error: "AI narration requires a paid plan." }, 402);
@@ -1502,6 +1514,7 @@ app.post("/api/v1/blogs/:blogId/posts/:id/audio/generations", async (c) => {
 app.get("/api/v1/blogs/:blogId/audio/generations/:jobId", async (c) => {
   const account = await apiAccount(c);
   if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
   const jobId = c.req.param("jobId");
@@ -1519,6 +1532,7 @@ app.get("/api/v1/blogs/:blogId/audio/generations/:jobId", async (c) => {
 app.delete("/api/v1/blogs/:blogId/posts/:id/audio", async (c) => {
   const account = await apiAuthenticatedAccount(c);
   if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
   const role = await membershipRoleFor(c.env, account.id, tenant.id);
@@ -1809,13 +1823,18 @@ async function postAuthors(env: Bindings, tenant: Tenant): Promise<Array<{ id: n
 async function blogContext(
   c: any
 ): Promise<
-  { account: Account; tenant: Tenant; role: MembershipRole } | { redirect: string }
+  { account: Account; tenant: Tenant; role: MembershipRole } | { redirect: string } | { suspended: true; account: Account }
 > {
   const account = await currentAccount(c);
   if (!account) return { redirect: "/admin/login" };
+  if (isSuspended(account)) return { suspended: true, account };
   const tenant = await ownedBlog(c, account);
   if (!tenant) return { redirect: "/admin" };
   return { account, tenant, role: (tenant as Tenant & { membership_role: MembershipRole }).membership_role };
+}
+
+function suspendedResponse(c: any, account: Account) {
+  return c.html(suspendedAccountPage(account), 403);
 }
 
 function requireBlogCapability(
@@ -1987,6 +2006,7 @@ async function accountBlogsForDocs(env: Bindings, account: Account): Promise<Arr
 app.get("/admin/api-key", async (c) => {
   const account = await currentAccount(c);
   if (!account) return c.redirect("/admin/login");
+  if (isSuspended(account)) return suspendedResponse(c, account);
   const row = await c.env.DB.prepare(
     "SELECT api_key_created_at FROM accounts WHERE id = ?"
   )
@@ -2003,6 +2023,7 @@ app.get("/admin/api-key", async (c) => {
 app.post("/admin/api-key/regenerate", async (c) => {
   const account = await currentAccount(c);
   if (!account) return c.redirect("/admin/login");
+  if (isSuspended(account)) return suspendedResponse(c, account);
   if (!accountHasPaidPlan(account)) return c.redirect("/admin/billing?message=API access is available on a paid plan.");
   const key = generateApiKey();
   const hash = await sha256hex(key);
@@ -2021,6 +2042,7 @@ app.post("/admin/api-key/regenerate", async (c) => {
 app.post("/admin/api-key/revoke", async (c) => {
   const account = await currentAccount(c);
   if (!account) return c.redirect("/admin/login");
+  if (isSuspended(account)) return suspendedResponse(c, account);
   await c.env.DB.prepare(
     "UPDATE accounts SET api_key_hash = NULL, api_key_created_at = NULL WHERE id = ?"
   )
@@ -2065,6 +2087,7 @@ app.post("/admin/logout", async (c) => {
 app.get("/admin", async (c) => {
   const account = await currentAccount(c);
   if (!account) return c.redirect("/admin/login");
+  if (isSuspended(account)) return suspendedResponse(c, account);
   const { results } = await c.env.DB.prepare(
     `SELECT t.public_id, t.slug, t.title, t.description, t.avatar_key, t.topics_json, m.role FROM tenants t
        JOIN memberships m ON m.tenant_id = t.id
@@ -2101,12 +2124,14 @@ app.get("/admin/blogs.json", async (c) => {
 app.get("/admin/new-blog", async (c) => {
   const account = await currentAccount(c);
   if (!account) return c.redirect("/admin/login");
+  if (isSuspended(account)) return suspendedResponse(c, account);
   return c.html(newBlogPage(account, c.env.ROOT_DOMAIN));
 });
 
 app.post("/admin/new-blog", async (c) => {
   const account = await currentAccount(c);
   if (!account) return c.redirect("/admin/login");
+  if (isSuspended(account)) return suspendedResponse(c, account);
 
   const form = await c.req.formData();
   const slug = String(form.get("slug") ?? "").trim().toLowerCase();
@@ -2165,6 +2190,7 @@ app.post("/admin/preview", async (c) => {
 app.get("/admin/b/:blogId", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
   const { results } = await tenantDb(c.env, ctx.tenant).prepare(
     "SELECT * FROM posts WHERE tenant_id = ? ORDER BY created_at DESC"
   )
@@ -2177,6 +2203,7 @@ app.get("/admin/b/:blogId", async (c) => {
 app.get("/admin/b/:blogId/pages", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
   const denied = requireBlogCapability(c, ctx, "posts.create");
   if (denied) return denied;
   const { results } = await tenantDb(c.env, ctx.tenant).prepare(
@@ -2188,6 +2215,7 @@ app.get("/admin/b/:blogId/pages", async (c) => {
 app.get("/admin/b/:blogId/pages/new", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
   const denied = requireBlogCapability(c, ctx, "posts.create");
   if (denied) return denied;
   return c.html(pageEditorPage(ctx.account, ctx.tenant, null));
@@ -2196,6 +2224,7 @@ app.get("/admin/b/:blogId/pages/new", async (c) => {
 app.get("/admin/b/:blogId/pages/edit/:id", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
   const page = await tenantDb(c.env, ctx.tenant).prepare(
     "SELECT * FROM pages WHERE id = ? AND tenant_id = ?"
   ).bind(c.req.param("id"), ctx.tenant.id).first<Page>();
@@ -2208,6 +2237,7 @@ app.get("/admin/b/:blogId/pages/edit/:id", async (c) => {
 app.post("/admin/b/:blogId/pages/save", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
   const denied = requireBlogCapability(c, ctx, "posts.create");
   if (denied) return denied;
   const form = await c.req.formData();
@@ -2246,6 +2276,7 @@ app.post("/admin/b/:blogId/pages/save", async (c) => {
 app.post("/admin/b/:blogId/pages/delete/:id", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
   const denied = requireBlogCapability(c, ctx, "posts.delete");
   if (denied) return denied;
   const page = await tenantDb(c.env, ctx.tenant).prepare("SELECT slug FROM pages WHERE id = ? AND tenant_id = ?").bind(c.req.param("id"), ctx.tenant.id).first<{ slug: string }>();
@@ -2269,6 +2300,7 @@ function collaboratorPage(account: Account, tenant: Tenant, members: Array<{ acc
 app.get("/admin/b/:blogId/authors", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
   if (!(await tenantHasPaidPlan(c.env, ctx.tenant.id))) return c.text("Collaborators are available on a paid plan.", 402);
   if (!can(ctx.role, "members.manage")) return c.text("You do not have permission to manage collaborators.", 403);
   const { results } = await c.env.DB.prepare(`SELECT m.account_id, a.email, m.role, m.display_name FROM memberships m JOIN accounts a ON a.id = m.account_id WHERE m.tenant_id = ? ORDER BY m.role, a.email`).bind(ctx.tenant.id).all<{ account_id: number; email: string; role: string; display_name: string | null }>();
@@ -2278,6 +2310,7 @@ app.get("/admin/b/:blogId/authors", async (c) => {
 app.post("/admin/b/:blogId/authors", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
   if (!(await tenantHasPaidPlan(c.env, ctx.tenant.id))) return c.text("Collaborators are available on a paid plan.", 402);
   if (!can(ctx.role, "members.manage")) return c.text("You do not have permission to manage collaborators.", 403);
   const form = await c.req.formData();
@@ -2312,6 +2345,7 @@ app.post("/admin/b/:blogId/authors", async (c) => {
 app.get("/admin/invite/:token", async (c) => {
   const account = await currentAccount(c);
   if (!account) return c.redirect(`/signup?invite=${encodeURIComponent(c.req.param("token"))}`);
+  if (isSuspended(account)) return suspendedResponse(c, account);
   const tokenHash = await sha256hex(c.req.param("token"));
   const now = Math.floor(Date.now() / 1000);
   const invite = await c.env.DB.prepare("SELECT i.*, t.title FROM blog_invitations i JOIN tenants t ON t.id = i.tenant_id WHERE i.token_hash = ? AND i.accepted_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > ?").bind(tokenHash, now).first<{ id: number; tenant_id: number; email: string; role: MembershipRole; title: string }>();
@@ -2326,6 +2360,7 @@ app.get("/admin/invite/:token", async (c) => {
 app.get("/admin/b/:blogId/metrics", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
   const requestedDays = Number(c.req.query("days") || "30");
   const days = [7, 30, 90].includes(requestedDays) ? requestedDays : 30;
   if (!metricsConfigured(c.env)) {
@@ -2348,6 +2383,7 @@ app.get("/admin/b/:blogId/metrics", async (c) => {
 app.get("/admin/b/:blogId/new", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
   const denied = requireBlogCapability(c, ctx, "posts.create");
   if (denied) return denied;
   return c.html(editorPage(ctx.account, ctx.tenant, c.env.ROOT_DOMAIN, null, undefined, can(ctx.role, "posts.edit.any") ? await postAuthors(c.env, ctx.tenant) : []));
@@ -2356,6 +2392,7 @@ app.get("/admin/b/:blogId/new", async (c) => {
 app.get("/admin/b/:blogId/edit/:id", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
   const post = await tenantDb(c.env, ctx.tenant).prepare(
     "SELECT * FROM posts WHERE id = ? AND tenant_id = ?"
   )
@@ -2372,6 +2409,7 @@ app.get("/admin/b/:blogId/edit/:id", async (c) => {
 app.post("/admin/b/:blogId/save", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
 
   const form = await c.req.formData();
   const idParam = c.req.query("id");
@@ -2485,6 +2523,7 @@ app.post("/admin/b/:blogId/save", async (c) => {
 app.post("/admin/b/:blogId/delete/:id", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
   const denied = requireBlogCapability(c, ctx, "posts.delete");
   if (denied) return denied;
   const pdb = tenantDb(c.env, ctx.tenant);
@@ -2565,18 +2604,21 @@ async function listMedia(env: Bindings, tenantId: number): Promise<MediaItem[]> 
 app.get("/admin/b/:blogId/media", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
   return c.html(mediaPage(ctx.account, ctx.tenant, await listMedia(c.env, ctx.tenant.id)));
 });
 
 app.get("/admin/b/:blogId/media.json", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401);
+  if ("suspended" in ctx) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   return c.json({ items: await listMedia(c.env, ctx.tenant.id) });
 });
 
 app.post("/admin/b/:blogId/upload", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401);
+  if ("suspended" in ctx) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   if (!can(ctx.role, "media.upload")) return c.json({ error: "forbidden" }, 403);
 
   const form = await c.req.formData();
@@ -2848,6 +2890,7 @@ async function createAudioJob(env: Bindings, tenant: Tenant, post: Pick<Post, "i
 app.get("/admin/b/:blogId/audio/:id/status", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401);
+  if ("suspended" in ctx) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const jobId = c.req.query("job");
   if (!jobId || !/^[0-9a-f-]{36}$/i.test(jobId)) return c.json({ error: "Audio job not found." }, 404);
   try {
@@ -2862,6 +2905,7 @@ app.get("/admin/b/:blogId/audio/:id/status", async (c) => {
 app.post("/admin/b/:blogId/audio/:id", async (c) => {
   const ctxResult = await blogContext(c);
   if ("redirect" in ctxResult) return c.json({ error: "unauthorized" }, 401);
+  if ("suspended" in ctxResult) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const ctx = ctxResult;
   if (!(await tenantHasPaidPlan(c.env, ctx.tenant.id))) return c.json({ error: "AI narration is available on a paid plan." }, 402);
   if (!can(ctx.role, "media.upload")) return c.json({ error: "forbidden" }, 403);
@@ -3072,6 +3116,7 @@ app.post("/admin/b/:blogId/audio/:id", async (c) => {
 app.delete("/admin/b/:blogId/audio/:id", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401);
+  if ("suspended" in ctx) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   if (!can(ctx.role, "media.delete")) return c.json({ error: "forbidden" }, 403);
   const pdb = tenantDb(c.env, ctx.tenant);
   const post = await pdb.prepare(
@@ -3366,6 +3411,7 @@ async function processImageJob(env: Bindings, jobKey: string): Promise<void> {
 app.post("/admin/b/:blogId/media/generate", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401);
+  if ("suspended" in ctx) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const requestOrigin = c.req.header("origin");
   // This endpoint spends Workers AI credits. Require a browser same-origin
   // request in addition to the session and blog capability checks, so a
@@ -3423,6 +3469,7 @@ app.post("/admin/b/:blogId/media/generate", async (c) => {
 app.delete("/admin/b/:blogId/media/:file", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401);
+  if ("suspended" in ctx) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   if (!can(ctx.role, "media.delete")) return c.json({ error: "forbidden" }, 403);
 
   const file = c.req.param("file");
@@ -3452,6 +3499,7 @@ app.delete("/admin/b/:blogId/media/:file", async (c) => {
 app.get("/admin/b/:blogId/settings", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
   const denied = requireBlogCapability(c, ctx, "settings.manage");
   if (denied) return denied;
   return c.html(settingsPage(ctx.account, ctx.tenant));
@@ -3460,6 +3508,7 @@ app.get("/admin/b/:blogId/settings", async (c) => {
 app.post("/admin/b/:blogId/settings", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
   const denied = requireBlogCapability(c, ctx, "settings.manage");
   if (denied) return denied;
 
@@ -3522,6 +3571,7 @@ app.post("/admin/b/:blogId/settings", async (c) => {
 app.post("/admin/b/:blogId/push-campaigns/:campaignId/replay", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
   const denied = requireBlogCapability(c, ctx, "settings.manage");
   if (denied) return denied;
   if (!ctx.tenant.browser_push_enabled || !pushConfigured(c.env) || !c.env.PUSH_QUEUE) return c.json({ error: "Browser push is not enabled or configured." }, 409);
@@ -3552,6 +3602,7 @@ app.post("/admin/b/:blogId/push-campaigns/:campaignId/replay", async (c) => {
 app.post("/admin/b/:blogId/avatar", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401);
+  if ("suspended" in ctx) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   if (!can(ctx.role, "settings.manage")) return c.json({ error: "forbidden" }, 403);
 
   const form = await c.req.formData();
@@ -3584,6 +3635,7 @@ app.post("/admin/b/:blogId/avatar", async (c) => {
 app.post("/admin/b/:blogId/avatar/remove", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401);
+  if ("suspended" in ctx) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   if (!can(ctx.role, "settings.manage")) return c.json({ error: "forbidden" }, 403);
   if (ctx.tenant.avatar_key) {
     c.executionCtx.waitUntil(c.env.MEDIA.delete(ctx.tenant.avatar_key));
@@ -3627,6 +3679,7 @@ app.post("/admin/b/:blogId/favicon", async (c) => {
   try {
     const ctx = await blogContext(c);
     if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401);
+  if ("suspended" in ctx) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
     if (!(await tenantHasPaidPlan(c.env, ctx.tenant.id)) ) return c.json({ error: "Custom favicons are available on a paid plan." }, 402);
     if (!can(ctx.role, "settings.manage")) return c.json({ error: "forbidden" }, 403);
     stage = "reading the uploaded file";
@@ -3746,6 +3799,7 @@ app.get("/marketing-audio", async (c) => {
 app.post("/admin/b/:blogId/favicon/remove", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401);
+  if ("suspended" in ctx) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   if (!can(ctx.role, "settings.manage")) return c.json({ error: "forbidden" }, 403);
   if (ctx.tenant.favicon_key) c.executionCtx.waitUntil(c.env.MEDIA.delete(ctx.tenant.favicon_key));
   await c.env.DB.prepare("UPDATE tenants SET favicon_key = NULL WHERE id = ?").bind(ctx.tenant.id).run();
@@ -3758,6 +3812,7 @@ app.post("/admin/b/:blogId/favicon/remove", async (c) => {
 app.get("/admin/b/:blogId/subscribers", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
   const denied = requireBlogCapability(c, ctx, "settings.manage");
   if (denied) return denied;
   const { results } = await c.env.DB.prepare(
@@ -3771,6 +3826,7 @@ app.get("/admin/b/:blogId/subscribers", async (c) => {
 app.post("/admin/b/:blogId/subscribers/remove", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
   const denied = requireBlogCapability(c, ctx, "settings.manage");
   if (denied) return denied;
   const form = await c.req.formData();
@@ -3784,6 +3840,7 @@ app.post("/admin/b/:blogId/subscribers/remove", async (c) => {
 app.get("/admin/b/:blogId/subscribers.csv", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
   const denied = requireBlogCapability(c, ctx, "settings.manage");
   if (denied) return denied;
   const { results } = await c.env.DB.prepare(
@@ -3930,6 +3987,7 @@ const domainCfg = (c: any) => ({
 app.get("/admin/b/:blogId/domains", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
   const denied = requireBlogCapability(c, ctx, "settings.manage");
   if (denied) return denied;
   const domains = await loadDomains(c, ctx.tenant.id);
@@ -3939,6 +3997,7 @@ app.get("/admin/b/:blogId/domains", async (c) => {
 app.post("/admin/b/:blogId/domains", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
   if (!(await tenantHasPaidPlan(c.env, ctx.tenant.id))) return c.text("Custom domains are available on a paid plan.", 402);
   const denied = requireBlogCapability(c, ctx, "settings.manage");
   if (denied) return denied;
@@ -4005,6 +4064,7 @@ app.post("/admin/b/:blogId/domains", async (c) => {
 app.post("/admin/b/:blogId/domains/check", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
   const denied = requireBlogCapability(c, ctx, "settings.manage");
   if (denied) return denied;
 
@@ -4044,6 +4104,7 @@ app.post("/admin/b/:blogId/domains/check", async (c) => {
 app.post("/admin/b/:blogId/domains/remove", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
   const denied = requireBlogCapability(c, ctx, "settings.manage");
   if (denied) return denied;
 
@@ -4419,6 +4480,7 @@ app.get("/manage-subscriptions/:token", async (c) => {
 app.get("/admin/b/:blogId/audit", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
   if (!(await tenantHasPaidPlan(c.env, ctx.tenant.id)))
     return c.html(auditPage(ctx.account, ctx.tenant, [], { paid: false }), 402);
   try {
@@ -4486,6 +4548,7 @@ function billingPage(
 app.get("/admin/billing", async (c) => {
   const account = await currentAccount(c);
   if (!account) return c.redirect("/admin/login");
+  if (isSuspended(account)) return suspendedResponse(c, account);
   const billing = await c.env.DB.prepare("SELECT stripe_customer_id, stripe_subscription_id, billing_status, billing_price_id, billing_period_end, billing_cancel_at_period_end, crypto_paid_through FROM accounts WHERE id = ?").bind(account.id).first() || {};
   const usage = await c.env.DB.prepare("SELECT credits_used AS used, allowance FROM ai_credit_usage WHERE account_id = ? AND period = ?")
     .bind(account.id, aiCreditPeriod()).first<{ used: number; allowance: number }>();
@@ -4495,6 +4558,7 @@ app.get("/admin/billing", async (c) => {
 app.post("/admin/billing/checkout", async (c) => {
   const account = await currentAccount(c);
   if (!account) return c.redirect("/admin/login");
+  if (isSuspended(account)) return suspendedResponse(c, account);
   if (!stripeConfigured(c.env)) return c.redirect("/admin/billing?message=Stripe is not configured yet.");
   const form = await c.req.formData();
   const plan = String(form.get("plan") || "monthly");
@@ -4514,6 +4578,7 @@ app.post("/admin/billing/checkout", async (c) => {
 app.post("/admin/billing/portal", async (c) => {
   const account = await currentAccount(c);
   if (!account) return c.redirect("/admin/login");
+  if (isSuspended(account)) return suspendedResponse(c, account);
   const billing = await c.env.DB.prepare("SELECT stripe_customer_id FROM accounts WHERE id = ?").bind(account.id).first<{ stripe_customer_id?: string | null }>();
   if (!billing?.stripe_customer_id) return c.redirect("/admin/billing?message=No Stripe billing customer exists yet.");
   try {
@@ -4528,6 +4593,7 @@ app.post("/admin/billing/portal", async (c) => {
 app.post("/admin/billing/crypto/checkout", async (c) => {
   const account = await currentAccount(c);
   if (!account) return c.redirect("/admin/login");
+  if (isSuspended(account)) return suspendedResponse(c, account);
   if (!nowPaymentsConfigured(c.env)) return c.redirect("/admin/billing?message=Crypto payments are not configured yet.");
   const billing = await c.env.DB.prepare("SELECT billing_status, crypto_paid_through FROM accounts WHERE id = ?").bind(account.id).first<{ billing_status: string; crypto_paid_through?: number | null }>();
   if (accountHasPaidPlan(billing || {})) return c.redirect("/admin/billing?message=This account already has paid access.");

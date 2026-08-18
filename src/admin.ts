@@ -501,6 +501,25 @@ export function loginPage(error?: string): string {
   );
 }
 
+export function suspendedAccountPage(account: Account): string {
+  const reason = account.status_reason?.trim();
+  return shell(
+    "Account suspended",
+    `<div class="page narrow">
+      <h1>Your account is currently suspended</h1>
+      <div class="error" style="margin: 1rem 0; padding: 1rem; background: #fae7e4; border: 1px solid #e8897f; border-radius: 6px; color: #8d241b;">
+        Your account is currently suspended and you should contact support.
+      </div>
+      ${reason ? `<p style="color:var(--muted);font-size:0.9rem">Reason: ${esc(reason)}</p>` : ""}
+      <p style="color:var(--muted);font-size:0.9rem">If you believe this is a mistake, please contact <a href="mailto:support@blognice.com">support@blognice.com</a>.</p>
+      <form method="post" action="/admin/logout" style="margin-top:1.5rem">
+        <button class="btn" type="submit">Log out</button>
+      </form>
+    </div>`,
+    account
+  );
+}
+
 export function signupPage(
   rootDomain: string,
   values?: { slug?: string; title?: string; email?: string },
