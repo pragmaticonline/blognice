@@ -480,13 +480,13 @@ const STYLES = /* css */ `
   .share-linkedin { --share-color: #0a66c2; }
   .share-reddit { --share-color: #ff4500; }
   .share-button.share-copy.is-copied { color: var(--accent); border-color: var(--accent); }
-  .share-more { --share-color: var(--muted); }
+  .share-more { --share-color: var(--muted); display: none; }
   .share-more[aria-expanded="true"] { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, var(--bg)); }
-  .share-more-wrap { display: flex; flex-direction: column; align-items: center; gap: .55rem; }
-  .share-more-panel { display: flex; flex-direction: column; align-items: center; gap: .55rem; }
-  .share-more-panel[hidden] { display: none !important; }
+  .share-more-wrap { display: contents; }
+  .share-more-panel { display: contents; }
+  .share-more-panel[hidden] { display: contents !important; }
   .share-rail, .post-featured-row > aside, .share-inline { min-width: 0; max-width: 100%; }
-  .share-rail { flex-wrap: wrap; }
+  @media (min-width: 641px) { .share-rail { flex-wrap: nowrap; } }
   .share-inline { display: none; }
   .byline-name { font-family: var(--sans); font-size: 1rem; color: var(--ink); font-weight: 500; }
   .byline-meta { font-family: var(--sans); font-size: 0.9rem; color: var(--muted); margin-top: 0.1rem; }
@@ -681,8 +681,10 @@ const STYLES = /* css */ `
     .share-inline .share-rail { flex-direction: row; justify-content: flex-start; flex-wrap: wrap; max-width: 100%; min-width: 0; gap: .45rem; }
     .share-button { width: 2.3rem; height: 2.3rem; }
     .share-button svg { width: 1.15rem; height: 1.15rem; }
-    .share-more-wrap { flex-direction: row; align-items: center; flex-wrap: wrap; gap: .45rem; }
-    .share-more-panel { flex-direction: row; align-items: center; flex-wrap: wrap; gap: .45rem; }
+    .share-more { display: inline-flex; }
+    .share-more-wrap { display: flex; flex-direction: row; align-items: center; flex-wrap: wrap; gap: .45rem; }
+    .share-more-panel { display: flex; flex-direction: row; align-items: center; flex-wrap: wrap; gap: .45rem; }
+    .share-more-panel[hidden] { display: none !important; }
   }
 `;
 
