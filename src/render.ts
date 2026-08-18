@@ -414,6 +414,7 @@ const STYLES = /* css */ `
     line-height: 1.13;
     letter-spacing: -0.03em;
     margin: 0 0 1.4rem;
+    overflow-wrap: break-word; word-break: break-word;
   }
   .owner-edit {
     width: 2.35rem; height: 2.35rem; display: inline-flex; align-items: center; justify-content: center;
@@ -471,6 +472,7 @@ const STYLES = /* css */ `
   .byline-meta { font-family: var(--sans); font-size: 0.9rem; color: var(--muted); margin-top: 0.1rem; }
   .post-audio { display: block; width: 19rem; height: 2rem; margin-left: auto; flex: 0 1 19rem; }
 
+  .prose { overflow-wrap: break-word; word-break: break-word; }
   .prose > *:first-child { margin-top: 0; }
   .page-content { max-width: 760px; margin: 0 auto; padding: .5rem 1.25rem 5rem; }
   .page-content-inner > h1 { font-size: clamp(2rem, 5vw, 3.2rem); line-height: 1.12; margin: 0 0 2.2rem; letter-spacing: -0.025em; }
