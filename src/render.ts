@@ -480,6 +480,13 @@ const STYLES = /* css */ `
   .share-linkedin { --share-color: #0a66c2; }
   .share-reddit { --share-color: #ff4500; }
   .share-button.share-copy.is-copied { color: var(--accent); border-color: var(--accent); }
+  .share-more { --share-color: var(--muted); }
+  .share-more[aria-expanded="true"] { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, var(--bg)); }
+  .share-more-wrap { display: flex; flex-direction: column; align-items: center; gap: .55rem; }
+  .share-more-panel { display: flex; flex-direction: column; align-items: center; gap: .55rem; }
+  .share-more-panel[hidden] { display: none !important; }
+  .share-rail, .post-featured-row > aside, .share-inline { min-width: 0; max-width: 100%; }
+  .share-rail { flex-wrap: wrap; }
   .share-inline { display: none; }
   .byline-name { font-family: var(--sans); font-size: 1rem; color: var(--ink); font-weight: 500; }
   .byline-meta { font-family: var(--sans); font-size: 0.9rem; color: var(--muted); margin-top: 0.1rem; }
@@ -666,11 +673,16 @@ const STYLES = /* css */ `
     .byline { gap: 0.5rem; }
     .byline-identity { gap: 0.55rem; }
     .post-audio { width: 10rem; flex-basis: 10rem; }
-    .post-featured-row { grid-template-columns: 1fr; gap: .8rem; }
-    .post-featured-row > aside { order: 2; }
-    .post-featured-row .share-rail { flex-direction: row; justify-content: flex-start; order: 2; }
-    .share-inline { display: block; margin: 0 0 1.4rem; }
-    .share-inline .share-rail { flex-direction: row; justify-content: flex-start; }
+    .post-featured-row { grid-template-columns: minmax(0, 1fr); gap: .8rem; min-width: 0; }
+    .post-featured-row > aside { order: 2; min-width: 0; max-width: 100%; }
+    .post-featured-row .share-rail { flex-direction: row; justify-content: flex-start; order: 2; flex-wrap: wrap; max-width: 100%; min-width: 0; gap: .45rem; }
+    .post-featured-row .featured-image { max-width: 100%; }
+    .share-inline { display: block; margin: 0 0 1.4rem; min-width: 0; max-width: 100%; }
+    .share-inline .share-rail { flex-direction: row; justify-content: flex-start; flex-wrap: wrap; max-width: 100%; min-width: 0; gap: .45rem; }
+    .share-button { width: 2.3rem; height: 2.3rem; }
+    .share-button svg { width: 1.15rem; height: 1.15rem; }
+    .share-more-wrap { flex-direction: row; align-items: center; flex-wrap: wrap; gap: .45rem; }
+    .share-more-panel { flex-direction: row; align-items: center; flex-wrap: wrap; gap: .45rem; }
   }
 `;
 
@@ -894,14 +906,11 @@ export function renderPost(
   const shareRail = `<div class="share-rail" aria-label="Share this post">
     <button class="share-button share-copy" type="button" data-share-copy="${esc(shareUrl)}" data-tooltip="Copy link" aria-label="Copy link"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 9h9v9H9z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
     <a class="share-button share-whatsapp" href="https://wa.me/?text=${encodeURIComponent(`${shareTitle} ${shareUrl}`)}" target="_blank" rel="noopener noreferrer" data-tooltip="WhatsApp" aria-label="Share on WhatsApp"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a9.5 9.5 0 0 0-8.2 14.3L2.5 21.5l5.3-1.3A9.5 9.5 0 1 0 12 2Zm0 17a7.4 7.4 0 0 1-3.8-1l-.3-.2-3.1.8.8-3-.2-.3A7.4 7.4 0 1 1 12 19Zm4.1-5.4c-.2-.1-1.2-.6-1.4-.7-.2-.1-.3-.1-.5.1l-.6.8c-.2.2-.3.2-.5.1a6 6 0 0 1-1.8-1.1 6.7 6.7 0 0 1-1.2-1.5c-.1-.2 0-.3.1-.4l.4-.5c.1-.1.1-.2.2-.4v-.3c0-.1-.5-1.2-.7-1.6-.2-.4-.4-.3-.5-.3h-.4c-.1 0-.4.1-.6.3-.2.2-.8.8-.8 2s.8 2.3 1 2.6c.1.2 1.6 2.5 3.9 3.5 2.3 1 2.3.7 2.7.7.4 0 1.2-.5 1.4-1 .2-.5.2-.9.1-1-.1-.1-.2-.1-.4-.2Z"/></svg></a>
-    <a class="share-button share-telegram" href="https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareTitle)}" target="_blank" rel="noopener noreferrer" data-tooltip="Telegram" aria-label="Share on Telegram"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21.5 3.5-3.2 16.1c-.2 1.1-.8 1.4-1.6.9l-4.5-3.3-2.2 2.1c-.2.2-.4.4-.8.4l.3-4.6 8.4-7.6c.4-.4-.1-.6-.6-.2L7 13.9l-4.4-1.4c-1-.3-1-1 .2-1.5L20.1 3c.9-.3 1.7.2 1.4.5Z"/></svg></a>
-    <a class="share-button share-email" href="mailto:?subject=${encodeURIComponent(shareTitle)}&body=${encodeURIComponent(shareUrl)}" data-tooltip="Email" aria-label="Share by email"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v14H3z" fill="none" stroke="currentColor" stroke-width="2"/><path d="m4 7 8 6 8-6" fill="none" stroke="currentColor" stroke-width="2"/></svg></a>
     <a class="share-button share-x" href="https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareTitle)}" target="_blank" rel="noopener noreferrer" data-tooltip="X" aria-label="Share on X">𝕏</a>
     <a class="share-button share-facebook" href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}" target="_blank" rel="noopener noreferrer" data-tooltip="Facebook" aria-label="Share on Facebook">f</a>
-    <a class="share-button share-linkedin" href="https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}" target="_blank" rel="noopener noreferrer" data-tooltip="LinkedIn" aria-label="Share on LinkedIn">in</a>
-    <a class="share-button share-reddit" href="https://www.reddit.com/submit?url=${encodeURIComponent(shareUrl)}&title=${encodeURIComponent(shareTitle)}" target="_blank" rel="noopener noreferrer" data-tooltip="Reddit" aria-label="Share on Reddit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.2c-3.8 0-6.9 2.3-6.9 5.2s3.1 5.2 6.9 5.2 6.9-2.3 6.9-5.2-3.1-5.2-6.9-5.2Zm-3.1 5.1a1 1 0 1 1 0 2 1 1 0 0 1 0-2Zm6.2 0a1 1 0 1 1 0 2 1 1 0 0 1 0-2ZM9.2 14c.8.7 1.7 1 2.8 1s2-.3 2.8-1l.7.7c-.9.9-2.1 1.4-3.5 1.4s-2.6-.5-3.5-1.4l.7-.7Z"/><path d="m14.1 5.5.8-2.6 2.3.5a1.5 1.5 0 1 0 .2-1l-3-.7a.5.5 0 0 0-.6.4l-1 3.3 1.3.1Z"/></svg></a>
+    <span class="share-more-wrap"><button class="share-button share-more" type="button" aria-expanded="false" aria-label="More sharing options" data-share-more data-tooltip="More" aria-controls="share-more-panel">⋯</button><span class="share-more-panel" hidden data-share-panel><a class="share-button share-telegram" href="https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareTitle)}" target="_blank" rel="noopener noreferrer" data-tooltip="Telegram" aria-label="Share on Telegram"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21.5 3.5-3.2 16.1c-.2 1.1-.8 1.4-1.6.9l-4.5-3.3-2.2 2.1c-.2.2-.4.4-.8.4l.3-4.6 8.4-7.6c.4-.4-.1-.6-.6-.2L7 13.9l-4.4-1.4c-1-.3-1-1 .2-1.5L20.1 3c.9-.3 1.7.2 1.4.5Z"/></svg></a><a class="share-button share-email" href="mailto:?subject=${encodeURIComponent(shareTitle)}&body=${encodeURIComponent(shareUrl)}" data-tooltip="Email" aria-label="Share by email"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v14H3z" fill="none" stroke="currentColor" stroke-width="2"/><path d="m4 7 8 6 8-6" fill="none" stroke="currentColor" stroke-width="2"/></svg></a><a class="share-button share-linkedin" href="https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}" target="_blank" rel="noopener noreferrer" data-tooltip="LinkedIn" aria-label="Share on LinkedIn">in</a><a class="share-button share-reddit" href="https://www.reddit.com/submit?url=${encodeURIComponent(shareUrl)}&title=${encodeURIComponent(shareTitle)}" target="_blank" rel="noopener noreferrer" data-tooltip="Reddit" aria-label="Share on Reddit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.2c-3.8 0-6.9 2.3-6.9 5.2s3.1 5.2 6.9 5.2 6.9-2.3 6.9-5.2-3.1-5.2-6.9-5.2Zm-3.1 5.1a1 1 0 1 1 0 2 1 1 0 0 1 0-2Zm6.2 0a1 1 0 1 1 0 2 1 1 0 0 1 0-2ZM9.2 14c.8.7 1.7 1 2.8 1s2-.3 2.8-1l.7.7c-.9.9-2.1 1.4-3.5 1.4s-2.6-.5-3.5-1.4l.7-.7Z"/><path d="m14.1 5.5.8-2.6 2.3.5a1.5 1.5 0 1 0 .2-1l-3-.7a.5.5 0 0 0-.6.4l-1 3.3 1.3.1Z"/></svg></a></span></span>
   </div>`;
-  const shareScript = `<script>(function(){var buttons=document.querySelectorAll("[data-share-copy]");buttons.forEach(function(button){button.addEventListener("click",function(){var value=button.getAttribute("data-share-copy")||location.href;var done=function(){button.classList.add("is-copied");button.textContent="✓";setTimeout(function(){button.classList.remove("is-copied");button.textContent="↗"},1400)};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(value).then(done).catch(function(){})}else{var input=document.createElement("input");input.value=value;document.body.appendChild(input);input.select();try{document.execCommand("copy");done()}catch(e){}input.remove()}})})})();</script>`;
+  const shareScript = `<script>(function(){var buttons=document.querySelectorAll("[data-share-copy]");buttons.forEach(function(button){button.addEventListener("click",function(){var value=button.getAttribute("data-share-copy")||location.href;var done=function(){button.classList.add("is-copied");button.textContent="✓";setTimeout(function(){button.classList.remove("is-copied");button.textContent="↗"},1400)};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(value).then(done).catch(function(){})}else{var input=document.createElement("input");input.value=value;document.body.appendChild(input);input.select();try{document.execCommand("copy");done()}catch(e){}input.remove()}})});var more=document.querySelector("[data-share-more]");var panel=document.querySelector("[data-share-panel]");if(more&&panel){more.addEventListener("click",function(){var expanded=more.getAttribute("aria-expanded")==="true";more.setAttribute("aria-expanded",expanded?"false":"true");if(expanded){panel.hidden=true}else{panel.hidden=false;}});document.addEventListener("click",function(e){if(!more.contains(e.target)&&!panel.contains(e.target)){panel.hidden=true;more.setAttribute("aria-expanded","false");}});document.addEventListener("keydown",function(e){if(e.key==="Escape"){panel.hidden=true;more.setAttribute("aria-expanded","false");}});}})();</script>`;
   const featuredBlock = post.featured_image_key
     ? `<div class="post-featured-row"><aside>${shareRail}</aside><div><img class="featured-image" src="/media/${esc(post.featured_image_key)}" alt=""></div></div>`
     : `<div class="share-inline">${shareRail}</div>`;
