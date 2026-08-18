@@ -114,3 +114,16 @@ Treat orchestration failures separately from review findings:
 - [ ] BIG AI review is complete.
 - [ ] Zuck QA report is `PASS` or all findings are resolved.
 - [ ] Human approval was received before publishing.
+
+## Reusable UI patterns (learned 2026-08-18)
+
+**Responsive disclosure without re-measuring the grid:**
+- Desktop: wrapper `display: contents` + `panel[hidden] { display: contents !important; }` so hidden overflow does not inflate `grid-template-columns: 1fr + 2.5rem` (`src/render.ts:485-487`). All items remain visible in the vertical column.
+- Mobile `@640px`: `more { display:inline-flex }`, `wrap/panel { display:flex; flex-direction:row; flex-wrap:wrap }`, `panel[hidden] { display:none !important }`. Toggle via `data-share-more`/`data-share-panel`, `aria-expanded`, `blur()` + outside-click/Escape (`src/render.ts:906-915`, `src/admin.ts:842-905`).
+- See `Eight buttons, two viewports, one grid` (`POST 63`, `482cbfb`/`a6d2fab`/`91459cf`) and `feat(metrics): tooltip per day bar... (#109)`.
+
+**Long tables / lists:**
+- Cap at 10 visible rows, overflow in `metrics-more-panel[hidden]` (`LIMIT 50/25` in `src/metrics.ts:126-132`), `Show X more` / `Hide` button (`data-metrics-more`). Reuses the same disclosure, no nested scroll.
+
+**Tooltips:**
+- Bar `data-tooltip` + `aria-label` + `tabindex=0` with `::after` pill (`src/admin.ts:265-268`), same token as `.share-button::after`. Keep native `title` only as fallback or remove to avoid duplicate.
