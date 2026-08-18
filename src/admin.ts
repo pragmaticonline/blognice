@@ -81,6 +81,14 @@ const ADMIN_STYLES = /* css */ `
   .globalbar { background: var(--bg); }
   .topbar .brand { font-weight: 600; }
   .topbar .right { display: flex; gap: 1.2rem; align-items: center; font-size: 0.9rem; }
+  .topbar { position: relative; }
+  .topbar-menu-open { display:none; width:2.1rem; height:2.1rem; padding:0; border:1px solid var(--rule); border-radius:7px; background:var(--field); color:var(--muted); align-items:center; justify-content:center; cursor:pointer; }
+  .topbar-menu-open svg { width:1.15rem; height:1.15rem; }
+  .topbar-menu { position:absolute; top:calc(100% + .5rem); right:1.2rem; z-index:25; width:min(16rem, calc(100vw - 2rem)); padding:.45rem; background:var(--panel); border:1px solid var(--rule); border-radius:8px; box-shadow:0 12px 30px rgb(0 0 0 / .14); }
+  .topbar-menu[hidden] { display:none; }
+  .topbar-menu a, .topbar-menu .linkbtn { display:block; width:100%; padding:.55rem; border-radius:5px; color:var(--ink); text-decoration:none; font-size:.9rem; text-align:left; }
+  .topbar-menu a:hover, .topbar-menu .linkbtn:hover { background:color-mix(in srgb, var(--accent) 10%, transparent); color:var(--accent); }
+  @media (max-width: 700px) { .topbar .right { display:none; } .topbar-menu-open { display:inline-flex; } }
   .plan-badge { display:inline-flex; align-items:center; gap:.35rem; padding:.2rem .55rem; border:1px solid var(--rule); border-radius:999px; color:var(--ink); text-decoration:none; font-size:.78rem; font-weight:600; }
   .plan-badge.free { color:var(--muted); }
   .plan-badge.paid { color:#fff; background:var(--accent); border-color:var(--accent); box-shadow:0 2px 7px color-mix(in srgb, var(--accent) 28%, transparent); }
@@ -404,6 +412,13 @@ export function shell(
             <button class="linkbtn" type="submit">Log out</button>
           </form>
         </div>
+        <button class="topbar-menu-open" id="topbar-menu-open" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="topbar-menu"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="6" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="18" r="1.7"/></svg></button>
+        <div class="topbar-menu" id="topbar-menu" hidden>
+          <div style="padding:.4rem .55rem; color:var(--muted); font-size:.82rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(account.email)} ${paid ? "· Pro" : "· Free"}</div>
+          <a href="/admin?list=1">Blogs</a>
+          <a href="/admin/api-key">API</a>
+          <form method="post" action="/admin/logout"><button class="linkbtn" type="submit">Log out</button></form>
+        </div>
       </div>`;
   }
   const switcherScript = account && tenant ? `<script>
@@ -477,7 +492,7 @@ export function shell(
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>${esc(title)}</title><style>${ADMIN_STYLES}</style>${brandingStyle}</head>
-<body>${bar}${inner}${switcherScript}<footer class="admin-footer"><span><strong>blognice</strong> · © 2026 Pragmatic Online Co., Ltd.</span><nav aria-label="Legal"><a href="https://www.blognice.com/policies">Policies</a></nav></footer><style>.admin-footer{max-width:1220px;margin:2.5rem auto 0;padding:1.25rem 1.5rem 2rem;border-top:1px solid var(--rule);display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;color:var(--muted);font-size:.82rem}.admin-footer nav{display:flex;gap:1rem;flex-wrap:wrap}.admin-footer a{color:inherit;text-decoration:none}.admin-footer a:hover,.admin-footer a:focus-visible{color:var(--accent);text-decoration:underline}@media(max-width:640px){.admin-footer{align-items:flex-start;flex-direction:column}.admin-footer a{padding:.5rem 0}}</style></body></html>`;
+<body>${bar}${inner}${switcherScript}<script>(function(){var b=document.getElementById('topbar-menu-open'),m=document.getElementById('topbar-menu');if(!b||!m)return;b.addEventListener('click',function(){var o=m.hidden;m.hidden=!o;b.setAttribute('aria-expanded',String(o));});document.addEventListener('click',function(e){if(!m.contains(e.target)&&!b.contains(e.target)){m.hidden=true;b.setAttribute('aria-expanded','false');}});})();</script><footer class="admin-footer"><span><strong>blognice</strong> · © 2026 Pragmatic Online Co., Ltd.</span><nav aria-label="Legal"><a href="https://www.blognice.com/policies">Policies</a></nav></footer><style>.admin-footer{max-width:1220px;margin:2.5rem auto 0;padding:1.25rem 1.5rem 2rem;border-top:1px solid var(--rule);display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;color:var(--muted);font-size:.82rem}.admin-footer nav{display:flex;gap:1rem;flex-wrap:wrap}.admin-footer a{color:inherit;text-decoration:none}.admin-footer a:hover,.admin-footer a:focus-visible{color:var(--accent);text-decoration:underline}@media(max-width:640px){.admin-footer{align-items:flex-start;flex-direction:column}.admin-footer a{padding:.5rem 0}}</style></body></html>`;
 }
 
 export function loginPage(error?: string): string {
