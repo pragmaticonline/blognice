@@ -631,9 +631,10 @@ const STYLES = /* css */ `
   }
   .subscribe button:hover { filter: brightness(1.05); }
   .subscribe .sub-msg { font-family: var(--sans); font-size: 0.92rem; color: var(--accent); margin-top: 0.7rem; min-height: 1.1rem; }
-  .push-optin { display:flex; flex-wrap:wrap; gap:0.6rem; align-items:center; margin-top:0.9rem; }
+  .push-optin { display:flex; flex-wrap:wrap; gap:0.6rem 0.9rem; align-items:center; margin-top:0.9rem; }
   .push-optin button { font-family:var(--sans); font-size:0.9rem; padding:0.5rem 0.9rem; border:1px solid var(--rule); border-radius:999px; background:var(--bg); color:var(--muted); cursor:pointer; }
   .push-optin button:hover { border-color:var(--accent); color:var(--accent); }
+  .push-optin .sub-msg { margin-top:0; align-self:center; line-height:1.3; }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
   @media (max-width: 640px) {
     body { font-size: 1.2rem; }
