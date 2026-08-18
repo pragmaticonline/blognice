@@ -309,7 +309,7 @@ const ADMIN_STYLES = /* css */ `
   .post-thumb { width:4rem; height:4rem; border-radius:8px; }
   .acts { display:flex; align-items:center; gap:.4rem; flex:0 0 auto; }
   .icon-btn { width:2.15rem; height:2.15rem; border-radius:7px; }
-  @media (max-width: 700px) {
+  @media (max-width: 960px) {
     .owner-topbar { height:3.25rem; }
     :root { --admin-gutter: 1rem; }
     .owner-account-email, .owner-account > a, .owner-account > form { display:none; }
@@ -318,14 +318,14 @@ const ADMIN_STYLES = /* css */ `
     .owner-nav { display:none; }
     .owner-toolbar-inner .blog-switcher { flex:1; }
     .owner-toolbar-inner .blog-switcher-toggle { max-width:100%; }
-    ul.posts li { align-items:flex-start; flex-wrap:wrap; }
-    .post-summary { min-width:calc(100% - 0rem); }
-    .acts { margin-left:5rem; margin-top:-.35rem; }
+    ul.posts li { align-items:center; flex-wrap:nowrap; gap:0.8rem; }
+    .post-summary { min-width:0; }
+    .acts { margin-left:auto; margin-top:0; flex:0 0 auto; }
   }
   @media (max-width: 420px) {
     :root { --admin-gutter: .75rem; }
     .post-thumb { width:3.25rem; height:3.25rem; }
-    .acts { margin-left:4.25rem; }
+    .acts { margin-left:auto; }
   }
 `;
 
@@ -371,7 +371,7 @@ export function shell(
             <a href="/admin?list=1">Blogs</a>
             <a href="/admin/api-key">API</a>
             <form method="post" action="/admin/logout"><button class="linkbtn" type="submit">Log out</button></form>
-            <button class="owner-menu-open" id="owner-menu-open" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="owner-drawer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+            <button class="owner-menu-open" id="owner-menu-open" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="owner-drawer"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="6" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="18" r="1.7"/></svg></button>
           </div>
         </div>
       </header>
