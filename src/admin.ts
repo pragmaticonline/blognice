@@ -763,7 +763,7 @@ export function postListPage(
   );
 }
 
-export function pageListPage(account: Account, tenant: Tenant, pages: Page[], rootDomain: string): string {
+export function pageListPage(account: Account, tenant: Tenant, pages: Page[], rootDomain: string, opts?: { error?: string }): string {
   const base = `/admin/b/${tenant.public_id}`;
   const publicHost = tenant.custom_domain || `${tenant.slug}.${rootDomain}`;
   const rows = pages.length ? `<ul class="posts">${pages.map((page) => `<li>
@@ -773,7 +773,16 @@ export function pageListPage(account: Account, tenant: Tenant, pages: Page[], ro
       <a class="btn ghost icon-btn" href="https://${esc(publicHost)}/pages/${esc(page.slug)}" target="_blank" rel="noopener noreferrer" aria-label="View ${esc(page.title)}" title="View"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg></a>
       <form method="post" action="${base}/pages/delete/${page.id}" onsubmit="return confirm('Delete this page?')"><button class="btn danger icon-btn" type="submit" aria-label="Delete ${esc(page.title)}" title="Delete"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 14h10l1-14"/><path d="M9 7V4h6v3"/></svg></button></form>
     </div></li>`).join("")}</ul>` : `<p style="color:var(--muted)">No pages yet. Create an About page or another evergreen reference.</p>`;
-  return shell(`Pages — ${tenant.title}`, `<div class="page"><div class="row"><h1 style="margin:0">Pages</h1><a class="btn" href="${base}/pages/new">New page</a></div><p style="color:var(--muted);margin-top:-.8rem">Pages are for evergreen information such as About, Contact, or FAQ. They are separate from posts and do not trigger subscriber emails.</p>${rows}</div>`, account, tenant);
+  let links: Array<{ label: string; href: string; order: number }> = [];
+  try { const raw = JSON.parse((tenant as any).navigation_links_json || "[]"); if (Array.isArray(raw)) links = raw.filter((item: any) => item && typeof item.label === "string" && typeof item.href === "string").slice(0, 20) as any; } catch {}
+  const linksRows = links.length ? `<ul class="posts">${links.map((link, idx) => `<li><div class="post-summary"><div><div class="t">${esc(link.label)}</div><div class="sub">${esc(link.href)} · position ${link.order + 1}${/^https:\/\//i.test(link.href) ? " · external" : ""}</div></div></div><div class="acts"><span class="tag">Link</span><a class="btn ghost icon-btn" href="${esc(link.href)}" target="_blank" rel="noopener noreferrer" aria-label="Open ${esc(link.label)}" title="Open"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg></a><form method="post" action="${base}/navigation-links/delete/${idx}" onsubmit="return confirm('Remove this link?')"><button class="btn danger icon-btn" type="submit" aria-label="Remove ${esc(link.label)}" title="Remove"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 14h10l1-14"/><path d="M9 7V4h6v3"/></svg></button></form></div></li>`).join("")}</ul>` : `<p style="color:var(--muted)">No custom links yet. Add a link to your main site (for example your shop or www.domain.com).</p>`;
+  const navigationPreview = (() => {
+    const pageItems: Array<{ label: string; order: number }> = pages.filter((pg) => pg.show_in_navigation).map((pg) => ({ label: pg.navigation_label?.trim() || pg.title, order: pg.navigation_order ?? 0 }));
+    const linkItems: Array<{ label: string; order: number }> = links.map((link) => ({ label: link.label, order: link.order }));
+    const merged = [...pageItems, ...linkItems].sort((a, b) => a.order === b.order ? a.label.localeCompare(b.label) : a.order - b.order).slice(0, 6);
+    return merged.length ? `<p style="color:var(--muted);font-size:.85rem">Current blog navigation (first ${merged.length}): ${merged.map((item) => esc(item.label)).join(" · ")}</p>` : "";
+  })();
+  return shell(`Pages — ${tenant.title}`, `<div class="page"><div class="row"><h1 style="margin:0">Pages</h1><a class="btn" href="${base}/pages/new">New page</a></div><p style="color:var(--muted);margin-top:-.8rem">Pages are for evergreen information such as About, Contact, or FAQ. They are separate from posts and do not trigger subscriber emails. Custom links let the blog header point back to your main site (for example www.domain.com) when the blog lives at blog.domain.com.</p>${rows}${navigationPreview}<hr style="margin:1.6rem 0"><h2 style="margin:0 0 .4rem">Custom navigation links</h2><p style="color:var(--muted);margin-top:0">Add external or root-relative links that appear alongside pages in the blog header. Use an absolute https URL for an external site, or a path like /shop for the same domain.</p>${opts?.error ? `<div class="error">${esc(opts.error)}</div>` : ""}${linksRows}<form method="post" action="${base}/navigation-links" style="margin-top:1rem;display:grid;gap:.8rem;max-width:560px"><label>Label <input name="label" type="text" maxlength="40" required placeholder="Our shop"></label><label>Link target <input name="href" type="text" maxlength="200" required placeholder="https://www.domain.com or /about"></label><label>Position <select name="order">${[0,1,2,3,4,5].map((value) => `<option value="${value}">${value + 1}</option>`).join("")}</select></label><div><button class="btn" type="submit">Add link</button></div></form></div>`, account, tenant);
 }
 
 export function pageEditorPage(account: Account, tenant: Tenant, page: Partial<Page> | null, error?: string): string {
@@ -1907,7 +1916,7 @@ curl -X DELETE ${base}/blogs/${exampleBlogId}/posts/POST_ID \\
 
 # Blog details and settings
 curl ${base}/blogs/${exampleBlogId} -H "Authorization: Bearer YOUR_KEY"
-curl -X PATCH ${base}/blogs/${exampleBlogId} -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" -d '{"title":"New title","description":"A calmer blog.","accent_color":"#2563eb","topics":["travel","photography"],"browser_push_enabled":true}'
+curl -X PATCH ${base}/blogs/${exampleBlogId} -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" -d '{"title":"New title","description":"A calmer blog.","accent_color":"#2563eb","topics":["travel","photography"],"navigation_links":[{"label":"Shop","href":"https://www.domain.com/shop","order":0}],"browser_push_enabled":true}'
 curl -X POST ${base}/blogs -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" -d '{"slug":"my-new-blog","title":"My New Blog"}'
 
 # Pages (create, list, fetch, update, delete)
@@ -1941,7 +1950,7 @@ curl ${base}/blogs/${exampleBlogId}/tags -H "Authorization: Bearer YOUR_KEY"</pr
         homepage, sitemap, and RSS feed. Post creation and updates accept <code>tags</code>,
         <code>author_name</code>, <code>author_visible</code>, and a validated
         <code>featured_image_key</code>; image generation accepts <code>prompt</code> or
-        <code>post_id</code> with <code>style</code> (see above); pages accept <code>title</code>, <code>slug</code>, <code>body_md</code>, <code>published</code>, <code>show_in_navigation</code>, <code>navigation_label</code>, <code>navigation_order</code>, <code>meta_description</code>; blogs accept <code>slug</code>, <code>title</code>, <code>description</code>, <code>accent_color</code>, <code>topics</code>, <code>social_links</code>, <code>browser_push_enabled</code>; use the returned job URLs to poll AI work.
+        <code>post_id</code> with <code>style</code> (see above); pages accept <code>title</code>, <code>slug</code>, <code>body_md</code>, <code>published</code>, <code>show_in_navigation</code>, <code>navigation_label</code>, <code>navigation_order</code>, <code>meta_description</code>; blogs accept <code>slug</code>, <code>title</code>, <code>description</code>, <code>accent_color</code>, <code>topics</code>, <code>social_links</code>, <code>navigation_links</code> (<code>{label, href, order}</code> with https or / paths), <code>browser_push_enabled</code>; use the returned job URLs to poll AI work.
         Everything is scoped to blogs you own.
       </p>
     </div>`,

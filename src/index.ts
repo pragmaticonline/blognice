@@ -10,6 +10,9 @@ import {
   renderPage,
   normalizeAccentColor,
   DEFAULT_ACCENT_COLOR,
+  parseNavigationLinks,
+  type NavigationItem,
+  type NavigationLink,
   type Post,
   type Page,
   type Tenant,
@@ -739,6 +742,28 @@ function normalizeTopics(input: string): { topics: string[]; error?: string } {
   if (unique.some((topic) => topic.length > 40 || !/^[\p{L}\p{N}][\p{L}\p{N} _-]*$/u.test(topic)))
     return { topics: [], error: "Topics must be 40 characters or fewer and contain only letters, numbers, spaces, hyphens, or underscores." };
   return { topics: unique };
+}
+
+export function normalizeNavigationLinks(value: unknown): { links: NavigationLink[]; error?: string } {
+  if (value === undefined) return { links: [] };
+  if (!Array.isArray(value)) return { links: [], error: "navigation_links must be an array." };
+  if (value.length > 20) return { links: [], error: "Use 20 navigation links or fewer." };
+  const links: NavigationLink[] = [];
+  for (const raw of value) {
+    if (typeof raw !== "object" || raw === null) return { links: [], error: "Each navigation link must be an object with label and href." };
+    const label = String((raw as any).label ?? "").trim().slice(0, 40);
+    const href = String((raw as any).href ?? "").trim().slice(0, 200);
+    let order = Math.max(0, Math.min(999, Number((raw as any).order ?? 0) || 0));
+    if (!label) return { links: [], error: "Each navigation link needs a label." };
+    if (!href) return { links: [], error: "Each navigation link needs a URL or path." };
+    const isExternal = /^https:\/\//i.test(href);
+    const isPath = /^\//.test(href);
+    if (!isExternal && !isPath) return { links: [], error: `Navigation link "${label}" must be an absolute https URL or a path starting with /.` };
+    if (isExternal) { try { const u = new URL(href); if (u.protocol !== "https:") throw new Error(); } catch { return { links: [], error: `Navigation link "${label}" must be a valid https URL.` }; } }
+    if (isPath && /\s/.test(href)) return { links: [], error: `Navigation link "${label}" path must not contain spaces.` };
+    links.push({ label, href, order });
+  }
+  return { links };
 }
 
 function normalizePostTags(input: string): { tags: string[]; error?: string } {
@@ -1587,6 +1612,7 @@ app.get("/api/v1/blogs/:blogId", async (c) => {
   if (!role) return c.json({ error: "forbidden" }, 403);
   const topics = (() => { try { return JSON.parse(tenant.topics_json || "[]"); } catch { return []; } })();
   const social = (() => { try { return JSON.parse(tenant.social_links_json || "{}"); } catch { return {}; } })();
+  const navigation_links = parseNavigationLinks(tenant as any);
   return c.json({
     blog: {
       public_id: tenant.public_id,
@@ -1597,6 +1623,7 @@ app.get("/api/v1/blogs/:blogId", async (c) => {
       accent_color: normalizeAccentColor(tenant.accent_color),
       topics,
       social_links: social,
+      navigation_links,
       browser_push_enabled: !!tenant.browser_push_enabled,
       custom_domain: tenant.custom_domain,
       created_at: tenant.created_at,
@@ -1667,19 +1694,25 @@ app.patch("/api/v1/blogs/:blogId", async (c) => {
     }
   }
   const browserPushEnabled = has("browser_push_enabled") ? (body.browser_push_enabled ? 1 : 0) : (tenant.browser_push_enabled ? 1 : 0);
+  let navigationLinks: NavigationLink[] = parseNavigationLinks(tenant as any);
+  if (has("navigation_links")) {
+    const parsed = normalizeNavigationLinks(body.navigation_links);
+    if (parsed.error) return c.json({ error: parsed.error }, 400);
+    navigationLinks = parsed.links;
+  }
   const now = Math.floor(Date.now() / 1000);
   if (slug !== tenant.slug) {
     await c.env.DB.prepare("INSERT INTO tenant_slug_aliases (old_slug, tenant_id, created_at) VALUES (?, ?, ?)").bind(tenant.slug, tenant.id, now).run();
   }
-  await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, footer_name = ?, accent_color = ?, topics_json = ?, social_links_json = ?, browser_push_enabled = ? WHERE id = ?")
-    .bind(slug, title, description, footerName, accentColor, JSON.stringify(topics), JSON.stringify(socialLinks), browserPushEnabled, tenant.id).run();
+  await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, footer_name = ?, accent_color = ?, topics_json = ?, social_links_json = ?, navigation_links_json = ?, browser_push_enabled = ? WHERE id = ?")
+    .bind(slug, title, description, footerName, accentColor, JSON.stringify(topics), JSON.stringify(socialLinks), JSON.stringify(navigationLinks), browserPushEnabled, tenant.id).run();
   queueBlogAudit(c, tenant.id, account.id, "blog_settings_updated", "settings");
   const updatedTenant = { ...tenant, slug } as Tenant;
   c.executionCtx.waitUntil((async () => {
     await purgeTenantEverywhere(c.env, tenant).catch(()=>{});
     if (slug !== tenant.slug) await purgeTenantEverywhere(c.env, updatedTenant).catch(()=>{});
   })());
-  return c.json({ blog: { public_id: tenant.public_id, slug, title, description, footer_name: footerName, accent_color: accentColor, topics, social_links: socialLinks, browser_push_enabled: !!browserPushEnabled, custom_domain: tenant.custom_domain, created_at: tenant.created_at } });
+  return c.json({ blog: { public_id: tenant.public_id, slug, title, description, footer_name: footerName, accent_color: accentColor, topics, social_links: socialLinks, navigation_links: navigationLinks, browser_push_enabled: !!browserPushEnabled, custom_domain: tenant.custom_domain, created_at: tenant.created_at } });
 });
 
 app.post("/api/v1/blogs", async (c) => {
@@ -2670,6 +2703,50 @@ app.post("/admin/b/:blogId/pages/delete/:id", async (c) => {
     await tenantDb(c.env, ctx.tenant).prepare("DELETE FROM pages WHERE id = ? AND tenant_id = ?").bind(c.req.param("id"), ctx.tenant.id).run();
     purgeTenant(c.env, ctx.tenant, ["/", `/pages/${page.slug}`, "/sitemap.xml"]);
   }
+  return c.redirect(`/admin/b/${ctx.tenant.public_id}/pages`);
+});
+
+app.post("/admin/b/:blogId/navigation-links", async (c) => {
+  const ctx = await blogContext(c);
+  if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
+  const denied = requireBlogCapability(c, ctx, "settings.manage");
+  if (denied) return denied;
+  const form = await c.req.formData();
+  const label = String(form.get("label") || "").trim().slice(0, 40);
+  const href = String(form.get("href") || "").trim().slice(0, 200);
+  const order = Math.max(0, Math.min(999, Number(form.get("order") || 0) || 0));
+  const { results: pages } = await tenantDb(c.env, ctx.tenant).prepare("SELECT * FROM pages WHERE tenant_id = ? ORDER BY navigation_order, updated_at DESC").bind(ctx.tenant.id).all<Page>();
+  if (!label) return c.html(pageListPage(ctx.account, ctx.tenant, pages, c.env.ROOT_DOMAIN, { error: "A link label is required." }), 400);
+  if (!href) return c.html(pageListPage(ctx.account, ctx.tenant, pages, c.env.ROOT_DOMAIN, { error: "A link target is required." }), 400);
+  const isExternal = /^https:\/\//i.test(href);
+  const isPath = /^\//.test(href);
+  if (!isExternal && !isPath) return c.html(pageListPage(ctx.account, ctx.tenant, pages, c.env.ROOT_DOMAIN, { error: "Link target must be an absolute https URL or a path starting with /." }), 400);
+  if (isExternal) { try { const u = new URL(href); if (u.protocol !== "https:") throw new Error(); } catch { return c.html(pageListPage(ctx.account, ctx.tenant, pages, c.env.ROOT_DOMAIN, { error: "External links must be valid https URLs." }), 400); } }
+  if (isPath && /\s/.test(href)) return c.html(pageListPage(ctx.account, ctx.tenant, pages, c.env.ROOT_DOMAIN, { error: "Path links must not contain spaces." }), 400);
+  const existing = parseNavigationLinks(ctx.tenant as any);
+  if (existing.length >= 20) return c.html(pageListPage(ctx.account, ctx.tenant, pages, c.env.ROOT_DOMAIN, { error: "Use 20 navigation links or fewer." }), 400);
+  const next = [...existing, { label, href, order }];
+  await c.env.DB.prepare("UPDATE tenants SET navigation_links_json = ? WHERE id = ?").bind(JSON.stringify(next), ctx.tenant.id).run();
+  queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "navigation_link_added", href);
+  c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, { ...ctx.tenant, navigation_links_json: JSON.stringify(next) } as any).catch(() => {}));
+  return c.redirect(`/admin/b/${ctx.tenant.public_id}/pages`);
+});
+
+app.post("/admin/b/:blogId/navigation-links/delete/:idx", async (c) => {
+  const ctx = await blogContext(c);
+  if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
+  const denied = requireBlogCapability(c, ctx, "settings.manage");
+  if (denied) return denied;
+  const idx = Number(c.req.param("idx"));
+  const existing = parseNavigationLinks(ctx.tenant as any);
+  if (!Number.isInteger(idx) || idx < 0 || idx >= existing.length) return c.text("Invalid navigation link.", 400);
+  const removed = existing[idx];
+  const next = existing.filter((_, i) => i !== idx);
+  await c.env.DB.prepare("UPDATE tenants SET navigation_links_json = ? WHERE id = ?").bind(JSON.stringify(next), ctx.tenant.id).run();
+  queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "navigation_link_removed", removed.href);
+  c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, { ...ctx.tenant, navigation_links_json: JSON.stringify(next) } as any).catch(() => {}));
   return c.redirect(`/admin/b/${ctx.tenant.public_id}/pages`);
 });
 
@@ -5301,8 +5378,8 @@ app.get("/", async (c) => {
       "SELECT * FROM posts WHERE tenant_id = ? AND published = 1 ORDER BY created_at DESC LIMIT ? OFFSET ?"
     ).bind(tenant.id, pageNumber === 1 ? pageSize + 2 : pageSize + 1, offset).all<Post>();
     const navigationPagesPromise = tenantDb(c.env, tenant).prepare(
-      "SELECT slug, COALESCE(navigation_label, title) AS label FROM pages WHERE tenant_id = ? AND published = 1 AND show_in_navigation = 1 ORDER BY navigation_order, title LIMIT 6"
-    ).bind(tenant.id).all<{ slug: string; label: string }>();
+      "SELECT slug, COALESCE(navigation_label, title) AS label, navigation_order FROM pages WHERE tenant_id = ? AND published = 1 AND show_in_navigation = 1 ORDER BY navigation_order, title LIMIT 6"
+    ).bind(tenant.id).all<{ slug: string; label: string; navigation_order: number }>();
     const popularityPromise = c.env.DB.prepare(
       `SELECT path, score, reader_days_30
          FROM post_popularity
@@ -5320,6 +5397,12 @@ app.get("/", async (c) => {
       return { results: [] as { path: string; score: number; reader_days_30: number }[] };
     });
     const [{ results: queriedPosts }, popularity, navigationPages] = await Promise.all([postsPromise, popularityPromise, navigationPagesPromise]);
+    const navigationItems: NavigationItem[] = (() => {
+      const pageItems: Array<{ label: string; href: string; order: number; external: boolean }> = navigationPages.results.map((row) => ({ label: row.label, href: `/pages/${row.slug}`, order: row.navigation_order ?? 0, external: false }));
+      const linkItems: Array<{ label: string; href: string; order: number; external: boolean }> = parseNavigationLinks(tenant as any).map((link) => ({ label: link.label, href: link.href, order: link.order, external: /^https:\/\//i.test(link.href) }));
+      const merged = [...pageItems, ...linkItems].sort((a, b) => a.order === b.order ? a.label.localeCompare(b.label) : a.order - b.order).slice(0, 6);
+      return merged.map(({ label, href, external }) => ({ label, href, external }));
+    })();
     const displayLimit = pageNumber === 1 ? pageSize + 1 : pageSize;
     const hasMorePosts = queriedPosts.length > displayLimit;
     const results = queriedPosts.slice(0, displayLimit);
@@ -5336,7 +5419,7 @@ app.get("/", async (c) => {
       }
     }
 
-    return new Response(renderHome(tenant, results, originOf(c), analyticsConsentRequired(c.req.raw.cf?.country), popularPosts, navigationPages.results, pageNumber, hasMorePosts), {
+    return new Response(renderHome(tenant, results, originOf(c), analyticsConsentRequired(c.req.raw.cf?.country), popularPosts, navigationItems, pageNumber, hasMorePosts), {
       status: 200,
       headers: { "content-type": "text/html; charset=utf-8" },
     });
@@ -5351,10 +5434,16 @@ app.get("/pages/:slug", async (c) => {
     "SELECT * FROM pages WHERE tenant_id = ? AND slug = ? AND published = 1"
   ).bind(tenant.id, c.req.param("slug")).first<Page>();
   if (!page) return c.html(renderNotFound(tenant, analyticsConsentRequired(c.req.raw.cf?.country)), 404);
-  const navigationPages = await tenantDb(c.env, tenant).prepare(
-    "SELECT slug, COALESCE(navigation_label, title) AS label FROM pages WHERE tenant_id = ? AND published = 1 AND show_in_navigation = 1 ORDER BY navigation_order, title LIMIT 6"
-  ).bind(tenant.id).all<{ slug: string; label: string }>();
-  return c.html(renderPage(tenant, page, renderMarkdown(page.body_md), originOf(c), analyticsConsentRequired(c.req.raw.cf?.country), false, navigationPages.results));
+  const navigationRows = await tenantDb(c.env, tenant).prepare(
+    "SELECT slug, COALESCE(navigation_label, title) AS label, navigation_order FROM pages WHERE tenant_id = ? AND published = 1 AND show_in_navigation = 1 ORDER BY navigation_order, title LIMIT 6"
+  ).bind(tenant.id).all<{ slug: string; label: string; navigation_order: number }>();
+  const navigationItems: NavigationItem[] = (() => {
+    const pageItems: Array<{ label: string; href: string; order: number; external: boolean }> = navigationRows.results.map((row) => ({ label: row.label, href: `/pages/${row.slug}`, order: row.navigation_order ?? 0, external: false }));
+    const linkItems: Array<{ label: string; href: string; order: number; external: boolean }> = parseNavigationLinks(tenant as any).map((link) => ({ label: link.label, href: link.href, order: link.order, external: /^https:\/\//i.test(link.href) }));
+    const merged = [...pageItems, ...linkItems].sort((a, b) => a.order === b.order ? a.label.localeCompare(b.label) : a.order - b.order).slice(0, 6);
+    return merged.map(({ label, href, external }) => ({ label, href, external }));
+  })();
+  return c.html(renderPage(tenant, page, renderMarkdown(page.body_md), originOf(c), analyticsConsentRequired(c.req.raw.cf?.country), false, navigationItems));
 });
 
 app.get("/:slug", async (c) => {

@@ -50,6 +50,7 @@ CREATE TABLE tenants (
   accent_color  TEXT    NOT NULL DEFAULT '#1a8917', -- six-digit hex branding accent
   topics_json   TEXT    NOT NULL DEFAULT '[]',     -- normalized blog topics
   social_links_json TEXT NOT NULL DEFAULT '{}',    -- normalized social profile URLs
+  navigation_links_json TEXT NOT NULL DEFAULT '[]', -- external/custom navigation links {label, href, order}
   browser_push_enabled INTEGER NOT NULL DEFAULT 0, -- owner opt-in for reader notifications
   shard         TEXT    NOT NULL DEFAULT 'primary', -- which POSTS database holds this tenant's posts (see src/db.ts)
   created_at    INTEGER NOT NULL                  -- unix seconds
