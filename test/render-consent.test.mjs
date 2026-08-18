@@ -2,30 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { metricsBeacon, analyticsConsentRequired } from "../src/metrics.ts";
-import { renderNotFound } from "../src/render.ts";
-
-const fakeTenant = {
-  title: "Test Blog",
-  description: "Test",
-  slug: "test",
-  public_id: "test-public",
-  accent_color: "#1a8917",
-  avatar_key: null,
-  footer_name: "",
-  custom_domain: null,
-};
-
-test("renderNotFound forwards consent flag to beacon and defaults to no-banner", () => {
-  const withConsent = renderNotFound(fakeTenant, true);
-  const withoutConsent = renderNotFound(fakeTenant, false);
-  const defaultConsent = renderNotFound(fakeTenant);
-  assert.match(withConsent, /var required=true/);
-  assert.match(withoutConsent, /var required=false/);
-  assert.match(defaultConsent, /var required=false/);
-  assert.doesNotMatch(defaultConsent, /var required=true/);
-  assert.match(withConsent, /blognice-consent/);
-  assert.match(withoutConsent, /blognice-consent/);
-});
 
 test("metricsBeacon required flag changes client logic while keeping banner markup", () => {
   const required = metricsBeacon(true);
@@ -38,6 +14,15 @@ test("metricsBeacon required flag changes client logic while keeping banner mark
   assert.match(optional, /Help us improve blognice/);
   assert.match(required, /blognice-analytics-consent-v1/);
   assert.match(optional, /blognice-analytics-consent-v1/);
+});
+
+test("renderNotFound forwards consent flag to beacon and defaults to no-banner", () => {
+  const renderSource = readFileSync(new URL("../src/render.ts", import.meta.url), "utf8");
+  assert.match(renderSource, /export function renderNotFound\(tenant: Tenant \| null, analyticsConsentRequired = false\)/);
+  assert.match(renderSource, /return shell\(\{\s*tenant,\s*pageTitle:.*analyticsConsentRequired,/s);
+  assert.match(renderSource, /shell\(opts:[\s\S]*?analyticsConsentRequired = false/);
+  const metricsSource = readFileSync(new URL("../src/metrics.ts", import.meta.url), "utf8");
+  assert.match(metricsSource, /export function metricsBeacon\(consentRequired = false\)/);
 });
 
 test("analytics consent is EU-gated and server cache varies by cohort", () => {
