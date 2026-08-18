@@ -38,7 +38,8 @@ test("shell defaults to optional to avoid global popup", () => {
   assert.match(renderSource, /shell\(opts:[\s\S]*?analyticsConsentRequired = false/);
   assert.match(renderSource, /renderNotFound\(tenant: Tenant \| null, analyticsConsentRequired = false\)/);
   assert.match(renderSource, /renderHome\([\s\S]*?analyticsConsentRequired = false/);
-  assert.match(renderSource, /metricsBeacon\(consentRequired = false\)/);
+  const metricsSource = readFileSync(new URL("../src/metrics.ts", import.meta.url), "utf8");
+  assert.match(metricsSource, /metricsBeacon\(consentRequired = false\)/);
   // Ensure no remaining true defaults for consent in render.ts
   const trueDefaults = [...renderSource.matchAll(/analyticsConsentRequired = true/g)];
   assert.equal(trueDefaults.length, 0, `expected 0 true defaults, found ${trueDefaults.length}`);
