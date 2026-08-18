@@ -4898,7 +4898,7 @@ app.get("/pages/:slug", async (c) => {
   const page = await tenantDb(c.env, tenant).prepare(
     "SELECT * FROM pages WHERE tenant_id = ? AND slug = ? AND published = 1"
   ).bind(tenant.id, c.req.param("slug")).first<Page>();
-  if (!page) return c.html(renderNotFound(tenant), 404);
+  if (!page) return c.html(renderNotFound(tenant, analyticsConsentRequired(c.req.raw.cf?.country)), 404);
   const navigationPages = await tenantDb(c.env, tenant).prepare(
     "SELECT slug, COALESCE(navigation_label, title) AS label FROM pages WHERE tenant_id = ? AND published = 1 AND show_in_navigation = 1 ORDER BY navigation_order, title LIMIT 6"
   ).bind(tenant.id).all<{ slug: string; label: string }>();
@@ -4923,7 +4923,7 @@ app.get("/:slug", async (c) => {
       .first<Post>();
 
     if (!post)
-      return new Response(renderNotFound(tenant), {
+      return new Response(renderNotFound(tenant, analyticsConsentRequired(c.req.raw.cf?.country)), {
         status: 404,
         headers: { "content-type": "text/html; charset=utf-8" },
       });

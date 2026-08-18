@@ -262,7 +262,7 @@ export function recordAuditEvent(
   });
 }
 
-export function metricsBeacon(consentRequired = true): string {
+export function metricsBeacon(consentRequired = false): string {
   const bannerMarkup = `<strong>Help us improve blognice (optional).</strong><span> We use pseudonymous, aggregate analytics to understand what readers find useful. This does not affect reading, listening, or subscribing. Declining only means we won’t collect optional usage analytics.</span><button type="button" data-consent="granted">Allow analytics</button><button type="button" data-consent="denied">Decline analytics</button><a href="https://www.blognice.com/privacy">Privacy details</a>`;
   const serializedBannerMarkup = JSON.stringify(bannerMarkup).replaceAll("<", "\\u003c");
   return `<script>(function(){
