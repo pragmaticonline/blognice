@@ -637,7 +637,11 @@ const STYLES = /* css */ `
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
   @media (max-width: 640px) {
     body { font-size: 1.2rem; }
-    .subscribe { padding:1.2rem; margin:1.5rem 0 0.5rem; }
+    .subscribe { padding:1.2rem; margin:1.5rem 0 0.5rem; text-align:center; }
+    .subscribe form { justify-content:center; }
+    .subscribe input { flex:1 1 100%; }
+    .subscribe button { width:100%; max-width:22rem; margin:0 auto; }
+    .push-optin { justify-content:center; }
     .backlink { margin-top:1.2rem; }
     .blog-subscribe-wrap { padding:1.2rem 0; }
     article h1 { font-size: 2.1rem; }
