@@ -1805,7 +1805,7 @@ export function apiKeyPage(
   rootDomain: string,
   opts: { createdAt: number | null; newKey?: string; blogs?: Array<{ public_id: string; title: string; slug: string }> }
 ): string {
-  const base = `https://${esc(rootDomain)}/api/v1`;
+  const base = `https://www.${esc(rootDomain)}/api/v1`;
   const has = opts.createdAt != null;
   const paid = accountHasPaidPlan(account);
   const exampleBlogId = opts.blogs?.[0]?.public_id || "BLOG_ID";
@@ -1883,10 +1883,11 @@ curl -X PATCH ${base}/blogs/${exampleBlogId}/posts/POST_ID \\
   -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" \\
   -d '{"title":"Updated title","tags":["updates"],"author_name":null,"author_visible":false,"featured_image_key":"${exampleBlogId}/image.jpg","published":true}'
 
-# Generate an image, then poll its job
+# Generate an image from a prompt or a post, then poll its job
 curl -X POST ${base}/blogs/${exampleBlogId}/images/generations \\
   -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" \\
-  -d '{"post_id":POST_ID,"style":"editorial-photo"}'
+  -d '{"prompt":"A portrait of a watchmaker at work","style":"editorial-photo"}'
+# or from an existing post: -d '{"post_id":POST_ID,"style":"auto"}'  # styles: editorial-photo, editorial-illustration, cinematic, child-crayon, arcade-action, risograph, paper-collage, watercolor, minimal, auto
 curl ${base}/blogs/${exampleBlogId}/images/generations/IMAGE_JOB_ID \\
   -H "Authorization: Bearer YOUR_KEY"
 
@@ -1894,6 +1895,10 @@ curl ${base}/blogs/${exampleBlogId}/images/generations/IMAGE_JOB_ID \\
 curl -X POST ${base}/blogs/${exampleBlogId}/posts/POST_ID/audio/generations \\
   -H "Authorization: Bearer YOUR_KEY"
 curl ${base}/blogs/${exampleBlogId}/audio/generations/AUDIO_JOB_ID \\
+  -H "Authorization: Bearer YOUR_KEY"
+
+# Remove narration from a post (idempotent)
+curl -X DELETE ${base}/blogs/${exampleBlogId}/posts/POST_ID/audio \\
   -H "Authorization: Bearer YOUR_KEY"
 
 # Delete a post
@@ -1906,12 +1911,14 @@ curl -X DELETE ${base}/blogs/${exampleBlogId}/posts/POST_ID \\
         Endpoints: <code>GET /me</code>, <code>GET/POST /blogs/:id/posts</code>,
         <code>GET/PATCH/DELETE /blogs/:id/posts/:postId</code>, plus asynchronous
         <code>images/generations</code> and <code>posts/:postId/audio/generations</code>
-        jobs with status endpoints, and <code>POST /blogs/:id/indexnow</code> to
+        jobs with status endpoints, <code>DELETE /blogs/:id/posts/:postId/audio</code> to
+        remove narration, and <code>POST /blogs/:id/indexnow</code> to
         re-queue discovery for published pages. Its optional body accepts
         <code>post_ids</code> and/or <code>paths</code>; an empty body queues the
         homepage, sitemap, and RSS feed. Post creation and updates accept <code>tags</code>,
         <code>author_name</code>, <code>author_visible</code>, and a validated
-        <code>featured_image_key</code>; use the returned job URLs to poll AI work.
+        <code>featured_image_key</code>; image generation accepts <code>prompt</code> or
+        <code>post_id</code> with <code>style</code> (see above); use the returned job URLs to poll AI work.
         Everything is scoped to blogs you own.
       </p>
     </div>`,
