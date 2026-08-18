@@ -335,6 +335,17 @@ const ADMIN_STYLES = /* css */ `
     .post-thumb { width:3.25rem; height:3.25rem; }
     .acts { margin-left:auto; }
   }
+  .post-summary > div { min-width: 0; flex: 1; overflow: hidden; }
+  ul.posts li { min-width: 0; overflow: hidden; }
+  @media (max-width: 520px) {
+    ul.posts li { gap: .5rem; }
+    .post-thumb { width: 2.9rem; height: 2.9rem; }
+    .tag { font-size: .62rem; padding: .08rem .28rem; }
+    .icon-btn { width: 1.9rem; height: 1.9rem; }
+    .icon-btn svg { width: .95rem; height: .95rem; }
+    ul.posts .t { font-size: .92rem; }
+    ul.posts .sub { font-size: .74rem; }
+  }
   @media (max-width: 700px) { .topbar { flex-direction: row !important; align-items: center !important; justify-content: space-between !important; gap: .75rem; } }
 `;
 
