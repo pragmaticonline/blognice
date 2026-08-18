@@ -304,7 +304,7 @@ app.post("/api/accounts/:id/send-password-reset", async (c) => {
   const tokenHash = await sha256hex(rawToken);
   await c.env.DB.prepare("DELETE FROM password_resets WHERE account_id = ? OR expires_at < ?").bind(id, now).run();
   await c.env.DB.prepare("INSERT INTO password_resets (token_hash, account_id, created_at, expires_at, used) VALUES (?, ?, ?, ?, 0)").bind(tokenHash, id, now, now + 3600).run();
-  const resetUrl = `https://blognice.com/admin/reset?token=${encodeURIComponent(rawToken)}`;
+  const resetUrl = `https://www.blognice.com/admin/reset?token=${encodeURIComponent(rawToken)}`;
   const result = await sendEmailDetailed(c.env, {
     to: account.email,
     subject: "Reset your blognice password",
