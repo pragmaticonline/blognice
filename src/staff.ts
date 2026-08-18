@@ -255,6 +255,7 @@ async function mutateAccount(c: any, action: string, id: number, reason: string)
   const statements: D1PreparedStatement[] = [];
   let after: Record<string, unknown> = { status: before.status, has_api_key: before.has_api_key };
   if (action === "suspend") {
+    // Staff reason is user-visible to the account holder; cap at 500 to bound UI/storage.
     statements.push(c.env.DB.prepare("UPDATE accounts SET status = 'suspended', status_reason = ?, status_changed_at = ? WHERE id = ?").bind(reason.trim().slice(0, 500), now, id));
     statements.push(c.env.DB.prepare("DELETE FROM sessions WHERE account_id = ?").bind(id));
     after = { status: "suspended", status_reason: reason.trim().slice(0, 500), status_changed_at: now };

@@ -1820,6 +1820,8 @@ async function postAuthors(env: Bindings, tenant: Tenant): Promise<Array<{ id: n
 
 // Resolve { account, tenant } for a blog-scoped route, or an appropriate
 // redirect: to login if signed out, to the blog list if the blog isn't theirs.
+// Suspended check runs before tenant lookup so suspended accounts learn
+// nothing about blog existence or membership from error codes.
 async function blogContext(
   c: any
 ): Promise<
