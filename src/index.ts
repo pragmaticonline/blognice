@@ -8,6 +8,8 @@ import {
   renderNotFound,
   renderSimplePage,
   renderPage,
+  normalizeAccentColor,
+  DEFAULT_ACCENT_COLOR,
   type Post,
   type Page,
   type Tenant,
@@ -1566,6 +1568,388 @@ app.delete("/api/v1/blogs/:blogId/posts/:id/audio", async (c) => {
   })());
   return new Response(null, { status: 204 });
 });
+
+
+// ---------------------------------------------------------------------------
+// Account-managed blog APIs (P0/P1).
+// All require a per-account API key (apiAccount) and, where blog-scoped,
+// verify ownership + role via membershipRoleFor + can(). Errors reuse the
+// same tenant-scoped checks as the /admin handlers so audits stay consistent.
+// ---------------------------------------------------------------------------
+
+app.get("/api/v1/blogs/:blogId", async (c) => {
+  const account = await apiAccount(c);
+  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
+  const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
+  if (!tenant) return c.json({ error: "blog not found" }, 404);
+  const role = await membershipRoleFor(c.env, account.id, tenant.id);
+  if (!role) return c.json({ error: "forbidden" }, 403);
+  const topics = (() => { try { return JSON.parse(tenant.topics_json || "[]"); } catch { return []; } })();
+  const social = (() => { try { return JSON.parse(tenant.social_links_json || "{}"); } catch { return {}; } })();
+  return c.json({
+    blog: {
+      public_id: tenant.public_id,
+      slug: tenant.slug,
+      title: tenant.title,
+      description: tenant.description,
+      footer_name: tenant.footer_name || "",
+      accent_color: normalizeAccentColor(tenant.accent_color),
+      topics,
+      social_links: social,
+      browser_push_enabled: !!tenant.browser_push_enabled,
+      custom_domain: tenant.custom_domain,
+      created_at: tenant.created_at,
+      role,
+    },
+  });
+});
+
+app.patch("/api/v1/blogs/:blogId", async (c) => {
+  const account = await apiAccount(c);
+  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
+  const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
+  if (!tenant) return c.json({ error: "blog not found" }, 404);
+  const role = await membershipRoleFor(c.env, account.id, tenant.id);
+  if (!role || !can(role, "settings.manage")) return c.json({ error: "forbidden" }, 403);
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON body" }, 400); }
+  const has = (k: string) => Object.prototype.hasOwnProperty.call(body ?? {}, k);
+  let slug = tenant.slug;
+  if (has("slug")) {
+    slug = String(body.slug ?? "").trim().toLowerCase();
+    const slugError = validateSlug(slug);
+    if (slugError) return c.json({ error: slugError }, 400);
+    if (slug !== tenant.slug) {
+      const taken = await c.env.DB.prepare("SELECT 1 FROM tenants WHERE slug = ? UNION SELECT 1 FROM tenant_slug_aliases WHERE old_slug = ?").bind(slug, slug).first();
+      if (taken) return c.json({ error: "That blog address is already in use." }, 409);
+    }
+  }
+  let title = tenant.title;
+  if (has("title")) {
+    title = String(body.title ?? "").trim();
+    if (!title) return c.json({ error: "A blog title is required." }, 400);
+  }
+  const description = has("description") ? String(body.description ?? "").trim() : (tenant.description || "");
+  const footerName = has("footer_name") ? String(body.footer_name ?? "").trim().slice(0, 160) : (tenant.footer_name || "");
+  let accentColor = tenant.accent_color || DEFAULT_ACCENT_COLOR;
+  if (has("accent_color")) {
+    accentColor = String(body.accent_color ?? "").trim();
+    if (!/^#[0-9a-f]{6}$/i.test(accentColor)) return c.json({ error: "Brand colour must be a six-digit hex value, such as #1a8917." }, 400);
+    accentColor = accentColor.toLowerCase();
+  } else {
+    accentColor = normalizeAccentColor(accentColor);
+  }
+  let topics: string[] = (() => { try { return JSON.parse(tenant.topics_json || "[]"); } catch { return []; } })();
+  if (has("topics")) {
+    const raw = body.topics;
+    const input = Array.isArray(raw) ? raw.map(String).join(",") : String(raw ?? "");
+    const parsed = normalizeTopics(input);
+    if (parsed.error) return c.json({ error: parsed.error }, 400);
+    topics = parsed.topics;
+  }
+  let socialLinks: Record<string, string> = (() => { try { return JSON.parse(tenant.social_links_json || "{}"); } catch { return {}; } })();
+  if (has("social_links")) {
+    const raw = body.social_links;
+    if (raw === null || raw === undefined) socialLinks = {};
+    else if (typeof raw !== "object" || Array.isArray(raw)) return c.json({ error: "social_links must be an object of HTTPS URLs." }, 400);
+    else {
+      const next: Record<string, string> = {};
+      for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+        if (!["x","facebook","instagram","linkedin","youtube","tiktok","bluesky","mastodon","bitchute","telegram"].includes(key)) continue;
+        if (value == null || String(value).trim() === "") continue;
+        const urlStr = String(value).trim();
+        if (urlStr.length > 500) return c.json({ error: `${key} social link must be 500 characters or fewer.` }, 400);
+        try { const url = new URL(urlStr); if (url.protocol !== "https:") throw new Error(); next[key] = url.toString(); } catch { return c.json({ error: `${key} social link must be a valid HTTPS URL.` }, 400); }
+      }
+      socialLinks = next;
+    }
+  }
+  const browserPushEnabled = has("browser_push_enabled") ? (body.browser_push_enabled ? 1 : 0) : (tenant.browser_push_enabled ? 1 : 0);
+  const now = Math.floor(Date.now() / 1000);
+  if (slug !== tenant.slug) {
+    await c.env.DB.prepare("INSERT INTO tenant_slug_aliases (old_slug, tenant_id, created_at) VALUES (?, ?, ?)").bind(tenant.slug, tenant.id, now).run();
+  }
+  await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, footer_name = ?, accent_color = ?, topics_json = ?, social_links_json = ?, browser_push_enabled = ? WHERE id = ?")
+    .bind(slug, title, description, footerName, accentColor, JSON.stringify(topics), JSON.stringify(socialLinks), browserPushEnabled, tenant.id).run();
+  queueBlogAudit(c, tenant.id, account.id, "blog_settings_updated", "settings");
+  const updatedTenant = { ...tenant, slug } as Tenant;
+  c.executionCtx.waitUntil((async () => {
+    await purgeTenantEverywhere(c.env, tenant).catch(()=>{});
+    if (slug !== tenant.slug) await purgeTenantEverywhere(c.env, updatedTenant).catch(()=>{});
+  })());
+  return c.json({ blog: { public_id: tenant.public_id, slug, title, description, footer_name: footerName, accent_color: accentColor, topics, social_links: socialLinks, browser_push_enabled: !!browserPushEnabled, custom_domain: tenant.custom_domain, created_at: tenant.created_at } });
+});
+
+app.post("/api/v1/blogs", async (c) => {
+  const account = await apiAccount(c);
+  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
+  const ownedCount = await c.env.DB.prepare("SELECT COUNT(*) AS count FROM memberships WHERE account_id = ? AND role = 'owner'").bind(account.id).first<{ count: number }>();
+  const maxBlogs = accountHasPaidPlan(account) ? 5 : 1;
+  if ((ownedCount?.count ?? 0) >= maxBlogs) return c.json({ error: maxBlogs > 1 ? "Your account can own up to five blogs. Collaborations do not count toward this limit." : "Free accounts can own one blog. Upgrade to add more blogs." }, 409);
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON body" }, 400); }
+  const slug = String(body?.slug ?? "").trim().toLowerCase();
+  const title = String(body?.title ?? "").trim();
+  if (!slug || !title) return c.json({ error: "slug and title are required" }, 400);
+  const slugError = validateSlug(slug);
+  if (slugError) return c.json({ error: slugError }, 400);
+  if (!title) return c.json({ error: "Please enter a blog title." }, 400);
+  if (await c.env.DB.prepare("SELECT 1 FROM tenants WHERE slug = ?").bind(slug).first()) return c.json({ error: "That address is already taken." }, 409);
+  const now = Math.floor(Date.now() / 1000);
+  const publicId = newPublicId();
+  let blogId: number;
+  try {
+    const res = await c.env.DB.prepare("INSERT INTO tenants (public_id, slug, title, description, shard, browser_push_enabled, created_at) VALUES (?, ?, ?, '', 'primary', 1, ?)").bind(publicId, slug, title, now).run();
+    blogId = res.meta.last_row_id as number;
+  } catch {
+    return c.json({ error: "That address is already taken." }, 409);
+  }
+  await c.env.DB.prepare("INSERT INTO memberships (account_id, tenant_id, role, created_at) VALUES (?, ?, 'owner', ?)").bind(account.id, blogId, now).run();
+  const tenant = await c.env.DB.prepare("SELECT * FROM tenants WHERE id = ?").bind(blogId).first<Tenant>();
+  queueBlogAudit(c, blogId, account.id, "blog_created", slug);
+  return c.json({ blog: { public_id: publicId, slug: tenant?.slug ?? slug, title: tenant?.title ?? title, description: "", accent_color: DEFAULT_ACCENT_COLOR, topics: [], social_links: {}, browser_push_enabled: true, created_at: now } }, 201);
+});
+
+// ---------------------------------------------------------------------------
+// Pages (P0) — CRUD mirroring /admin/b/:id/pages handlers.
+// ---------------------------------------------------------------------------
+
+function pageToJson(page: Page) {
+  return {
+    id: page.id,
+    slug: page.slug,
+    title: page.title,
+    body_md: page.body_md,
+    published: !!page.published,
+    show_in_navigation: !!page.show_in_navigation,
+    navigation_label: page.navigation_label ?? null,
+    navigation_order: page.navigation_order ?? 0,
+    meta_description: page.meta_description ?? null,
+    created_at: page.created_at,
+    updated_at: page.updated_at,
+    published_at: page.published_at ?? null,
+  };
+}
+
+app.get("/api/v1/blogs/:blogId/pages", async (c) => {
+  const account = await apiAccount(c);
+  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
+  const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
+  if (!tenant) return c.json({ error: "blog not found" }, 404);
+  const role = await membershipRoleFor(c.env, account.id, tenant.id);
+  if (!role) return c.json({ error: "forbidden" }, 403);
+  const { results } = await tenantDb(c.env, tenant).prepare("SELECT * FROM pages WHERE tenant_id = ? ORDER BY navigation_order ASC, title ASC").bind(tenant.id).all<Page>();
+  return c.json({ pages: results.map(pageToJson) });
+});
+
+app.get("/api/v1/blogs/:blogId/pages/:id", async (c) => {
+  const account = await apiAccount(c);
+  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
+  const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
+  if (!tenant) return c.json({ error: "blog not found" }, 404);
+  const role = await membershipRoleFor(c.env, account.id, tenant.id);
+  if (!role) return c.json({ error: "forbidden" }, 403);
+  const page = await tenantDb(c.env, tenant).prepare("SELECT * FROM pages WHERE id = ? AND tenant_id = ?").bind(Number(c.req.param("id")), tenant.id).first<Page>();
+  if (!page) return c.json({ error: "page not found" }, 404);
+  return c.json({ page: pageToJson(page) });
+});
+
+app.post("/api/v1/blogs/:blogId/pages", async (c) => {
+  const account = await apiAccount(c);
+  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
+  const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
+  if (!tenant) return c.json({ error: "blog not found" }, 404);
+  const role = await membershipRoleFor(c.env, account.id, tenant.id);
+  if (!role || !can(role, "posts.create")) return c.json({ error: "forbidden" }, 403);
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON body" }, 400); }
+  const title = String(body?.title ?? "").trim().slice(0, 200);
+  const body_md = String(body?.body_md ?? "");
+  let slug = slugify(String(body?.slug ?? "")).slice(0, 100) || slugify(title).slice(0, 100);
+  if (!slug) return c.json({ error: "slug is required (or provide a title to generate one)" }, 400);
+  const published = body?.published ? 1 : 0;
+  if (published && !can(role, "posts.publish")) return c.json({ error: "publishing is not permitted for this role" }, 403);
+  const showInNavigation = body?.show_in_navigation ? 1 : 0;
+  const navigationLabel = (body?.navigation_label !== undefined ? String(body.navigation_label).trim().slice(0, 40) : null) || null;
+  const navigationOrder = Math.max(0, Math.min(999, Number(body?.navigation_order ?? 0) || 0));
+  const metaDescription = (body?.meta_description !== undefined ? String(body.meta_description).trim().slice(0, 300) : null) || null;
+  const clash = await tenantDb(c.env, tenant).prepare("SELECT 1 FROM pages WHERE tenant_id = ? AND slug = ?").bind(tenant.id, slug).first();
+  if (clash) return c.json({ error: `slug "${slug}" already in use` }, 409);
+  const now = Math.floor(Date.now() / 1000);
+  const publishedAt = published ? now : null;
+  const res = await tenantDb(c.env, tenant).prepare("INSERT INTO pages (tenant_id, slug, title, body_md, published, show_in_navigation, navigation_label, navigation_order, meta_description, created_at, updated_at, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(tenant.id, slug, title, body_md, published, showInNavigation, navigationLabel, navigationOrder, metaDescription, now, now, publishedAt).run();
+  const id = res.meta.last_row_id as number;
+  const page = await tenantDb(c.env, tenant).prepare("SELECT * FROM pages WHERE id = ?").bind(id).first<Page>();
+  c.executionCtx.waitUntil(purgeTenant(c.env, tenant, ["/" + slug, "/sitemap.xml"]).catch(()=>{}));
+  queueBlogAudit(c, tenant.id, account.id, published ? "page_published" : "page_created", slug);
+  return c.json({ page: page ? pageToJson(page) : { id, slug, title, body_md, published: !!published, show_in_navigation: !!showInNavigation, navigation_label: navigationLabel, navigation_order: navigationOrder, meta_description: metaDescription } }, 201);
+});
+
+app.patch("/api/v1/blogs/:blogId/pages/:id", async (c) => {
+  const account = await apiAccount(c);
+  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
+  const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
+  if (!tenant) return c.json({ error: "blog not found" }, 404);
+  const role = await membershipRoleFor(c.env, account.id, tenant.id);
+  if (!role) return c.json({ error: "forbidden" }, 403);
+  const pdb = tenantDb(c.env, tenant);
+  const page = await pdb.prepare("SELECT * FROM pages WHERE id = ? AND tenant_id = ?").bind(Number(c.req.param("id")), tenant.id).first<Page>();
+  if (!page) return c.json({ error: "page not found" }, 404);
+  if (!can(role, "posts.edit.any") && !can(role, "posts.edit.own")) return c.json({ error: "forbidden" }, 403);
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON body" }, 400); }
+  const title = body?.title !== undefined ? String(body.title).trim().slice(0, 200) : page.title;
+  const body_md = body?.body_md !== undefined ? String(body.body_md) : page.body_md;
+  let slug = page.slug;
+  if (body?.slug !== undefined) { slug = slugify(String(body.slug)).slice(0, 100) || slugify(title).slice(0, 100); if (!slug) return c.json({ error: "slug is required" }, 400); }
+  const published = body?.published !== undefined ? (body.published ? 1 : 0) : page.published;
+  if (published && !page.published && !can(role, "posts.publish")) return c.json({ error: "publishing is not permitted for this role" }, 403);
+  if (published && page.published === 0 && !can(role, "posts.publish")) return c.json({ error: "publishing is not permitted for this role" }, 403);
+  const showInNavigation = body?.show_in_navigation !== undefined ? (body.show_in_navigation ? 1 : 0) : (page.show_in_navigation ? 1 : 0);
+  const navigationLabel = body?.navigation_label !== undefined ? (String(body.navigation_label).trim().slice(0, 40) || null) : (page.navigation_label ?? null);
+  const navigationOrder = body?.navigation_order !== undefined ? Math.max(0, Math.min(999, Number(body.navigation_order) || 0)) : (page.navigation_order ?? 0);
+  const metaDescription = body?.meta_description !== undefined ? (String(body.meta_description).trim().slice(0, 300) || null) : (page.meta_description ?? null);
+  if (slug !== page.slug) {
+    const clash = await pdb.prepare("SELECT 1 FROM pages WHERE tenant_id = ? AND slug = ? AND id != ?").bind(tenant.id, slug, page.id).first();
+    if (clash) return c.json({ error: `slug "${slug}" already in use` }, 409);
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const publishedAt = published ? (page.published_at ?? now) : null;
+  await pdb.prepare("UPDATE pages SET slug = ?, title = ?, body_md = ?, published = ?, show_in_navigation = ?, navigation_label = ?, navigation_order = ?, meta_description = ?, updated_at = ?, published_at = ? WHERE id = ? AND tenant_id = ?")
+    .bind(slug, title, body_md, published, showInNavigation, navigationLabel, navigationOrder, metaDescription, now, publishedAt, page.id, tenant.id).run();
+  const updated = await pdb.prepare("SELECT * FROM pages WHERE id = ?").bind(page.id).first<Page>();
+  c.executionCtx.waitUntil(purgeTenant(c.env, tenant, ["/" + page.slug, "/" + slug, "/sitemap.xml"]).catch(()=>{}));
+  return c.json({ page: updated ? pageToJson(updated) : { id: page.id, slug, title, body_md, published: !!published, show_in_navigation: !!showInNavigation, navigation_label: navigationLabel, navigation_order: navigationOrder, meta_description: metaDescription } });
+});
+
+app.delete("/api/v1/blogs/:blogId/pages/:id", async (c) => {
+  const account = await apiAccount(c);
+  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
+  const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
+  if (!tenant) return c.json({ error: "blog not found" }, 404);
+  const role = await membershipRoleFor(c.env, account.id, tenant.id);
+  if (!role || !can(role, "posts.delete")) return c.json({ error: "forbidden" }, 403);
+  const page = await tenantDb(c.env, tenant).prepare("SELECT * FROM pages WHERE id = ? AND tenant_id = ?").bind(Number(c.req.param("id")), tenant.id).first<Page>();
+  if (!page) return c.json({ error: "page not found" }, 404);
+  await tenantDb(c.env, tenant).prepare("DELETE FROM pages WHERE id = ? AND tenant_id = ?").bind(page.id, tenant.id).run();
+  c.executionCtx.waitUntil(purgeTenant(c.env, tenant, ["/" + page.slug, "/sitemap.xml"]).catch(()=>{}));
+  queueBlogAudit(c, tenant.id, account.id, "page_deleted", page.slug);
+  return new Response(null, { status: 204 });
+});
+
+// ---------------------------------------------------------------------------
+// Media (P0)
+// ---------------------------------------------------------------------------
+
+app.get("/api/v1/blogs/:blogId/media", async (c) => {
+  const account = await apiAccount(c);
+  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
+  const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
+  if (!tenant) return c.json({ error: "blog not found" }, 404);
+  const role = await membershipRoleFor(c.env, account.id, tenant.id);
+  if (!role) return c.json({ error: "forbidden" }, 403);
+  const items = await listMedia(c.env, tenant.id);
+  return c.json({ media: items });
+});
+
+app.post("/api/v1/blogs/:blogId/media", async (c) => {
+  const account = await apiAccount(c);
+  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
+  const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
+  if (!tenant) return c.json({ error: "blog not found" }, 404);
+  const role = await membershipRoleFor(c.env, account.id, tenant.id);
+  if (!role || !can(role, "media.upload")) return c.json({ error: "forbidden" }, 403);
+  let form: FormData;
+  try { form = await c.req.formData(); } catch { return c.json({ error: "expected multipart/form-data with a file field" }, 400); }
+  const file = form.get("file") as unknown as File | null;
+  if (!(file instanceof File)) return c.json({ error: "file is required" }, 400);
+  const type = file.type;
+  if (!ALLOWED_IMAGE.has(type) || (await detectedImageType(file)) !== type) return c.json({ error: "unsupported image type" }, 400);
+  if (file.size > MAX_UPLOAD) return c.json({ error: "image too large" }, 413);
+  const rand = crypto.randomUUID().slice(0, 8);
+  const key = `${tenant.id}/${Date.now()}-${rand}.${EXT[type]}`;
+  await c.env.MEDIA.put(key, await file.arrayBuffer(), { httpMetadata: { contentType: type, cacheControl: "public, max-age=31536000, immutable" }, customMetadata: { originalName: file.name.slice(0, 200) } });
+  const url = `/media/${key}`;
+  queueBlogAudit(c, tenant.id, account.id, "media_uploaded", file.name);
+  return c.json({ key, url, markdown: `![](${url})` }, 201);
+});
+
+app.delete("/api/v1/blogs/:blogId/media", async (c) => {
+  const account = await apiAccount(c);
+  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
+  const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
+  if (!tenant) return c.json({ error: "blog not found" }, 404);
+  const role = await membershipRoleFor(c.env, account.id, tenant.id);
+  if (!role || !can(role, "media.delete")) return c.json({ error: "forbidden" }, 403);
+  const keyParam = c.req.query("key") || "";
+  let key = keyParam;
+  if (!key) {
+    try { const body: any = await c.req.json(); key = String(body?.key ?? body?.file ?? ""); } catch {}
+  }
+  if (!key) return c.json({ error: "key is required (query ?key= or JSON {key})" }, 400);
+  const fullKey = key.includes("/") ? key : `${tenant.id}/${key}`;
+  if (!fullKey.startsWith(`${tenant.id}/`)) return c.json({ error: "forbidden" }, 403);
+  if (fullKey.includes("..") || fullKey.includes("\n")) return c.json({ error: "invalid key" }, 400);
+  if (fullKey.slice(`${tenant.id}/`.length).startsWith("avatar-") || fullKey.slice(`${tenant.id}/`.length).startsWith("favicon-")) return c.json({ error: "This image is the blog profile photo and cannot be deleted here." }, 409);
+  await c.env.MEDIA.delete(fullKey);
+  queueBlogAudit(c, tenant.id, account.id, "media_deleted", fullKey);
+  return new Response(null, { status: 204 });
+});
+
+// ---------------------------------------------------------------------------
+// Metrics + Tags (P1)
+// ---------------------------------------------------------------------------
+
+app.get("/api/v1/blogs/:blogId/metrics", async (c) => {
+  const account = await apiAccount(c);
+  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
+  const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
+  if (!tenant) return c.json({ error: "blog not found" }, 404);
+  const role = await membershipRoleFor(c.env, account.id, tenant.id);
+  if (!role) return c.json({ error: "forbidden" }, 403);
+  if (!metricsConfigured(c.env)) return c.json({ error: "metrics not configured" }, 503);
+  const daysParam = Number(c.req.query("days") || c.req.query("range") || "30");
+  const days = [7,30,90].includes(daysParam) ? daysParam : 30;
+  try {
+    const report = await metricsReport(c.env, tenant.id, days);
+    return c.json({ metrics: report });
+  } catch (e) {
+    return c.json({ error: "metrics report failed", detail: String((e as Error)?.message ?? e) }, 502);
+  }
+});
+
+app.get("/api/v1/blogs/:blogId/tags", async (c) => {
+  const account = await apiAccount(c);
+  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
+  const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
+  if (!tenant) return c.json({ error: "blog not found" }, 404);
+  const role = await membershipRoleFor(c.env, account.id, tenant.id);
+  if (!role) return c.json({ error: "forbidden" }, 403);
+  const { results } = await tenantDb(c.env, tenant).prepare("SELECT tags_json FROM posts WHERE tenant_id = ?").bind(tenant.id).all<{ tags_json: string | null }>();
+  const set = new Set<string>();
+  for (const row of results) {
+    try {
+      const parsed = JSON.parse(row.tags_json || "[]");
+      if (Array.isArray(parsed)) for (const t of parsed) if (typeof t === "string" && t) set.add(t);
+    } catch {}
+  }
+  const tags = [...set].sort((a,b)=>a.localeCompare(b));
+  return c.json({ tags });
+});
+
 
 // ---------------------------------------------------------------------------
 // Custom domain onboarding (Cloudflare for SaaS). All require the API token.

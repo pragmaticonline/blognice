@@ -1903,14 +1903,37 @@ curl -X DELETE ${base}/blogs/${exampleBlogId}/posts/POST_ID/audio \\
 
 # Delete a post
 curl -X DELETE ${base}/blogs/${exampleBlogId}/posts/POST_ID \\
-  -H "Authorization: Bearer YOUR_KEY"</pre>
+  -H "Authorization: Bearer YOUR_KEY"
+
+# Blog details and settings
+curl ${base}/blogs/${exampleBlogId} -H "Authorization: Bearer YOUR_KEY"
+curl -X PATCH ${base}/blogs/${exampleBlogId} -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" -d '{"title":"New title","description":"A calmer blog.","accent_color":"#2563eb","topics":["travel","photography"],"browser_push_enabled":true}'
+curl -X POST ${base}/blogs -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" -d '{"slug":"my-new-blog","title":"My New Blog"}'
+
+# Pages (create, list, fetch, update, delete)
+curl ${base}/blogs/${exampleBlogId}/pages -H "Authorization: Bearer YOUR_KEY"
+curl -X POST ${base}/blogs/${exampleBlogId}/pages -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" -d '{"title":"About","slug":"about","body_md":"# About\\nWe love writing.","published":true,"show_in_navigation":true}'
+curl ${base}/blogs/${exampleBlogId}/pages/PAGE_ID -H "Authorization: Bearer YOUR_KEY"
+curl -X PATCH ${base}/blogs/${exampleBlogId}/pages/PAGE_ID -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" -d '{"title":"About us","published":true}'
+curl -X DELETE ${base}/blogs/${exampleBlogId}/pages/PAGE_ID -H "Authorization: Bearer YOUR_KEY"
+
+# Media library
+curl ${base}/blogs/${exampleBlogId}/media -H "Authorization: Bearer YOUR_KEY"
+curl -X POST ${base}/blogs/${exampleBlogId}/media -H "Authorization: Bearer YOUR_KEY" -F file=@photo.jpg
+curl -X DELETE "${base}/blogs/${exampleBlogId}/media?key=KEY" -H "Authorization: Bearer YOUR_KEY"
+
+# Metrics and tags
+curl "${base}/blogs/${exampleBlogId}/metrics?days=30" -H "Authorization: Bearer YOUR_KEY"
+curl ${base}/blogs/${exampleBlogId}/tags -H "Authorization: Bearer YOUR_KEY"</pre>
       <p style="color:var(--muted);font-size:0.85rem">
         In these examples, <code>BLOG_ID</code> means the opaque <code>public_id</code>
         returned by <code>GET /me</code> (for example <code>ggh6gvgsgj4h</code>), not
         the internal numeric tenant ID. Post IDs remain numeric.<br><br>
-        Endpoints: <code>GET /me</code>, <code>GET/POST /blogs/:id/posts</code>,
-        <code>GET/PATCH/DELETE /blogs/:id/posts/:postId</code>, plus asynchronous
-        <code>images/generations</code> and <code>posts/:postId/audio/generations</code>
+        Endpoints: <code>GET /me</code>, <code>GET /blogs/:id</code> / <code>PATCH /blogs/:id</code> / <code>POST /blogs</code>,
+        <code>GET/POST /blogs/:id/posts</code>, <code>GET/PATCH/DELETE /blogs/:id/posts/:postId</code>,
+        <code>GET/POST /blogs/:id/pages</code>, <code>GET/PATCH/DELETE /blogs/:id/pages/:pageId</code>,
+        <code>GET/POST/DELETE /blogs/:id/media</code>, <code>GET /blogs/:id/metrics</code> (<code>?days=7|30|90</code>), <code>GET /blogs/:id/tags</code>,
+        plus asynchronous <code>images/generations</code> and <code>posts/:postId/audio/generations</code>
         jobs with status endpoints, <code>DELETE /blogs/:id/posts/:postId/audio</code> to
         remove narration, and <code>POST /blogs/:id/indexnow</code> to
         re-queue discovery for published pages. Its optional body accepts
@@ -1918,7 +1941,7 @@ curl -X DELETE ${base}/blogs/${exampleBlogId}/posts/POST_ID \\
         homepage, sitemap, and RSS feed. Post creation and updates accept <code>tags</code>,
         <code>author_name</code>, <code>author_visible</code>, and a validated
         <code>featured_image_key</code>; image generation accepts <code>prompt</code> or
-        <code>post_id</code> with <code>style</code> (see above); use the returned job URLs to poll AI work.
+        <code>post_id</code> with <code>style</code> (see above); pages accept <code>title</code>, <code>slug</code>, <code>body_md</code>, <code>published</code>, <code>show_in_navigation</code>, <code>navigation_label</code>, <code>navigation_order</code>, <code>meta_description</code>; blogs accept <code>slug</code>, <code>title</code>, <code>description</code>, <code>accent_color</code>, <code>topics</code>, <code>social_links</code>, <code>browser_push_enabled</code>; use the returned job URLs to poll AI work.
         Everything is scoped to blogs you own.
       </p>
     </div>`,
