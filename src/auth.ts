@@ -19,10 +19,17 @@ const CLOUDFLARE_MAX_PBKDF2_ITERATIONS = 100_000;
 export type Account = {
   id: number;
   email: string;
+  status?: string | null;
+  status_reason?: string | null;
+  status_changed_at?: number | null;
   billing_status?: string | null;
   billing_cancel_at_period_end?: number | null;
   crypto_paid_through?: number | null;
 };
+
+export function isSuspended(account: Pick<Account, "status">): boolean {
+  return String(account.status || "active") === "suspended";
+}
 
 /** Paid access remains available during Stripe's short past-due recovery window. */
 export function accountHasPaidPlan(account: Pick<Account, "billing_status" | "crypto_paid_through">): boolean {
@@ -169,11 +176,12 @@ export async function currentAccount(c: any): Promise<Account | null> {
   if (!token) return null;
   const now = Math.floor(Date.now() / 1000);
   const row = (await c.env.DB.prepare(
-    `SELECT a.id, a.email, COALESCE(a.billing_status, 'inactive') AS billing_status,
+    `SELECT a.id, a.email, COALESCE(a.status, 'active') AS status, a.status_reason, a.status_changed_at,
+            COALESCE(a.billing_status, 'inactive') AS billing_status,
             COALESCE(a.billing_cancel_at_period_end, 0) AS billing_cancel_at_period_end,
             a.crypto_paid_through
        FROM sessions s JOIN accounts a ON a.id = s.account_id
-      WHERE s.token = ? AND s.expires_at > ? AND COALESCE(a.status, 'active') = 'active'`
+      WHERE s.token = ? AND s.expires_at > ?`
   )
     .bind(token, now)
     .first()) as Account | null;
@@ -241,7 +249,7 @@ export async function accountFromApiKey(
   if (!key || !key.startsWith("bnk_")) return null;
   const hash = await sha256hex(key);
   return (await db
-    .prepare("SELECT id, email, COALESCE(billing_status, 'inactive') AS billing_status, COALESCE(billing_cancel_at_period_end, 0) AS billing_cancel_at_period_end, crypto_paid_through FROM accounts WHERE api_key_hash = ? AND COALESCE(status, 'active') = 'active'")
+    .prepare("SELECT id, email, COALESCE(status, 'active') AS status, status_reason, status_changed_at, COALESCE(billing_status, 'inactive') AS billing_status, COALESCE(billing_cancel_at_period_end, 0) AS billing_cancel_at_period_end, crypto_paid_through FROM accounts WHERE api_key_hash = ?")
     .bind(hash)
     .first()) as Account | null;
 }

@@ -78,10 +78,20 @@ test("staff can send a rate-limited password reset email with an audit trail", (
   assert.match(staff, /Reset your blognice password/);
 });
 
-test("suspended accounts cannot use customer sessions or API keys", () => {
-  assert.match(auth, /COALESCE\(a\.status, 'active'\) = 'active'/);
+test("suspended accounts can log in but cannot perform actions", () => {
+  assert.match(auth, /isSuspended/);
+  assert.match(auth, /COALESCE\(a\.status, 'active'\) AS status/);
+  assert.doesNotMatch(auth, /WHERE s\.token = \? AND s\.expires_at > \? AND COALESCE\(a\.status/);
+  assert.match(auth, /status_reason/);
   assert.match(migration, /status TEXT NOT NULL DEFAULT 'active'/);
   assert.match(migration, /staff_audit_events/);
+  const indexSource = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
+  assert.match(indexSource, /suspendedAccountPage/);
+  assert.match(indexSource, /isSuspended\(account\)/);
+  assert.match(indexSource, /Your account is currently suspended and you should contact support/);
+  const admin = readFileSync(new URL("../src/admin.ts", import.meta.url), "utf8");
+  assert.match(admin, /suspendedAccountPage/);
+  assert.match(admin, /Your account is currently suspended/);
 });
 
 test("staff deployment is a separate Worker route", () => {
