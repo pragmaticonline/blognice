@@ -262,8 +262,12 @@ const ADMIN_STYLES = /* css */ `
   .metric-card { background:var(--panel); border:1px solid var(--rule); border-radius:8px; padding:1rem 1.2rem; }
   .metric-value { font-size:2rem; font-weight:650; line-height:1.15; }
   .metric-label { color:var(--muted); font-size:.82rem; margin-top:.2rem; }
-  .metric-chart { display:flex; align-items:end; gap:3px; height:10rem; padding-top:1rem; border-bottom:1px solid var(--rule); }
-  .metric-bar { flex:1; min-width:2px; max-width:2rem; background:var(--accent); border-radius:3px 3px 0 0; opacity:.82; }
+  .metric-chart { display:flex; align-items:end; gap:3px; height:10rem; padding-top:1.6rem; border-bottom:1px solid var(--rule); overflow:visible; }
+  .metric-bar { flex:1; min-width:2px; max-width:2rem; background:var(--accent); border-radius:3px 3px 0 0; opacity:.82; position:relative; }
+  .metric-bar::after { content: attr(data-tooltip); position:absolute; left:50%; bottom:calc(100% + .45rem); transform:translate(-50%, .2rem); padding:.3rem .45rem; border-radius:4px; background:var(--ink); color:var(--bg); font:500 .7rem/1 var(--sans); white-space:nowrap; opacity:0; pointer-events:none; transition: opacity .15s ease, transform .15s ease; }
+  .metric-bar:hover::after, .metric-bar:focus-visible::after { opacity:1; transform:translate(-50%, 0); }
+  .metrics-more { margin-top:.65rem; font-size:.82rem; }
+  .metrics-more-panel[hidden] { display:none; }
   .metrics-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1.2rem; }
   table.metrics { width:100%; border-collapse:collapse; font-size:.86rem; }
   table.metrics th, table.metrics td { padding:.5rem .25rem; border-bottom:1px solid var(--rule); text-align:left; }
@@ -840,33 +844,65 @@ export function metricsPage(
   } else {
     const maxViews = Math.max(1, ...report.daily.map((day) => day.views));
     const chart = report.daily.length
-      ? report.daily.map((day) => `<span class="metric-bar" style="height:${Math.max(2, Math.round(day.views / maxViews * 100))}%" title="${esc(day.date)}: ${day.views.toLocaleString()} views"></span>`).join("")
+      ? report.daily.map((day) => `<span class="metric-bar" style="height:${Math.max(2, Math.round(day.views / maxViews * 100))}%" data-tooltip="${esc(day.date)}: ${day.views.toLocaleString()} views \u00b7 ${day.visitors.toLocaleString()} visitors" aria-label="${esc(day.date)}: ${day.views.toLocaleString()} views, ${day.visitors.toLocaleString()} visitors" role="img" tabindex="0"></span>`).join("")
       : `<span style="color:var(--muted);font-size:.85rem">No views recorded in this period.</span>`;
-    const pages = report.pages.length
-      ? report.pages.map((page) => `<tr><td><a href="${esc(page.path)}" target="_blank">${esc(page.path)}</a></td><td class="num">${page.views.toLocaleString()}</td><td class="num">${page.visitors.toLocaleString()}</td></tr>`).join("")
-      : `<tr><td colspan="3" style="color:var(--muted)">No page views yet.</td></tr>`;
-    const referrers = report.referrers.length
-      ? report.referrers.map((item) => `<tr><td>${esc(item.referrer)}</td><td class="num">${item.views.toLocaleString()}</td></tr>`).join("")
-      : `<tr><td colspan="2" style="color:var(--muted)">No external referrers yet.</td></tr>`;
+    const toRows = (limit: number, items: string[]) => {
+      if (items.length <= limit) return { visible: items.join(""), hidden: "", count: 0 };
+      return { visible: items.slice(0, limit).join(""), hidden: items.slice(limit).join(""), count: items.length - limit };
+    };
+    const moreBtn = (count: number) => count ? `<button class="btn ghost metrics-more" type="button" data-metrics-more aria-expanded="false">Show ${count} more</button>` : "";
+    const morePanel = (hidden: string) => hidden ? `<tbody class="metrics-more-panel" hidden data-metrics-panel>${hidden}</tbody>` : "";
+
+    const pageRows = report.pages.map((page) => `<tr><td><a href="${esc(page.path)}" target="_blank">${esc(page.path)}</a></td><td class="num">${page.views.toLocaleString()}</td><td class="num">${page.visitors.toLocaleString()}</td></tr>`);
+    const referrerRows = report.referrers.map((item) => `<tr><td>${esc(item.referrer)}</td><td class="num">${item.views.toLocaleString()}</td></tr>`);
+    const audioRows = report.audio.pages.map((item) => `<tr><td>${esc(item.path)}</td><td class="num">${item.starts.toLocaleString()}</td><td class="num">${item.completions.toLocaleString()}</td></tr>`);
+    const countryRows = report.countries.map((item) => {
+      let label = item.name;
+      if (/^[A-Z]{2}$/.test(item.name)) { try { label = new Intl.DisplayNames(["en"], { type: "region" }).of(item.name) || item.name; } catch {} }
+      return `<tr><td>${esc(label)}</td><td class="num">${item.views.toLocaleString()}</td></tr>`;
+    });
+
+    const pagesPart = (() => {
+      if (!pageRows.length) return `<tr><td colspan="3" style="color:var(--muted)">No page views yet.</td></tr>`;
+      const { visible, hidden, count } = toRows(10, pageRows);
+      return `${visible}${hidden ? `<tbody class="metrics-more-panel" hidden data-metrics-panel>${hidden}</tbody>` : ""}`;
+    })();
+    const pagesMore = pageRows.length > 10 ? `<button class="btn ghost metrics-more" type="button" data-metrics-more aria-expanded="false">Show ${pageRows.length - 10} more</button>` : "";
+    const referrersPart = (() => {
+      if (!referrerRows.length) return `<tr><td colspan="2" style="color:var(--muted)">No external referrers yet.</td></tr>`;
+      const { visible, hidden } = toRows(10, referrerRows);
+      return `${visible}${hidden ? `<tbody class="metrics-more-panel" hidden data-metrics-panel>${hidden}</tbody>` : ""}`;
+    })();
+    const referrersMore = referrerRows.length > 10 ? `<button class="btn ghost metrics-more" type="button" data-metrics-more aria-expanded="false">Show ${referrerRows.length - 10} more</button>` : "";
+    const countriesPart = (() => {
+      if (!countryRows.length) return `<tr><td colspan="2" style="color:var(--muted)">No data yet.</td></tr>`;
+      const { visible, hidden } = toRows(10, countryRows);
+      return `${visible}${hidden ? `<tbody class="metrics-more-panel" hidden data-metrics-panel>${hidden}</tbody>` : ""}`;
+    })();
+    const countriesMore = countryRows.length > 10 ? `<button class="btn ghost metrics-more" type="button" data-metrics-more aria-expanded="false">Show ${countryRows.length - 10} more</button>` : "";
+    const audioPart = (() => {
+      if (!audioRows.length) return `<tr><td colspan="3" style="color:var(--muted)">No audio plays yet.</td></tr>`;
+      const { visible, hidden } = toRows(10, audioRows);
+      return `${visible}${hidden ? `<tbody class="metrics-more-panel" hidden data-metrics-panel>${hidden}</tbody>` : ""}`;
+    })();
+    const audioMore = audioRows.length > 10 ? `<button class="btn ghost metrics-more" type="button" data-metrics-more aria-expanded="false">Show ${audioRows.length - 10} more</button>` : "";
+
     const completionRate = report.audio.starts
       ? Math.min(100, Math.round(report.audio.completions / report.audio.starts * 100))
       : 0;
-    const audioPages = report.audio.pages.length
-      ? report.audio.pages.map((item) => `<tr><td>${esc(item.path)}</td><td class="num">${item.starts.toLocaleString()}</td><td class="num">${item.completions.toLocaleString()}</td></tr>`).join("")
-      : `<tr><td colspan="3" style="color:var(--muted)">No audio plays yet.</td></tr>`;
     content = `<div class="metric-cards">
       <div class="metric-card"><div class="metric-value">${report.summary.views.toLocaleString()}</div><div class="metric-label">Views</div></div>
       <div class="metric-card"><div class="metric-value">${report.summary.visitors.toLocaleString()}</div><div class="metric-label">Unique visitors</div></div>
     </div>
     <div class="panel-block"><strong>Daily views</strong><div class="metric-chart" aria-label="Daily page views">${chart}</div></div>
     <div class="metrics-grid">
-      <div class="panel-block"><h2 style="margin-top:0;font-size:1rem">Top pages</h2><table class="metrics"><thead><tr><th>Page</th><th class="num">Views</th><th class="num">Visitors</th></tr></thead><tbody>${pages}</tbody></table></div>
-      <div class="panel-block"><h2 style="margin-top:0;font-size:1rem">Top referrers</h2><table class="metrics"><thead><tr><th>Source</th><th class="num">Views</th></tr></thead><tbody>${referrers}</tbody></table></div>
-      <div class="panel-block"><h2 style="margin-top:0;font-size:1rem">Countries</h2><table class="metrics"><thead><tr><th>Country</th><th class="num">Views</th></tr></thead><tbody>${breakdownRows(report.countries, true)}</tbody></table></div>
+      <div class="panel-block"><h2 style="margin-top:0;font-size:1rem">Top pages</h2><table class="metrics"><thead><tr><th>Page</th><th class="num">Views</th><th class="num">Visitors</th></tr></thead><tbody>${pagesPart}</tbody></table>${pagesMore}</div>
+      <div class="panel-block"><h2 style="margin-top:0;font-size:1rem">Top referrers</h2><table class="metrics"><thead><tr><th>Source</th><th class="num">Views</th></tr></thead><tbody>${referrersPart}</tbody></table>${referrersMore}</div>
+      <div class="panel-block"><h2 style="margin-top:0;font-size:1rem">Countries</h2><table class="metrics"><thead><tr><th>Country</th><th class="num">Views</th></tr></thead><tbody>${countriesPart}</tbody></table>${countriesMore}</div>
       <div class="panel-block"><h2 style="margin-top:0;font-size:1rem">Devices</h2><table class="metrics"><thead><tr><th>Device</th><th class="num">Views</th></tr></thead><tbody>${breakdownRows(report.devices)}</tbody></table></div>
       <div class="panel-block"><h2 style="margin-top:0;font-size:1rem">Browsers</h2><table class="metrics"><thead><tr><th>Browser</th><th class="num">Views</th></tr></thead><tbody>${breakdownRows(report.browsers)}</tbody></table></div>
-      <div class="panel-block"><h2 style="margin-top:0;font-size:1rem">Audio engagement</h2><div style="display:flex;gap:1.4rem;margin-bottom:.7rem"><span><strong>${report.audio.starts.toLocaleString()}</strong> starts</span><span><strong>${report.audio.completions.toLocaleString()}</strong> completed</span><span><strong>${completionRate}%</strong> completion</span></div><table class="metrics"><thead><tr><th>Post</th><th class="num">Starts</th><th class="num">Completed</th></tr></thead><tbody>${audioPages}</tbody></table></div>
-    </div>`;
+      <div class="panel-block"><h2 style="margin-top:0;font-size:1rem">Audio engagement</h2><div style="display:flex;gap:1.4rem;margin-bottom:.7rem"><span><strong>${report.audio.starts.toLocaleString()}</strong> starts</span><span><strong>${report.audio.completions.toLocaleString()}</strong> completed</span><span><strong>${completionRate}%</strong> completion</span></div><table class="metrics"><thead><tr><th>Post</th><th class="num">Starts</th><th class="num">Completed</th></tr></thead><tbody>${audioPart}</tbody></table>${audioMore}</div>
+    </div><script>(function(){var btns=document.querySelectorAll("[data-metrics-more]");btns.forEach(function(btn){var label=btn.textContent;var count=(btn.closest(".panel-block")?.querySelector("[data-metrics-panel]")?.querySelectorAll("tr").length||0);btn.addEventListener("click",function(){var panel=btn.closest(".panel-block")?.querySelector("[data-metrics-panel]");if(!panel)return;var expanded=btn.getAttribute("aria-expanded")==="true";btn.setAttribute("aria-expanded",expanded?"false":"true");panel.hidden=expanded;btn.textContent=expanded?"Show "+count+" more":"Hide";try{btn.blur();}catch(e){}});});})();</script>`;
   }
 
   return shell(
