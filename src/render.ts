@@ -671,7 +671,7 @@ function shell(opts: {
   modifiedAt?: number;
   analyticsConsentRequired?: boolean;
 }): string {
-  const { tenant, pageTitle, description, canonical, body, showMasthead = true, wide = false, showRss = false, ownerEdit, homeControl = false, image, imageAlt, ogType = "website", publishedAt, modifiedAt, analyticsConsentRequired = true } = opts;
+  const { tenant, pageTitle, description, canonical, body, showMasthead = true, wide = false, showRss = false, ownerEdit, homeControl = false, image, imageAlt, ogType = "website", publishedAt, modifiedAt, analyticsConsentRequired = false } = opts;
   const ownerEditControl = ownerEdit ? `<a class="owner-edit" data-${ownerEdit.dataAttr} hidden href="${esc(ownerEdit.href)}" aria-label="${esc(ownerEdit.label)}" title="${esc(ownerEdit.label)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${ownerEdit.dataAttr === "blog-edit" ? "M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" : "m14.7 6.3 3 3M4 20l4.2-1 9.9-9.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Z"}"/><path d="${ownerEdit.dataAttr === "blog-edit" ? "m19.4 15 .1.1a1.8 1.8 0 0 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-3.1 1.3v.2a1.8 1.8 0 0 1-3.6 0v-.2a1.8 1.8 0 0 0-3.1-1.3l-.1.1a1.8 1.8 0 1 1-2.5-2.5l.1-.1A1.8 1.8 0 0 0 5.3 12a1.8 1.8 0 0 0-1.3-3.1h-.2a1.8 1.8 0 0 1 0-3.6H4a1.8 1.8 0 0 0 1.3-3.1l-.1-.1a1.8 1.8 0 1 1 2.5-2.5l.1.1A1.8 1.8 0 0 0 10.9 1.3v-.2a1.8 1.8 0 0 1 3.6 0v.2a1.8 1.8 0 0 0 3.1 1.3l-.1-.1a1.8 1.8 0 1 1 2.5 2.5l-.1.1A1.8 1.8 0 0 0 19.4 8h.2a1.8 1.8 0 0 1 0 3.6h-.2a1.8 1.8 0 0 0 0 3.4Z" : "m13.5 7.5 3 3"}"/></svg><span class="sr-only">${esc(ownerEdit.label)}</span></a>` : "";
   const canonicalTag = canonical ? `<link rel="canonical" href="${esc(canonical)}">` : "";
   const imageTags = image ? `
@@ -729,7 +729,7 @@ export function renderHome(
   tenant: Tenant,
   posts: Post[],
   origin: string,
-  analyticsConsentRequired = true,
+  analyticsConsentRequired = false,
   rankedPopularPosts: Post[] = [],
   navigationPages: Array<{ slug: string; label: string }> = [],
   pageNumber = 1,
@@ -796,7 +796,7 @@ export function renderTagPage(
   tag: string,
   posts: Post[],
   origin: string,
-  analyticsConsentRequired = true
+  analyticsConsentRequired = false
 ): string {
   const avatar = tenant.avatar_key
     ? `<img class="blog-avatar" src="/media/${esc(tenant.avatar_key)}" alt="">`
@@ -823,7 +823,7 @@ export function renderPage(
   page: Page,
   htmlBody: string,
   origin: string,
-  analyticsConsentRequired = true,
+  analyticsConsentRequired = false,
   isOwner = false,
   navigationPages: Array<{ slug: string; label: string }> = []
 ): string {
@@ -858,7 +858,7 @@ export function renderPost(
   htmlBody: string,
   origin: string,
   adminOrigin: string,
-  analyticsConsentRequired = true
+  analyticsConsentRequired = false
 ): string {
   const shareUrl = `${origin}/${post.slug}`;
   const shareTitle = post.title;
@@ -920,7 +920,7 @@ export function renderPost(
   });
 }
 
-export function renderNotFound(tenant: Tenant | null): string {
+export function renderNotFound(tenant: Tenant | null, analyticsConsentRequired = false): string {
   const title = tenant ? tenant.title : "blognice";
   const body = `<article>
     <h1>Not found</h1>
@@ -940,6 +940,7 @@ export function renderNotFound(tenant: Tenant | null): string {
     pageTitle: `Not found — ${title}`,
     description: "Page not found",
     canonical: "",
+    analyticsConsentRequired,
     body,
   });
 }
