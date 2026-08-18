@@ -88,7 +88,7 @@ const ADMIN_STYLES = /* css */ `
   .topbar-menu[hidden] { display:none; }
   .topbar-menu a, .topbar-menu .linkbtn { display:block; width:100%; padding:.55rem; border-radius:5px; color:var(--ink); text-decoration:none; font-size:.9rem; text-align:left; }
   .topbar-menu a:hover, .topbar-menu .linkbtn:hover { background:color-mix(in srgb, var(--accent) 10%, transparent); color:var(--accent); }
-  @media (max-width: 700px) { .topbar .right { display:none; } .topbar-menu-open { display:inline-flex; } }
+  @media (max-width: 700px) { .topbar .right { display:none; } .topbar-menu-open { display:inline-flex; margin-left:auto; } }
   .plan-badge { display:inline-flex; align-items:center; gap:.35rem; padding:.2rem .55rem; border:1px solid var(--rule); border-radius:999px; color:var(--ink); text-decoration:none; font-size:.78rem; font-weight:600; }
   .plan-badge.free { color:var(--muted); }
   .plan-badge.paid { color:#fff; background:var(--accent); border-color:var(--accent); box-shadow:0 2px 7px color-mix(in srgb, var(--accent) 28%, transparent); }
@@ -335,6 +335,7 @@ const ADMIN_STYLES = /* css */ `
     .post-thumb { width:3.25rem; height:3.25rem; }
     .acts { margin-left:auto; }
   }
+  @media (max-width: 700px) { .topbar { flex-direction: row !important; align-items: center !important; justify-content: space-between !important; gap: .75rem; } }
 `;
 
 export function shell(
