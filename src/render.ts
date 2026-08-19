@@ -22,6 +22,7 @@ export type Tenant = {
   social_links_json?: string | null;
   navigation_links_json?: string | null;
   browser_push_enabled?: number;
+  header_link_url?: string | null;
   shard: string; // which database holds this tenant's posts (see src/db.ts)
   created_at: number;
 };
@@ -34,6 +35,36 @@ export function parseNavigationLinks(tenant: Tenant): NavigationLink[] {
     if (!Array.isArray(raw)) return [];
     return raw.filter((item): item is NavigationLink => typeof item === "object" && item !== null && typeof (item as any).label === "string" && typeof (item as any).href === "string" && typeof (item as any).order === "number").slice(0, 20);
   } catch { return []; }
+}
+
+export function normalizeHeaderLink(value: unknown): { url: string; error?: string } {
+  const raw = String(value ?? "").trim();
+  if (!raw) return { url: "/" };
+  if (raw.length > 500) return { url: "/", error: "Header link must be 500 characters or fewer." };
+  const isExternal = /^https:\/\//i.test(raw);
+  const isPath = /^\//.test(raw);
+  if (!isExternal && !isPath) return { url: "/", error: "Header link must be an absolute https URL or a path starting with /." };
+  if (isExternal) {
+    try {
+      const u = new URL(raw);
+      if (u.protocol !== "https:") throw new Error();
+    } catch {
+      return { url: "/", error: "Header link must be a valid https URL." };
+    }
+    return { url: raw };
+  }
+  if (/\s/.test(raw)) return { url: "/", error: "Header link path must not contain spaces." };
+  return { url: raw };
+}
+
+export function headerHref(tenant: Tenant): string {
+  const raw = (tenant as any).header_link_url as string | null | undefined;
+  const parsed = normalizeHeaderLink(raw ?? "/");
+  return parsed.error ? "/" : parsed.url;
+}
+
+export function headerLinkIsExternal(tenant: Tenant): boolean {
+  return /^https:\/\//i.test(headerHref(tenant));
 }
 
 export type NavigationItem = { label: string; href: string; external: boolean };
@@ -798,7 +829,7 @@ export function renderHome(
       : rank
         ? `<span class="rank">${rank}</span>`
         : "";
-  const header = (avatar: string) => `<div class="blog-owner-actions"><a class="owner-edit" data-blog-edit hidden href="${esc(origin)}/admin/b/${esc(tenant.public_id)}/settings" aria-label="Open blog settings" title="Open blog settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/><path d="m19.4 15 .1.1a1.8 1.8 0 0 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-3.1 1.3v.2a1.8 1.8 0 0 1-3.6 0v-.2a1.8 1.8 0 0 0-3.1-1.3l-.1.1a1.8 1.8 0 1 1-2.5-2.5l.1-.1A1.8 1.8 0 0 0 5.3 12a1.8 1.8 0 0 0-1.3-3.1h-.2a1.8 1.8 0 0 1 0-3.6H4a1.8 1.8 0 0 0 1.3-3.1l-.1-.1a1.8 1.8 0 1 1 2.5-2.5l.1.1A1.8 1.8 0 0 0 10.9 1.3v-.2a1.8 1.8 0 0 1 3.6 0v.2a1.8 1.8 0 0 0 3.1 1.3l.1-.1a1.8 1.8 0 1 1 2.5 2.5l-.1.1A1.8 1.8 0 0 0 19.4 8h.2a1.8 1.8 0 0 1 0 3.6h-.2a1.8 1.8 0 0 0 0 3.4Z"/></svg><span class="sr-only">Open blog settings</span></a></div><nav class="blog-nav"><a href="/" class="blog-header-id"><div>${avatar}</div><div class="blog-header-text"><div class="site-title">${esc(tenant.title)}</div>${tenant.description ? `<div class="blog-tagline">${esc(tenant.description)}</div>` : ""}</div></a><a class="subscribe-link" href="#subscribe">Subscribe</a></nav>`;
+  const header = (avatar: string) => `<div class="blog-owner-actions"><a class="owner-edit" data-blog-edit hidden href="${esc(origin)}/admin/b/${esc(tenant.public_id)}/settings" aria-label="Open blog settings" title="Open blog settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/><path d="m19.4 15 .1.1a1.8 1.8 0 0 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-3.1 1.3v.2a1.8 1.8 0 0 1-3.6 0v-.2a1.8 1.8 0 0 0-3.1-1.3l-.1.1a1.8 1.8 0 1 1-2.5-2.5l.1-.1A1.8 1.8 0 0 0 5.3 12a1.8 1.8 0 0 0-1.3-3.1h-.2a1.8 1.8 0 0 1 0-3.6H4a1.8 1.8 0 0 0 1.3-3.1l-.1-.1a1.8 1.8 0 1 1 2.5-2.5l.1.1A1.8 1.8 0 0 0 10.9 1.3v-.2a1.8 1.8 0 0 1 3.6 0v.2a1.8 1.8 0 0 0 3.1 1.3l.1-.1a1.8 1.8 0 1 1 2.5 2.5l-.1.1A1.8 1.8 0 0 0 19.4 8h.2a1.8 1.8 0 0 1 0 3.6h-.2a1.8 1.8 0 0 0 0 3.4Z"/></svg><span class="sr-only">Open blog settings</span></a></div><nav class="blog-nav"><a href="${esc(headerHref(tenant))}"${headerLinkIsExternal(tenant) ? ' target="_blank" rel="noopener noreferrer"' : ''} class="blog-header-id"><div>${avatar}</div><div class="blog-header-text"><div class="site-title">${esc(tenant.title)}</div>${tenant.description ? `<div class="blog-tagline">${esc(tenant.description)}</div>` : ""}</div></a><a class="subscribe-link" href="#subscribe">Subscribe</a></nav>`;
   const ownerScript = `<script>(function(){var link=document.querySelector("[data-blog-edit]");if(!link)return;fetch("/_blognice/blog-edit-link?tenant=${encodeURIComponent(tenant.public_id)}",{credentials:"include",headers:{accept:"application/json"}}).then(function(r){if(!r.ok)throw new Error();return r.json()}).then(function(d){if(d.url){link.href=d.url;link.hidden=false}}).catch(function(){if(location.origin!==${JSON.stringify(origin)})fetch(${JSON.stringify(origin)}+"/_blognice/blog-edit-link?tenant=${encodeURIComponent(tenant.public_id)}",{credentials:"include"}).then(function(r){return r.ok?r.json():null}).then(function(d){if(d&&d.url){link.href=d.url;link.hidden=false}}).catch(function(){})});})();</script>`;
   const withNavigation = (markup: string) => navigationPages.length
     ? markup.replace('</nav>', `</nav><div class="blog-nav-links" aria-label="Page navigation"><a href="/" aria-current="page">Home</a>${navigationPages.map((item) => item.external ? `<a href="${esc(item.href)}" target="_blank" rel="noopener noreferrer">${esc(item.label)}</a>` : `<a href="${esc(item.href)}">${esc(item.label)}</a>`).join("")}</div>`)
@@ -857,7 +888,7 @@ export function renderTagPage(
   const avatar = tenant.avatar_key
     ? `<img class="blog-avatar" src="/media/${esc(tenant.avatar_key)}" alt="">`
     : `<div class="blog-avatar">${monogram(tenant.title)}</div>`;
-  const header = `<nav class="blog-nav"><a href="/" class="blog-header-id"><div>${avatar}</div><div class="blog-header-text"><div class="site-title">${esc(tenant.title)}</div>${tenant.description ? `<div class="blog-tagline">${esc(tenant.description)}</div>` : ""}</div></a><a class="subscribe-link" href="#subscribe">Subscribe</a></nav>`;
+  const header = `<nav class="blog-nav"><a href="${esc(headerHref(tenant))}"${headerLinkIsExternal(tenant) ? ' target="_blank" rel="noopener noreferrer"' : ''} class="blog-header-id"><div>${avatar}</div><div class="blog-header-text"><div class="site-title">${esc(tenant.title)}</div>${tenant.description ? `<div class="blog-tagline">${esc(tenant.description)}</div>` : ""}</div></a><a class="subscribe-link" href="#subscribe">Subscribe</a></nav>`;
   const cards = posts.map((post) => `<article class="blog-card"><a class="blog-art" href="/${esc(post.slug)}">${post.featured_image_key ? `<img src="/media/${esc(post.featured_image_key)}" alt="" loading="lazy">` : ""}</a><h3><a href="/${esc(post.slug)}">${esc(post.title)}</a></h3><p class="blog-excerpt">${esc(excerpt(post.body_md, 125))}</p><div class="blog-meta">${formatDate(post.created_at)} · ${readingTime(post.body_md)} min read</div></article>`).join("");
   const body = `${header}<section class="blog-section tag-page"><div class="blog-kicker">Posts tagged</div><h1 class="tag-page-title">#${esc(tag)}</h1>${posts.length ? `<div class="blog-cards">${cards}</div>` : `<p class="feed-meta">No published posts use this tag yet.</p>`}</section><div id="subscribe" class="blog-subscribe-wrap">${subscribeBox(tenant)}</div>`;
   return shell({
@@ -893,7 +924,7 @@ export function renderPage(
     : `<div class="blog-avatar">${monogram(tenant.title)}</div>`;
   const owner = isOwner ? `<div class="blog-owner-actions"><a class="owner-edit" data-page-edit hidden href="${esc(origin)}/admin/b/${esc(tenant.public_id)}/pages/edit/${page.id}" aria-label="Edit page" title="Edit page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.7 6.3 3 3M4 20l4.2-1 9.9-9.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Z"/></svg><span class="sr-only">Edit page</span></a></div>` : "";
   const pageLinks = `<div class="blog-nav-links" aria-label="Page navigation"><a href="/">Home</a>${navigationPages.map((item) => item.href === `/pages/${page.slug}` ? `<a href="${esc(item.href)}" aria-current="page">${esc(item.label)}</a>` : item.external ? `<a href="${esc(item.href)}" target="_blank" rel="noopener noreferrer">${esc(item.label)}</a>` : `<a href="${esc(item.href)}">${esc(item.label)}</a>`).join("")}</div>`;
-  const header = `${owner}<nav class="blog-nav"><a href="/" class="blog-header-id"><div>${avatar}</div><div class="blog-header-text"><div class="site-title">${esc(tenant.title)}</div>${tenant.description ? `<div class="blog-tagline">${esc(tenant.description)}</div>` : ""}</div></a><a class="subscribe-link" href="/#subscribe">Subscribe</a></nav>${pageLinks}`;
+  const header = `${owner}<nav class="blog-nav"><a href="${esc(headerHref(tenant))}"${headerLinkIsExternal(tenant) ? ' target="_blank" rel="noopener noreferrer"' : ''} class="blog-header-id"><div>${avatar}</div><div class="blog-header-text"><div class="site-title">${esc(tenant.title)}</div>${tenant.description ? `<div class="blog-tagline">${esc(tenant.description)}</div>` : ""}</div></a><a class="subscribe-link" href="/#subscribe">Subscribe</a></nav>${pageLinks}`;
   return shell({
     tenant,
     pageTitle: `${page.title} — ${tenant.title}`,
@@ -932,7 +963,7 @@ export function renderPost(
     : `<div class="share-inline">${shareRail}</div>`;
   const proseClass = openingParagraphHasDropCap(htmlBody) ? "prose lead-dropcap" : "prose";
   const avatar = tenant.avatar_key ? `<img class="blog-avatar" src="/media/${esc(tenant.avatar_key)}" alt="">` : `<div class="blog-avatar">${monogram(tenant.title)}</div>`;
-  const header = `<nav class="blog-nav"><a href="/" class="blog-header-id"><div>${avatar}</div><div class="blog-header-text"><div class="site-title">${esc(tenant.title)}</div>${tenant.description ? `<div class="blog-tagline">${esc(tenant.description)}</div>` : ""}</div></a><a class="subscribe-link" href="/#subscribe">Subscribe</a></nav>`;
+  const header = `<nav class="blog-nav"><a href="${esc(headerHref(tenant))}"${headerLinkIsExternal(tenant) ? ' target="_blank" rel="noopener noreferrer"' : ''} class="blog-header-id"><div>${avatar}</div><div class="blog-header-text"><div class="site-title">${esc(tenant.title)}</div>${tenant.description ? `<div class="blog-tagline">${esc(tenant.description)}</div>` : ""}</div></a><a class="subscribe-link" href="/#subscribe">Subscribe</a></nav>`;
   const article = `<article class="post-page">
     <div class="post-owner-actions"><a class="owner-edit" data-owner-edit hidden href="${esc(adminOrigin)}/admin/b/${esc(tenant.public_id)}/edit/${post.id}" aria-label="Edit post" title="Edit post"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.7 6.3 3 3M4 20l4.2-1 9.9-9.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Z"/><path d="m13.5 7.5 3 3"/></svg><span class="sr-only">Edit post</span></a></div>
     <h1>${esc(post.title)}</h1>
