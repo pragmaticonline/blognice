@@ -367,9 +367,11 @@ const STYLES = /* css */ `
   .feed-meta { font-family: var(--sans); font-size: 0.86rem; color: var(--muted); }
 
   /* Blog homepage — compact identity header, featured post, and card grids. */
-  .blog-nav { display:flex; align-items:center; justify-content:space-between; gap:1.25rem; padding:1.1rem 0; border-bottom:1px solid var(--rule); }
-  .blog-header-id, a.blog-header-id { display:flex; align-items:center; gap:.8rem; min-width:0; color:inherit; text-decoration:none; }
-  .blog-header-id > a, a.blog-header-id { display:flex; align-items:center; gap:.8rem; min-width:0; color:inherit; text-decoration:none; }
+  .blog-nav { display:flex; align-items:center; justify-content:space-between; gap:1.25rem; padding:1.1rem 0; border-bottom:1px solid var(--rule); position:relative; z-index:3; }
+  .blog-header-id, a.blog-header-id { display:flex; align-items:center; gap:.8rem; min-width:0; color:inherit; text-decoration:none; position:relative; z-index:3; }
+  .blog-header-id > a, a.blog-header-id { display:flex; align-items:center; gap:.8rem; min-width:0; color:inherit; text-decoration:none; position:relative; z-index:3; }
+  .site-controls { pointer-events:none; }
+  .site-controls a, .site-controls button { pointer-events:auto; }
   .blog-avatar { width:3.1rem; height:3.1rem; border-radius:50%; background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center; font-family:var(--sans); font-weight:700; font-size:1.2rem; flex:0 0 auto; object-fit:cover; overflow:hidden; }
   img.blog-avatar { display:block; }
   .blog-header-text { min-width:0; }
