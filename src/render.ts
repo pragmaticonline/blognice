@@ -962,8 +962,7 @@ export function renderPost(
     ? `<div class="post-featured-row"><aside>${shareRail}</aside><div><img class="featured-image" src="/media/${esc(post.featured_image_key)}" alt=""></div></div>`
     : `<div class="share-inline">${shareRail}</div>`;
   const proseClass = openingParagraphHasDropCap(htmlBody) ? "prose lead-dropcap" : "prose";
-  const avatar = tenant.avatar_key ? `<img class="blog-avatar" src="/media/${esc(tenant.avatar_key)}" alt="">` : `<div class="blog-avatar">${monogram(tenant.title)}</div>`;
-  const header = `<nav class="blog-nav"><a href="${esc(headerHref(tenant))}"${headerLinkIsExternal(tenant) ? ' target="_blank" rel="noopener noreferrer"' : ''} class="blog-header-id"><div>${avatar}</div><div class="blog-header-text"><div class="site-title">${esc(tenant.title)}</div>${tenant.description ? `<div class="blog-tagline">${esc(tenant.description)}</div>` : ""}</div></a><a class="subscribe-link" href="/#subscribe">Subscribe</a></nav>`;
+  const header = `<hr style="border:none;border-top:1px solid var(--rule);margin:.85rem 0 0">`;
   const article = `<article class="post-page">
     <div class="post-owner-actions"><a class="owner-edit" data-owner-edit hidden href="${esc(adminOrigin)}/admin/b/${esc(tenant.public_id)}/edit/${post.id}" aria-label="Edit post" title="Edit post"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.7 6.3 3 3M4 20l4.2-1 9.9-9.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Z"/><path d="m13.5 7.5 3 3"/></svg><span class="sr-only">Edit post</span></a></div>
     <h1>${esc(post.title)}</h1>
