@@ -4312,12 +4312,19 @@ app.get("/admin/b/:blogId/subscribers", async (c) => {
   if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
   const denied = requireBlogCapability(c, ctx, "settings.manage");
   if (denied) return denied;
-  const { results } = await c.env.DB.prepare(
-    "SELECT email, created_at FROM subscribers WHERE tenant_id = ? ORDER BY created_at DESC"
-  )
-    .bind(ctx.tenant.id)
-    .all<{ email: string; created_at: number }>();
-  return c.html(subscribersPage(ctx.account, ctx.tenant, results, emailEnabled(c.env)));
+  const raw = String(c.req.query("page") || "1");
+  const parsed = Number(raw);
+  const page = Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 10_000_000 ? parsed : 1;
+  const limit = 50;
+  const offset = (page - 1) * limit;
+  const [paged, counted] = await Promise.all([
+    c.env.DB.prepare("SELECT email, created_at FROM subscribers WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?").bind(ctx.tenant.id, limit + 1, offset).all<{ email: string; created_at: number }>(),
+    c.env.DB.prepare("SELECT COUNT(*) as count FROM subscribers WHERE tenant_id = ?").bind(ctx.tenant.id).first<{ count: number }>(),
+  ]);
+  const hasMore = paged.results.length > limit;
+  const results = hasMore ? paged.results.slice(0, limit) : paged.results;
+  const total = Number(counted?.count ?? results.length);
+  return c.html(subscribersPage(ctx.account, ctx.tenant, results, emailEnabled(c.env), { page, hasMore, total }));
 });
 
 app.post("/admin/b/:blogId/subscribers/remove", async (c) => {
