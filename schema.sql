@@ -52,6 +52,7 @@ CREATE TABLE tenants (
   social_links_json TEXT NOT NULL DEFAULT '{}',    -- normalized social profile URLs
   navigation_links_json TEXT NOT NULL DEFAULT '[]', -- external/custom navigation links {label, href, order}
   browser_push_enabled INTEGER NOT NULL DEFAULT 0, -- owner opt-in for reader notifications
+  header_link_url TEXT NOT NULL DEFAULT '/',       -- where the header logo/name links ("/" = blog home, or https://parent.site)
   shard         TEXT    NOT NULL DEFAULT 'primary', -- which POSTS database holds this tenant's posts (see src/db.ts)
   created_at    INTEGER NOT NULL                  -- unix seconds
 );

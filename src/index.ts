@@ -9,6 +9,8 @@ import {
   renderSimplePage,
   renderPage,
   normalizeAccentColor,
+  normalizeHeaderLink,
+  headerHref,
   DEFAULT_ACCENT_COLOR,
   parseNavigationLinks,
   type NavigationItem,
@@ -1625,6 +1627,7 @@ app.get("/api/v1/blogs/:blogId", async (c) => {
       social_links: social,
       navigation_links,
       browser_push_enabled: !!tenant.browser_push_enabled,
+      header_link_url: (tenant as any).header_link_url || "/",
       custom_domain: tenant.custom_domain,
       created_at: tenant.created_at,
       role,
@@ -1694,6 +1697,12 @@ app.patch("/api/v1/blogs/:blogId", async (c) => {
     }
   }
   const browserPushEnabled = has("browser_push_enabled") ? (body.browser_push_enabled ? 1 : 0) : (tenant.browser_push_enabled ? 1 : 0);
+  let headerLinkUrl = (tenant as any).header_link_url || "/";
+  if (has("header_link_url")) {
+    const parsed = normalizeHeaderLink(body.header_link_url);
+    if (parsed.error) return c.json({ error: parsed.error }, 400);
+    headerLinkUrl = parsed.url;
+  }
   let navigationLinks: NavigationLink[] = parseNavigationLinks(tenant as any);
   if (has("navigation_links")) {
     const parsed = normalizeNavigationLinks(body.navigation_links);
@@ -1704,15 +1713,15 @@ app.patch("/api/v1/blogs/:blogId", async (c) => {
   if (slug !== tenant.slug) {
     await c.env.DB.prepare("INSERT INTO tenant_slug_aliases (old_slug, tenant_id, created_at) VALUES (?, ?, ?)").bind(tenant.slug, tenant.id, now).run();
   }
-  await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, footer_name = ?, accent_color = ?, topics_json = ?, social_links_json = ?, navigation_links_json = ?, browser_push_enabled = ? WHERE id = ?")
-    .bind(slug, title, description, footerName, accentColor, JSON.stringify(topics), JSON.stringify(socialLinks), JSON.stringify(navigationLinks), browserPushEnabled, tenant.id).run();
+  await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, footer_name = ?, accent_color = ?, topics_json = ?, social_links_json = ?, navigation_links_json = ?, browser_push_enabled = ?, header_link_url = ? WHERE id = ?")
+    .bind(slug, title, description, footerName, accentColor, JSON.stringify(topics), JSON.stringify(socialLinks), JSON.stringify(navigationLinks), browserPushEnabled, headerLinkUrl, tenant.id).run();
   queueBlogAudit(c, tenant.id, account.id, "blog_settings_updated", "settings");
   const updatedTenant = { ...tenant, slug } as Tenant;
   c.executionCtx.waitUntil((async () => {
     await purgeTenantEverywhere(c.env, tenant).catch(()=>{});
     if (slug !== tenant.slug) await purgeTenantEverywhere(c.env, updatedTenant).catch(()=>{});
   })());
-  return c.json({ blog: { public_id: tenant.public_id, slug, title, description, footer_name: footerName, accent_color: accentColor, topics, social_links: socialLinks, navigation_links: navigationLinks, browser_push_enabled: !!browserPushEnabled, custom_domain: tenant.custom_domain, created_at: tenant.created_at } });
+  return c.json({ blog: { public_id: tenant.public_id, slug, title, description, footer_name: footerName, accent_color: accentColor, topics, social_links: socialLinks, navigation_links: navigationLinks, browser_push_enabled: !!browserPushEnabled, header_link_url: headerLinkUrl, custom_domain: tenant.custom_domain, created_at: tenant.created_at } });
 });
 
 app.post("/api/v1/blogs", async (c) => {
@@ -1743,7 +1752,7 @@ app.post("/api/v1/blogs", async (c) => {
   await c.env.DB.prepare("INSERT INTO memberships (account_id, tenant_id, role, created_at) VALUES (?, ?, 'owner', ?)").bind(account.id, blogId, now).run();
   const tenant = await c.env.DB.prepare("SELECT * FROM tenants WHERE id = ?").bind(blogId).first<Tenant>();
   queueBlogAudit(c, blogId, account.id, "blog_created", slug);
-  return c.json({ blog: { public_id: publicId, slug: tenant?.slug ?? slug, title: tenant?.title ?? title, description: "", accent_color: DEFAULT_ACCENT_COLOR, topics: [], social_links: {}, browser_push_enabled: true, created_at: now } }, 201);
+  return c.json({ blog: { public_id: publicId, slug: tenant?.slug ?? slug, title: tenant?.title ?? title, description: "", accent_color: DEFAULT_ACCENT_COLOR, topics: [], social_links: {}, browser_push_enabled: true, header_link_url: "/", created_at: now } }, 201);
 });
 
 // ---------------------------------------------------------------------------
@@ -3987,6 +3996,11 @@ app.post("/admin/b/:blogId/settings", async (c) => {
   const browserPushEnabled = form.get("browser_push_enabled") === "1" ? 1 : 0;
   const footerName = String(form.get("footer_name") ?? "").trim().slice(0, 160);
   const accentColor = String(form.get("accent_color") ?? "").trim();
+  const headerLinkRaw = String(form.get("header_link_url") ?? "/").trim();
+  const headerLinkParsed = normalizeHeaderLink(headerLinkRaw);
+  if (headerLinkParsed.error)
+    return c.html(settingsPage(ctx.account, ctx.tenant, { error: headerLinkParsed.error }), 400);
+  const headerLinkUrl = headerLinkParsed.url;
   const normalizedTopics = normalizeTopics(String(form.get("topics") ?? ""));
   const socialLinks: Record<string, string> = {};
   for (const key of ["x", "facebook", "instagram", "linkedin", "youtube", "tiktok", "bluesky", "mastodon", "bitchute", "telegram"]) {
@@ -4021,13 +4035,13 @@ app.post("/admin/b/:blogId/settings", async (c) => {
     await c.env.DB.prepare("INSERT INTO tenant_slug_aliases (old_slug, tenant_id, created_at) VALUES (?, ?, ?)")
       .bind(ctx.tenant.slug, ctx.tenant.id, now).run();
   }
-  await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, footer_name = ?, accent_color = ?, topics_json = ?, social_links_json = ?, browser_push_enabled = ? WHERE id = ?")
-    .bind(slug, title, description, footerName, accentColor.toLowerCase(), JSON.stringify(normalizedTopics.topics), JSON.stringify(socialLinks), browserPushEnabled, ctx.tenant.id)
+  await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, footer_name = ?, accent_color = ?, topics_json = ?, social_links_json = ?, browser_push_enabled = ?, header_link_url = ? WHERE id = ?")
+    .bind(slug, title, description, footerName, accentColor.toLowerCase(), JSON.stringify(normalizedTopics.topics), JSON.stringify(socialLinks), browserPushEnabled, headerLinkUrl, ctx.tenant.id)
     .run();
   queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "blog_settings_updated", "settings");
 
   c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant));
-  const updated = { ...ctx.tenant, slug, title, description, footer_name: footerName, accent_color: accentColor.toLowerCase(), topics_json: JSON.stringify(normalizedTopics.topics), social_links_json: JSON.stringify(socialLinks), browser_push_enabled: browserPushEnabled };
+  const updated = { ...ctx.tenant, slug, title, description, footer_name: footerName, accent_color: accentColor.toLowerCase(), topics_json: JSON.stringify(normalizedTopics.topics), social_links_json: JSON.stringify(socialLinks), browser_push_enabled: browserPushEnabled, header_link_url: headerLinkUrl };
   return c.html(settingsPage(ctx.account, updated, { notice: "Saved." }));
 });
 

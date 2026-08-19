@@ -1586,6 +1586,9 @@ export function settingsPage(
         <input id="title" name="title" type="text" value="${esc(tenant.title)}" required>
         <label for="description">Tagline</label>
         <input id="description" name="description" type="text" value="${esc(tenant.description)}" placeholder="A short description of your blog">
+        <label for="header-link">Header link</label>
+        <input id="header-link" name="header_link_url" type="text" value="${esc((tenant as any).header_link_url || "/")}" placeholder="/" maxlength="500">
+        <p style="color:var(--muted);font-size:.85rem;margin:-.5rem 0 1.2rem">Where the logo and title link. Use <code>/</code> for the blog home or a full <code>https://</code> URL for a parent site. External links open in a new tab.</p>
         <fieldset class="settings-card"><legend>Reader notifications</legend>
           <p class="help">Allow readers to opt in to browser notifications when this blog publishes a new post. Readers must still grant permission in their browser.</p>
           <label><input type="checkbox" name="browser_push_enabled" value="1"${tenant.browser_push_enabled ? " checked" : ""}> Enable browser notifications for this blog</label>
