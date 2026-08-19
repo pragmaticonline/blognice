@@ -658,6 +658,12 @@ const STYLES = /* css */ `
   .push-optin button { font-family:var(--sans); font-size:0.9rem; padding:0.5rem 0.9rem; border:1px solid var(--rule); border-radius:999px; background:var(--bg); color:var(--muted); cursor:pointer; }
   .push-optin button:hover { border-color:var(--accent); color:var(--accent); }
   .push-optin .sub-msg { margin-top:0; align-self:center; line-height:1.3; }
+  .push-optin .sub-sub { flex-basis:100%; width:100%; }
+  .blog-subscribe-wrap .push-optin { display:flex; flex-wrap:wrap; gap:0.6rem 0.9rem; align-items:center; margin-top:0.9rem; }
+  .blog-subscribe-wrap .push-optin button { font-family:var(--sans); font-size:0.9rem; padding:0.5rem 0.9rem; border:1px solid var(--rule); border-radius:999px; background:var(--bg); color:var(--muted); cursor:pointer; }
+  .blog-subscribe-wrap .push-optin button:hover { border-color:var(--accent); color:var(--accent); }
+  .blog-subscribe-wrap .push-optin .sub-msg { margin-top:0; align-self:center; line-height:1.3; }
+  .blog-subscribe-wrap .push-optin .sub-sub { flex-basis:100%; width:100%; }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
   @media (max-width: 640px) {
     body { font-size: 1.2rem; }
@@ -666,6 +672,11 @@ const STYLES = /* css */ `
     .subscribe input { flex:1 1 100%; }
     .subscribe button { width:100%; max-width:22rem; margin:0 auto; }
     .push-optin { justify-content:center; }
+    .blog-subscribe-wrap .subscribe { padding:1.2rem; margin:1.5rem 0 0.5rem; text-align:center; }
+    .blog-subscribe-wrap .subscribe form { justify-content:center; }
+    .blog-subscribe-wrap .subscribe input { flex:1 1 100%; }
+    .blog-subscribe-wrap .subscribe button { width:100%; max-width:22rem; margin:0 auto; }
+    .blog-subscribe-wrap .push-optin { justify-content:center; }
     .backlink { margin-top:1.2rem; }
     .blog-subscribe-wrap { padding:1.2rem 0; }
     article h1 { font-size: 2.1rem; }
