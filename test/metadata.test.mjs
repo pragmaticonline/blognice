@@ -34,7 +34,7 @@ test("post sharing includes an accessible Reddit link with the title and URL", (
 
 test("post pages place a home control on the left", () => {
   assert.match(render, /class="post-home" href="\/"/);
-  assert.match(render, /Back to blog home/);
+  assert.match(render, /Back to all posts/);
   assert.match(render, /\.post-home svg/);
 });
 
