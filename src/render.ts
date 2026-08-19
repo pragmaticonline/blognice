@@ -414,7 +414,7 @@ const STYLES = /* css */ `
   .blog-tagline { color:var(--muted); font-size:.86rem; font-style:italic; margin:.05rem 0 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .blog-nav .subscribe-link { flex:0 0 auto; font-family:var(--sans); font-size:.84rem; border:1px solid var(--rule); border-radius:999px; padding:.45rem 1rem; color:var(--muted); text-decoration:none; }
   .blog-nav .subscribe-link:hover { color:var(--accent); border-color:var(--accent); }
-  .blog-nav-links { display:flex; align-items:center; gap:.9rem; flex-wrap:wrap; padding:.7rem 0 .85rem; border-top:1px solid var(--rule); }
+  .blog-nav-links { display:flex; align-items:center; gap:.9rem; flex-wrap:wrap; padding:.7rem 0 .85rem; border-top:1px solid var(--rule); border-bottom:1px solid var(--rule); }
   .blog-nav-links a { display:inline-flex; align-items:center; min-height:2rem; padding:.25rem .15rem; color:var(--muted); font-family:var(--sans); font-size:.84rem; text-decoration:none; }
   .blog-nav-links a:hover, .blog-nav-links a:focus-visible, .blog-nav-links a[aria-current="page"] { color:var(--accent); text-decoration:underline; text-underline-offset:3px; }
   .blog-nav-actions { display:flex; align-items:center; gap:.55rem; flex:0 0 auto; }

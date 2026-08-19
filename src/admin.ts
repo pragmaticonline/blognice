@@ -374,17 +374,26 @@ export function shell(
       : titleKey.startsWith("audit") ? "audit"
       : titleKey.startsWith("domain") ? "domains"
       : titleKey.startsWith("setting") ? "settings" : "posts";
-    const navItems = [
-      ["posts", "Posts", `/admin/b/${tenant.public_id}`],
-      ["pages", "Pages", `/admin/b/${tenant.public_id}/pages`],
-      ["media", "Media", `/admin/b/${tenant.public_id}/media`],
-      ["subscribers", "Subscribers", `/admin/b/${tenant.public_id}/subscribers`],
-      ["authors", "Collaborators", `/admin/b/${tenant.public_id}/authors`],
-      ["metrics", "Metrics", `/admin/b/${tenant.public_id}/metrics`],
-      ["audit", "Audit log", `/admin/b/${tenant.public_id}/audit`],
-      ["domains", "Domains", `/admin/b/${tenant.public_id}/domains`],
-      ["settings", "Settings", `/admin/b/${tenant.public_id}/settings`],
-    ] as const;
+    const role = (tenant as unknown as { membership_role?: string }).membership_role as string | undefined;
+    const can = (capability: string): boolean => {
+      if (!role) return true;
+      if (role === "owner") return true;
+      if (capability === "settings.manage") return role === "owner";
+      if (capability === "members.manage") return role === "owner";
+      return true;
+    };
+    const navDefinitions: Array<[string, string, string, string | null]> = [
+      ["posts", "Posts", `/admin/b/${tenant.public_id}`, null],
+      ["pages", "Pages", `/admin/b/${tenant.public_id}/pages`, null],
+      ["media", "Media", `/admin/b/${tenant.public_id}/media`, null],
+      ["subscribers", "Subscribers", `/admin/b/${tenant.public_id}/subscribers`, "settings.manage"],
+      ["authors", "Collaborators", `/admin/b/${tenant.public_id}/authors`, "members.manage"],
+      ["metrics", "Metrics", `/admin/b/${tenant.public_id}/metrics`, null],
+      ["audit", "Audit log", `/admin/b/${tenant.public_id}/audit`, null],
+      ["domains", "Domains", `/admin/b/${tenant.public_id}/domains`, "settings.manage"],
+      ["settings", "Settings", `/admin/b/${tenant.public_id}/settings`, "settings.manage"],
+    ];
+    const navItems = navDefinitions.filter(([, , , cap]) => !cap || can(cap)).map(([k, l, h]) => [k, l, h] as const);
     const navLinks = navItems.map(([key, label, href]) => `<a class="${activeNav === key ? "active" : ""}" href="${href}">${label}</a>`).join("");
     const drawerLinks = navItems.map(([key, label, href]) => `<a class="owner-drawer-link ${activeNav === key ? "active" : ""}" href="${href}">${label}</a>`).join("");
     bar = `<header class="topbar globalbar owner-topbar">
