@@ -1809,13 +1809,20 @@ export function subscribersPage(
   account: Account,
   tenant: Tenant,
   subs: Array<{ email: string; created_at: number }>,
-  emailOn: boolean
+  emailOn: boolean,
+  options?: { page?: number; hasMore?: boolean; total?: number }
 ): string {
   const base = `/admin/b/${tenant.public_id}`;
+  const page = Number.isSafeInteger(options?.page as number) && (options?.page as number) >= 1 ? (options!.page as number) : 1;
+  const hasMore = !!options?.hasMore;
+  const total = typeof options?.total === "number" ? options!.total as number : undefined;
+  const countLabel = typeof total === "number" ? total : subs.length;
   const list =
-    subs.length === 0
+    subs.length === 0 && page === 1
       ? `<p style="color:var(--muted)">No subscribers yet. The subscribe box appears on your blog's home page and under each post.</p>`
-      : `<ul class="posts">${subs
+      : subs.length === 0
+        ? `<p style="color:var(--muted)">No subscribers on this page.</p>`
+        : `<ul class="posts">${subs
           .map(
             (s) => `<li>
               <div>
@@ -1831,13 +1838,14 @@ export function subscribersPage(
             </li>`
           )
           .join("")}</ul>`;
-
+  const pagination = `<nav class="pagination" style="display:flex;align-items:center;gap:10px;justify-content:flex-end;margin-top:12px"><span>Page ${page}</span>${page > 1 ? `<a class="btn" href="${base}/subscribers?page=${page - 1}">← Previous</a>` : ""}${hasMore ? `<a class="btn" href="${base}/subscribers?page=${page + 1}">Next →</a>` : ""}</nav>`;
+  const showPagination = subs.length > 0 || page > 1 || hasMore;
   return shell(
     `Subscribers — ${tenant.title}`,
     `<div class="page">
       <div class="row">
-        <h1 style="margin:0">Subscribers <span style="color:var(--muted);font-weight:400">(${subs.length})</span></h1>
-        ${subs.length ? `<a class="btn ghost" href="${base}/subscribers.csv">Export CSV</a>` : ""}
+        <h1 style="margin:0">Subscribers <span style="color:var(--muted);font-weight:400">(${countLabel})</span></h1>
+        ${(typeof total === "number" ? total : subs.length) ? `<a class="btn ghost" href="${base}/subscribers.csv">Export CSV</a>` : ""}
       </div>
       ${
         emailOn
@@ -1847,6 +1855,7 @@ export function subscribersPage(
              </div>`
       }
       ${list}
+      ${showPagination ? pagination : ""}
     </div>`,
     account,
     tenant
