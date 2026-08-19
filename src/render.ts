@@ -427,6 +427,10 @@ const STYLES = /* css */ `
   .tag-page { padding-top: 3rem; }
   .tag-page-title { margin: 0 0 2rem; font-family: var(--sans); font-size: clamp(2rem, 4vw, 3rem); line-height: 1.1; letter-spacing: -.03em; }
   .blog-kicker { display:block; font-family:var(--sans); font-size:.76rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--accent); margin-bottom:1.2rem; }
+  .blog-featured-head { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1.2rem; }
+  .blog-featured-head .blog-kicker { margin-bottom:0; }
+  .blog-featured-subscribe { flex:0 0 auto; font-family:var(--sans); font-size:.84rem; border:1px solid var(--rule); border-radius:999px; padding:.45rem 1rem; color:var(--muted); text-decoration:none; line-height:1; }
+  .blog-featured-subscribe:hover, .blog-featured-subscribe:focus-visible { color:var(--accent); border-color:var(--accent); }
   .blog-featured { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,1fr); gap:2.75rem; align-items:center; }
   .blog-art { display:block; aspect-ratio:16 / 9; border-radius:9px; background:linear-gradient(135deg,var(--accent),color-mix(in srgb,var(--accent) 35%,var(--ink))); overflow:hidden; }
   .blog-art img { width:100%; height:100%; object-fit:cover; }
@@ -869,7 +873,7 @@ export function renderHome(
     : `<div class="blog-avatar">${monogram(tenant.title)}</div>`;
   const popularCard = (p: Post, index: number) => `<article class="blog-popular-card"><a class="blog-art" href="/${esc(p.slug)}">${art(p, index)}</a><h3><a href="/${esc(p.slug)}">${esc(p.title)}</a></h3><div class="blog-meta">${readingTime(p.body_md)} min read</div></article>`;
   const body = `${withNavigation(header(avatar))}
-    <section class="blog-section blog-featured-section"><div class="blog-kicker">Featured post</div><article class="blog-featured"><a class="blog-art" href="/${esc(featured.slug)}">${art(featured, 0)}</a><div><h2><a href="/${esc(featured.slug)}">${esc(featured.title)}</a></h2><p class="blog-excerpt">${esc(excerpt(featured.body_md))}</p><div class="blog-meta">${formatDate(featured.created_at)} · ${readingTime(featured.body_md)} min read</div></div></article></section>
+    <section class="blog-section blog-featured-section"><div class="blog-featured-head"><div class="blog-kicker">Featured post</div><a class="blog-featured-subscribe" href="#subscribe">Subscribe</a></div><article class="blog-featured"><a class="blog-art" href="/${esc(featured.slug)}">${art(featured, 0)}</a><div><h2><a href="/${esc(featured.slug)}">${esc(featured.title)}</a></h2><p class="blog-excerpt">${esc(excerpt(featured.body_md))}</p><div class="blog-meta">${formatDate(featured.created_at)} · ${readingTime(featured.body_md)} min read</div></div></article></section>
     ${more.length ? `<section class="blog-section blog-more-section" style="padding-top:0"><div class="blog-grid-head"><h2>More posts</h2>${hasMorePosts ? `<a class="blog-see-all" href="/?page=2">See all <span aria-hidden="true">→</span></a>` : ""}</div><div class="blog-cards">${more.map(card).join("")}</div></section>` : ""}
     ${popular.length ? `<section class="blog-popular-section blog-section"><div class="blog-grid-head"><h2>Popular posts</h2></div><div class="blog-popular-cards">${popular.map(popularCard).join("")}</div></section>` : ""}
     ${topics.length ? `<div class="blog-topics blog-topics-bottom" aria-label="Blog topics">${topics.map((topic) => `<span>#${esc(topic)}</span>`).join("")}</div>` : ""}
