@@ -4981,7 +4981,11 @@ app.get("/admin/b/:blogId/audit", async (c) => {
   if (!(await tenantHasPaidPlan(c.env, ctx.tenant.id)))
     return c.html(auditPage(ctx.account, ctx.tenant, [], { paid: false }), 402);
   try {
-    return c.html(auditPage(ctx.account, ctx.tenant, await auditReport(c.env, ctx.tenant.id, 90), { paid: true }));
+    const raw = String(c.req.query("page") || "1");
+    const parsed = Number(raw);
+    const page = Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 10_000_000 ? parsed : 1;
+    const { entries, hasMore } = await auditReport(c.env, ctx.tenant.id, 90, page, 50);
+    return c.html(auditPage(ctx.account, ctx.tenant, entries, { paid: true, page, hasMore }));
   } catch (error) {
     console.error("audit report failed", error);
     return c.html(auditPage(ctx.account, ctx.tenant, null, { error: "Audit log could not be loaded. Please try again shortly.", paid: true }), 502);
