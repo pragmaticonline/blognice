@@ -2309,9 +2309,21 @@ async function checkedFeaturedImage(
 }
 
 app.get("/admin/login", async (c) => {
-  if (await currentAccount(c)) return c.redirect("/admin");
+  if (await currentAccount(c)) {
+    const tok = c.req.query("invite");
+    if (tok) return c.redirect(`/admin/invite/${encodeURIComponent(tok)}`);
+    return c.redirect("/admin");
+  }
   clearSessionCookie(c);
-  const response = c.html(loginPage());
+  const inviteToken = c.req.query("invite");
+  let invite: { token: string; email: string; title: string; role: string } | undefined;
+  if (inviteToken) {
+    const h = await sha256hex(inviteToken);
+    const now = Math.floor(Date.now() / 1000);
+    const row = await c.env.DB.prepare("SELECT i.email, i.role, t.title FROM blog_invitations i JOIN tenants t ON t.id = i.tenant_id WHERE i.token_hash = ? AND i.accepted_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > ?").bind(h, now).first<{ email: string; role: string; title: string }>();
+    if (row) invite = { token: inviteToken, email: row.email, title: row.title, role: row.role };
+  }
+  const response = c.html(loginPage(undefined, invite));
   response.headers.set("Cache-Control", "no-store, max-age=0");
   return response;
 });
@@ -2502,6 +2514,7 @@ app.post("/admin/login", async (c) => {
   const form = await c.req.formData();
   const email = String(form.get("email") ?? "").trim().toLowerCase();
   const password = String(form.get("password") ?? "");
+  const inviteToken = String(form.get("invite") ?? c.req.query("invite") ?? "").trim();
 
   const account = await c.env.DB.prepare(
     "SELECT id, pw_hash FROM accounts WHERE email = ?"
@@ -2512,7 +2525,14 @@ app.post("/admin/login", async (c) => {
   const ok = account ? await verifyPassword(password, account.pw_hash) : false;
   if (!ok) {
     clearSessionCookie(c);
-    const response = c.html(loginPage("Wrong email or password."), 401);
+    let invite: { token: string; email: string; title: string; role: string } | undefined;
+    if (inviteToken) {
+      const h = await sha256hex(inviteToken);
+      const now = Math.floor(Date.now() / 1000);
+      const row = await c.env.DB.prepare("SELECT i.email, i.role, t.title FROM blog_invitations i JOIN tenants t ON t.id = i.tenant_id WHERE i.token_hash = ? AND i.accepted_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > ?").bind(h, now).first<{ email: string; role: string; title: string }>();
+      if (row) invite = { token: inviteToken, email: row.email, title: row.title, role: row.role };
+    }
+    const response = c.html(loginPage("Wrong email or password.", invite), 401);
     response.headers.set("Cache-Control", "no-store, max-age=0");
     return response;
   }
@@ -2520,6 +2540,19 @@ app.post("/admin/login", async (c) => {
   const token = await createSession(c.env.DB, account!.id);
   clearSessionCookie(c);
   setSessionCookie(c, token);
+  if (inviteToken) {
+    const h = await sha256hex(inviteToken);
+    const now = Math.floor(Date.now() / 1000);
+    const invite = await c.env.DB.prepare("SELECT i.id, i.tenant_id, i.email, i.role, t.public_id FROM blog_invitations i JOIN tenants t ON t.id = i.tenant_id WHERE i.token_hash = ? AND i.accepted_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > ?").bind(h, now).first<{ id: number; tenant_id: number; email: string; role: MembershipRole; public_id: string }>();
+    if (invite) {
+      if (invite.email === email) {
+        await c.env.DB.prepare("INSERT INTO memberships (account_id, tenant_id, role, created_at) VALUES (?,?,?,?) ON CONFLICT(account_id,tenant_id) DO UPDATE SET role=excluded.role").bind(account!.id, invite.tenant_id, invite.role, now).run();
+        await c.env.DB.prepare("UPDATE blog_invitations SET accepted_at = ? WHERE id = ?").bind(now, invite.id).run();
+        return c.redirect(`/admin/b/${invite.public_id}`);
+      }
+    }
+    return c.redirect(`/admin/invite/${encodeURIComponent(inviteToken)}`);
+  }
   return c.redirect("/admin");
 });
 
@@ -2527,6 +2560,8 @@ app.post("/admin/logout", async (c) => {
   const token = getSessionToken(c);
   if (token) await destroySession(c.env.DB, token);
   clearSessionCookie(c);
+  const next = c.req.query("next");
+  if (next && next.startsWith("/")) return c.redirect(next);
   return c.redirect("/admin/login");
 });
 
@@ -2833,19 +2868,69 @@ app.post("/admin/b/:blogId/authors", async (c) => {
   return c.html(collaboratorPage(ctx.account, ctx.tenant, results, `${origin}/admin/invite/${token}`));
 });
 
+function invitePage(opts: { status: "valid" | "invalid" | "mismatch" | "accepted"; invite?: { token: string; email: string; role: string; title: string; expiresAt: number }; account?: Account | null; alreadyMember?: boolean; }): string {
+  if (opts.status === "invalid") {
+    return shell("Invitation", `<div class="page narrow"><h1>Invitation not found</h1><div class="error">This invitation is invalid, has expired, or was already used.</div><p style="color:var(--muted)">Ask the blog owner to send a fresh invite link.</p><p><a class="btn" href="/admin">Go to dashboard</a></p></div>`, opts.account ?? undefined);
+  }
+  const inv = opts.invite!;
+  const expiresIn = Math.max(0, inv.expiresAt - Math.floor(Date.now() / 1000));
+  const expiresLabel = expiresIn <= 0 ? "expired" : expiresIn < 3600 ? `${Math.ceil(expiresIn/60)} minutes` : expiresIn < 86400 ? `${Math.ceil(expiresIn/3600)} hours` : `${Math.ceil(expiresIn/86400)} days`;
+  if (opts.status === "accepted" || opts.alreadyMember) {
+    return shell("Invitation accepted", `<div class="page narrow"><h1>You're in</h1><div class="notice">You already have access to <strong>${esc(inv.title)}</strong> as <em>${esc(inv.role)}</em>.</div><p><a class="btn" href="/admin">Go to dashboard</a></p></div>`, opts.account ?? undefined);
+  }
+  if (!opts.account) {
+    return shell("You're invited", `<div class="page narrow"><h1>You're invited to ${esc(inv.title)}</h1><div class="notice"><strong>${esc(inv.email)}</strong> has been invited to collaborate as <em>${esc(inv.role)}</em>.<br><span style="color:var(--muted);font-size:.9rem">Expires in ${esc(expiresLabel)} · One-time link</span></div><p style="color:var(--muted)">Sign in with <strong>${esc(inv.email)}</strong> or create an account with that email to accept.</p><div class="actions" style="display:flex;gap:.7rem;flex-wrap:wrap;margin:1.2rem 0"><a class="btn" href="/admin/login?invite=${esc(inv.token)}">Sign in to accept</a><a class="btn ghost" href="/signup?invite=${esc(inv.token)}">Create account</a></div><p style="color:var(--muted);font-size:.85rem">Link is for ${esc(inv.email)} only.</p></div>`);
+  }
+  if (opts.status === "mismatch") {
+    return shell("Invitation", `<div class="page narrow"><h1>Switch account to accept</h1><div class="error">This invitation is for <strong>${esc(inv.email)}</strong>, but you're signed in as <strong>${esc(opts.account!.email)}</strong>.</div><p style="color:var(--muted)">Sign out and then sign in or create an account with the invited email.</p><div class="actions" style="display:flex;gap:.7rem;flex-wrap:wrap;margin:1.2rem 0"><form method="post" action="/admin/logout?next=${encodeURIComponent(`/admin/invite/${esc(inv.token)}`)}"><button class="btn" type="submit">Sign out</button></form><a class="btn ghost" href="/admin">Go to dashboard</a></div><p style="color:var(--muted);font-size:.85rem">Invitation: ${esc(inv.title)} · ${esc(inv.role)} · expires in ${esc(expiresLabel)}</p></div>`, opts.account);
+  }
+  return shell("Accept invitation", `<div class="page narrow"><h1>Accept invitation</h1><div class="notice">You've been invited to join <strong>${esc(inv.title)}</strong> as <em>${esc(inv.role)}</em>.<br><span style="color:var(--muted);font-size:.9rem">For ${esc(inv.email)} · Expires in ${esc(expiresLabel)}</span></div><form method="post" action="/admin/invite/${esc(inv.token)}" style="margin:1.2rem 0"><button class="btn" type="submit">Accept and go to blog</button></form><p style="color:var(--muted);font-size:.85rem">By accepting you'll be able to write, edit, and publish according to the <em>${esc(inv.role)}</em> role. If you didn't expect this, you can ignore it.</p></div>`, opts.account);
+}
+
 app.get("/admin/invite/:token", async (c) => {
-  const account = await currentAccount(c);
-  if (!account) return c.redirect(`/signup?invite=${encodeURIComponent(c.req.param("token"))}`);
-  if (isSuspended(account)) return suspendedResponse(c, account);
-  const tokenHash = await sha256hex(c.req.param("token"));
+  const token = c.req.param("token");
+  const tokenHash = await sha256hex(token);
   const now = Math.floor(Date.now() / 1000);
-  const invite = await c.env.DB.prepare("SELECT i.*, t.title FROM blog_invitations i JOIN tenants t ON t.id = i.tenant_id WHERE i.token_hash = ? AND i.accepted_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > ?").bind(tokenHash, now).first<{ id: number; tenant_id: number; email: string; role: MembershipRole; title: string }>();
-  if (!invite) return c.text("This invitation is invalid or has expired.", 410);
-  if (invite.email !== account.email) return c.text(`This invitation is for ${invite.email}. Sign in with that email to accept it.`, 403);
+  const account = await currentAccount(c);
+  if (account && isSuspended(account)) return suspendedResponse(c, account);
+  const invite = await c.env.DB.prepare("SELECT i.id, i.tenant_id, i.email, i.role, i.expires_at, i.accepted_at, i.revoked_at, t.title, t.public_id FROM blog_invitations i JOIN tenants t ON t.id = i.tenant_id WHERE i.token_hash = ?").bind(tokenHash).first<{ id: number; tenant_id: number; email: string; role: MembershipRole; expires_at: number; accepted_at: number | null; revoked_at: number | null; title: string; public_id: string }>();
+  if (!invite || invite.accepted_at || invite.revoked_at || invite.expires_at <= now) {
+    return c.html(invitePage({ status: "invalid", account }), 410);
+  }
+  const info = { token, email: invite.email, role: invite.role, title: invite.title, expiresAt: invite.expires_at };
+  if (!account) {
+    return c.html(invitePage({ status: "valid", invite: info, account: null }));
+  }
+  const member = await c.env.DB.prepare("SELECT 1 FROM memberships WHERE tenant_id = ? AND account_id = ?").bind(invite.tenant_id, account.id).first();
+  if (member) {
+    return c.html(invitePage({ status: "accepted", invite: info, account, alreadyMember: true }));
+  }
+  if (invite.email !== account.email) {
+    return c.html(invitePage({ status: "mismatch", invite: info, account }), 403);
+  }
+  return c.html(invitePage({ status: "valid", invite: info, account }));
+});
+
+app.post("/admin/invite/:token", async (c) => {
+  const token = c.req.param("token");
+  const tokenHash = await sha256hex(token);
+  const now = Math.floor(Date.now() / 1000);
+  const account = await currentAccount(c);
+  if (!account) return c.redirect(`/admin/login?invite=${encodeURIComponent(token)}`);
+  if (isSuspended(account)) return suspendedResponse(c, account);
+  const invite = await c.env.DB.prepare("SELECT i.id, i.tenant_id, i.email, i.role, i.expires_at, i.accepted_at, i.revoked_at, t.title, t.public_id FROM blog_invitations i JOIN tenants t ON t.id = i.tenant_id WHERE i.token_hash = ?").bind(tokenHash).first<{ id: number; tenant_id: number; email: string; role: MembershipRole; expires_at: number; accepted_at: number | null; revoked_at: number | null; title: string; public_id: string }>();
+  if (!invite || invite.accepted_at || invite.revoked_at || invite.expires_at <= now) {
+    return c.html(invitePage({ status: "invalid", account }), 410);
+  }
+  const info = { token, email: invite.email, role: invite.role, title: invite.title, expiresAt: invite.expires_at };
+  const member = await c.env.DB.prepare("SELECT 1 FROM memberships WHERE tenant_id = ? AND account_id = ?").bind(invite.tenant_id, account.id).first();
+  if (member) return c.redirect(`/admin/b/${invite.public_id}`);
+  if (invite.email !== account.email) {
+    return c.html(invitePage({ status: "mismatch", invite: info, account }), 403);
+  }
   await c.env.DB.prepare("INSERT INTO memberships (account_id, tenant_id, role, created_at) VALUES (?,?,?,?) ON CONFLICT(account_id,tenant_id) DO UPDATE SET role=excluded.role").bind(account.id, invite.tenant_id, invite.role, now).run();
   await c.env.DB.prepare("UPDATE blog_invitations SET accepted_at = ? WHERE id = ?").bind(now, invite.id).run();
-  const tenant = await c.env.DB.prepare("SELECT public_id FROM tenants WHERE id = ?").bind(invite.tenant_id).first<{ public_id: string }>();
-  return c.redirect(`/admin/b/${tenant?.public_id ?? ""}`);
+  return c.redirect(`/admin/b/${invite.public_id}`);
 });
 
 app.get("/admin/b/:blogId/metrics", async (c) => {
@@ -4367,8 +4452,20 @@ app.get("/admin/b/:blogId/subscribers.csv", async (c) => {
 // Public self-service signup: visitor -> their own blog, logged in.
 // ---------------------------------------------------------------------------
 app.get("/signup", async (c) => {
-  if (await currentAccount(c)) return c.redirect("/admin");
-  return c.html(signupPage(c.env.ROOT_DOMAIN, undefined, undefined, c.req.query("invite") || undefined));
+  if (await currentAccount(c)) {
+    const tok = c.req.query("invite");
+    if (tok) return c.redirect(`/admin/invite/${encodeURIComponent(tok)}`);
+    return c.redirect("/admin");
+  }
+  const inviteToken = c.req.query("invite") || undefined;
+  let inviteInfo: { title: string; role: string; email: string } | undefined;
+  if (inviteToken) {
+    const h = await sha256hex(inviteToken);
+    const now = Math.floor(Date.now() / 1000);
+    const row = await c.env.DB.prepare("SELECT i.email, i.role, t.title FROM blog_invitations i JOIN tenants t ON t.id = i.tenant_id WHERE i.token_hash = ? AND i.accepted_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > ?").bind(h, now).first<{ email: string; role: string; title: string }>();
+    if (row) inviteInfo = { title: row.title, role: row.role, email: row.email };
+  }
+  return c.html(signupPage(c.env.ROOT_DOMAIN, undefined, undefined, inviteToken, inviteInfo));
 });
 
 app.post("/signup", async (c) => {
@@ -4381,8 +4478,15 @@ app.post("/signup", async (c) => {
   const password = String(form.get("password") ?? "");
   const inviteToken = String(form.get("invite") ?? "").trim();
   const values = { slug, title, email };
+  let __inviteInfo: { title: string; role: string; email: string } | undefined;
+  if (inviteToken) {
+    const __h = await sha256hex(inviteToken);
+    const __now = Math.floor(Date.now() / 1000);
+    const __row = await c.env.DB.prepare("SELECT i.email, i.role, t.title FROM blog_invitations i JOIN tenants t ON t.id = i.tenant_id WHERE i.token_hash = ?").bind(__h).first<{ email: string; role: string; title: string }>();
+    if (__row) __inviteInfo = { title: __row.title, role: __row.role, email: __row.email };
+  }
   const fail = (msg: string, status: 400 | 409 = 400) =>
-    c.html(signupPage(c.env.ROOT_DOMAIN, values, msg, inviteToken || undefined), status);
+    c.html(signupPage(c.env.ROOT_DOMAIN, values, msg, inviteToken || undefined, __inviteInfo), status);
 
   type SignupInvite = { id: number; tenant_id: number; email: string; role: MembershipRole };
   let invite: SignupInvite | null = null;

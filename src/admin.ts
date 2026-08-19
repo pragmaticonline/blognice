@@ -511,22 +511,33 @@ export function shell(
 <body>${bar}${inner}${switcherScript}<script>(function(){var b=document.getElementById('topbar-menu-open'),m=document.getElementById('topbar-menu');if(!b||!m)return;b.addEventListener('click',function(){var o=m.hidden;m.hidden=!o;b.setAttribute('aria-expanded',String(o));});document.addEventListener('click',function(e){if(!m.contains(e.target)&&!b.contains(e.target)){m.hidden=true;b.setAttribute('aria-expanded','false');}});})();</script><footer class="admin-footer"><span><strong>blognice</strong> · © 2026 Pragmatic Online Co., Ltd.</span><nav aria-label="Legal"><a href="https://www.blognice.com/policies">Policies</a></nav></footer><style>.admin-footer{max-width:1220px;margin:2.5rem auto 0;padding:1.25rem 1.5rem 2rem;border-top:1px solid var(--rule);display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;color:var(--muted);font-size:.82rem}.admin-footer nav{display:flex;gap:1rem;flex-wrap:wrap}.admin-footer a{color:inherit;text-decoration:none}.admin-footer a:hover,.admin-footer a:focus-visible{color:var(--accent);text-decoration:underline}@media(max-width:640px){.admin-footer{align-items:flex-start;flex-direction:column}.admin-footer a{padding:.5rem 0}}</style></body></html>`;
 }
 
-export function loginPage(error?: string): string {
+export function loginPage(error?: string, invite?: { token: string; email: string; title: string; role: string }): string {
+  const inviteBanner = invite
+    ? `<div class="notice" style="margin-bottom:1rem"><strong>Invitation for ${esc(invite.email)}</strong><br>Join <strong>${esc(invite.title)}</strong> as <em>${esc(invite.role)}</em>. Sign in with the invited email to accept.</div>`
+    : "";
+  const inviteInput = invite ? `<input type="hidden" name="invite" value="${esc(invite.token)}">` : "";
+  const inviteSignupLink = invite
+    ? `<p style="margin-top:1rem;color:var(--muted);font-size:0.9rem">Need an account for ${esc(invite.email)}? <a href="/signup?invite=${esc(invite.token)}">Create account</a></p>`
+    : "";
+  const action = invite ? `/admin/login?invite=${esc(invite.token)}` : "/admin/login";
   return shell(
     "Sign in",
     `<div class="page narrow">
       <h1>Sign in</h1>
+      ${inviteBanner}
       ${error ? `<div class="error">${esc(error)}</div>` : ""}
-      <form method="post" action="/admin/login">
+      <form method="post" action="${action}">
+        ${inviteInput}
         <label for="email">Email</label>
-        <input id="email" name="email" type="email" autocomplete="username" required>
+        <input id="email" name="email" type="email" autocomplete="username" required value="${invite ? esc(invite.email) : ""}">
         <label for="password">Password</label>
         <input id="password" name="password" type="password" autocomplete="current-password" required>
         <button class="btn" type="submit">Sign in</button>
       </form>
       <p style="margin-top:1.1rem;color:var(--muted);font-size:0.9rem"><a href="/admin/forgot">Forgot your password?</a></p>
+      ${inviteSignupLink}
       <p style="margin-top:1.4rem;color:var(--muted);font-size:0.9rem">
-        Don't have a blog yet? <a href="/signup">Create one</a>.
+        Don't have a blog yet? <a href="/signup${invite ? `?invite=${esc(invite.token)}` : ""}">Create one</a>.
       </p>
     </div>`
   );
@@ -555,16 +566,22 @@ export function signupPage(
   rootDomain: string,
   values?: { slug?: string; title?: string; email?: string },
   error?: string,
-  inviteToken?: string
+  inviteToken?: string,
+  inviteInfo?: { title: string; role: string; email: string }
 ): string {
   const slug = esc(values?.slug ?? "");
   const title = esc(values?.title ?? "");
-  const email = esc(values?.email ?? "");
+  const email = esc(values?.email ?? inviteInfo?.email ?? "");
+  const inviteBanner = inviteToken && inviteInfo
+    ? `<div class="notice" style="margin-bottom:1rem">You're invited to join <strong>${esc(inviteInfo.title)}</strong> as <em>${esc(inviteInfo.role)}</em> — create an account for <strong>${esc(inviteInfo.email)}</strong> to accept.</div>`
+    : inviteToken
+      ? `<p style="color:var(--muted)">Create your blognice account to accept this invitation.</p>`
+      : "";
   return shell(
     inviteToken ? "Join a blog" : "Create your blog",
     `<div class="page narrow">
       <h1>${inviteToken ? "Join a blog" : "Create your blog"}</h1>
-      ${inviteToken ? `<p style="color:var(--muted)">Create your blognice account to accept this invitation.</p>` : ""}
+      ${inviteBanner}
       ${error ? `<div class="error">${esc(error)}</div>` : ""}
       <form method="post" action="/signup">
         ${inviteToken ? `<input type="hidden" name="invite" value="${esc(inviteToken)}">` : ""}
@@ -577,13 +594,14 @@ export function signupPage(
         <label for="title">Blog title</label>
         <input id="title" name="title" type="text" value="${title}" placeholder="My Blog" required>`}
         <label for="email">Email</label>
-        <input id="email" name="email" type="email" value="${email}" autocomplete="username" required>
+        <input id="email" name="email" type="email" value="${email}" autocomplete="username" required ${inviteInfo ? `readonly style="background:var(--rule-bg, #f6f6f5)"` : ""}>
+        ${inviteInfo ? `<div style="margin:-0.6rem 0 1rem;color:var(--muted);font-size:0.82rem">Invitation is for ${esc(inviteInfo.email)} — use that address.</div>` : ""}
         <label for="password">Password <span style="color:var(--muted)">(8+ characters)</span></label>
         <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" required>
         <button class="btn" type="submit">${inviteToken ? "Create account and join" : "Create blog"}</button>
       </form>
       <p style="margin-top:1.4rem;color:var(--muted);font-size:0.9rem">
-        Already have a blog? <a href="/admin/login">Sign in</a>.
+        Already have an account? <a href="/admin/login${inviteToken ? `?invite=${esc(inviteToken)}` : ""}">Sign in</a>.
       </p>
     </div>
     <script>
