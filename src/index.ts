@@ -412,6 +412,24 @@ function validateSlug(s: string): string | null {
   return null;
 }
 
+async function ensureTenantHeaderLinkColumn(env: Bindings): Promise<void> {
+  try {
+    await env.DB.prepare("ALTER TABLE tenants ADD COLUMN header_link_url TEXT NOT NULL DEFAULT '/'").run();
+  } catch {}
+  try {
+    await env.DB.prepare("ALTER TABLE tenants ADD COLUMN navigation_links_json TEXT NOT NULL DEFAULT '[]'").run();
+  } catch {}
+  try {
+    await env.DB.prepare("ALTER TABLE tenants ADD COLUMN social_links_json TEXT NOT NULL DEFAULT '{}'").run();
+  } catch {}
+  try {
+    await env.DB.prepare("ALTER TABLE tenants ADD COLUMN browser_push_enabled INTEGER NOT NULL DEFAULT 0").run();
+  } catch {}
+  try {
+    await env.DB.prepare("ALTER TABLE tenants ADD COLUMN accent_color TEXT NOT NULL DEFAULT '#1a8917'").run();
+  } catch {}
+}
+
 // All public hostnames a tenant is served on: its subdomain plus any active
 // custom domains. Used to purge the right edge caches after an edit.
 async function tenantHosts(
@@ -1713,6 +1731,7 @@ app.patch("/api/v1/blogs/:blogId", async (c) => {
   if (slug !== tenant.slug) {
     await c.env.DB.prepare("INSERT INTO tenant_slug_aliases (old_slug, tenant_id, created_at) VALUES (?, ?, ?)").bind(tenant.slug, tenant.id, now).run();
   }
+  await ensureTenantHeaderLinkColumn(c.env);
   await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, footer_name = ?, accent_color = ?, topics_json = ?, social_links_json = ?, navigation_links_json = ?, browser_push_enabled = ?, header_link_url = ? WHERE id = ?")
     .bind(slug, title, description, footerName, accentColor, JSON.stringify(topics), JSON.stringify(socialLinks), JSON.stringify(navigationLinks), browserPushEnabled, headerLinkUrl, tenant.id).run();
   queueBlogAudit(c, tenant.id, account.id, "blog_settings_updated", "settings");
@@ -4035,6 +4054,7 @@ app.post("/admin/b/:blogId/settings", async (c) => {
     await c.env.DB.prepare("INSERT INTO tenant_slug_aliases (old_slug, tenant_id, created_at) VALUES (?, ?, ?)")
       .bind(ctx.tenant.slug, ctx.tenant.id, now).run();
   }
+  await ensureTenantHeaderLinkColumn(c.env);
   await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, footer_name = ?, accent_color = ?, topics_json = ?, social_links_json = ?, browser_push_enabled = ?, header_link_url = ? WHERE id = ?")
     .bind(slug, title, description, footerName, accentColor.toLowerCase(), JSON.stringify(normalizedTopics.topics), JSON.stringify(socialLinks), browserPushEnabled, headerLinkUrl, ctx.tenant.id)
     .run();
