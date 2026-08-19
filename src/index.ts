@@ -2855,11 +2855,11 @@ app.get("/admin/b/:blogId/metrics", async (c) => {
   const requestedDays = Number(c.req.query("days") || "30");
   const days = [7, 30, 90].includes(requestedDays) ? requestedDays : 30;
   if (!metricsConfigured(c.env)) {
-    return c.html(metricsPage(ctx.account, ctx.tenant, null, { days, configured: false }));
+    return c.html(metricsPage(ctx.account, ctx.tenant, null, { days, configured: false, rootDomain: c.env.ROOT_DOMAIN }));
   }
   try {
     return c.html(
-      metricsPage(ctx.account, ctx.tenant, await metricsReport(c.env, ctx.tenant.id, days))
+      metricsPage(ctx.account, ctx.tenant, await metricsReport(c.env, ctx.tenant.id, days), { rootDomain: c.env.ROOT_DOMAIN })
     );
   } catch (error) {
     console.error(JSON.stringify({
@@ -2867,7 +2867,7 @@ app.get("/admin/b/:blogId/metrics", async (c) => {
       tenantId: ctx.tenant.id,
       error: error instanceof Error ? error.message : String(error),
     }));
-    return c.html(metricsPage(ctx.account, ctx.tenant, null, { days }), 502);
+    return c.html(metricsPage(ctx.account, ctx.tenant, null, { days, rootDomain: c.env.ROOT_DOMAIN }), 502);
   }
 });
 
