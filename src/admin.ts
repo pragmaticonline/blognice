@@ -813,10 +813,12 @@ export function metricsPage(
   account: Account,
   tenant: Tenant,
   report: MetricsReport | null,
-  options?: { days?: number; error?: string; configured?: boolean }
+  options?: { days?: number; error?: string; configured?: boolean; rootDomain?: string }
 ): string {
   const base = `/admin/b/${tenant.public_id}`;
   const days = options?.days ?? report?.days ?? 30;
+  const rootDomain = options?.rootDomain || "blognice.com";
+  const publicHost = tenant.custom_domain || `${tenant.slug}.${rootDomain}`;
   const rangeLinks = [7, 30, 90]
     .map((value) => `<a class="btn ${value === days ? "" : "ghost"}" href="${base}/metrics?days=${value}">${value} days</a>`)
     .join(" ");
@@ -853,9 +855,9 @@ export function metricsPage(
     const moreBtn = (count: number) => count ? `<button class="btn ghost metrics-more" type="button" data-metrics-more aria-expanded="false">Show ${count} more</button>` : "";
     const morePanel = (hidden: string) => hidden ? `<tbody class="metrics-more-panel" hidden data-metrics-panel>${hidden}</tbody>` : "";
 
-    const pageRows = report.pages.map((page) => `<tr><td><a href="${esc(page.path)}" target="_blank">${esc(page.path)}</a></td><td class="num">${page.views.toLocaleString()}</td><td class="num">${page.visitors.toLocaleString()}</td></tr>`);
+    const pageRows = report.pages.map((page) => `<tr><td><a href="https://${esc(publicHost)}${esc(page.path)}" target="_blank" rel="noopener noreferrer">${esc(page.path)}</a></td><td class="num">${page.views.toLocaleString()}</td><td class="num">${page.visitors.toLocaleString()}</td></tr>`);
     const referrerRows = report.referrers.map((item) => `<tr><td>${esc(item.referrer)}</td><td class="num">${item.views.toLocaleString()}</td></tr>`);
-    const audioRows = report.audio.pages.map((item) => `<tr><td>${esc(item.path)}</td><td class="num">${item.starts.toLocaleString()}</td><td class="num">${item.completions.toLocaleString()}</td></tr>`);
+    const audioRows = report.audio.pages.map((item) => `<tr><td><a href="https://${esc(publicHost)}${esc(item.path)}" target="_blank" rel="noopener noreferrer">${esc(item.path)}</a></td><td class="num">${item.starts.toLocaleString()}</td><td class="num">${item.completions.toLocaleString()}</td></tr>`);
     const countryRows = report.countries.map((item) => {
       let label = item.name;
       if (/^[A-Z]{2}$/.test(item.name)) { try { label = new Intl.DisplayNames(["en"], { type: "region" }).of(item.name) || item.name; } catch {} }
