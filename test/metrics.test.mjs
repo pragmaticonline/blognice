@@ -90,7 +90,7 @@ test("audit events use the shared Analytics Engine dataset and a 90-day query", 
     assert.match(String(init?.body), /blob1 LIKE 'audit:%'/);
     return new Response(JSON.stringify({ data: [] }), { status: 200 });
   };
-  try { assert.deepEqual(await auditReport({ CF_ACCOUNT_ID: "account", CF_ANALYTICS_TOKEN: "token" }, 7), []); }
+  try { assert.deepEqual(await auditReport({ CF_ACCOUNT_ID: "account", CF_ANALYTICS_TOKEN: "token" }, 7), { entries: [], hasMore: false }); }
   finally { globalThis.fetch = originalFetch; }
 });
 
