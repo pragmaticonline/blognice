@@ -931,8 +931,10 @@ export function auditPage(
   account: Account,
   tenant: Tenant,
   entries: AuditEntry[] | null,
-  options?: { error?: string; paid?: boolean }
+  options?: { error?: string; paid?: boolean; page?: number; hasMore?: boolean }
 ): string {
+  const page = Number.isSafeInteger(options?.page as number) && (options?.page as number) >= 1 ? (options!.page as number) : 1;
+  const hasMore = !!options?.hasMore;
   const content = options?.paid === false
     ? `<div class="notice"><strong>Audit log is a Pro feature.</strong><br>Upgrade to review blog actions for the last 90 days.</div>`
     : entries === null
@@ -940,9 +942,12 @@ export function auditPage(
       : entries.length
         ? `<table class="metrics"><thead><tr><th>Time</th><th>Action</th><th>Target</th><th>Actor</th></tr></thead><tbody>${entries.map((entry) => `<tr><td>${esc(entry.occurredAt)}</td><td>${esc(entry.action.replaceAll("_", " "))}</td><td>${esc(entry.target || "—")}</td><td>${esc(entry.actor || "—")}</td></tr>`).join("")}</tbody></table>`
         : `<p style="color:var(--muted)">No blog actions recorded in the last 90 days.</p>`;
+  const pagination = options?.paid === false || entries === null
+    ? ""
+    : `<nav class="pagination" style="display:flex;align-items:center;gap:10px;justify-content:flex-end;margin-top:12px"><span>Page ${page}</span>${page > 1 ? `<a class="btn" href="/admin/b/${esc(tenant.public_id)}/audit?page=${page - 1}">← Previous</a>` : ""}${hasMore ? `<a class="btn" href="/admin/b/${esc(tenant.public_id)}/audit?page=${page + 1}">Next →</a>` : ""}</nav>`;
   return shell(
     `Audit log — ${tenant.title}`,
-    `<div class="page"><div class="row"><h1 style="margin:0">Audit log</h1><span style="color:var(--muted);font-size:.85rem">Last 90 days</span></div><p style="color:var(--muted);margin-top:-.8rem">Private administrative actions for this blog. Content and secrets are never recorded.</p><div class="notice" style="margin-bottom:1rem"><strong>Logs may take a short time to appear.</strong> Audit events are stored in Cloudflare Analytics, which is eventually consistent. This is especially noticeable for a new blog; an empty log does not mean logging is disabled. Refresh this page shortly after an action.</div><div class="panel-block">${content}</div></div>`,
+    `<div class="page"><div class="row"><h1 style="margin:0">Audit log</h1><span style="color:var(--muted);font-size:.85rem">Last 90 days</span></div><p style="color:var(--muted);margin-top:-.8rem">Private administrative actions for this blog. Content and secrets are never recorded.</p><div class="notice" style="margin-bottom:1rem"><strong>Logs may take a short time to appear.</strong> Audit events are stored in Cloudflare Analytics, which is eventually consistent. This is especially noticeable for a new blog; an empty log does not mean logging is disabled. Refresh this page shortly after an action.</div><div class="panel-block">${content}</div>${pagination}</div>`,
     account,
     tenant
   );

@@ -202,9 +202,15 @@ export async function metricsReport(
 export async function auditReport(
   env: MetricsEnv,
   tenantId: number,
-  days = 90
-): Promise<AuditEntry[]> {
+  days = 90,
+  page = 1,
+  limit = 50
+): Promise<{ entries: AuditEntry[]; hasMore: boolean }> {
   const interval = Math.max(1, Math.min(90, Math.trunc(days)));
+  const safePage = Number.isSafeInteger(page) && page >= 1 && page <= 10_000_000 ? page : 1;
+  const safeLimit = Math.max(1, Math.min(100, Math.trunc(limit) || 50));
+  const offset = (safePage - 1) * safeLimit;
+  const fetchLimit = safeLimit + 1;
   const rows = await analyticsSql(
     env,
     `SELECT formatDateTime(timestamp, '%Y-%m-%d %H:%i:%S') AS occurred_at,
@@ -215,15 +221,20 @@ export async function auditReport(
         AND timestamp >= NOW() - INTERVAL '${interval}' DAY
         AND blob1 LIKE 'audit:%'
       GROUP BY occurred_at, action, target, actor
-      ORDER BY occurred_at DESC LIMIT 200`
+      ORDER BY occurred_at DESC LIMIT ${fetchLimit} OFFSET ${offset}`
   );
-  return rows.map((row) => ({
+  const hasMore = rows.length > safeLimit;
+  const slice = hasMore ? rows.slice(0, safeLimit) : rows;
+  return {
+    entries: slice.map((row) => ({
     occurredAt: String(row.occurred_at ?? ""),
     action: String(row.action ?? "").replace(/^audit:/, ""),
     target: String(row.target ?? ""),
     actor: String(row.actor ?? ""),
     events: numberValue(row.events),
-  }));
+  })),
+    hasMore,
+  };
 }
 
 export function recordPageView(
