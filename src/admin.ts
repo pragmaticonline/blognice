@@ -843,15 +843,20 @@ export function dnsPage(
     error?: string;
     notice?: string;
     records?: Array<{ host: string; type: string; value: string; ttl?: number }>;
+    nameservers?: string[];
     raw?: any;
     isSandbox?: boolean;
   }
 ): string {
   const base = `/admin/b/${tenant.public_id}`;
   const recs = opts?.records ?? [];
+  const nss = opts?.nameservers ?? [];
   const recTable = recs.length
     ? `<table class="dns" style="width:100%;margin:.8rem 0"><tr><th>Host</th><th>Type</th><th>Value</th><th>TTL</th></tr>${recs.map((r) => `<tr><td><code>${esc(r.host || "@")}</code></td><td>${esc(r.type)}</td><td><code>${esc(r.value)}</code></td><td>${esc(String(r.ttl ?? ""))}</td></tr>`).join("")}</table>`
     : `<p style="color:var(--muted)">No records found (domain may be outside Dynadot or use external nameservers).</p>`;
+  const nsTable = nss.length
+    ? `<p style="margin:.4rem 0;color:var(--muted);font-size:.85rem">${nss.map((ns) => `<code>${esc(ns)}</code>`).join(", ")}</p>`
+    : `<p style="color:var(--muted);font-size:.85rem">No nameservers returned — likely using Dynadot default DNS.</p>`;
   return shell(
     `DNS — ${hostname}`,
     `<div class="page">
@@ -863,6 +868,8 @@ export function dnsPage(
       <div class="panel-block">
         <h3 style="margin:0 0 .6rem">Current Dynadot DNS</h3>
         ${recTable}
+        <h4 style="margin:1rem 0 .4rem">Nameservers</h4>
+        ${nsTable}
         ${opts?.raw ? `<details style="margin-top:.8rem"><summary style="cursor:pointer;color:var(--muted)">Raw response</summary><pre style="white-space:pre-wrap;word-break:break-all;font-size:.75rem">${esc(JSON.stringify(opts.raw, null, 2).slice(0, 4000))}</pre></details>` : ``}
       </div>
       <div class="panel-block">
@@ -878,6 +885,18 @@ export function dnsPage(
           <div style="display:flex;gap:.6rem">
             <button class="btn" type="submit">Save DNS</button>
             <button class="btn ghost" type="submit" name="preset" value="blognice">Reset to ${esc(cfg.cnameTarget)}</button>
+          </div>
+        </form>
+      </div>
+      <div class="panel-block">
+        <h3 style="margin:0 0 .6rem">Nameservers</h3>
+        <p style="color:var(--muted);font-size:.85rem;margin:0 0 .8rem">Use Dynadot DNS (default) or switch to external nameservers (e.g. Cloudflare). Switching will override DNS above.</p>
+        <form method="post" action="${base}/domains/nameservers" style="display:grid;gap:.6rem;max-width:520px">
+          <input type="hidden" name="hostname" value="${esc(hostname)}">
+          <label>Nameservers (comma or newline separated) <textarea name="nameservers" rows="2" placeholder="ns1.dynadot.com, ns2.dynadot.com">${esc(nss.join(", "))}</textarea></label>
+          <div style="display:flex;gap:.6rem">
+            <button class="btn" type="submit">Save nameservers</button>
+            <button class="btn ghost" type="submit" name="preset" value="dynadot">Reset to Dynadot default</button>
           </div>
         </form>
       </div>

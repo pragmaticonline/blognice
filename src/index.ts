@@ -40,7 +40,7 @@ import {
   setDnsRecords,
   sanitizeDynadotErrorMessage,
 } from "./dynadot";
-import { getDomainInfo, getDnsRecords, renewDomain } from "./dynadot";
+import { getDomainInfo, getDnsRecords, renewDomain, getNameservers, setNameservers } from "./dynadot";
 import { dnsPage } from "./admin";
 import {
   hashPassword,
@@ -4942,13 +4942,15 @@ app.get("/admin/b/:blogId/domains/dns", async (c) => {
   if (!hostname) return c.text("Missing hostname", 400);
   const dCfg = dynadotCfg(c);
   try {
-    const [info, dns] = await Promise.all([
+    const [info, dns, ns] = await Promise.all([
       getDomainInfo(c.env as any, hostname).catch(() => null),
       getDnsRecords(c.env as any, hostname).catch(() => null),
+      getNameservers(c.env as any, hostname).catch(() => null),
     ]);
     const records: any[] = (dns?.data as any)?.dns_main_list || (dns?.data as any)?.records || [];
+    const nameservers: string[] = (ns?.data as any)?.nameserver_list || (ns?.data as any)?.nameservers || [];
     if (dns && !dns.ok) return c.html(dnsPage(ctx.account, ctx.tenant, hostname, { cnameTarget: c.env.CNAME_TARGET }, { error: sanitizeDynadotErrorMessage(dns.error || "Could not load DNS."), raw: dns.data, isSandbox: dCfg.isSandbox }));
-    return c.html(dnsPage(ctx.account, ctx.tenant, hostname, { cnameTarget: c.env.CNAME_TARGET }, { records, raw: { info: info?.data, dns: dns?.data }, isSandbox: dCfg.isSandbox }));
+    return c.html(dnsPage(ctx.account, ctx.tenant, hostname, { cnameTarget: c.env.CNAME_TARGET }, { records, nameservers, raw: { info: info?.data, dns: dns?.data, ns: ns?.data }, isSandbox: dCfg.isSandbox }));
   } catch (e: any) {
     return c.html(dnsPage(ctx.account, ctx.tenant, hostname, { cnameTarget: c.env.CNAME_TARGET }, { error: sanitizeDynadotErrorMessage(e?.message || "Failed to load DNS."), isSandbox: dCfg.isSandbox }));
   }
@@ -4978,10 +4980,53 @@ app.post("/admin/b/:blogId/domains/dns", async (c) => {
     });
     if (!res.ok) return c.html(dnsPage(ctx.account, ctx.tenant, hostname, { cnameTarget: c.env.CNAME_TARGET }, { error: sanitizeDynadotErrorMessage(res.error || "DNS update failed."), raw: res.data, isSandbox: dCfg.isSandbox }));
     const dns = await getDnsRecords(c.env as any, hostname).catch(() => null);
+    const ns = await getNameservers(c.env as any, hostname).catch(() => null);
     const records: any[] = (dns?.data as any)?.dns_main_list || [];
-    return c.html(dnsPage(ctx.account, ctx.tenant, hostname, { cnameTarget: c.env.CNAME_TARGET }, { notice: dCfg.isSandbox ? `Simulated DNS update: ${host} ${type} -> ${value}` : `DNS updated: ${host} ${type} -> ${value}`, records, raw: dns?.data, isSandbox: dCfg.isSandbox }));
+    const nameservers: string[] = (ns?.data as any)?.nameserver_list || [];
+    return c.html(dnsPage(ctx.account, ctx.tenant, hostname, { cnameTarget: c.env.CNAME_TARGET }, { notice: dCfg.isSandbox ? `Simulated DNS update: ${host} ${type} -> ${value}` : `DNS updated: ${host} ${type} -> ${value}`, records, nameservers, raw: dns?.data, isSandbox: dCfg.isSandbox }));
   } catch (e: any) {
     return c.html(dnsPage(ctx.account, ctx.tenant, hostname, { cnameTarget: c.env.CNAME_TARGET }, { error: sanitizeDynadotErrorMessage(e?.message || "DNS update failed."), isSandbox: dCfg.isSandbox }));
+  }
+});
+
+app.post("/admin/b/:blogId/domains/nameservers", async (c) => {
+  const ctx = await blogContext(c);
+  if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
+  const denied = requireBlogCapability(c, ctx, "settings.manage");
+  if (denied) return denied;
+  if (!(await tenantHasPaidPlan(c.env, ctx.tenant.id))) return c.text("Domain purchases are available on a paid plan.", 402);
+  if (!dynadotConfigured(c.env as any)) return c.text("Domain purchases are not configured.", 503);
+  const form = await c.req.formData();
+  const hostname = String(form.get("hostname") ?? "").trim().toLowerCase();
+  const preset = String(form.get("preset") ?? "");
+  let nsList: string[] = [];
+  if (preset === "dynadot") nsList = [];
+  else {
+    const raw = String(form.get("nameservers") ?? "").trim();
+    nsList = raw.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+  }
+  const dCfg = dynadotCfg(c);
+  try {
+    let res: any;
+    if (preset === "dynadot") {
+      res = await setNameservers(c.env as any, hostname, []);
+      if (!res.ok) return c.html(dnsPage(ctx.account, ctx.tenant, hostname, { cnameTarget: c.env.CNAME_TARGET }, { error: sanitizeDynadotErrorMessage(res.error || "Nameserver reset failed."), isSandbox: dCfg.isSandbox }));
+    } else {
+      if (nsList.length === 0) return c.html(dnsPage(ctx.account, ctx.tenant, hostname, { cnameTarget: c.env.CNAME_TARGET }, { error: "Enter at least one nameserver or use Reset.", isSandbox: dCfg.isSandbox }));
+      if (nsList.length > 10) return c.html(dnsPage(ctx.account, ctx.tenant, hostname, { cnameTarget: c.env.CNAME_TARGET }, { error: "Too many nameservers (max 10).", isSandbox: dCfg.isSandbox }));
+      res = await setNameservers(c.env as any, hostname, nsList);
+      if (!res.ok) return c.html(dnsPage(ctx.account, ctx.tenant, hostname, { cnameTarget: c.env.CNAME_TARGET }, { error: sanitizeDynadotErrorMessage(res.error || "Nameserver update failed."), isSandbox: dCfg.isSandbox }));
+    }
+    const [dns, ns] = await Promise.all([
+      getDnsRecords(c.env as any, hostname).catch(() => null),
+      getNameservers(c.env as any, hostname).catch(() => null),
+    ]);
+    const records: any[] = (dns?.data as any)?.dns_main_list || [];
+    const nameservers: string[] = (ns?.data as any)?.nameserver_list || nsList;
+    return c.html(dnsPage(ctx.account, ctx.tenant, hostname, { cnameTarget: c.env.CNAME_TARGET }, { notice: dCfg.isSandbox ? `Simulated nameserver update: ${nsList.join(", ") || "Dynadot default"}` : `Nameservers updated.`, records, nameservers, isSandbox: dCfg.isSandbox }));
+  } catch (e: any) {
+    return c.html(dnsPage(ctx.account, ctx.tenant, hostname, { cnameTarget: c.env.CNAME_TARGET }, { error: sanitizeDynadotErrorMessage(e?.message || "Nameserver update failed."), isSandbox: dCfg.isSandbox }));
   }
 });
 
