@@ -643,6 +643,12 @@ export type DomainSearchResult = {
   error?: string;
 };
 
+function dynadotMarkupPrice(raw: string): string {
+  const n = parseFloat(raw);
+  if (!Number.isFinite(n)) return raw;
+  return (n + 2).toFixed(2);
+}
+
 export function domainsPage(
   account: Account,
   tenant: Tenant,
@@ -763,7 +769,7 @@ export function domainsPage(
               </div>
               ${
                 searchResult.priceList && searchResult.priceList.length
-                  ? `<p style="margin:0 0 .6rem;color:var(--muted);font-size:0.9rem">Price: $${esc(searchResult.priceList[0].registration_price)} ${esc(searchResult.priceList[0].currency)} / year ${searchResult.priceList[0].unit ? esc(searchResult.priceList[0].unit) : ""}</p>`
+                  ? `<p style="margin:0 0 .6rem;color:var(--muted);font-size:0.9rem">Price: $${esc(dynadotMarkupPrice(searchResult.priceList[0].registration_price))} ${esc(searchResult.priceList[0].currency)} / year ${searchResult.priceList[0].unit ? esc(searchResult.priceList[0].unit) : ""} <span style="font-size:.8rem">incl. $2 service fee</span></p>`
                   : ""
               }
               ${
@@ -790,7 +796,7 @@ export function domainsPage(
                       <label>Organization (optional) <input name="contact_org" type="text" placeholder="Acme Inc" maxlength="80"></label>
                       <label>Privacy <select name="privacy"><option value="off">Off</option><option value="partial">Partial</option><option value="full" selected>Full</option></select></label>
                       <label>Duration <select name="duration"><option value="1" selected>1 year</option><option value="2">2 years</option><option value="3">3 years</option><option value="5">5 years</option><option value="10">10 years</option></select></label>
-                      <button class="btn" type="submit" style="margin-top:.4rem">Buy ${esc(searchResult.domain)}${searchResult.priceList && searchResult.priceList[0] ? ` — $` + esc(searchResult.priceList[0].registration_price) : ""}</button>
+                      <button class="btn" type="submit" style="margin-top:.4rem">Buy ${esc(searchResult.domain)}${searchResult.priceList && searchResult.priceList[0] ? ` — $` + esc(dynadotMarkupPrice(searchResult.priceList[0].registration_price)) : ""}</button>
                       <p style="color:var(--muted);font-size:.8rem;margin:0">By purchasing you agree to Dynadot's registration terms. ${isSandbox ? `This is a sandbox simulated purchase.` : ``}</p>
                     </form>`
                   : `<p style="color:var(--muted);font-size:0.9rem;margin:0">Try another name.</p>`
