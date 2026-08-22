@@ -31,6 +31,8 @@ import {
 import {
   dynadotConfigured,
   isSandboxEnabled,
+  getDynadotBaseUrl,
+  DYNADOT_SANDBOX_BASE_URL,
   searchDomain,
   getTldPrice,
   createContact,
@@ -4609,7 +4611,7 @@ const domainCfg = (c: any) => ({
 function dynadotCfg(c: any) {
   return {
     enabled: dynadotConfigured(c.env as any),
-    isSandbox: isSandboxEnabled(c.env as any),
+    isSandbox: getDynadotBaseUrl(c.env as any) === DYNADOT_SANDBOX_BASE_URL,
   };
 }
 
