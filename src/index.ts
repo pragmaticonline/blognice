@@ -40,6 +40,8 @@ import {
   setDnsRecords,
   sanitizeDynadotErrorMessage,
 } from "./dynadot";
+import { getDomainInfo, getDnsRecords, renewDomain } from "./dynadot";
+import { dnsPage } from "./admin";
 import {
   hashPassword,
   verifyPassword,
@@ -4925,6 +4927,93 @@ app.post("/admin/b/:blogId/domains/buy", async (c) => {
     );
   } catch (e: any) {
     return render({ purchaseError: sanitizeDynadotErrorMessage(e?.message || "Registration failed."), searchResult: { domain, available: true, priceList: (check?.data as any)?.price_list } as any });
+  }
+});
+
+app.get("/admin/b/:blogId/domains/dns", async (c) => {
+  const ctx = await blogContext(c);
+  if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
+  const denied = requireBlogCapability(c, ctx, "settings.manage");
+  if (denied) return denied;
+  if (!(await tenantHasPaidPlan(c.env, ctx.tenant.id))) return c.text("Custom domains are available on a paid plan.", 402);
+  if (!dynadotConfigured(c.env as any)) return c.text("Domain purchases are not configured.", 503);
+  const hostname = String(c.req.query("hostname") ?? "").trim().toLowerCase();
+  if (!hostname) return c.text("Missing hostname", 400);
+  const dCfg = dynadotCfg(c);
+  try {
+    const [info, dns] = await Promise.all([
+      getDomainInfo(c.env as any, hostname).catch(() => null),
+      getDnsRecords(c.env as any, hostname).catch(() => null),
+    ]);
+    const records: any[] = (dns?.data as any)?.dns_main_list || (dns?.data as any)?.records || [];
+    if (dns && !dns.ok) return c.html(dnsPage(ctx.account, ctx.tenant, hostname, { cnameTarget: c.env.CNAME_TARGET }, { error: sanitizeDynadotErrorMessage(dns.error || "Could not load DNS."), raw: dns.data, isSandbox: dCfg.isSandbox }));
+    return c.html(dnsPage(ctx.account, ctx.tenant, hostname, { cnameTarget: c.env.CNAME_TARGET }, { records, raw: { info: info?.data, dns: dns?.data }, isSandbox: dCfg.isSandbox }));
+  } catch (e: any) {
+    return c.html(dnsPage(ctx.account, ctx.tenant, hostname, { cnameTarget: c.env.CNAME_TARGET }, { error: sanitizeDynadotErrorMessage(e?.message || "Failed to load DNS."), isSandbox: dCfg.isSandbox }));
+  }
+});
+
+app.post("/admin/b/:blogId/domains/dns", async (c) => {
+  const ctx = await blogContext(c);
+  if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
+  const denied = requireBlogCapability(c, ctx, "settings.manage");
+  if (denied) return denied;
+  if (!(await tenantHasPaidPlan(c.env, ctx.tenant.id))) return c.text("Domain purchases are available on a paid plan.", 402);
+  if (!dynadotConfigured(c.env as any)) return c.text("Domain purchases are not configured.", 503);
+  const form = await c.req.formData();
+  const hostname = String(form.get("hostname") ?? "").trim().toLowerCase();
+  const preset = String(form.get("preset") ?? "");
+  const host = preset === "blognice" ? "@" : String(form.get("host") ?? "@").trim() || "@";
+  const type = preset === "blognice" ? "CNAME" : String(form.get("type") ?? "CNAME").trim().toUpperCase();
+  const value = preset === "blognice" ? c.env.CNAME_TARGET : String(form.get("value") ?? "").trim();
+  if (!hostname || !value) return c.html(dnsPage(ctx.account, ctx.tenant, hostname || "unknown", { cnameTarget: c.env.CNAME_TARGET }, { error: "Host and value required.", isSandbox: dynadotCfg(c).isSandbox }));
+  const dCfg = dynadotCfg(c);
+  try {
+    const res = await setDnsRecords(c.env as any, hostname, {
+      dns_main_list: [{ host, type: type as any, value, ttl: 3600 }],
+      ttl: 3600,
+      add_dns_to_current_setting: false,
+    });
+    if (!res.ok) return c.html(dnsPage(ctx.account, ctx.tenant, hostname, { cnameTarget: c.env.CNAME_TARGET }, { error: sanitizeDynadotErrorMessage(res.error || "DNS update failed."), raw: res.data, isSandbox: dCfg.isSandbox }));
+    const dns = await getDnsRecords(c.env as any, hostname).catch(() => null);
+    const records: any[] = (dns?.data as any)?.dns_main_list || [];
+    return c.html(dnsPage(ctx.account, ctx.tenant, hostname, { cnameTarget: c.env.CNAME_TARGET }, { notice: dCfg.isSandbox ? `Simulated DNS update: ${host} ${type} -> ${value}` : `DNS updated: ${host} ${type} -> ${value}`, records, raw: dns?.data, isSandbox: dCfg.isSandbox }));
+  } catch (e: any) {
+    return c.html(dnsPage(ctx.account, ctx.tenant, hostname, { cnameTarget: c.env.CNAME_TARGET }, { error: sanitizeDynadotErrorMessage(e?.message || "DNS update failed."), isSandbox: dCfg.isSandbox }));
+  }
+});
+
+app.post("/admin/b/:blogId/domains/renew", async (c) => {
+  const ctx = await blogContext(c);
+  if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
+  const denied = requireBlogCapability(c, ctx, "settings.manage");
+  if (denied) return denied;
+  if (!(await tenantHasPaidPlan(c.env, ctx.tenant.id))) return c.text("Domain purchases are available on a paid plan.", 402);
+  if (!dynadotConfigured(c.env as any)) return c.text("Domain purchases are not configured.", 503);
+  const form = await c.req.formData();
+  const hostname = String(form.get("hostname") ?? "").trim().toLowerCase();
+  const duration = Math.max(1, Math.min(10, parseInt(String(form.get("duration") ?? "1"), 10) || 1));
+  if (!hostname) return c.text("Missing hostname", 400);
+  const dCfg = dynadotCfg(c);
+  const domains = await loadDomains(c, ctx.tenant.id);
+  const render = (opts: any) => c.html(domainsPage(ctx.account, ctx.tenant, domains, domainCfg(c), { dynadotEnabled: dCfg.enabled, isSandbox: dCfg.isSandbox, ...opts }));
+  try {
+    const info = await getDomainInfo(c.env as any, hostname).catch(() => null);
+    let year = new Date().getUTCFullYear() + 1;
+    const exp = (info?.data as any)?.domain_info?.expiration_date || (info?.data as any)?.expiration_date;
+    if (exp) {
+      const d = new Date(Number(exp));
+      if (!isNaN(d.getTime())) year = d.getUTCFullYear();
+      if (year < new Date().getUTCFullYear()) year = new Date().getUTCFullYear() + 1;
+    }
+    const res = await renewDomain(c.env as any, hostname, { duration, year, currency: "USD" });
+    if (!res.ok) return render({ error: sanitizeDynadotErrorMessage(res.error || "Renewal failed.") });
+    return render({ notice: dCfg.isSandbox ? `Simulated renewal: ${hostname} +${duration}y (year ${year})` : `Renewed ${hostname} for ${duration} year(s).` });
+  } catch (e: any) {
+    return render({ error: sanitizeDynadotErrorMessage(e?.message || "Renewal failed.") });
   }
 });
 

@@ -730,6 +730,7 @@ export function domainsPage(
                          <button class="btn ghost" type="submit">Check status</button>
                        </form>`
                 }
+                ${dynadotEnabled ? `<a class="btn ghost" href="${base}/domains/dns?hostname=${encodeURIComponent(d.hostname)}">DNS</a><form method="post" action="${base}/domains/renew" style="display:inline"><input type="hidden" name="hostname" value="${esc(d.hostname)}"><input type="hidden" name="duration" value="1"><button class="btn ghost" type="submit" title="Renew 1 year via Dynadot">Renew</button></form>` : ``}
                 <form method="post" action="${base}/domains/remove" onsubmit="return confirm('Disconnect this domain?')">
                   <input type="hidden" name="hostname" value="${esc(d.hostname)}">
                   <button class="btn danger" type="submit">Remove</button>
@@ -827,6 +828,68 @@ export function domainsPage(
       ${instBlock}
       ${list}
       ${searchBlock}
+    </div>`,
+    account,
+    tenant
+  );
+}
+
+export function dnsPage(
+  account: Account,
+  tenant: Tenant,
+  hostname: string,
+  cfg: { cnameTarget: string },
+  opts?: {
+    error?: string;
+    notice?: string;
+    records?: Array<{ host: string; type: string; value: string; ttl?: number }>;
+    raw?: any;
+    isSandbox?: boolean;
+  }
+): string {
+  const base = `/admin/b/${tenant.public_id}`;
+  const recs = opts?.records ?? [];
+  const recTable = recs.length
+    ? `<table class="dns" style="width:100%;margin:.8rem 0"><tr><th>Host</th><th>Type</th><th>Value</th><th>TTL</th></tr>${recs.map((r) => `<tr><td><code>${esc(r.host || "@")}</code></td><td>${esc(r.type)}</td><td><code>${esc(r.value)}</code></td><td>${esc(String(r.ttl ?? ""))}</td></tr>`).join("")}</table>`
+    : `<p style="color:var(--muted)">No records found (domain may be outside Dynadot or use external nameservers).</p>`;
+  return shell(
+    `DNS — ${hostname}`,
+    `<div class="page">
+      <p><a href="${base}/domains">← Back to domains</a></p>
+      <h1>DNS for ${esc(hostname)}</h1>
+      ${opts?.isSandbox ? `<p style="color:var(--muted)"><span class="tag">Sandbox mode</span> Changes are simulated.</p>` : ``}
+      ${opts?.error ? `<div class="error">${esc(opts.error)}</div>` : ``}
+      ${opts?.notice ? `<div class="notice">${esc(opts.notice)}</div>` : ``}
+      <div class="panel-block">
+        <h3 style="margin:0 0 .6rem">Current Dynadot DNS</h3>
+        ${recTable}
+        ${opts?.raw ? `<details style="margin-top:.8rem"><summary style="cursor:pointer;color:var(--muted)">Raw response</summary><pre style="white-space:pre-wrap;word-break:break-all;font-size:.75rem">${esc(JSON.stringify(opts.raw, null, 2).slice(0, 4000))}</pre></details>` : ``}
+      </div>
+      <div class="panel-block">
+        <h3 style="margin:0 0 .6rem">Simple DNS update</h3>
+        <p style="color:var(--muted);font-size:.85rem;margin:0 0 .8rem">Sets <code>@</code> to <code>${esc(cfg.cnameTarget)}</code> or a custom record. Replaces current Dynadot records (external nameservers will be overridden).</p>
+        <form method="post" action="${base}/domains/dns" style="display:grid;gap:.6rem;max-width:520px">
+          <input type="hidden" name="hostname" value="${esc(hostname)}">
+          <div style="display:grid;gap:.6rem;grid-template-columns:1fr 1fr 2fr">
+            <label>Host <input name="host" type="text" placeholder="@" value="@" maxlength="64"></label>
+            <label>Type <select name="type"><option value="CNAME" selected>CNAME</option><option value="A">A</option><option value="TXT">TXT</option></select></label>
+            <label>Value <input name="value" type="text" required placeholder="${esc(cfg.cnameTarget)}" value="${esc(cfg.cnameTarget)}"></label>
+          </div>
+          <div style="display:flex;gap:.6rem">
+            <button class="btn" type="submit">Save DNS</button>
+            <button class="btn ghost" type="submit" name="preset" value="blognice">Reset to ${esc(cfg.cnameTarget)}</button>
+          </div>
+        </form>
+      </div>
+      <div class="panel-block">
+        <h3 style="margin:0 0 .6rem">Renew domain</h3>
+        <form method="post" action="${base}/domains/renew" style="display:flex;gap:.6rem;align-items:flex-end;max-width:320px">
+          <input type="hidden" name="hostname" value="${esc(hostname)}">
+          <label>Duration <select name="duration"><option value="1" selected>1 year</option><option value="2">2 years</option><option value="3">3 years</option><option value="5">5 years</option></select></label>
+          <button class="btn" type="submit">Renew</button>
+        </form>
+        <p style="color:var(--muted);font-size:.8rem;margin:.6rem 0 0">Dynadot will charge renewal + $2 service fee. Sandbox renewals are simulated.</p>
+      </div>
     </div>`,
     account,
     tenant
