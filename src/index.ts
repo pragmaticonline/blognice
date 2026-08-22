@@ -120,7 +120,7 @@ import {
   analyticsConsentRequired,
   ANALYTICS_CONSENT_VERSION,
 } from "./metrics";
-import { checkoutSubscriptionDecision, createCheckoutSession, createPortalSession, retrieveSubscription, stripeConfigured, subscriptionEventMatchesCurrent, verifyStripeSignature } from "./stripe";
+import { checkoutSubscriptionDecision, createCheckoutSession, createDomainCheckoutSession, createPortalSession, retrieveSubscription, stripeConfigured, subscriptionEventMatchesCurrent, verifyStripeSignature } from "./stripe";
 import { createAnnualInvoice, getPayment, isTerminalPaidStatus, nowPaymentsConfigured, verifyNowPaymentsIpn, NOWPAYMENTS_ANNUAL_SECONDS, NOWPAYMENTS_ANNUAL_USD } from "./nowpayments";
 import { renderMarkdown as renderMarkdownSafe } from "./markdown";
 import { buildSitemapIndexXml, cacheVariants, CACHE_VERSION, customDomainRedirectUrl, indexNowKey } from "./indexing";
@@ -4638,10 +4638,16 @@ app.get("/admin/b/:blogId/domains", async (c) => {
   if (denied) return denied;
   const domains = await loadDomains(c, ctx.tenant.id);
   const dCfg = dynadotCfg(c);
+  const checkout = String(c.req.query("domain_checkout") || "");
+  const checkoutDomain = String(c.req.query("domain") || "");
+  const checkoutNotice = checkout === "success" ? `Payment received for ${checkoutDomain || "domain"} — provisioning via ${dCfg.isSandbox ? "sandbox " : ""}Dynadot. Refresh in a few seconds, then check status.` : checkout === "cancel" ? `Checkout cancelled for ${checkoutDomain || "domain"}.` : undefined;
+  const checkoutError = checkout === "success" ? undefined : undefined;
   return c.html(
     domainsPage(ctx.account, ctx.tenant, domains, domainCfg(c), {
       dynadotEnabled: dCfg.enabled,
       isSandbox: dCfg.isSandbox,
+      ...(checkoutNotice ? { notice: checkoutNotice } : {}),
+      ...(checkoutError ? { error: checkoutError } : {}),
     })
   );
 });
@@ -4860,73 +4866,102 @@ app.post("/admin/b/:blogId/domains/buy", async (c) => {
   const available = check?.data ? String((check.data as any).available).toLowerCase() === "yes" || (check.data as any).available === true : false;
   if (check && !check.ok) return render({ purchaseError: sanitizeDynadotErrorMessage(check.error || "Domain not available."), searchResult: { domain, available: false } as any });
   if (!available) return render({ purchaseError: "Domain is no longer available.", searchResult: { domain, available: false } as any });
-  let contactId: number | null = null;
-  try {
-    const contactRes = await createContact(c.env as any, {
-      organization: contactOrg || undefined,
-      name: contactName,
-      email: contactEmail,
-      phone_number: contactPhone,
-      phone_cc: contactPhoneCc,
-      address1: contactAddress1,
-      city: contactCity,
-      state: contactState || undefined,
-      zip: contactZip,
-      country: contactCountry,
-    });
-    if (!contactRes.ok) return render({ purchaseError: sanitizeDynadotErrorMessage(contactRes.error || "Could not create contact."), searchResult: { domain, available: true, priceList: (check?.data as any)?.price_list } as any });
-    contactId = (contactRes.data as any)?.contact_id;
-    if (!contactId) return render({ purchaseError: "Could not create contact (no ID returned).", searchResult: { domain, available: true } as any });
-  } catch (e: any) {
-    return render({ purchaseError: sanitizeDynadotErrorMessage(e?.message || "Contact creation failed."), searchResult: { domain, available: true } as any });
+  const priceList: any[] = (check?.data as any)?.price_list || [];
+  const basePriceRaw = priceList[0]?.registration_price ? String(priceList[0].registration_price) : "15.00";
+  const basePrice = parseFloat(basePriceRaw);
+  const markupPerYear = 2;
+  const unitPrice = (Number.isFinite(basePrice) ? basePrice : 15) + markupPerYear;
+  const amountCents = Math.round(unitPrice * duration * 100);
+  if (!stripeConfigured(c.env as any)) {
+    let contactId: number | null = null;
+    try {
+      const contactRes = await createContact(c.env as any, {
+        organization: contactOrg || undefined,
+        name: contactName,
+        email: contactEmail,
+        phone_number: contactPhone,
+        phone_cc: contactPhoneCc,
+        address1: contactAddress1,
+        city: contactCity,
+        state: contactState || undefined,
+        zip: contactZip,
+        country: contactCountry,
+      });
+      if (!contactRes.ok) return render({ purchaseError: sanitizeDynadotErrorMessage(contactRes.error || "Could not create contact."), searchResult: { domain, available: true, priceList } as any });
+      contactId = (contactRes.data as any)?.contact_id;
+      if (!contactId) return render({ purchaseError: "Could not create contact (no ID returned).", searchResult: { domain, available: true } as any });
+    } catch (e: any) {
+      return render({ purchaseError: sanitizeDynadotErrorMessage(e?.message || "Contact creation failed."), searchResult: { domain, available: true } as any });
+    }
+    try {
+      const reg = await dynadotRegisterDomain(c.env as any, domain, {
+        duration,
+        registrant_contact_id: contactId,
+        admin_contact_id: contactId,
+        tech_contact_id: contactId,
+        billing_contact_id: contactId,
+        privacy,
+        currency: "USD",
+      });
+      if (!reg.ok) return render({ purchaseError: sanitizeDynadotErrorMessage(reg.error || "Registration failed."), searchResult: { domain, available: true, priceList } as any });
+      const now = Math.floor(Date.now() / 1000);
+      let cfHostnameId: string | null = null;
+      try {
+        const created = await createCustomHostname(c.env as any, domain);
+        if (created.ok) cfHostnameId = created.result?.id ?? null;
+        else {
+          const found = await findCustomHostname(c.env as any, domain);
+          const hit = Array.isArray(found.result) ? found.result[0] : null;
+          if (hit) cfHostnameId = hit.id ?? null;
+        }
+      } catch {}
+      try {
+        await setDnsRecords(c.env as any, domain, {
+          dns_main_list: [{ host: "@", type: "CNAME", value: c.env.CNAME_TARGET, ttl: 3600 }],
+          ttl: 3600,
+          add_dns_to_current_setting: false,
+        });
+      } catch {}
+      await c.env.DB.prepare(
+        `INSERT INTO domains (hostname, tenant_id, cf_hostname_id, status, created_at) VALUES (?, ?, ?, 'pending', ?) ON CONFLICT(hostname) DO UPDATE SET tenant_id=excluded.tenant_id, cf_hostname_id=excluded.cf_hostname_id`
+      )
+        .bind(domain, ctx.tenant.id, cfHostnameId, now)
+        .run();
+      queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "custom_domain_added", domain + " (purchased via Dynadot)");
+      const allDomains = await loadDomains(c, ctx.tenant.id);
+      return c.html(
+        domainsPage(ctx.account, ctx.tenant, allDomains, domainCfg(c), {
+          dynadotEnabled: dCfg.enabled,
+          isSandbox: dCfg.isSandbox,
+          purchaseNotice: dCfg.isSandbox
+            ? `Simulated purchase complete: ${domain} is now in your sandbox account and pending Cloudflare verification.`
+            : `Domain ${domain} purchased successfully. Add the CNAME ${domain} → ${c.env.CNAME_TARGET} and check status.`,
+        })
+      );
+    } catch (e: any) {
+      return render({ purchaseError: sanitizeDynadotErrorMessage(e?.message || "Registration failed."), searchResult: { domain, available: true, priceList } as any });
+    }
   }
   try {
-    const reg = await dynadotRegisterDomain(c.env as any, domain, {
+    const origin = new URL(c.req.url).origin;
+    const billing = await c.env.DB.prepare("SELECT stripe_customer_id FROM accounts WHERE id = ?").bind(ctx.account.id).first<{ stripe_customer_id?: string | null }>();
+    const session = await createDomainCheckoutSession(c.env as any, {
+      accountId: ctx.account.id,
+      tenantId: ctx.tenant.id,
+      email: ctx.account.email,
+      customerId: billing?.stripe_customer_id || null,
+      domain,
       duration,
-      registrant_contact_id: contactId,
-      admin_contact_id: contactId,
-      tech_contact_id: contactId,
-      billing_contact_id: contactId,
       privacy,
+      amountCents,
       currency: "USD",
+      successUrl: `${origin}/admin/b/${ctx.tenant.public_id}/domains?domain_checkout=success&domain=${encodeURIComponent(domain)}`,
+      cancelUrl: `${origin}/admin/b/${ctx.tenant.public_id}/domains?domain_checkout=cancel&domain=${encodeURIComponent(domain)}`,
+      contact: { name: contactName, email: contactEmail, phone_cc: contactPhoneCc, phone: contactPhone, address1: contactAddress1, city: contactCity, state: contactState, zip: contactZip, country: contactCountry, org: contactOrg || undefined },
     });
-    if (!reg.ok) return render({ purchaseError: sanitizeDynadotErrorMessage(reg.error || "Registration failed."), searchResult: { domain, available: true, priceList: (check?.data as any)?.price_list } as any });
-    const now = Math.floor(Date.now() / 1000);
-    let cfHostnameId: string | null = null;
-    try {
-      const created = await createCustomHostname(c.env as any, domain);
-      if (created.ok) cfHostnameId = created.result?.id ?? null;
-      else {
-        const found = await findCustomHostname(c.env as any, domain);
-        const hit = Array.isArray(found.result) ? found.result[0] : null;
-        if (hit) cfHostnameId = hit.id ?? null;
-      }
-    } catch {}
-    try {
-      await setDnsRecords(c.env as any, domain, {
-        dns_main_list: [{ host: "@", type: "CNAME", value: c.env.CNAME_TARGET, ttl: 3600 }],
-        ttl: 3600,
-        add_dns_to_current_setting: false,
-      });
-    } catch {}
-    await c.env.DB.prepare(
-      `INSERT INTO domains (hostname, tenant_id, cf_hostname_id, status, created_at) VALUES (?, ?, ?, 'pending', ?) ON CONFLICT(hostname) DO UPDATE SET tenant_id=excluded.tenant_id, cf_hostname_id=excluded.cf_hostname_id`
-    )
-      .bind(domain, ctx.tenant.id, cfHostnameId, now)
-      .run();
-    queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "custom_domain_added", domain + " (purchased via Dynadot)");
-    const allDomains = await loadDomains(c, ctx.tenant.id);
-    return c.html(
-      domainsPage(ctx.account, ctx.tenant, allDomains, domainCfg(c), {
-        dynadotEnabled: dCfg.enabled,
-        isSandbox: dCfg.isSandbox,
-        purchaseNotice: dCfg.isSandbox
-          ? `Simulated purchase complete: ${domain} is now in your sandbox account and pending Cloudflare verification.`
-          : `Domain ${domain} purchased successfully. Add the CNAME ${domain} → ${c.env.CNAME_TARGET} and check status.`,
-      })
-    );
+    return c.redirect(session.url, 303);
   } catch (e: any) {
-    return render({ purchaseError: sanitizeDynadotErrorMessage(e?.message || "Registration failed."), searchResult: { domain, available: true, priceList: (check?.data as any)?.price_list } as any });
+    return render({ purchaseError: sanitizeDynadotErrorMessage(e?.message || "Checkout failed."), searchResult: { domain, available: true, priceList } as any });
   }
 });
 
@@ -5638,6 +5673,91 @@ app.post("/stripe/webhook", async (c) => {
     accountId = row?.id || null;
   }
   if (entitlementEvent && !accountId) throw new Error("Stripe billing event could not be mapped to a Blog Nice account yet.");
+  if (event.type === "checkout.session.completed" && object.metadata?.type === "domain_purchase") {
+    const meta: any = object.metadata || {};
+    const domain = String(meta.domain || "").toLowerCase().trim();
+    const tenantId = Number(meta.tenant_id || 0);
+    const duration = Math.max(1, Math.min(10, parseInt(String(meta.duration || "1"), 10) || 1));
+    const privacy = String(meta.privacy || "full").toLowerCase() as "off" | "partial" | "full";
+    const accId = Number(meta.account_id || accountId || 0) || accountId;
+    if (!domain || !tenantId || !accId) throw new Error("Domain purchase metadata missing domain/tenant/account.");
+    const paymentStatus = String(object.payment_status || object.status || "");
+    if (paymentStatus !== "paid" && paymentStatus !== "complete" && object.status !== "complete") {
+      await c.env.DB.prepare("UPDATE stripe_events SET account_id = ?, status = 'processed', processed_at = ?, last_error = NULL WHERE id = ?").bind(accId, Math.floor(Date.now() / 1000), event.id).run();
+      return c.json({ received: true, domain_pending: true });
+    }
+    const existing = await c.env.DB.prepare("SELECT hostname FROM domains WHERE hostname = ? AND tenant_id = ?").bind(domain, tenantId).first();
+    if (existing) {
+      await c.env.DB.prepare("UPDATE stripe_events SET account_id = ?, status = 'processed', processed_at = ?, last_error = NULL WHERE id = ?").bind(accId, Math.floor(Date.now() / 1000), event.id).run();
+      return c.json({ received: true, duplicate_domain: true });
+    }
+    const contactRes = await createContact(c.env as any, {
+      organization: meta.contact_org || undefined,
+      name: String(meta.contact_name || ""),
+      email: String(meta.contact_email || ""),
+      phone_number: String(meta.contact_phone || ""),
+      phone_cc: String(meta.contact_phone_cc || ""),
+      address1: String(meta.contact_address1 || ""),
+      city: String(meta.contact_city || ""),
+      state: String(meta.contact_state || "") || undefined,
+      zip: String(meta.contact_zip || ""),
+      country: String(meta.contact_country || ""),
+    });
+    if (!contactRes.ok) throw new Error(sanitizeDynadotErrorMessage(contactRes.error || "Contact creation failed for domain purchase."));
+    const contactId = (contactRes.data as any)?.contact_id;
+    if (!contactId) throw new Error("Contact creation returned no ID for domain purchase.");
+    const reg = await dynadotRegisterDomain(c.env as any, domain, {
+      duration,
+      registrant_contact_id: contactId,
+      admin_contact_id: contactId,
+      tech_contact_id: contactId,
+      billing_contact_id: contactId,
+      privacy,
+      currency: "USD",
+    });
+    if (!reg.ok) throw new Error(sanitizeDynadotErrorMessage(reg.error || "Registration failed for domain purchase."));
+    let cfHostnameId: string | null = null;
+    try {
+      const created = await createCustomHostname(c.env as any, domain);
+      if (created.ok) cfHostnameId = (created as any).result?.id ?? null;
+      else {
+        const found = await findCustomHostname(c.env as any, domain);
+        const hit = Array.isArray((found as any).result) ? (found as any).result[0] : null;
+        if (hit) cfHostnameId = hit.id ?? null;
+      }
+    } catch {}
+    try {
+      await setDnsRecords(c.env as any, domain, {
+        dns_main_list: [{ host: "@", type: "CNAME", value: c.env.CNAME_TARGET, ttl: 3600 }],
+        ttl: 3600,
+        add_dns_to_current_setting: false,
+      });
+    } catch {}
+    const now = Math.floor(Date.now() / 1000);
+    await c.env.DB.prepare(
+      `INSERT INTO domains (hostname, tenant_id, cf_hostname_id, status, created_at) VALUES (?, ?, ?, 'pending', ?) ON CONFLICT(hostname) DO UPDATE SET tenant_id=excluded.tenant_id, cf_hostname_id=excluded.cf_hostname_id`
+    )
+      .bind(domain, tenantId, cfHostnameId, now)
+      .run();
+    try {
+      const auditTenant = tenantId;
+      const auditActor = accId;
+      if (auditTenant && auditActor) {
+        const isPaid = await (async () => {
+          try {
+            const owner = await c.env.DB.prepare(`SELECT COALESCE(a.billing_status,'inactive') AS billing_status FROM memberships m JOIN accounts a ON a.id=m.account_id WHERE m.tenant_id=? AND m.role='owner' LIMIT 1`).bind(auditTenant).first<any>();
+            return owner && (owner.billing_status === 'active' || owner.billing_status === 'trialing');
+          } catch { return false; }
+        })();
+        if (isPaid) {
+          const { recordAuditEvent } = await import("./metrics");
+          await recordAuditEvent(c.env as any, auditTenant, { action: "custom_domain_added", target: domain + " (purchased via Dynadot + Stripe)", actor: String(auditActor) });
+        }
+      }
+    } catch {}
+    await c.env.DB.prepare("UPDATE stripe_events SET account_id = ?, status = 'processed', processed_at = ?, last_error = NULL WHERE id = ?").bind(accId, Math.floor(Date.now() / 1000), event.id).run();
+    return c.json({ received: true, domain_provisioned: true });
+  }
   if (event.type === "invoice.payment_failed" && accountId) {
     const accountBilling = await c.env.DB.prepare("SELECT stripe_subscription_id FROM accounts WHERE id = ?").bind(accountId).first<{ stripe_subscription_id: string | null }>();
     if (!invoiceSubscriptionId || !accountBilling?.stripe_subscription_id || invoiceSubscriptionId !== accountBilling.stripe_subscription_id) {

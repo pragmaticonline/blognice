@@ -89,6 +89,51 @@ export function createCheckoutSession(env: StripeEnv, input: { accountId: number
   return stripeRequest<{ id: string; url: string }>(env, "checkout/sessions", params);
 }
 
+export function createDomainCheckoutSession(env: StripeEnv, input: {
+  accountId: number;
+  tenantId: number;
+  email: string;
+  customerId?: string | null;
+  domain: string;
+  duration: number;
+  privacy: string;
+  amountCents: number;
+  currency?: string;
+  successUrl: string;
+  cancelUrl: string;
+  contact: { name: string; email: string; phone_cc: string; phone: string; address1: string; city: string; state: string; zip: string; country: string; org?: string };
+}) {
+  const params = new URLSearchParams();
+  params.set("mode", "payment");
+  params.set("line_items[0][price_data][currency]", (input.currency || "usd").toLowerCase());
+  params.set("line_items[0][price_data][unit_amount]", String(input.amountCents));
+  params.set("line_items[0][price_data][product_data][name]", `Domain ${input.domain} — ${input.duration} year${input.duration > 1 ? "s" : ""}`);
+  params.set("line_items[0][price_data][product_data][description]", `Registration via Dynadot (${input.privacy} privacy)`);
+  params.set("line_items[0][quantity]", "1");
+  params.set("client_reference_id", String(input.accountId));
+  params.set("customer_email", input.email);
+  if (input.customerId) { params.delete("customer_email"); params.set("customer", input.customerId); }
+  params.set("success_url", input.successUrl);
+  params.set("cancel_url", input.cancelUrl);
+  params.set("metadata[account_id]", String(input.accountId));
+  params.set("metadata[tenant_id]", String(input.tenantId));
+  params.set("metadata[domain]", input.domain);
+  params.set("metadata[duration]", String(input.duration));
+  params.set("metadata[privacy]", input.privacy);
+  params.set("metadata[type]", "domain_purchase");
+  params.set("metadata[contact_name]", input.contact.name.slice(0, 500));
+  params.set("metadata[contact_email]", input.contact.email.slice(0, 500));
+  params.set("metadata[contact_phone_cc]", input.contact.phone_cc.slice(0, 500));
+  params.set("metadata[contact_phone]", input.contact.phone.slice(0, 500));
+  params.set("metadata[contact_address1]", input.contact.address1.slice(0, 500));
+  params.set("metadata[contact_city]", input.contact.city.slice(0, 500));
+  params.set("metadata[contact_state]", (input.contact.state || "").slice(0, 500));
+  params.set("metadata[contact_zip]", input.contact.zip.slice(0, 500));
+  params.set("metadata[contact_country]", input.contact.country.slice(0, 500));
+  if (input.contact.org) params.set("metadata[contact_org]", input.contact.org.slice(0, 500));
+  return stripeRequest<{ id: string; url: string }>(env, "checkout/sessions", params);
+}
+
 export function createPortalSession(env: StripeEnv, customerId: string, returnUrl: string) {
   const params = new URLSearchParams({ customer: customerId, return_url: returnUrl });
   if (env.STRIPE_PORTAL_CONFIGURATION_ID) params.set("configuration", env.STRIPE_PORTAL_CONFIGURATION_ID);
