@@ -18,7 +18,10 @@ export function isSandboxEnabled(env: DynadotEnv): boolean {
 }
 
 export function getDynadotBaseUrl(env: DynadotEnv): string {
-  return isSandboxEnabled(env) ? DYNADOT_SANDBOX_BASE_URL : DYNADOT_PRODUCTION_BASE_URL;
+  if (isSandboxEnabled(env) || isSandboxCredential(env.DYNADOT_API_KEY) || isSandboxCredential(env.DYNADOT_API_SECRET)) {
+    return DYNADOT_SANDBOX_BASE_URL;
+  }
+  return DYNADOT_PRODUCTION_BASE_URL;
 }
 
 export function dynadotConfigured(env: DynadotEnv): boolean {
