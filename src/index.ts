@@ -37,6 +37,7 @@ import {
   getTldPrice,
   createContact,
   registerDomain as dynadotRegisterDomain,
+  setDnsRecords,
   sanitizeDynadotErrorMessage,
 } from "./dynadot";
 import {
@@ -4898,6 +4899,13 @@ app.post("/admin/b/:blogId/domains/buy", async (c) => {
         const hit = Array.isArray(found.result) ? found.result[0] : null;
         if (hit) cfHostnameId = hit.id ?? null;
       }
+    } catch {}
+    try {
+      await setDnsRecords(c.env as any, domain, {
+        dns_main_list: [{ host: "@", type: "CNAME", value: c.env.CNAME_TARGET, ttl: 3600 }],
+        ttl: 3600,
+        add_dns_to_current_setting: false,
+      });
     } catch {}
     await c.env.DB.prepare(
       `INSERT INTO domains (hostname, tenant_id, cf_hostname_id, status, created_at) VALUES (?, ?, ?, 'pending', ?) ON CONFLICT(hostname) DO UPDATE SET tenant_id=excluded.tenant_id, cf_hostname_id=excluded.cf_hostname_id`
