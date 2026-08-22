@@ -709,12 +709,12 @@ export function domainsPage(
       </div>`
     : "";
 
-  const dynadotEnabled = opts?.dynadotEnabled ?? false;
-  const isSandbox = opts?.isSandbox ?? false;
-  const searchResult = opts?.searchResult ?? null;
-  const searchError = opts?.searchError ?? null;
-  const purchaseError = opts?.purchaseError ?? null;
-  const purchaseNotice = opts?.purchaseNotice ?? null;
+  const _dynadotEnabled = opts?.dynadotEnabled ?? false;
+  const _isSandbox = opts?.isSandbox ?? false;
+  const _searchResult = opts?.searchResult ?? null;
+  const _searchError = opts?.searchError ?? null;
+  const _purchaseError = opts?.purchaseError ?? null;
+  const _purchaseNotice = opts?.purchaseNotice ?? null;
 
   const list =
     domains.length === 0
@@ -737,7 +737,6 @@ export function domainsPage(
                          <button class="btn ghost" type="submit">Check status</button>
                        </form>`
                 }
-                ${dynadotEnabled ? `<a class="btn ghost" href="${base}/domains/dns?hostname=${encodeURIComponent(d.hostname)}">DNS</a><form method="post" action="${base}/domains/renew" style="display:inline"><input type="hidden" name="hostname" value="${esc(d.hostname)}"><input type="hidden" name="duration" value="1"><button class="btn ghost" type="submit" title="Renew 1 year via Dynadot">Renew</button></form>` : ``}
                 <form method="post" action="${base}/domains/remove" onsubmit="return confirm('Disconnect this domain?')">
                   <input type="hidden" name="hostname" value="${esc(d.hostname)}">
                   <button class="btn danger" type="submit">Remove</button>
@@ -747,65 +746,7 @@ export function domainsPage(
           )
           .join("")}</ul>`;
 
-  const searchBlock = dynadotEnabled
-    ? `<hr style="margin:2rem 0">
-      <h2 style="margin:0 0 .4rem">Buy a new domain</h2>
-      <p style="color:var(--muted);margin:0 0 .8rem">Search and purchase a domain via Dynadot. ${isSandbox ? `<span class="tag">Sandbox mode</span> Sandbox purchases are simulated and pre-funded.` : `Paid plan required.`}</p>
-      ${searchError ? `<div class="error">${esc(searchError)}</div>` : ""}
-      ${purchaseError ? `<div class="error">${esc(purchaseError)}</div>` : ""}
-      ${purchaseNotice ? `<div class="notice">${esc(purchaseNotice)}</div>` : ""}
-      <form method="post" action="${base}/domains/search" style="display:flex;gap:0.6rem;align-items:flex-start;margin:0 0 1rem">
-        <input name="domain" type="text" placeholder="example.com"
-               autocapitalize="none" autocorrect="off" spellcheck="false"
-               style="margin:0" required value="${esc(searchResult?.domain ?? "")}">
-        <button class="btn" type="submit">Check availability</button>
-      </form>
-      ${
-        searchResult
-          ? `<div class="panel-block" style="margin-bottom:1rem">
-              <div class="row" style="margin-bottom:0.6rem">
-                <strong>${esc(searchResult.domain)}</strong>
-                <span class="tag ${searchResult.available ? "live" : ""}">${searchResult.available ? "Available" : "Taken"}</span>
-                ${searchResult.premium && searchResult.premium !== "no" ? `<span class="tag">Premium</span>` : ""}
-              </div>
-              ${
-                searchResult.priceList && searchResult.priceList.length
-                  ? `<p style="margin:0 0 .6rem;color:var(--muted);font-size:0.9rem">Price: $${esc(dynadotMarkupPrice(searchResult.priceList[0].registration_price))} ${esc(searchResult.priceList[0].currency)} / year ${searchResult.priceList[0].unit ? esc(searchResult.priceList[0].unit) : ""} <span style="font-size:.8rem">incl. $2 service fee</span></p>`
-                  : ""
-              }
-              ${
-                searchResult.available
-                  ? `<form method="post" action="${base}/domains/buy" style="display:grid;gap:.6rem;max-width:520px;margin-top:.6rem">
-                      <input type="hidden" name="domain" value="${esc(searchResult.domain)}">
-                      <div style="display:grid;gap:.6rem;grid-template-columns:1fr 1fr">
-                        <label>Your name <input name="contact_name" type="text" required placeholder="Jane Doe" maxlength="80"></label>
-                        <label>Email <input name="contact_email" type="email" required placeholder="jane@example.com"></label>
-                      </div>
-                      <div style="display:grid;gap:.6rem;grid-template-columns:1fr 1fr">
-                        <label>Phone country code <input name="contact_phone_cc" type="text" required placeholder="1" maxlength="5" value="1"></label>
-                        <label>Phone number <input name="contact_phone" type="text" required placeholder="5551234567" maxlength="20"></label>
-                      </div>
-                      <label>Address <input name="contact_address1" type="text" required placeholder="123 Main St" maxlength="120"></label>
-                      <div style="display:grid;gap:.6rem;grid-template-columns:1fr 1fr">
-                        <label>City <input name="contact_city" type="text" required placeholder="San Francisco" maxlength="80"></label>
-                        <label>State / Province <input name="contact_state" type="text" placeholder="CA" maxlength="80"></label>
-                      </div>
-                      <div style="display:grid;gap:.6rem;grid-template-columns:1fr 1fr">
-                        <label>ZIP / Postal <input name="contact_zip" type="text" required placeholder="94105" maxlength="20"></label>
-                        <label>Country (2-letter) <input name="contact_country" type="text" required placeholder="US" maxlength="2" value="US" style="text-transform:uppercase"></label>
-                      </div>
-                      <label>Organization (optional) <input name="contact_org" type="text" placeholder="Acme Inc" maxlength="80"></label>
-                      <label>Privacy <select name="privacy"><option value="off">Off</option><option value="partial">Partial</option><option value="full" selected>Full</option></select></label>
-                      <label>Duration <select name="duration"><option value="1" selected>1 year</option><option value="2">2 years</option><option value="3">3 years</option><option value="5">5 years</option><option value="10">10 years</option></select></label>
-                      <button class="btn" type="submit" style="margin-top:.4rem">Buy ${esc(searchResult.domain)}${searchResult.priceList && searchResult.priceList[0] ? ` — $` + esc(dynadotMarkupPrice(searchResult.priceList[0].registration_price)) : ""}</button>
-                      <p style="color:var(--muted);font-size:.8rem;margin:0">By purchasing you agree to Dynadot's registration terms. ${isSandbox ? `This is a sandbox simulated purchase.` : ``}</p>
-                    </form>`
-                  : `<p style="color:var(--muted);font-size:0.9rem;margin:0">Try another name.</p>`
-              }
-            </div>`
-          : ""
-      }`
-    : `<hr style="margin:2rem 0"><p style="color:var(--muted)">Domain purchases are not configured. Set <code>DYNADOT_API_KEY</code> and <code>DYNADOT_API_SECRET</code> to enable.</p>`;
+  const searchBlock = ``;
 
   return shell(
     `Domains — ${tenant.title}`,
