@@ -6,3 +6,12 @@ API_TOKEN = "choose-a-long-random-string"
 # Only needed if you want to exercise the custom-domain endpoints locally.
 CF_API_TOKEN = "your-cloudflare-api-token"
 CF_ZONE_ID = "your-zone-id"
+
+# Dynadot registrar (RESTful v2). Production uses https://api.dynadot.com.
+# Sandbox uses https://api-sandbox.dynadot.com with sandbox_ prefix credentials.
+# Never commit real credentials — this file uses placeholders only.
+DYNADOT_API_KEY = "your-dynadot-api-key"
+DYNADOT_API_SECRET = "your-dynadot-api-secret"
+# Set to "true" only for sandbox testing. Production must be "false" or unset,
+# and must refuse to start domain fulfilment if only sandbox credentials are present.
+DYNADOT_SANDBOX = "false"

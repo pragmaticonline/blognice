@@ -29,6 +29,15 @@ import {
   instructions,
 } from "./cloudflare";
 import {
+  dynadotConfigured,
+  isSandboxEnabled,
+  searchDomain,
+  getTldPrice,
+  createContact,
+  registerDomain as dynadotRegisterDomain,
+  sanitizeDynadotErrorMessage,
+} from "./dynadot";
+import {
   hashPassword,
   verifyPassword,
   createSession,
@@ -155,6 +164,11 @@ type Bindings = {
   NOWPAYMENTS_API_KEY?: string; // secret
   NOWPAYMENTS_IPN_SECRET?: string; // secret
   INDEXNOW_MASTER_SECRET?: string; // secret; derives per-host IndexNow keys
+
+  // Dynadot registrar (RESTful v2). See src/dynadot.ts.
+  DYNADOT_API_KEY?: string; // secret
+  DYNADOT_API_SECRET?: string; // secret
+  DYNADOT_SANDBOX?: string; // var: "true" for sandbox (api-sandbox.dynadot.com)
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -4592,6 +4606,25 @@ const domainCfg = (c: any) => ({
   rootDomain: c.env.ROOT_DOMAIN,
 });
 
+function dynadotCfg(c: any) {
+  return {
+    enabled: dynadotConfigured(c.env as any),
+    isSandbox: isSandboxEnabled(c.env as any),
+  };
+}
+
+function validPurchaseDomain(d: string): boolean {
+  const s = d.toLowerCase().trim();
+  if (!s || s.length > 253) return false;
+  if (!/^[a-z0-9.-]+$/.test(s)) return false;
+  if (s.startsWith(".") || s.endsWith(".") || s.includes("..")) return false;
+  if (!s.includes(".")) return false;
+  if (s.includes(" ")) return false;
+  const labels = s.split(".");
+  if (labels.some((l) => !l || l.length > 63 || l.startsWith("-") || l.endsWith("-"))) return false;
+  return true;
+}
+
 app.get("/admin/b/:blogId/domains", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
@@ -4599,7 +4632,13 @@ app.get("/admin/b/:blogId/domains", async (c) => {
   const denied = requireBlogCapability(c, ctx, "settings.manage");
   if (denied) return denied;
   const domains = await loadDomains(c, ctx.tenant.id);
-  return c.html(domainsPage(ctx.account, ctx.tenant, domains, domainCfg(c)));
+  const dCfg = dynadotCfg(c);
+  return c.html(
+    domainsPage(ctx.account, ctx.tenant, domains, domainCfg(c), {
+      dynadotEnabled: dCfg.enabled,
+      isSandbox: dCfg.isSandbox,
+    })
+  );
 });
 
 app.post("/admin/b/:blogId/domains", async (c) => {
@@ -4737,6 +4776,146 @@ app.post("/admin/b/:blogId/domains/remove", async (c) => {
     queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "custom_domain_removed", hostname);
   }
   return c.redirect(`/admin/b/${ctx.tenant.public_id}/domains`);
+});
+
+app.post("/admin/b/:blogId/domains/search", async (c) => {
+  const ctx = await blogContext(c);
+  if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
+  const denied = requireBlogCapability(c, ctx, "settings.manage");
+  if (denied) return denied;
+  if (!(await tenantHasPaidPlan(c.env, ctx.tenant.id))) return c.text("Domain purchases are available on a paid plan.", 402);
+  if (!dynadotConfigured(c.env as any)) {
+    const domains = await loadDomains(c, ctx.tenant.id);
+    const dCfg = dynadotCfg(c);
+    return c.html(
+      domainsPage(ctx.account, ctx.tenant, domains, domainCfg(c), {
+        dynadotEnabled: dCfg.enabled,
+        isSandbox: dCfg.isSandbox,
+        searchError: "Domain purchases are not configured. Set DYNADOT_API_KEY and DYNADOT_API_SECRET.",
+      })
+    );
+  }
+  const form = await c.req.formData();
+  const rawDomain = String(form.get("domain") ?? "").trim().toLowerCase();
+  const domains = await loadDomains(c, ctx.tenant.id);
+  const dCfg = dynadotCfg(c);
+  const render = (opts: any) =>
+    c.html(domainsPage(ctx.account, ctx.tenant, domains, domainCfg(c), { dynadotEnabled: dCfg.enabled, isSandbox: dCfg.isSandbox, ...opts }));
+  if (!validPurchaseDomain(rawDomain)) return render({ searchError: "Enter a valid domain, e.g. example.com." });
+  try {
+    const res = await searchDomain(c.env as any, rawDomain, { currency: "USD", show_price: true });
+    if (!res.ok) return render({ searchError: sanitizeDynadotErrorMessage(res.error || "Search failed."), searchResult: { domain: rawDomain, available: false, error: res.error || "" } as any });
+    const data: any = res.data;
+    const searchResult = {
+      domain: data.domain_name || rawDomain,
+      available: String(data.available).toLowerCase() === "yes" || data.available === true,
+      premium: data.premium || "no",
+      priceList: data.price_list || data.priceList || [],
+    };
+    return render({ searchResult });
+  } catch (e: any) {
+    return render({ searchError: sanitizeDynadotErrorMessage(e?.message || "Search failed.") });
+  }
+});
+
+app.post("/admin/b/:blogId/domains/buy", async (c) => {
+  const ctx = await blogContext(c);
+  if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
+  const denied = requireBlogCapability(c, ctx, "settings.manage");
+  if (denied) return denied;
+  if (!(await tenantHasPaidPlan(c.env, ctx.tenant.id))) return c.text("Domain purchases are available on a paid plan.", 402);
+  if (!dynadotConfigured(c.env as any)) return c.text("Domain purchases are not configured.", 503);
+  const form = await c.req.formData();
+  const domain = String(form.get("domain") ?? "").trim().toLowerCase();
+  const contactName = String(form.get("contact_name") ?? "").trim();
+  const contactEmail = String(form.get("contact_email") ?? "").trim().toLowerCase();
+  const contactPhoneCc = String(form.get("contact_phone_cc") ?? "").trim().replace(/[^0-9]/g, "");
+  const contactPhone = String(form.get("contact_phone") ?? "").trim().replace(/[^0-9]/g, "");
+  const contactAddress1 = String(form.get("contact_address1") ?? "").trim();
+  const contactCity = String(form.get("contact_city") ?? "").trim();
+  const contactState = String(form.get("contact_state") ?? "").trim();
+  const contactZip = String(form.get("contact_zip") ?? "").trim();
+  const contactCountry = String(form.get("contact_country") ?? "").trim().toUpperCase();
+  const contactOrg = String(form.get("contact_org") ?? "").trim();
+  const privacy = (String(form.get("privacy") ?? "full").toLowerCase() as "off" | "partial" | "full");
+  const duration = Math.max(1, Math.min(10, parseInt(String(form.get("duration") ?? "1"), 10) || 1));
+  const domains = await loadDomains(c, ctx.tenant.id);
+  const dCfg = dynadotCfg(c);
+  const render = (opts: any) =>
+    c.html(domainsPage(ctx.account, ctx.tenant, domains, domainCfg(c), { dynadotEnabled: dCfg.enabled, isSandbox: dCfg.isSandbox, ...opts }));
+  if (!validPurchaseDomain(domain)) return render({ purchaseError: "Enter a valid domain." });
+  if (!contactName || !contactEmail || !contactPhone || !contactPhoneCc || !contactAddress1 || !contactCity || !contactZip || !contactCountry) {
+    return render({ purchaseError: "Please fill all required contact fields.", searchResult: { domain, available: true } as any });
+  }
+  if (!/^[A-Z]{2}$/.test(contactCountry)) return render({ purchaseError: "Country must be 2 letters (e.g. US).", searchResult: { domain, available: true } as any });
+  if (!["off", "partial", "full"].includes(privacy)) return render({ purchaseError: "Invalid privacy option.", searchResult: { domain, available: true } as any });
+  const check = await searchDomain(c.env as any, domain, { currency: "USD", show_price: true }).catch(() => null);
+  const available = check?.data ? String((check.data as any).available).toLowerCase() === "yes" || (check.data as any).available === true : false;
+  if (check && !check.ok) return render({ purchaseError: sanitizeDynadotErrorMessage(check.error || "Domain not available."), searchResult: { domain, available: false } as any });
+  if (!available) return render({ purchaseError: "Domain is no longer available.", searchResult: { domain, available: false } as any });
+  let contactId: number | null = null;
+  try {
+    const contactRes = await createContact(c.env as any, {
+      organization: contactOrg || undefined,
+      name: contactName,
+      email: contactEmail,
+      phone_number: contactPhone,
+      phone_cc: contactPhoneCc,
+      address1: contactAddress1,
+      city: contactCity,
+      state: contactState || undefined,
+      zip: contactZip,
+      country: contactCountry,
+    });
+    if (!contactRes.ok) return render({ purchaseError: sanitizeDynadotErrorMessage(contactRes.error || "Could not create contact."), searchResult: { domain, available: true, priceList: (check?.data as any)?.price_list } as any });
+    contactId = (contactRes.data as any)?.contact_id;
+    if (!contactId) return render({ purchaseError: "Could not create contact (no ID returned).", searchResult: { domain, available: true } as any });
+  } catch (e: any) {
+    return render({ purchaseError: sanitizeDynadotErrorMessage(e?.message || "Contact creation failed."), searchResult: { domain, available: true } as any });
+  }
+  try {
+    const reg = await dynadotRegisterDomain(c.env as any, domain, {
+      duration,
+      registrant_contact_id: contactId,
+      admin_contact_id: contactId,
+      tech_contact_id: contactId,
+      billing_contact_id: contactId,
+      privacy,
+      currency: "USD",
+    });
+    if (!reg.ok) return render({ purchaseError: sanitizeDynadotErrorMessage(reg.error || "Registration failed."), searchResult: { domain, available: true, priceList: (check?.data as any)?.price_list } as any });
+    const now = Math.floor(Date.now() / 1000);
+    let cfHostnameId: string | null = null;
+    try {
+      const created = await createCustomHostname(c.env as any, domain);
+      if (created.ok) cfHostnameId = created.result?.id ?? null;
+      else {
+        const found = await findCustomHostname(c.env as any, domain);
+        const hit = Array.isArray(found.result) ? found.result[0] : null;
+        if (hit) cfHostnameId = hit.id ?? null;
+      }
+    } catch {}
+    await c.env.DB.prepare(
+      `INSERT INTO domains (hostname, tenant_id, cf_hostname_id, status, created_at) VALUES (?, ?, ?, 'pending', ?) ON CONFLICT(hostname) DO UPDATE SET tenant_id=excluded.tenant_id, cf_hostname_id=excluded.cf_hostname_id`
+    )
+      .bind(domain, ctx.tenant.id, cfHostnameId, now)
+      .run();
+    queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "custom_domain_added", domain + " (purchased via Dynadot)");
+    const allDomains = await loadDomains(c, ctx.tenant.id);
+    return c.html(
+      domainsPage(ctx.account, ctx.tenant, allDomains, domainCfg(c), {
+        dynadotEnabled: dCfg.enabled,
+        isSandbox: dCfg.isSandbox,
+        purchaseNotice: dCfg.isSandbox
+          ? `Simulated purchase complete: ${domain} is now in your sandbox account and pending Cloudflare verification.`
+          : `Domain ${domain} purchased successfully. Add the CNAME ${domain} → ${c.env.CNAME_TARGET} and check status.`,
+      })
+    );
+  } catch (e: any) {
+    return render({ purchaseError: sanitizeDynadotErrorMessage(e?.message || "Registration failed."), searchResult: { domain, available: true, priceList: (check?.data as any)?.price_list } as any });
+  }
 });
 
 // Serve an uploaded image from R2. Public, cached hard at the edge (keys are
