@@ -709,6 +709,13 @@ export function domainsPage(
       </div>`
     : "";
 
+  const dynadotEnabled = opts?.dynadotEnabled ?? false;
+  const isSandbox = opts?.isSandbox ?? false;
+  const searchResult = opts?.searchResult ?? null;
+  const searchError = opts?.searchError ?? null;
+  const purchaseError = opts?.purchaseError ?? null;
+  const purchaseNotice = opts?.purchaseNotice ?? null;
+
   const list =
     domains.length === 0
       ? `<p style="color:var(--muted)">No custom domains yet.</p>`
@@ -739,13 +746,6 @@ export function domainsPage(
             </li>`
           )
           .join("")}</ul>`;
-
-  const searchResult = opts?.searchResult ?? null;
-  const searchError = opts?.searchError ?? null;
-  const purchaseError = opts?.purchaseError ?? null;
-  const purchaseNotice = opts?.purchaseNotice ?? null;
-  const dynadotEnabled = opts?.dynadotEnabled ?? false;
-  const isSandbox = opts?.isSandbox ?? false;
 
   const searchBlock = dynadotEnabled
     ? `<hr style="margin:2rem 0">
