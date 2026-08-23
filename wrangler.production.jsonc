@@ -3,10 +3,21 @@
 	"name": "blognice",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-06-20",
-	"compatibility_flags": ["nodejs_compat"],
-	"limits": { "cpu_ms": 300000 },
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"limits": {
+		"cpu_ms": 300000
+	},
 	"rules": [
-		{ "type": "Text", "globs": ["**/*.html", "**/*.svg"], "fallthrough": false }
+		{
+			"type": "Text",
+			"globs": [
+				"**/*.html",
+				"**/*.svg"
+			],
+			"fallthrough": false
+		}
 	],
 	"vars": {
 		"ROOT_DOMAIN": "blognice.com",
@@ -14,12 +25,18 @@
 		"CF_ACCOUNT_ID": "30142eba9e53a37522d1c59b298db661",
 		"CNAME_TARGET": "fallback.blognice.com",
 		"EMAIL_FROM": "blognice <support@mailer.blognice.com>",
-		"STRIPE_MONTHLY_PRICE_ID": "price_1U15hNPBZtWrx4qGbiLxr4HL",
-		"STRIPE_YEARLY_PRICE_ID": "price_1U15hOPBZtWrx4qGIp4ariDb"
+		"STRIPE_MONTHLY_PRICE_ID": "price_1U7W3OAqOquRLVdtVt83qzRH",
+		"STRIPE_YEARLY_PRICE_ID": "price_1U7W3PAqOquRLVdtJFW7uSqT"
 	},
 	"routes": [
-		{ "pattern": "*/*", "zone_name": "blognice.com" },
-		{ "pattern": "blognice.com/*", "zone_name": "blognice.com" }
+		{
+			"pattern": "*/*",
+			"zone_name": "blognice.com"
+		},
+		{
+			"pattern": "blognice.com/*",
+			"zone_name": "blognice.com"
+		}
 	],
 	"d1_databases": [
 		{
@@ -34,27 +51,79 @@
 		}
 	],
 	"r2_buckets": [
-		{ "binding": "MEDIA", "bucket_name": "blognice-media" },
-		{ "binding": "METRICS_ARCHIVE", "bucket_name": "blognice-metrics" }
+		{
+			"binding": "MEDIA",
+			"bucket_name": "blognice-media"
+		},
+		{
+			"binding": "METRICS_ARCHIVE",
+			"bucket_name": "blognice-metrics"
+		}
 	],
 	"analytics_engine_datasets": [
-		{ "binding": "METRICS", "dataset": "blognice_pageviews" },
-		{ "binding": "EVENTS", "dataset": "blognice_events" }
+		{
+			"binding": "METRICS",
+			"dataset": "blognice_pageviews"
+		},
+		{
+			"binding": "EVENTS",
+			"dataset": "blognice_events"
+		}
 	],
-	"triggers": { "crons": ["15 2 * * *"] },
-	"ai": { "binding": "AI" },
+	"triggers": {
+		"crons": [
+			"15 2 * * *"
+		]
+	},
+	"ai": {
+		"binding": "AI"
+	},
 	"queues": {
 		"producers": [
-			{ "binding": "AUDIO_QUEUE", "queue": "blognice-audio" },
-			{ "binding": "EMAIL_QUEUE", "queue": "blognice-email" },
-			{ "binding": "PUSH_QUEUE", "queue": "blognice-push" },
-			{ "binding": "INDEXNOW_QUEUE", "queue": "blognice-indexnow" }
+			{
+				"binding": "AUDIO_QUEUE",
+				"queue": "blognice-audio"
+			},
+			{
+				"binding": "EMAIL_QUEUE",
+				"queue": "blognice-email"
+			},
+			{
+				"binding": "PUSH_QUEUE",
+				"queue": "blognice-push"
+			},
+			{
+				"binding": "INDEXNOW_QUEUE",
+				"queue": "blognice-indexnow"
+			}
 		],
 		"consumers": [
-			{ "queue": "blognice-audio", "max_batch_size": 1, "max_batch_timeout": 5, "max_retries": 5 },
-			{ "queue": "blognice-email", "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 5, "dead_letter_queue": "blognice-email-dlq" },
-			{ "queue": "blognice-push", "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 5, "dead_letter_queue": "blognice-push-dlq" },
-			{ "queue": "blognice-indexnow", "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 5 }
+			{
+				"queue": "blognice-audio",
+				"max_batch_size": 1,
+				"max_batch_timeout": 5,
+				"max_retries": 5
+			},
+			{
+				"queue": "blognice-email",
+				"max_batch_size": 10,
+				"max_batch_timeout": 5,
+				"max_retries": 5,
+				"dead_letter_queue": "blognice-email-dlq"
+			},
+			{
+				"queue": "blognice-push",
+				"max_batch_size": 10,
+				"max_batch_timeout": 5,
+				"max_retries": 5,
+				"dead_letter_queue": "blognice-push-dlq"
+			},
+			{
+				"queue": "blognice-indexnow",
+				"max_batch_size": 10,
+				"max_batch_timeout": 5,
+				"max_retries": 5
+			}
 		]
 	}
 }
