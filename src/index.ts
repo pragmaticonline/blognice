@@ -4671,12 +4671,17 @@ app.get("/verify-pending", async (c) => {
 app.get("/verify-email", async (c) => {
   const token = String(c.req.query("token")||"").trim();
   if (!token) return c.html(verificationResultPage(false, "Missing token."), 400);
+  const ipVerify = `verify:${getClientIp(c)}`;
+  const rlVerify = await checkSignupRateLimit(c, ipVerify, ipVerify);
+  if (!rlVerify.allowed) return c.html(shell(`Too many requests — blognice`, `<div class="page narrow"><h1>Too many requests</h1><p>Verification is rate-limited — try again in ${Math.ceil((rlVerify.retryAfter||3600)/60)} minutes.</p><p><a href="/verify-pending">Back</a></p></div>`), 429);
   const hash = await sha256hex(token);
   const now = Math.floor(Date.now()/1000);
   const row = await c.env.DB.prepare("SELECT account_id, expires_at FROM account_email_verifications WHERE token_hash=?").bind(hash).first<{ account_id:number; expires_at:number }>();
   if (!row || row.expires_at < now) return c.html(verificationResultPage(false), 400);
-  await c.env.DB.prepare("UPDATE accounts SET email_verified=1, email_verified_at=? WHERE id=?").bind(now, row.account_id).run();
-  await c.env.DB.prepare("DELETE FROM account_email_verifications WHERE account_id=?").bind(row.account_id).run();
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE accounts SET email_verified=1, email_verified_at=? WHERE id=?").bind(now, row.account_id),
+    c.env.DB.prepare("DELETE FROM account_email_verifications WHERE account_id=?").bind(row.account_id),
+  ]);
   const acct = await c.env.DB.prepare("SELECT email FROM accounts WHERE id=?").bind(row.account_id).first<{ email:string }>();
   if (acct?.email) c.executionCtx.waitUntil(sendEmail(c.env, { to: acct.email, ...registrationWelcomeEmail({ signInUrl: "https://www.blognice.com/admin", greeting: "Your email is verified — welcome!" }) }));
   return c.html(verificationResultPage(true));
