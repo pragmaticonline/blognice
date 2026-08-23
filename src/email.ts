@@ -64,6 +64,17 @@ export function invitationWelcomeEmail(input: { signInUrl: string; blogTitle: st
     html: `<h2 style="font-family:Arial,sans-serif;text-align:center">You’re invited to collaborate</h2><p style="text-align:center;color:#687064;font-size:13px">${title} on blognice</p><p>Your role on <strong>${title}</strong> is <strong>${htmlEscape(input.role)}</strong>.</p><p style="text-align:center;margin:24px 0"><a href="${url}" style="display:inline-block;background:#168b16;color:#fff;text-decoration:none;font-weight:700;padding:12px 24px;border-radius:7px">Open the blog</a></p><p>You can write and contribute according to the permissions set by the blog owner. If you did not expect this invitation, you can ignore this email.</p>`,
   };
 }
+
+export function emailVerificationEmail(input: { verifyUrl: string; blogTitle?: string }) {
+  const url = htmlEscape(input.verifyUrl);
+  const title = input.blogTitle ? htmlEscape(input.blogTitle) : "blognice";
+  return {
+    subject: `Verify your email for ${title}`,
+    plainText: `Please verify your email address for ${title}.\n\nClick this link to confirm (expires in 24 hours): ${input.verifyUrl}\n\nIf you didn't create this account, you can ignore this email.`,
+    html: `<h2 style="font-family:Arial,sans-serif;text-align:center">Verify your email</h2><p style="text-align:center;color:#5c6455">For <strong>${title}</strong> on blognice</p><p>Please confirm this email address to activate your blog.</p><p style="text-align:center;margin:24px 0"><a href="${url}" style="display:inline-block;background:#1a8917;color:#fff;text-decoration:none;font-weight:700;padding:12px 24px;border-radius:9px">Verify email →</a></p><p style="color:#5c6455;font-size:13px">Link expires in 24 hours. If you didn't create this account, you can ignore this email.</p>`,
+    emailKind: "verification",
+  };
+}
 export function subscriptionActiveEmail(input: { billingUrl: string; plan?: "monthly" | "yearly" }) {
   const url = htmlEscape(input.billingUrl);
   const plan = input.plan ? ` (${input.plan})` : "";

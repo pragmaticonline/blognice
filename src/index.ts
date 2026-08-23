@@ -19,7 +19,7 @@ import {
   type Page,
   type Tenant,
 } from "./render";
-import { sendEmail, sendEmailDetailed, emailEnabled, registrationWelcomeEmail, invitationWelcomeEmail, subscriptionActiveEmail, subscriberConfirmationEmail, passwordResetEmail, subscriberWelcomeEmail, postNotificationEmail } from "./email";
+import { sendEmail, sendEmailDetailed, emailEnabled, registrationWelcomeEmail, invitationWelcomeEmail, emailVerificationEmail, subscriptionActiveEmail, subscriberConfirmationEmail, passwordResetEmail, subscriberWelcomeEmail, postNotificationEmail } from "./email";
 import {
   createCustomHostname,
   getCustomHostname,
@@ -57,6 +57,7 @@ import {
   accountFromApiKey,
   accountHasPaidPlan,
   isSuspended,
+  isEmailVerified,
   type Account,
 } from "./auth";
 import {
@@ -2294,6 +2295,7 @@ async function blogContext(
   const account = await currentAccount(c);
   if (!account) return { redirect: "/admin/login" };
   if (isSuspended(account)) return { suspended: true, account };
+  if (!isEmailVerified(account) && emailEnabled(c.env)) return { redirect: "/verify-pending" };
   const tenant = await ownedBlog(c, account);
   if (!tenant) return { redirect: "/admin" };
   return { account, tenant, role: (tenant as Tenant & { membership_role: MembershipRole }).membership_role };
@@ -2589,6 +2591,7 @@ app.get("/admin", async (c) => {
   const account = await currentAccount(c);
   if (!account) return c.redirect("/admin/login");
   if (isSuspended(account)) return suspendedResponse(c, account);
+  if (!isEmailVerified(account) && emailEnabled(c.env)) return c.html(verificationPendingPage(account.email));
   const { results } = await c.env.DB.prepare(
     `SELECT t.public_id, t.slug, t.title, t.description, t.avatar_key, t.topics_json, m.role FROM tenants t
        JOIN memberships m ON m.tenant_id = t.id
@@ -4470,6 +4473,60 @@ app.get("/admin/b/:blogId/subscribers.csv", async (c) => {
 // ---------------------------------------------------------------------------
 // Public self-service signup: visitor -> their own blog, logged in.
 // ---------------------------------------------------------------------------
+function getClientIp(c: any): string {
+  return String(c.req.header("cf-connecting-ip") || c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || c.req.header("x-real-ip") || "unknown").slice(0, 64);
+}
+async function checkSignupRateLimit(c: any, ip: string, email: string): Promise<{ allowed: boolean; retryAfter?: number }> {
+  const now = Math.floor(Date.now() / 1000);
+  const windowSec = 3600;
+  const windowStart = now - (now % windowSec);
+  const maxPerIp = 5;
+  const maxPerEmail = 3;
+  try {
+    const ipRow = await (c.env.DB.prepare("SELECT count, window_start FROM signup_rate_limits WHERE ip = ?").bind(`ip:${ip}`).first() as Promise<{ count: number; window_start: number } | null>).catch(()=>null);
+    if (ipRow) {
+      if (ipRow.window_start === windowStart && ipRow.count >= maxPerIp) return { allowed: false, retryAfter: windowStart + windowSec - now };
+      if (ipRow.window_start !== windowStart) await c.env.DB.prepare("UPDATE signup_rate_limits SET window_start=?, count=1 WHERE ip=?").bind(windowStart, `ip:${ip}`).run().catch(()=>{});
+      else await c.env.DB.prepare("UPDATE signup_rate_limits SET count=count+1 WHERE ip=?").bind(`ip:${ip}`).run().catch(()=>{});
+    } else {
+      await c.env.DB.prepare("INSERT INTO signup_rate_limits (ip, window_start, count) VALUES (?, ?, 1)").bind(`ip:${ip}`, windowStart, 1).run().catch(()=>{});
+    }
+    const emailKey = `email:${email.toLowerCase()}`;
+    const emRow = await (c.env.DB.prepare("SELECT count, window_start FROM signup_rate_limits WHERE ip = ?").bind(emailKey).first() as Promise<{ count: number; window_start: number } | null>).catch(()=>null);
+    if (emRow) {
+      if (emRow.window_start === windowStart && emRow.count >= maxPerEmail) return { allowed: false, retryAfter: windowStart + windowSec - now };
+      if (emRow.window_start !== windowStart) await c.env.DB.prepare("UPDATE signup_rate_limits SET window_start=?, count=1 WHERE ip=?").bind(windowStart, emailKey).run().catch(()=>{});
+      else await c.env.DB.prepare("UPDATE signup_rate_limits SET count=count+1 WHERE ip=?").bind(emailKey).run().catch(()=>{});
+    } else {
+      await c.env.DB.prepare("INSERT INTO signup_rate_limits (ip, window_start, count) VALUES (?, ?, 1)").bind(emailKey, windowStart, 1).run().catch(()=>{});
+    }
+  } catch {}
+  return { allowed: true };
+}
+async function createEmailVerification(c: any, accountId: number, email: string, blogTitle?: string): Promise<string> {
+  if (!emailEnabled(c.env)) {
+    const now2 = Math.floor(Date.now()/1000);
+    await c.env.DB.prepare("UPDATE accounts SET email_verified=1, email_verified_at=? WHERE id=?").bind(now2, accountId).run().catch(()=>{});
+    return "";
+  }
+  const token = generateResetToken(32);
+  const hash = await sha256hex(token);
+  const now = Math.floor(Date.now() / 1000);
+  const expires = now + 86400;
+  await c.env.DB.prepare("INSERT OR REPLACE INTO account_email_verifications (account_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?)").bind(accountId, hash, expires, now).run();
+  const origin = new URL(c.req.url).origin;
+  const verifyUrl = `${origin}/verify-email?token=${encodeURIComponent(token)}`;
+  c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...emailVerificationEmail({ verifyUrl, blogTitle }) }));
+  return token;
+}
+function verificationPendingPage(email: string, resend?: boolean): string {
+  return shell(`Verify email — blognice`, `<div class="page narrow"><h1>Check your email</h1><p>We sent a verification link to <strong>${email.replace(/</g,"&lt;")}</strong>. Click the link to activate your blog (expires in 24 hours).</p>${resend?`<p style="color:#1a8917">New link sent — check your inbox.</p>`:""}<form method="post" action="/verify-email/resend" style="margin:1rem 0"><input type="hidden" name="email" value="${email.replace(/"/g,"&quot;")}"><button class="btn" type="submit">Resend link</button></form><p style="color:var(--muted);font-size:.9rem">Didn't get it? Check spam, or try resending. You can also <a href="/admin/login">sign in</a> after verifying.</p></div>`);
+}
+function verificationResultPage(ok: boolean, msg?: string): string {
+  return ok
+    ? shell(`Email verified — blognice`, `<div class="page narrow"><h1>Email verified</h1><p>Your email is confirmed. Your blog is now active.</p><p><a class="btn" href="/admin">Go to dashboard →</a></p></div>`)
+    : shell(`Verification failed — blognice`, `<div class="page narrow"><h1>Link invalid or expired</h1><p>${msg||"This verification link is invalid or has expired."}</p><p><a href="/verify-email/resend">Resend link</a> · <a href="/admin/login">Sign in</a></p></div>`);
+}
 app.get("/signup", async (c) => {
   if (await currentAccount(c)) {
     const tok = c.req.query("invite");
@@ -4489,7 +4546,7 @@ app.get("/signup", async (c) => {
 
 app.post("/signup", async (c) => {
   if (await currentAccount(c)) return c.redirect("/admin");
-
+  const ip = getClientIp(c);
   const form = await c.req.formData();
   const slug = String(form.get("slug") ?? "").trim().toLowerCase();
   const title = String(form.get("title") ?? "").trim();
@@ -4497,6 +4554,13 @@ app.post("/signup", async (c) => {
   const password = String(form.get("password") ?? "");
   const inviteToken = String(form.get("invite") ?? "").trim();
   const values = { slug, title, email };
+  // Rate limit: 5/hour per IP, 3/hour per email
+  const rl = await checkSignupRateLimit(c, ip, email);
+  if (!rl.allowed) {
+    const msg = `Too many signups — try again in ${Math.ceil((rl.retryAfter||3600)/60)} minutes.`;
+    const failRL = (m: string) => c.html(signupPage(c.env.ROOT_DOMAIN, values, m, inviteToken || undefined, undefined), 429);
+    return failRL(msg);
+  }
   let __inviteInfo: { title: string; role: string; email: string } | undefined;
   if (inviteToken) {
     const __h = await sha256hex(inviteToken);
@@ -4558,10 +4622,12 @@ app.post("/signup", async (c) => {
       const invitation = invitationWelcomeEmail({ signInUrl: `https://www.blognice.com/admin/b/${tenant.public_id}`, blogTitle: tenant.title, role: invite.role });
       c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...invitation }));
     }
+    await createEmailVerification(c, accountId, email, tenant?.title);
     const token = await createSession(c.env.DB, accountId);
     clearSessionCookie(c);
     setSessionCookie(c, token);
-    return c.redirect(`/admin/b/${tenant?.public_id ?? ""}`);
+    if (!emailEnabled(c.env)) return c.redirect(`/admin/b/${tenant?.public_id ?? ""}`);
+    return c.html(verificationPendingPage(email));
   }
 
   // Create the blog and link it to the account.
@@ -4584,14 +4650,48 @@ app.post("/signup", async (c) => {
   )
     .bind(accountId, blogId, now)
     .run();
+  await createEmailVerification(c, accountId, email, title);
   c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...registrationWelcomeEmail({ signInUrl: "https://www.blognice.com/admin" }) }));
-
   const token = await createSession(c.env.DB, accountId);
   clearSessionCookie(c);
   setSessionCookie(c, token);
-  return c.redirect(`/admin/b/${publicId}`);
-  // TODO: before a public launch, add email verification here (send a confirm
-  // link and gate the blog until confirmed) and rate-limit this endpoint.
+  if (!emailEnabled(c.env)) return c.redirect(`/admin/b/${publicId}`);
+  return c.html(verificationPendingPage(email));
+});
+
+app.get("/verify-pending", async (c) => {
+  const acct = await currentAccount(c);
+  const email = acct?.email || String(c.req.query("email")||"");
+  if (!email) return c.redirect("/signup");
+  return c.html(verificationPendingPage(email));
+});
+app.get("/verify-email", async (c) => {
+  const token = String(c.req.query("token")||"").trim();
+  if (!token) return c.html(verificationResultPage(false, "Missing token."), 400);
+  const hash = await sha256hex(token);
+  const now = Math.floor(Date.now()/1000);
+  const row = await c.env.DB.prepare("SELECT account_id, expires_at FROM account_email_verifications WHERE token_hash=?").bind(hash).first<{ account_id:number; expires_at:number }>();
+  if (!row || row.expires_at < now) return c.html(verificationResultPage(false), 400);
+  await c.env.DB.prepare("UPDATE accounts SET email_verified=1, email_verified_at=? WHERE id=?").bind(now, row.account_id).run();
+  await c.env.DB.prepare("DELETE FROM account_email_verifications WHERE account_id=?").bind(row.account_id).run();
+  const acct = await c.env.DB.prepare("SELECT email FROM accounts WHERE id=?").bind(row.account_id).first<{ email:string }>();
+  if (acct?.email) c.executionCtx.waitUntil(sendEmail(c.env, { to: acct.email, ...registrationWelcomeEmail({ signInUrl: "https://www.blognice.com/admin", greeting: "Your email is verified — welcome!" }) }));
+  return c.html(verificationResultPage(true));
+});
+app.post("/verify-email/resend", async (c) => {
+  const form = await c.req.formData().catch(()=>null);
+  let email = String(form?.get("email")||c.req.query("email")||"").trim().toLowerCase();
+  if (!email) {
+    const acct = await currentAccount(c);
+    email = acct?.email || "";
+  }
+  if (!email) return c.html(verificationResultPage(false, "No email found."), 400);
+  const acct = await c.env.DB.prepare("SELECT id, email_verified FROM accounts WHERE email=?").bind(email).first<{ id:number; email_verified:number }>();
+  if (!acct) return c.html(verificationResultPage(false, "No account for that email."), 404);
+  if (Number(acct.email_verified)===1) return c.html(verificationResultPage(true, "Already verified."));
+  const tenant = await c.env.DB.prepare("SELECT title FROM tenants JOIN memberships ON memberships.tenant_id=tenants.id WHERE memberships.account_id=? LIMIT 1").bind(acct.id).first<{ title:string }>().catch(()=>null);
+  await createEmailVerification(c, acct.id, email, tenant?.title);
+  return c.html(verificationPendingPage(email, true));
 });
 
 // ---------------------------------------------------------------------------

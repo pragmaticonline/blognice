@@ -113,6 +113,8 @@ CREATE TABLE accounts (
   billing_subscription_event_created_at INTEGER,
   billing_invoice_event_created_at INTEGER,
   crypto_paid_through INTEGER,
+  email_verified INTEGER NOT NULL DEFAULT 0,
+  email_verified_at INTEGER,
   created_at INTEGER NOT NULL
 );
 
@@ -120,6 +122,20 @@ CREATE INDEX idx_accounts_api_key ON accounts (api_key_hash);
 CREATE INDEX idx_accounts_status ON accounts (status, created_at DESC);
 CREATE UNIQUE INDEX idx_accounts_stripe_customer ON accounts (stripe_customer_id);
 CREATE UNIQUE INDEX idx_accounts_stripe_subscription ON accounts (stripe_subscription_id);
+
+CREATE TABLE IF NOT EXISTS account_email_verifications (
+  account_id INTEGER PRIMARY KEY,
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_verifications_expiry ON account_email_verifications(expires_at);
+CREATE TABLE IF NOT EXISTS signup_rate_limits (
+  ip TEXT PRIMARY KEY,
+  window_start INTEGER NOT NULL,
+  count INTEGER NOT NULL
+);
 
 CREATE TABLE crypto_payments (
   id TEXT PRIMARY KEY,

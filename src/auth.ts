@@ -25,10 +25,16 @@ export type Account = {
   billing_status?: string | null;
   billing_cancel_at_period_end?: number | null;
   crypto_paid_through?: number | null;
+  email_verified?: number | null;
+  email_verified_at?: number | null;
 };
 
 export function isSuspended(account: Pick<Account, "status">): boolean {
   return String(account.status || "active") === "suspended";
+}
+
+export function isEmailVerified(account: Pick<Account, "email_verified">): boolean {
+  return Number(account.email_verified || 0) === 1;
 }
 
 /** Paid access remains available during Stripe's short past-due recovery window. */
@@ -179,7 +185,7 @@ export async function currentAccount(c: any): Promise<Account | null> {
     `SELECT a.id, a.email, COALESCE(a.status, 'active') AS status, a.status_reason, a.status_changed_at,
             COALESCE(a.billing_status, 'inactive') AS billing_status,
             COALESCE(a.billing_cancel_at_period_end, 0) AS billing_cancel_at_period_end,
-            a.crypto_paid_through
+            a.crypto_paid_through, COALESCE(a.email_verified, 0) AS email_verified, a.email_verified_at
        FROM sessions s JOIN accounts a ON a.id = s.account_id
       WHERE s.token = ? AND s.expires_at > ?`
   )
