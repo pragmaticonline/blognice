@@ -672,7 +672,7 @@ export function domainsPage(
     ? `<div class="panel-block">
         <div class="row" style="margin-bottom:0.6rem">
           <strong>${esc(inst.hostname)}</strong>
-          <span class="tag ${inst.active ? "live" : ""}">${inst.active ? "Active" : "Pending"}</span>
+          <span class="tag ${inst.active ? "live" : ""}">${inst.active ? "Active" : "Waiting"}</span>
         </div>
         ${
           inst.active
@@ -684,9 +684,9 @@ export function domainsPage(
                  <tr><th>Value</th><td><code>${esc(inst.dns.value)}</code></td></tr>
                </table>
                ${
-                 inst.ssl_validation && inst.ssl_validation.length
+                 inst.ssl_validation && inst.ssl_validation.filter((r: any) => String(r.txt_name ?? "").trim() && String(r.txt_value ?? "").trim()).length
                    ? `<p style="margin:0.8rem 0 0.3rem;color:var(--muted);font-size:0.85rem">Certificate validation record:</p>
-                      ${inst.ssl_validation
+                      ${inst.ssl_validation.filter((r: any) => String(r.txt_name ?? "").trim() && String(r.txt_value ?? "").trim())
                         .map(
                           (r) =>
                             `<table class="dns"><tr><th>Name</th><td><code>${esc(
@@ -700,7 +700,9 @@ export function domainsPage(
                }`
         }
         ${
-          inst.errors && inst.errors.length
+          inst.errors && inst.errors.length && inst.errors.some((e: string) => /CNAME to this zone/i.test(e)) && !inst.active
+            ? `<p style="margin:0.7rem 0 0;color:var(--muted);font-size:0.85rem">Waiting for DNS — your CNAME is being checked. This usually takes a minute.</p>`
+            : inst.errors && inst.errors.length
             ? `<p style="margin:0.7rem 0 0;color:var(--danger);font-size:0.85rem">${esc(
                 inst.errors.join("; ")
               )}</p>`
@@ -727,7 +729,7 @@ export function domainsPage(
               </div>
               <div class="acts">
                 <span class="tag ${d.status === "active" ? "live" : ""}">${
-                  d.status === "active" ? "Active" : "Pending"
+                  d.status === "active" ? "Active" : "Waiting"
                 }</span>
                 ${
                   d.status === "active"
