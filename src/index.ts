@@ -4666,6 +4666,7 @@ app.get("/verify-pending", async (c) => {
   const acct = await currentAccount(c);
   const email = acct?.email || String(c.req.query("email")||"");
   if (!email) return c.redirect("/signup");
+  if (acct && isEmailVerified(acct) && emailEnabled(c.env)) return c.redirect("/admin");
   return c.html(verificationPendingPage(email));
 });
 app.get("/verify-email", async (c) => {
