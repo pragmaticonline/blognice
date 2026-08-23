@@ -50,7 +50,7 @@ test.before(async () => {
   await db.exec(`
     CREATE TABLE tenants (id INTEGER PRIMARY KEY, public_id TEXT UNIQUE, slug TEXT UNIQUE, custom_domain TEXT, title TEXT NOT NULL DEFAULT 'Test blog', description TEXT, footer_name TEXT, accent_color TEXT, topics_json TEXT, social_links_json TEXT, avatar_key TEXT, shard TEXT NOT NULL DEFAULT 'primary');
     CREATE TABLE domains (id INTEGER PRIMARY KEY, tenant_id INTEGER, hostname TEXT, status TEXT);
-    CREATE TABLE accounts (id INTEGER PRIMARY KEY, email TEXT, billing_status TEXT DEFAULT 'inactive', billing_cancel_at_period_end INTEGER DEFAULT 0, crypto_paid_through INTEGER, status TEXT DEFAULT 'active', status_reason TEXT, status_changed_at INTEGER);
+    CREATE TABLE accounts (id INTEGER PRIMARY KEY, email TEXT, billing_status TEXT DEFAULT 'inactive', billing_cancel_at_period_end INTEGER DEFAULT 0, crypto_paid_through INTEGER, status TEXT DEFAULT 'active', status_reason TEXT, status_changed_at INTEGER, email_verified INTEGER NOT NULL DEFAULT 0, email_verified_at INTEGER);
     CREATE TABLE sessions (token TEXT PRIMARY KEY, account_id INTEGER, expires_at INTEGER);
     CREATE TABLE memberships (account_id INTEGER, tenant_id INTEGER, role TEXT, display_name TEXT, PRIMARY KEY (account_id, tenant_id));
   `);
