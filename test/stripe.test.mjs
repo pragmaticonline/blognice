@@ -132,3 +132,49 @@ test("free and paid plan boundaries are visible and enforced", () => {
   assert.match(source, /Custom domains are available on a paid plan/);
   assert.match(source, /Custom favicons are available on a paid plan/);
 });
+
+test("checkoutSubscriptionDecision treats equal creation timestamps as ignore (needs event.id tie-breaker)", () => {
+  // Same created → checkout should not blindly adopt; ordering is decided by event.id elsewhere
+  assert.equal(checkoutSubscriptionDecision({
+    currentId: "sub_a",
+    currentCreated: 200,
+    incomingId: "sub_b",
+    incomingCreated: 200,
+  }), "ignore");
+  assert.equal(checkoutSubscriptionDecision({
+    currentId: "sub_a",
+    currentCreated: 100,
+    incomingId: "sub_b",
+    incomingCreated: null,
+  }), "ignore");
+  assert.equal(checkoutSubscriptionDecision({
+    currentId: "sub_a",
+    currentCreated: null,
+    incomingId: "sub_b",
+    incomingCreated: 200,
+  }), "ignore");
+});
+
+test("billing event ordering uses created-at + event-id lex tie-breaker", () => {
+  // The UPDATE guards: (COALESCE(created,0) < ? OR (= AND billing_event_id < ?))
+  assert.match(source, /COALESCE\(billing_event_created_at, 0\) < \? OR \(COALESCE\(billing_event_created_at, 0\) = \? AND COALESCE\(billing_event_id, ''\) < \?\)/);
+  // both customer.subscription.* and invoice reproducers use same guard
+  const hits = (source.match(/COALESCE\(billing_event_created_at, 0\) < \? OR/g) || []).length;
+  assert.ok(hits >= 2, `expected at least 2 billing ordering guards, got ${hits}`);
+});
+
+test("domain purchase webhook is pending/duplicate safe", () => {
+  assert.match(source, /domain_pending/);
+  assert.match(source, /duplicate_domain/);
+  assert.match(source, /Domain purchase metadata missing domain\/tenant\/account/);
+  assert.match(source, /ON CONFLICT\(hostname\) DO UPDATE SET tenant_id=excluded\.tenant_id/);
+  assert.match(source, /sanitizeDynadotErrorMessage/);
+});
+
+test("email delivery log stale-pending reclaim uses 300s window", () => {
+  assert.match(source, /email_delivery_log/);
+  assert.match(source, /INSERT OR IGNORE INTO email_delivery_log/);
+  // stale pending reclaim after 300s, and delete on failure
+  assert.match(source, /pending.*300|300.*pending/);
+  assert.match(source, /DELETE FROM email_delivery_log WHERE idempotency_key = \? AND status = 'pending'/);
+});
