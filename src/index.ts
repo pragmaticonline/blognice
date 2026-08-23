@@ -4474,7 +4474,9 @@ app.get("/admin/b/:blogId/subscribers.csv", async (c) => {
 // Public self-service signup: visitor -> their own blog, logged in.
 // ---------------------------------------------------------------------------
 function getClientIp(c: any): string {
-  return String(c.req.header("cf-connecting-ip") || c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || c.req.header("x-real-ip") || "unknown").slice(0, 64);
+  const cfIp = String(c.req.header("cf-connecting-ip")||"").trim();
+  if (cfIp) return cfIp.slice(0,64);
+  return "unknown";
 }
 async function checkSignupRateLimit(c: any, ip: string, email: string): Promise<{ allowed: boolean; retryAfter?: number }> {
   const now = Math.floor(Date.now() / 1000);
@@ -4501,6 +4503,7 @@ async function checkSignupRateLimit(c: any, ip: string, email: string): Promise<
       await c.env.DB.prepare("INSERT INTO signup_rate_limits (ip, window_start, count) VALUES (?, ?, 1)").bind(emailKey, windowStart, 1).run().catch(()=>{});
     }
   } catch {}
+  try { await c.env.DB.prepare("DELETE FROM signup_rate_limits WHERE window_start < ?").bind(now - 86400).run(); } catch {}
   return { allowed: true };
 }
 async function createEmailVerification(c: any, accountId: number, email: string, blogTitle?: string): Promise<string> {
@@ -4520,12 +4523,12 @@ async function createEmailVerification(c: any, accountId: number, email: string,
   return token;
 }
 function verificationPendingPage(email: string, resend?: boolean): string {
-  return shell(`Verify email — blognice`, `<div class="page narrow"><h1>Check your email</h1><p>We sent a verification link to <strong>${email.replace(/</g,"&lt;")}</strong>. Click the link to activate your blog (expires in 24 hours).</p>${resend?`<p style="color:#1a8917">New link sent — check your inbox.</p>`:""}<form method="post" action="/verify-email/resend" style="margin:1rem 0"><input type="hidden" name="email" value="${email.replace(/"/g,"&quot;")}"><button class="btn" type="submit">Resend link</button></form><p style="color:var(--muted);font-size:.9rem">Didn't get it? Check spam, or try resending. You can also <a href="/admin/login">sign in</a> after verifying.</p></div>`);
+  return shell(`Verify email — blognice`, `<div class="page narrow"><h1>Check your email</h1><p>We sent a verification link to <strong>${esc(email)}</strong>. Click the link to activate your blog (expires in 24 hours).</p>${resend?`<p style="color:#1a8917">New link sent — check your inbox.</p>`:""}<form method="post" action="/verify-email/resend" style="margin:1rem 0"><input type="hidden" name="email" value="${esc(email)}"><button class="btn" type="submit">Resend link</button></form><p style="color:var(--muted);font-size:.9rem">Didn't get it? Check spam, or try resending. You can also <a href="/admin/login">sign in</a> after verifying.</p></div>`);
 }
 function verificationResultPage(ok: boolean, msg?: string): string {
   return ok
     ? shell(`Email verified — blognice`, `<div class="page narrow"><h1>Email verified</h1><p>Your email is confirmed. Your blog is now active.</p><p><a class="btn" href="/admin">Go to dashboard →</a></p></div>`)
-    : shell(`Verification failed — blognice`, `<div class="page narrow"><h1>Link invalid or expired</h1><p>${msg||"This verification link is invalid or has expired."}</p><p><a href="/verify-email/resend">Resend link</a> · <a href="/admin/login">Sign in</a></p></div>`);
+    : shell(`Verification failed — blognice`, `<div class="page narrow"><h1>Link invalid or expired</h1><p>${esc(msg||"This verification link is invalid or has expired.")}</p><p><a href="/verify-email/resend">Resend link</a> · <a href="/admin/login">Sign in</a></p></div>`);
 }
 app.get("/signup", async (c) => {
   if (await currentAccount(c)) {
@@ -4686,6 +4689,9 @@ app.post("/verify-email/resend", async (c) => {
     email = acct?.email || "";
   }
   if (!email) return c.html(verificationResultPage(false, "No email found."), 400);
+  const ipResend = getClientIp(c);
+  const rlResend = await checkSignupRateLimit(c, ipResend, email);
+  if (!rlResend.allowed) return c.html(shell(`Too many requests — blognice`, `<div class="page narrow"><h1>Too many requests</h1><p>Resend is rate-limited — try again in ${Math.ceil((rlResend.retryAfter||3600)/60)} minutes.</p><p><a href="/verify-pending">Back</a></p></div>`), 429);
   const acct = await c.env.DB.prepare("SELECT id, email_verified FROM accounts WHERE email=?").bind(email).first<{ id:number; email_verified:number }>();
   if (!acct) return c.html(verificationResultPage(false, "No account for that email."), 404);
   if (Number(acct.email_verified)===1) return c.html(verificationResultPage(true, "Already verified."));
