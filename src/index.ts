@@ -4693,13 +4693,13 @@ app.post("/verify-email/resend", async (c) => {
     const acct = await currentAccount(c);
     email = acct?.email || "";
   }
-  if (!email) return c.html(verificationResultPage(false, "No email found."), 400);
+  if (!email) return c.html(verificationPendingPage("your email", true));
   const ipResend = getClientIp(c);
   const rlResend = await checkSignupRateLimit(c, ipResend, email);
   if (!rlResend.allowed) return c.html(shell(`Too many requests — blognice`, `<div class="page narrow"><h1>Too many requests</h1><p>Resend is rate-limited — try again in ${Math.ceil((rlResend.retryAfter||3600)/60)} minutes.</p><p><a href="/verify-pending">Back</a></p></div>`), 429);
   const acct = await c.env.DB.prepare("SELECT id, email_verified FROM accounts WHERE email=?").bind(email).first<{ id:number; email_verified:number }>();
-  if (!acct) return c.html(verificationResultPage(false, "No account for that email."), 404);
-  if (Number(acct.email_verified)===1) return c.html(verificationResultPage(true, "Already verified."));
+  if (!acct) return c.html(verificationPendingPage(email, true));
+  if (Number(acct.email_verified)===1) return c.html(verificationPendingPage(email, true));
   const tenant = await c.env.DB.prepare("SELECT title FROM tenants JOIN memberships ON memberships.tenant_id=tenants.id WHERE memberships.account_id=? LIMIT 1").bind(acct.id).first<{ title:string }>().catch(()=>null);
   await createEmailVerification(c, acct.id, email, tenant?.title);
   return c.html(verificationPendingPage(email, true));
