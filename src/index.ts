@@ -4483,21 +4483,23 @@ async function checkSignupRateLimit(c: any, ip: string, email: string): Promise<
   const now = Math.floor(Date.now() / 1000);
   const windowSec = 3600;
   const windowStart = now - (now % windowSec);
-  let maxPerIp = 5;
-  let maxPerEmail = 3;
+  const maxPerIp = 5;
+  const maxPerEmail = 3;
+  let effectiveMaxPerIp = maxPerIp;
+  let effectiveMaxPerEmail = maxPerEmail;
   try {
     const ipOverride = await c.env.DB.prepare("SELECT max_signups_per_hour FROM staff_rate_limit_overrides WHERE account_id IN (SELECT id FROM accounts WHERE signup_ip=? LIMIT 1)").bind(ip).first() as any;
-    if (ipOverride?.max_signups_per_hour) maxPerIp = Number(ipOverride.max_signups_per_hour);
+    if (ipOverride?.max_signups_per_hour) effectiveMaxPerIp = Number(ipOverride.max_signups_per_hour);
   } catch {}
   try {
     const emailOverride = await c.env.DB.prepare("SELECT max_signups_per_hour, max_logins_per_hour FROM staff_rate_limit_overrides WHERE account_id = (SELECT id FROM accounts WHERE email=? LIMIT 1)").bind(email.toLowerCase()).first() as any;
-    if (emailOverride?.max_signups_per_hour) maxPerEmail = Number(emailOverride.max_signups_per_hour);
-    if (emailOverride?.max_logins_per_hour) maxPerIp = Math.min(maxPerIp, Number(emailOverride.max_logins_per_hour));
+    if (emailOverride?.max_signups_per_hour) effectiveMaxPerEmail = Number(emailOverride.max_signups_per_hour);
+    if (emailOverride?.max_logins_per_hour) effectiveMaxPerIp = Math.min(effectiveMaxPerIp, Number(emailOverride.max_logins_per_hour));
   } catch {}
   try {
     const ipRow = await (c.env.DB.prepare("SELECT count, window_start FROM signup_rate_limits WHERE ip = ?").bind(`ip:${ip}`).first() as Promise<{ count: number; window_start: number } | null>).catch(()=>null);
     if (ipRow) {
-      if (ipRow.window_start === windowStart && ipRow.count >= maxPerIp) return { allowed: false, retryAfter: windowStart + windowSec - now };
+      if (ipRow.window_start === windowStart && ipRow.count >= effectiveMaxPerIp) return { allowed: false, retryAfter: windowStart + windowSec - now };
       if (ipRow.window_start !== windowStart) await c.env.DB.prepare("UPDATE signup_rate_limits SET window_start=?, count=1 WHERE ip=?").bind(windowStart, `ip:${ip}`).run().catch(()=>{});
       else await c.env.DB.prepare("UPDATE signup_rate_limits SET count=count+1 WHERE ip=?").bind(`ip:${ip}`).run().catch(()=>{});
     } else {
@@ -4506,7 +4508,7 @@ async function checkSignupRateLimit(c: any, ip: string, email: string): Promise<
     const emailKey = `email:${email.toLowerCase()}`;
     const emRow = await (c.env.DB.prepare("SELECT count, window_start FROM signup_rate_limits WHERE ip = ?").bind(emailKey).first() as Promise<{ count: number; window_start: number } | null>).catch(()=>null);
     if (emRow) {
-      if (emRow.window_start === windowStart && emRow.count >= maxPerEmail) return { allowed: false, retryAfter: windowStart + windowSec - now };
+      if (emRow.window_start === windowStart && emRow.count >= effectiveMaxPerEmail) return { allowed: false, retryAfter: windowStart + windowSec - now };
       if (emRow.window_start !== windowStart) await c.env.DB.prepare("UPDATE signup_rate_limits SET window_start=?, count=1 WHERE ip=?").bind(windowStart, emailKey).run().catch(()=>{});
       else await c.env.DB.prepare("UPDATE signup_rate_limits SET count=count+1 WHERE ip=?").bind(emailKey).run().catch(()=>{});
     } else {
