@@ -17,6 +17,7 @@ const DERIVED_KEY_BYTES = 32;
 const CLOUDFLARE_MAX_PBKDF2_ITERATIONS = 100_000;
 
 export type Account = {
+  locked_until?: number | null;
   id: number;
   email: string;
   status?: string | null;
@@ -29,8 +30,11 @@ export type Account = {
   email_verified_at?: number | null;
 };
 
-export function isSuspended(account: Pick<Account, "status">): boolean {
-  return String(account.status || "active") === "suspended";
+export function isSuspended(account: Pick<Account, "status" | "locked_until">): boolean {
+  if (String(account.status || "active") === "suspended") return true;
+  const lu = (account as any).locked_until;
+  if (lu && Number(lu) > Math.floor(Date.now()/1000)) return true;
+  return false;
 }
 
 export function isEmailVerified(account: Pick<Account, "email_verified">): boolean {
@@ -185,7 +189,7 @@ export async function currentAccount(c: any): Promise<Account | null> {
     `SELECT a.id, a.email, COALESCE(a.status, 'active') AS status, a.status_reason, a.status_changed_at,
             COALESCE(a.billing_status, 'inactive') AS billing_status,
             COALESCE(a.billing_cancel_at_period_end, 0) AS billing_cancel_at_period_end,
-            a.crypto_paid_through, COALESCE(a.email_verified, 0) AS email_verified, a.email_verified_at
+            a.crypto_paid_through, COALESCE(a.email_verified, 0) AS email_verified, a.email_verified_at, a.locked_until
        FROM sessions s JOIN accounts a ON a.id = s.account_id
       WHERE s.token = ? AND s.expires_at > ?`
   )

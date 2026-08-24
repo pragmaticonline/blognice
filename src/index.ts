@@ -2559,6 +2559,7 @@ app.post("/admin/login", async (c) => {
   }
 
   const token = await createSession(c.env.DB, account!.id);
+  try { const ip = getClientIp(c); const ua = String(c.req.header('User-Agent')||'').slice(0,300); await c.env.DB.prepare('UPDATE sessions SET ip=?, user_agent=?, created_via="login" WHERE token=?').bind(ip, ua, token).run(); try { await c.env.DB.prepare('INSERT INTO account_activity (id, account_id, kind, detail, ip, created_at) VALUES (?,?,?,?,?,?)').bind(crypto.randomUUID(), account!.id, 'login', 'login', ip, Math.floor(Date.now()/1000)).run(); } catch {} } catch {}
   clearSessionCookie(c);
   setSessionCookie(c, token);
   if (inviteToken) {
@@ -4482,8 +4483,17 @@ async function checkSignupRateLimit(c: any, ip: string, email: string): Promise<
   const now = Math.floor(Date.now() / 1000);
   const windowSec = 3600;
   const windowStart = now - (now % windowSec);
-  const maxPerIp = 5;
-  const maxPerEmail = 3;
+  let maxPerIp = 5;
+  let maxPerEmail = 3;
+  try {
+    const ipOverride = await c.env.DB.prepare("SELECT max_signups_per_hour FROM staff_rate_limit_overrides WHERE account_id IN (SELECT id FROM accounts WHERE signup_ip=? LIMIT 1)").bind(ip).first() as any;
+    if (ipOverride?.max_signups_per_hour) maxPerIp = Number(ipOverride.max_signups_per_hour);
+  } catch {}
+  try {
+    const emailOverride = await c.env.DB.prepare("SELECT max_signups_per_hour, max_logins_per_hour FROM staff_rate_limit_overrides WHERE account_id = (SELECT id FROM accounts WHERE email=? LIMIT 1)").bind(email.toLowerCase()).first() as any;
+    if (emailOverride?.max_signups_per_hour) maxPerEmail = Number(emailOverride.max_signups_per_hour);
+    if (emailOverride?.max_logins_per_hour) maxPerIp = Math.min(maxPerIp, Number(emailOverride.max_logins_per_hour));
+  } catch {}
   try {
     const ipRow = await (c.env.DB.prepare("SELECT count, window_start FROM signup_rate_limits WHERE ip = ?").bind(`ip:${ip}`).first() as Promise<{ count: number; window_start: number } | null>).catch(()=>null);
     if (ipRow) {
@@ -4547,6 +4557,22 @@ app.get("/signup", async (c) => {
   return c.html(signupPage(c.env.ROOT_DOMAIN, undefined, undefined, inviteToken, inviteInfo));
 });
 
+app.get("/admin/impersonate", async (c) => {
+  const token = String(c.req.query("token")||"").trim();
+  if (!token) return c.text("Missing token", 400);
+  const now = Math.floor(Date.now()/1000);
+  const tokenHash = await sha256hex(token);
+  let row: any = null;
+  try { row = await c.env.DB.prepare("SELECT token, account_id, expires_at, used_at FROM staff_impersonation_tokens WHERE token=?").bind(tokenHash).first() as any; } catch { return c.text("Impersonation not configured", 500); }
+  if (!row) return c.text("Invalid token", 404);
+  if (row.used_at) return c.text("Token already used", 410);
+  if (row.expires_at < now) return c.text("Token expired", 410);
+  try { await c.env.DB.prepare("UPDATE staff_impersonation_tokens SET used_at=? WHERE token=?").bind(now, tokenHash).run(); } catch {}
+  const session = await createSession(c.env.DB, row.account_id);
+  try { await c.env.DB.prepare("UPDATE sessions SET created_via='impersonation' WHERE token=?").bind(session).run(); } catch {}
+  setSessionCookie(c, session);
+  return c.redirect("/admin");
+});
 app.post("/signup", async (c) => {
   if (await currentAccount(c)) return c.redirect("/admin");
   const ip = getClientIp(c);
@@ -4627,6 +4653,7 @@ app.post("/signup", async (c) => {
     }
     await createEmailVerification(c, accountId, email, tenant?.title);
     const token = await createSession(c.env.DB, accountId);
+    try { const ip = getClientIp(c); const ua = String(c.req.header('User-Agent')||'').slice(0,300); const ref = String(c.req.header('Referer')||'').slice(0,500); const country = String(c.req.header('CF-IPCountry')||'').slice(0,2); await c.env.DB.prepare('UPDATE sessions SET ip=?, user_agent=?, created_via="signup" WHERE token=?').bind(ip, ua, token).run(); try { await c.env.DB.prepare('UPDATE accounts SET signup_ip=?, signup_ua=?, signup_referer=?, signup_country=? WHERE id=?').bind(ip, ua, ref, country, accountId).run(); } catch { try { await c.env.DB.prepare('UPDATE accounts SET signup_ip=?, signup_ua=?, signup_referer=? WHERE id=?').bind(ip, ua, ref, accountId).run(); } catch {} } } catch {}
     clearSessionCookie(c);
     setSessionCookie(c, token);
     if (!emailEnabled(c.env)) return c.redirect(`/admin/b/${tenant?.public_id ?? ""}`);
@@ -4656,6 +4683,7 @@ app.post("/signup", async (c) => {
   await createEmailVerification(c, accountId, email, title);
   c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...registrationWelcomeEmail({ signInUrl: "https://www.blognice.com/admin" }) }));
   const token = await createSession(c.env.DB, accountId);
+  try { const ip = getClientIp(c); const ua = String(c.req.header('User-Agent')||'').slice(0,300); const ref = String(c.req.header('Referer')||'').slice(0,500); await c.env.DB.prepare('UPDATE sessions SET ip=?, user_agent=?, created_via="signup" WHERE token=?').bind(ip, ua, token).run(); try { await c.env.DB.prepare('UPDATE accounts SET signup_ip=?, signup_ua=?, signup_referer=? WHERE id=?').bind(ip, ua, ref, accountId).run(); } catch {} } catch {}
   clearSessionCookie(c);
   setSessionCookie(c, token);
   if (!emailEnabled(c.env)) return c.redirect(`/admin/b/${publicId}`);

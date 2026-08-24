@@ -95,6 +95,7 @@ async function resolveStaff(c: any): Promise<StaffIdentity | null> {
 function canMutate(staff: StaffIdentity): boolean {
   return staff.role === "support" || staff.role === "admin";
 }
+function canAdmin(staff: StaffIdentity): boolean { return staff.role === "admin"; }
 
 function requestId(c: any): string {
   return c.req.header("Cf-Ray") || c.req.header("X-Request-ID") || crypto.randomUUID();
@@ -171,16 +172,42 @@ async function audit(c: any, staff: StaffIdentity, event: {
 }
 
 async function accountById(c: any, id: number) {
-  return c.env.DB.prepare(
-    `SELECT a.id, a.email, COALESCE(a.status, 'active') AS status,
-            a.status_reason, a.status_changed_at, a.created_at,
-            a.stripe_customer_id, a.billing_status, a.billing_price_id,
-            a.billing_period_end, a.billing_cancel_at_period_end,
-            a.api_key_hash IS NOT NULL AS has_api_key,
-            (SELECT COUNT(*) FROM sessions s WHERE s.account_id = a.id AND s.expires_at > ?) AS active_sessions,
-            (SELECT COUNT(*) FROM memberships m WHERE m.account_id = a.id) AS blog_count
-       FROM accounts a WHERE a.id = ?`
-  ).bind(Math.floor(Date.now() / 1000), id).first();
+  const now = Math.floor(Date.now() / 1000);
+  try {
+    return await c.env.DB.prepare(
+      `SELECT a.id, a.email, COALESCE(a.status, 'active') AS status, a.status_reason, a.status_changed_at, a.created_at, a.stripe_customer_id, a.billing_status, a.billing_price_id, a.billing_period_end, a.billing_cancel_at_period_end, a.api_key_hash IS NOT NULL AS has_api_key, COALESCE(a.email_verified,0) AS email_verified, a.email_verified_at, a.signup_ip, a.signup_ua, a.signup_referer, a.signup_country, a.locked_until, a.deleted_at, (SELECT COUNT(*) FROM sessions s WHERE s.account_id = a.id AND s.expires_at > ?) AS active_sessions, (SELECT COUNT(*) FROM memberships m WHERE m.account_id = a.id) AS blog_count FROM accounts a WHERE a.id = ?`
+    ).bind(now, id).first();
+  } catch {
+    return await c.env.DB.prepare(
+      `SELECT a.id, a.email, COALESCE(a.status, 'active') AS status, a.status_reason, a.status_changed_at, a.created_at, a.stripe_customer_id, a.billing_status, a.billing_price_id, a.billing_period_end, a.billing_cancel_at_period_end, a.api_key_hash IS NOT NULL AS has_api_key, (SELECT COUNT(*) FROM sessions s WHERE s.account_id = a.id AND s.expires_at > ?) AS active_sessions, (SELECT COUNT(*) FROM memberships m WHERE m.account_id = a.id) AS blog_count FROM accounts a WHERE a.id = ?`
+    ).bind(now, id).first();
+  }
+}
+async function fetchSessions(c: any, id: number, limit = 20) {
+  try { return await c.env.DB.prepare("SELECT token, ip, user_agent, created_via, created_at, expires_at FROM sessions WHERE account_id = ? ORDER BY created_at DESC LIMIT ?").bind(id, limit).all(); } catch { try { return await c.env.DB.prepare("SELECT token, created_at, expires_at FROM sessions WHERE account_id = ? ORDER BY created_at DESC LIMIT ?").bind(id, limit).all(); } catch { return { results: [] } as any; } }
+}
+async function fetchNotes(c: any, id: number) {
+  try { return await c.env.DB.prepare("SELECT id, author_email, note, created_at FROM account_notes WHERE account_id = ? ORDER BY created_at DESC LIMIT 50").bind(id).all(); } catch { return { results: [] } as any; }
+}
+async function fetchActivity(c: any, id: number) {
+  const out: any[] = [];
+  try { const ev = await c.env.DB.prepare("SELECT occurred_at, action, target_type, target_id, result FROM staff_audit_events WHERE target_type='account' AND target_id=? ORDER BY occurred_at DESC LIMIT 20").bind(String(id)).all() as any; for (const r of (ev.results||[])) out.push({ at: r.occurred_at, kind: "staff:"+r.action, detail: r.target_type+":"+r.target_id+" "+r.result }); } catch {}
+  try { const dom = await c.env.DB.prepare("SELECT hostname, status, created_at FROM domains WHERE tenant_id IN (SELECT tenant_id FROM memberships WHERE account_id=?) ORDER BY created_at DESC LIMIT 10").bind(id).all() as any; for (const r of (dom.results||[])) out.push({ at: r.created_at, kind: "domain", detail: r.hostname+" ("+r.status+")" }); } catch {}
+  try { const se = await c.env.DB.prepare("SELECT type, created_at FROM stripe_events WHERE account_id=? ORDER BY created_at DESC LIMIT 10").bind(id).all() as any; for (const r of (se.results||[])) out.push({ at: r.created_at, kind: "billing", detail: r.type }); } catch {}
+  try { const cp = await c.env.DB.prepare("SELECT status, created_at FROM crypto_payments WHERE account_id=? ORDER BY created_at DESC LIMIT 10").bind(id).all() as any; for (const r of (cp.results||[])) out.push({ at: r.created_at, kind: "crypto", detail: r.status }); } catch {}
+  try { const aa = await c.env.DB.prepare("SELECT kind, detail, created_at FROM account_activity WHERE account_id=? ORDER BY created_at DESC LIMIT 20").bind(id).all() as any; for (const r of (aa.results||[])) out.push({ at: r.created_at, kind: r.kind, detail: r.detail || "" }); } catch {}
+  out.sort((a,b)=>b.at-a.at);
+  return out.slice(0,30);
+}
+async function relatedAccounts(c: any, id: number) {
+  const rel: Array<{id:number,email:string,reason:string}> = [];
+  let acct: any = null;
+  try { acct = await c.env.DB.prepare("SELECT signup_ip, stripe_customer_id FROM accounts WHERE id=?").bind(id).first() as any; } catch {}
+  if (acct?.signup_ip) {
+    try { const rows = await c.env.DB.prepare("SELECT id,email FROM accounts WHERE signup_ip=? AND id!=? LIMIT 5").bind(acct.signup_ip, id).all() as any; for (const r of (rows.results||[])) rel.push({ id: r.id, email: r.email, reason: "shared signup IP "+acct.signup_ip }); } catch {}
+    try { const rows = await c.env.DB.prepare("SELECT DISTINCT account_id as id FROM sessions WHERE ip=? AND account_id!=? LIMIT 5").bind(acct.signup_ip, id).all() as any; for (const r of (rows.results||[])) { if (rel.find(x=>x.id===r.id)) continue; try { const e = await c.env.DB.prepare("SELECT email FROM accounts WHERE id=?").bind(r.id).first() as any; rel.push({ id: r.id, email: e?.email||String(r.id), reason: "shared session IP "+acct.signup_ip }); } catch {} } } catch {}
+  }
+  return rel.slice(0,8);
 }
 
 function staffHeader(staff: StaffIdentity): string {
@@ -221,8 +248,8 @@ app.get("/api/accounts", async (c) => {
   const page = boundedPage(c.req.query("page"));
   const limit = 50;
   const pattern = `%${q.replace(/[\\%_]/g, "\\$&")}%`;
-  const where = q ? "WHERE a.email LIKE ? ESCAPE '\\' OR CAST(a.id AS TEXT) LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM memberships sm JOIN tenants st ON st.id = sm.tenant_id WHERE sm.account_id = a.id AND (st.title LIKE ? ESCAPE '\\' OR st.slug LIKE ? ESCAPE '\\' OR st.custom_domain LIKE ? ESCAPE '\\' OR st.public_id LIKE ? ESCAPE '\\'))" : "";
-  const params = q ? [pattern, pattern, pattern, pattern, pattern, pattern] : [];
+  const where = q ? "WHERE a.email LIKE ? ESCAPE '\\' OR CAST(a.id AS TEXT) LIKE ? ESCAPE '\\' OR COALESCE(a.signup_ip,'') LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM memberships sm JOIN tenants st ON st.id = sm.tenant_id WHERE sm.account_id = a.id AND (st.title LIKE ? ESCAPE '\\' OR st.slug LIKE ? ESCAPE '\\' OR st.custom_domain LIKE ? ESCAPE '\\' OR st.public_id LIKE ? ESCAPE '\\' OR COALESCE(sm.display_name,'') LIKE ? ESCAPE '\\')) OR EXISTS (SELECT 1 FROM sessions sess WHERE sess.account_id=a.id AND COALESCE(sess.ip,'') LIKE ? ESCAPE '\\')" : "";
+  const params = q ? [pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern] : [];
   const rows = await c.env.DB.prepare(
     `SELECT a.id, a.email, COALESCE(a.status, 'active') AS status, a.created_at,
             (SELECT COUNT(*) FROM memberships m WHERE m.account_id = a.id) AS blog_count
@@ -286,6 +313,135 @@ app.post("/api/accounts/:id/suspend", async (c) => mutateAccount(c, "suspend", N
 app.post("/api/accounts/:id/reactivate", async (c) => mutateAccount(c, "reactivate", Number(c.req.param("id")), String((await c.req.json().catch(() => ({}))).reason || "")));
 app.post("/api/accounts/:id/revoke-sessions", async (c) => mutateAccount(c, "revoke-sessions", Number(c.req.param("id")), String((await c.req.json().catch(() => ({}))).reason || "")));
 app.post("/api/accounts/:id/revoke-api-key", async (c) => mutateAccount(c, "revoke-api-key", Number(c.req.param("id")), String((await c.req.json().catch(() => ({}))).reason || "")));
+app.post("/api/accounts/:id/force-verify", async (c) => {
+  const staff = c.get("staff") as StaffIdentity; if (!canMutate(staff)) return c.json({ error: "staff role cannot perform this action" }, 403);
+  if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
+  const id = Number(c.req.param("id")); const input = await c.req.json().catch(()=>({})) as any; const reason = String(input.reason||"force email verification").trim().slice(0,500);
+  const before: any = await accountById(c, id); if (!before) return c.json({ error: "account not found" }, 404);
+  const now = Math.floor(Date.now()/1000);
+  try { await c.env.DB.prepare("UPDATE accounts SET email_verified=1, email_verified_at=? WHERE id=?").bind(now, id).run(); } catch { return c.json({ error: "email verification column not available" }, 500); }
+  await audit(c, staff, { action: "force-verify", targetType: "account", targetId: String(id), reason, result: "success", before: { email_verified: before.email_verified }, after: { email_verified: 1 } });
+  return c.json({ ok: true, account: await accountById(c, id) });
+});
+app.post("/api/accounts/:id/lock", async (c) => {
+  const staff = c.get("staff") as StaffIdentity; if (!canMutate(staff)) return c.json({ error: "staff role cannot perform this action" }, 403);
+  if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
+  const id = Number(c.req.param("id")); const body = await c.req.json().catch(()=>({})) as any; const r = String(body.reason||"").trim(); if (!r) return c.json({ error: "a reason is required" }, 400);
+  const d = Math.max(1, Math.min(365, Number(body.days||30)));
+  const before: any = await accountById(c, id); if (!before) return c.json({ error: "account not found" }, 404);
+  const now = Math.floor(Date.now()/1000); const until = now + d*86400;
+  try { await c.env.DB.prepare("UPDATE accounts SET locked_until=?, status='suspended', status_reason=?, status_changed_at=? WHERE id=?").bind(until, r.slice(0,500), now, id).run(); await c.env.DB.prepare("DELETE FROM sessions WHERE account_id=?").bind(id).run(); } catch { await c.env.DB.prepare("UPDATE accounts SET status='suspended', status_reason=?, status_changed_at=? WHERE id=?").bind(r.slice(0,500), now, id).run(); }
+  await audit(c, staff, { action: "lock", targetType: "account", targetId: String(id), reason: r.slice(0,500), result: "success", before: { status: before.status }, after: { status: "suspended", locked_until: until } });
+  return c.json({ ok: true, account: await accountById(c, id) });
+});
+app.post("/api/accounts/:id/unlock", async (c) => {
+  const staff = c.get("staff") as StaffIdentity; if (!canMutate(staff)) return c.json({ error: "staff role cannot perform this action" }, 403);
+  if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
+  const id = Number(c.req.param("id")); const body = await c.req.json().catch(()=>({})) as any; const r = String(body.reason||"").trim(); if (!r) return c.json({ error: "a reason is required" }, 400);
+  const before: any = await accountById(c, id); if (!before) return c.json({ error: "account not found" }, 404);
+  const now = Math.floor(Date.now()/1000);
+  try { await c.env.DB.prepare("UPDATE accounts SET locked_until=NULL, status='active', status_reason=?, status_changed_at=? WHERE id=?").bind(r.slice(0,500), now, id).run(); } catch { await c.env.DB.prepare("UPDATE accounts SET status='active', status_reason=?, status_changed_at=? WHERE id=?").bind(r.slice(0,500), now, id).run(); }
+  await audit(c, staff, { action: "unlock", targetType: "account", targetId: String(id), reason: r.slice(0,500), result: "success", before: { status: before.status }, after: { status: "active" } });
+  return c.json({ ok: true, account: await accountById(c, id) });
+});
+app.post("/api/accounts/:id/delete", async (c) => {
+  const staff = c.get("staff") as StaffIdentity; if (!canAdmin(staff)) return c.json({ error: "only admin can delete accounts" }, 403);
+  if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
+  const id = Number(c.req.param("id")); const body = await c.req.json().catch(()=>({})) as any; const r = String(body.reason||"").trim(); if (!r) return c.json({ error: "a reason is required" }, 400);
+  if (String(body.confirm) !== String(id) && String(body.confirm) !== "DELETE") return c.json({ error: "type account ID or DELETE to confirm" }, 400);
+  const before: any = await accountById(c, id); if (!before) return c.json({ error: "account not found" }, 404);
+  const delStmts: D1PreparedStatement[] = [];
+  delStmts.push(c.env.DB.prepare("DELETE FROM sessions WHERE account_id=?").bind(id));
+  delStmts.push(c.env.DB.prepare("DELETE FROM memberships WHERE account_id=?").bind(id));
+  try { delStmts.push(c.env.DB.prepare("DELETE FROM account_notes WHERE account_id=?").bind(id)); } catch {}
+  try { delStmts.push(c.env.DB.prepare("DELETE FROM account_activity WHERE account_id=?").bind(id)); } catch {}
+  try { delStmts.push(c.env.DB.prepare("DELETE FROM staff_impersonation_tokens WHERE account_id=?").bind(id)); } catch {}
+  delStmts.push(c.env.DB.prepare("DELETE FROM accounts WHERE id=?").bind(id));
+  try { await c.env.DB.batch(delStmts); } catch (e) { await audit(c, staff, { action: "delete-account", targetType: "account", targetId: String(id), reason: r.slice(0,500), result: "failure", before, after: { error: String(e) } }); return c.json({ error: "delete failed" }, 500); }
+  await audit(c, staff, { action: "delete-account", targetType: "account", targetId: String(id), reason: r.slice(0,500), result: "success", before });
+  return c.json({ ok: true, deleted: id });
+});
+app.get("/api/accounts/:id/export", async (c) => {
+  const id = Number(c.req.param("id")); const acct: any = await accountById(c, id); if (!acct) return c.json({ error: "account not found" }, 404);
+  const staff = c.get("staff") as StaffIdentity;
+  const blogs = await c.env.DB.prepare("SELECT t.public_id, t.slug, t.title, t.custom_domain, m.role FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.account_id=? ORDER BY t.created_at DESC").bind(id).all().catch(()=>({results:[]} as any)) as any;
+  const sessions = await fetchSessions(c, id, 100);
+  const notes = await fetchNotes(c, id);
+  const activity = await fetchActivity(c, id);
+  await audit(c, staff, { action: "export-user-data", targetType: "account", targetId: String(id), result: "success" });
+  return c.json({ account: acct, blogs: blogs.results, sessions: (sessions as any).results, notes: (notes as any).results, activity, exported_at: Math.floor(Date.now()/1000) });
+});
+app.post("/api/accounts/:id/impersonate", async (c) => {
+  const staff = c.get("staff") as StaffIdentity; if (!canAdmin(staff)) return c.json({ error: "only admin can impersonate" }, 403);
+  if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
+  const id = Number(c.req.param("id")); const body = await c.req.json().catch(()=>({})) as any; const r = String(body.reason||"").trim(); if (!r) return c.json({ error: "a reason is required" }, 400);
+  const acct = await c.env.DB.prepare("SELECT id,email FROM accounts WHERE id=?").bind(id).first() as any; if (!acct) return c.json({ error: "account not found" }, 404);
+  const now = Math.floor(Date.now()/1000); const token = crypto.randomUUID().replace(/-/g,"") + crypto.randomUUID().replace(/-/g,"");
+  const tokenHash = await sha256hex(token);
+  try { await c.env.DB.prepare("INSERT INTO staff_impersonation_tokens (token, account_id, issued_by_subject, issued_by_email, reason, created_at, expires_at) VALUES (?,?,?,?,?,?,?)").bind(tokenHash, id, staff.subject, staff.email, r.slice(0,500), now, now+600).run(); } catch { return c.json({ error: "impersonation table not available — run migration 052" }, 500); }
+  await audit(c, staff, { action: "impersonate", targetType: "account", targetId: String(id), reason: r.slice(0,500), result: "success", after: { token_issued: true } });
+  const url = `https://www.blognice.com/admin/impersonate?token=${encodeURIComponent(token)}`;
+  return c.json({ ok: true, token, url, expires_in: 600 });
+});
+app.post("/api/accounts/:id/notes", async (c) => {
+  const staff = c.get("staff") as StaffIdentity; if (!canMutate(staff)) return c.json({ error: "staff role cannot add notes" }, 403);
+  if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
+  const id = Number(c.req.param("id")); const body = await c.req.json().catch(()=>({})) as any; const n = String(body.note||"").trim(); if (!n || n.length>4000) return c.json({ error: "note must be 1..4000 characters" }, 400);
+  const now = Math.floor(Date.now()/1000); const nid = crypto.randomUUID();
+  try { await c.env.DB.prepare("INSERT INTO account_notes (id, account_id, author_subject, author_email, note, created_at) VALUES (?,?,?,?,?,?)").bind(nid, id, staff.subject, staff.email, n, now).run(); } catch { return c.json({ error: "notes table not available — run migration 052" }, 500); }
+  await audit(c, staff, { action: "add-note", targetType: "account", targetId: String(id), result: "success", after: { note_id: nid } });
+  return c.json({ ok: true, id: nid });
+});
+app.delete("/api/notes/:id", async (c) => {
+  const staff = c.get("staff") as StaffIdentity; if (!canMutate(staff)) return c.json({ error: "staff role cannot delete notes" }, 403);
+  if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
+  const nid = String(c.req.param("id")); try { await c.env.DB.prepare("DELETE FROM account_notes WHERE id=?").bind(nid).run(); } catch {}
+  await audit(c, staff, { action: "delete-note", targetType: "note", targetId: nid, result: "success" });
+  return c.json({ ok: true });
+});
+app.post("/api/notes/:id/delete", async (c) => {
+  const staff = c.get("staff") as StaffIdentity; if (!canMutate(staff)) return c.json({ error: "staff role cannot delete notes" }, 403);
+  if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
+  const nid = String(c.req.param("id")); try { await c.env.DB.prepare("DELETE FROM account_notes WHERE id=?").bind(nid).run(); } catch {}
+  await audit(c, staff, { action: "delete-note", targetType: "note", targetId: nid, result: "success" });
+  if (!String(c.req.header("Accept")||"").includes("application/json")) return c.redirect(c.req.header("Referer")||"/", 303);
+  return c.json({ ok: true });
+});
+app.get("/api/accounts/:id/activity", async (c) => {
+  const id = Number(c.req.param("id")); const activity = await fetchActivity(c, id); return c.json({ activity });
+});
+app.get("/api/accounts/:id/sessions", async (c) => {
+  const id = Number(c.req.param("id")); const s = await fetchSessions(c, id, 100); return c.json({ sessions: (s as any).results });
+});
+app.get("/api/accounts/:id/related", async (c) => {
+  const id = Number(c.req.param("id")); const rel = await relatedAccounts(c, id); return c.json({ related: rel });
+});
+app.post("/api/accounts/:id/rate-limit", async (c) => {
+  const staff = c.get("staff") as StaffIdentity; if (!canAdmin(staff)) return c.json({ error: "only admin can change rate limits" }, 403);
+  if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
+  const id = Number(c.req.param("id")); const body = await c.req.json().catch(()=>({})) as any;
+  const now = Math.floor(Date.now()/1000);
+  try {
+    await c.env.DB.prepare("INSERT INTO staff_rate_limit_overrides (account_id, max_logins_per_hour, max_api_per_minute, note, updated_by_subject, updated_by_email, updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(account_id) DO UPDATE SET max_logins_per_hour=excluded.max_logins_per_hour, max_api_per_minute=excluded.max_api_per_minute, note=excluded.note, updated_by_subject=excluded.updated_by_subject, updated_by_email=excluded.updated_by_email, updated_at=excluded.updated_at").bind(id, body.max_logins_per_hour ?? null, body.max_api_per_minute ?? null, String(body.note||"").slice(0,500), staff.subject, staff.email, now).run();
+  } catch { return c.json({ error: "rate limit table not available — run migration 052" }, 500); }
+  await audit(c, staff, { action: "rate-limit-override", targetType: "account", targetId: String(id), result: "success", after: { max_logins_per_hour: body.max_logins_per_hour, max_api_per_minute: body.max_api_per_minute } });
+  return c.json({ ok: true });
+});
+app.delete("/api/accounts/:id/rate-limit", async (c) => {
+  const staff = c.get("staff") as StaffIdentity; if (!canAdmin(staff)) return c.json({ error: "only admin can change rate limits" }, 403);
+  if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
+  const id = Number(c.req.param("id")); try { await c.env.DB.prepare("DELETE FROM staff_rate_limit_overrides WHERE account_id=?").bind(id).run(); } catch {}
+  await audit(c, staff, { action: "rate-limit-clear", targetType: "account", targetId: String(id), result: "success" });
+  return c.json({ ok: true });
+});
+app.post("/api/accounts/:id/rate-limit/clear", async (c) => {
+  const staff = c.get("staff") as StaffIdentity; if (!canAdmin(staff)) return c.json({ error: "only admin can change rate limits" }, 403);
+  if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
+  const id = Number(c.req.param("id")); try { await c.env.DB.prepare("DELETE FROM staff_rate_limit_overrides WHERE account_id=?").bind(id).run(); } catch {}
+  await audit(c, staff, { action: "rate-limit-clear", targetType: "account", targetId: String(id), result: "success" });
+  return c.json({ ok: true });
+});
+
 
 app.post("/api/accounts/:id/send-password-reset", async (c) => {
   const staff = c.get("staff") as StaffIdentity;
@@ -479,7 +635,7 @@ app.get("/", async (c) => {
   const page = boundedPage(c.req.query("page"));
   const limit = 50;
   const pattern = `%${q.replace(/[\\%_]/g, "\\$&")}%`;
-  const where = q ? "WHERE a.email LIKE ? ESCAPE '\\' OR CAST(a.id AS TEXT) LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM memberships sm JOIN tenants st ON st.id = sm.tenant_id WHERE sm.account_id = a.id AND (st.title LIKE ? ESCAPE '\\' OR st.slug LIKE ? ESCAPE '\\' OR st.custom_domain LIKE ? ESCAPE '\\' OR st.public_id LIKE ? ESCAPE '\\'))" : "";
+  const where = q ? "WHERE a.email LIKE ? ESCAPE '\\' OR CAST(a.id AS TEXT) LIKE ? ESCAPE '\\' OR COALESCE(a.signup_ip,'') LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM memberships sm JOIN tenants st ON st.id = sm.tenant_id WHERE sm.account_id = a.id AND (st.title LIKE ? ESCAPE '\\' OR st.slug LIKE ? ESCAPE '\\' OR st.custom_domain LIKE ? ESCAPE '\\' OR st.public_id LIKE ? ESCAPE '\\' OR COALESCE(sm.display_name,'') LIKE ? ESCAPE '\\')) OR EXISTS (SELECT 1 FROM sessions sess WHERE sess.account_id=a.id AND COALESCE(sess.ip,'') LIKE ? ESCAPE '\\')" : "";
   const accounts = await c.env.DB.prepare(
     `SELECT a.id, a.email, COALESCE(a.status, 'active') AS status, a.created_at,
             (SELECT COUNT(*) FROM memberships m WHERE m.account_id = a.id) AS blog_count
@@ -497,13 +653,28 @@ app.get("/accounts/:id", async (c) => {
   if (!account) return c.text("Account not found", 404);
   const blogs = await c.env.DB.prepare("SELECT t.public_id, t.slug, t.title, t.custom_domain, m.role, d.status AS domain_status FROM memberships m JOIN tenants t ON t.id = m.tenant_id LEFT JOIN domains d ON d.tenant_id = t.id AND d.hostname = t.custom_domain WHERE m.account_id = ? ORDER BY t.created_at DESC").bind(id).all<{ public_id: string; slug: string; title: string; custom_domain: string | null; role: string; domain_status: string | null }>();
   const staff = c.get("staff") as StaffIdentity;
-  const actions = canMutate(staff) ? `<div class="actions"><form data-action="/api/accounts/${id}/${account.status === "suspended" ? "reactivate" : "suspend"}"><input name="reason" required placeholder="Reason"><button class="btn ${account.status === "suspended" ? "" : "btn-danger"}" type="submit">${account.status === "suspended" ? "Reactivate account" : "Suspend account"}</button></form><form data-action="/api/accounts/${id}/revoke-sessions"><input name="reason" required placeholder="Reason"><button class="btn" type="submit">Revoke sessions</button></form><form data-action="/api/accounts/${id}/revoke-api-key"><input name="reason" required placeholder="Reason"><button class="btn" type="submit">Revoke API key</button></form><form data-action="/api/accounts/${id}/send-password-reset"><input name="reason" required placeholder="Reason"><button class="btn" type="submit">Send password reset email</button></form></div><script>document.querySelectorAll('form[data-action]').forEach(function(form){form.addEventListener('submit',async function(event){event.preventDefault();if(!confirm('Confirm this support action?'))return;var reason=form.elements.reason.value;var response=await fetch(form.dataset.action,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({reason:reason})});var data=await response.json();if(!response.ok){alert(data.error||'Action failed');return}alert(data.recipient?'Reset email sent to '+data.recipient+'.':'Action complete.');location.reload()})})</script>` : `<p class="muted">Your role is read-only.</p>`;
+  const sessions = await fetchSessions(c, id, 20);
+  const notes = await fetchNotes(c, id);
+  const activity = await fetchActivity(c, id);
+  const related = await relatedAccounts(c, id);
+  let rateLimit: any = null; try { rateLimit = await c.env.DB.prepare("SELECT * FROM staff_rate_limit_overrides WHERE account_id=?").bind(id).first() as any; } catch {}
+  const isLocked = account.locked_until && Number(account.locked_until) > Math.floor(Date.now()/1000);
+  const signupInfo = `<p class="muted">Created ${new Date(account.created_at * 1000).toISOString().slice(0,10)}${account.signup_ip ? ` · IP ${esc(account.signup_ip)}` : ""}${account.signup_country ? ` · ${esc(account.signup_country)}` : ""}${account.signup_referer ? ` · ref ${esc(String(account.signup_referer).slice(0,80))}` : ""}${account.signup_ua ? `<br><small>${esc(String(account.signup_ua).slice(0,120))}</small>` : ""}</p>`;
+  const verifyBadge = account.email_verified ? `<span class="badge">verified</span>` : `<span class="badge suspended">unverified</span>`;
+  const actions = canMutate(staff) ? `<div class="actions"><form data-action="/api/accounts/${id}/${account.status === "suspended" ? "reactivate" : "suspend"}"><input name="reason" required placeholder="Reason"><button class="btn ${account.status === "suspended" ? "" : "btn-danger"}" type="submit">${account.status === "suspended" ? "Reactivate account" : "Suspend account"}</button></form><form data-action="/api/accounts/${id}/revoke-sessions"><input name="reason" required placeholder="Reason"><button class="btn" type="submit">Revoke sessions</button></form><form data-action="/api/accounts/${id}/revoke-api-key"><input name="reason" required placeholder="Reason"><button class="btn" type="submit">Revoke API key</button></form><form data-action="/api/accounts/${id}/send-password-reset"><input name="reason" required placeholder="Reason"><button class="btn" type="submit">Send password reset email</button></form><form data-action="/api/accounts/${id}/force-verify"><input name="reason" required placeholder="Reason"><button class="btn" type="submit">Force email verification</button></form><form data-action="/api/accounts/${id}/${isLocked ? "unlock" : "lock"}"><input name="reason" required placeholder="Reason"><input name="days" type="number" min="1" max="365" value="30" style="width:70px" ${isLocked ? "hidden" : ""}><button class="btn ${isLocked ? "" : "btn-danger"}" type="submit">${isLocked ? "Unlock account" : "Lock account"}</button></form>${canAdmin(staff) ? `<form data-action="/api/accounts/${id}/impersonate"><input name="reason" required placeholder="Reason for impersonation"><button class="btn" type="submit">Impersonate / Log in as user</button></form><form data-action="/api/accounts/${id}/delete"><input name="reason" required placeholder="Reason"><input name="confirm" required placeholder="Type ${id} to confirm" style="width:130px"><button class="btn btn-danger" type="submit">Delete account</button></form>` : ""}<a class="btn" href="/api/accounts/${id}/export" target="_blank">Export user data (index DB)</a></div><script>document.querySelectorAll('form[data-action]').forEach(function(form){form.addEventListener('submit',async function(event){event.preventDefault();if(!confirm('Confirm this support action?'))return;var r=form.elements.reason?form.elements.reason.value:"";var extra={};if(form.elements.days) extra.days=form.elements.days.value; if(form.elements.confirm) extra.confirm=form.elements.confirm.value; var body=JSON.stringify(Object.assign({reason:r},extra));var response=await fetch(form.dataset.action,{method:'POST',headers:{'content-type':'application/json'},body:body});var data=await response.json();if(!response.ok){alert(data.error||'Action failed');return}if(data.url){prompt('Impersonation link (10 min):',data.url)} else if(data.recipient){alert('Reset email sent to '+data.recipient+'.');} else if(data.deleted){alert('Account deleted');location.href='/'} else {alert('Action complete.')}location.reload()})})</script>` : `<p class="muted">Your role is read-only.</p>`;
   const blogRows = blogs.results.map((blog) => { const host = blog.custom_domain || `${blog.slug}.${c.env.ROOT_DOMAIN || "blognice.com"}`; const domain = blog.custom_domain ? `${esc(blog.custom_domain)} <small>(${esc(blog.domain_status || "pending")})</small>` : "None"; return `<tr><td>${esc(blog.title)}</td><td><a href="https://${esc(host)}" target="_blank" rel="noopener noreferrer">${esc(host)}</a></td><td>${esc(blog.role)}</td><td>${domain}</td></tr>`; }).join("");
   const plan = billingPlan(account, c);
   const billingStatus = String(account.billing_status || "inactive");
   const stripeLink = account.stripe_customer_id ? ` <a href="https://dashboard.stripe.com/customers/${encodeURIComponent(account.stripe_customer_id)}" target="_blank" rel="noopener noreferrer">Open in Stripe ↗</a>` : "";
   const billingCard = `<div class="card"><h2>Billing</h2><p><strong>Plan:</strong> ${esc(plan)}<br><strong>Payment status:</strong> ${esc(billingStatus)}${account.billing_cancel_at_period_end ? " (cancels at period end)" : ""}${account.billing_period_end ? `<br><strong>Period end:</strong> ${new Date(Number(account.billing_period_end) * 1000).toISOString().slice(0, 10)}` : ""}${stripeLink}</p><p class="muted">Billing actions remain in Stripe; this panel is read-only.</p></div>`;
-  return c.html(staffPage(`Account ${id}`, `${staffHeader(staff)}<p><a href="/">← All accounts</a></p><div class="card"><div class="card-head"><div><h2>${esc(account.email)}</h2><p class="muted">Account #${id} · created ${new Date(account.created_at * 1000).toISOString().slice(0, 10)}</p></div><span class="badge ${account.status === "suspended" ? "suspended" : ""}">${esc(account.status)}</span></div><p>Blogs: ${account.blog_count} · Active sessions: ${account.active_sessions} · API key: ${account.has_api_key ? "present" : "not present"}</p>${account.status_reason ? `<p class="notice">Status reason: ${esc(account.status_reason)}</p>` : ""}${actions}</div>${billingCard}<div class="card"><h2>Blogs</h2><table><thead><tr><th>Title</th><th>View live blog</th><th>Role</th><th>Custom domain</th></tr></thead><tbody>${blogRows || `<tr><td colspan="4" class="empty">No blogs.</td></tr>`}</tbody></table></div>`));
+  const sessionRows = (sessions as any).results.map((s:any)=>`<tr><td><code>${esc(String(s.created_via||"session"))}</code></td><td>${esc(s.ip||"—")}</td><td>${esc((s.user_agent||"").slice(0,60) || "—")}</td><td>${new Date(s.created_at*1000).toISOString().slice(0,10)}</td><td>${new Date(s.expires_at*1000).toISOString().slice(0,10)}</td></tr>`).join("");
+  const activityRows = activity.map((a:any)=>`<tr><td>${new Date(a.at*1000).toISOString().replace("T"," ").slice(0,19)}</td><td>${esc(a.kind)}</td><td>${esc(a.detail)}</td></tr>`).join("");
+  const noteRows = (notes as any).results.map((n:any)=>`<tr><td>${new Date(n.created_at*1000).toISOString().slice(0,10)}</td><td>${esc(n.author_email)}</td><td>${esc(n.note)}</td><td><form method="post" action="/api/notes/${esc(n.id)}/delete" onsubmit="return confirm('Delete note?')"><button class="btn" type="submit">Delete</button></form></td></tr>`).join("");
+  const relatedRows = related.map((r:any)=>`<tr><td><a href="/accounts/${r.id}">#${r.id} ${esc(r.email)}</a></td><td>${esc(r.reason)}</td></tr>`).join("");
+  const notesCard = `<div class="card"><h2>Account notes</h2><p class="muted">Internal admin-only notes. Not visible to the user.</p><form data-action="/api/accounts/${id}/notes" style="display:flex;gap:8px;margin:10px 0"><input name="note" required placeholder="Add internal note" style="flex:1;padding:8px;border:1px solid var(--rule);border-radius:5px"><button class="btn" type="submit">Add note</button></form><table><thead><tr><th>Date</th><th>Author</th><th>Note</th><th></th></tr></thead><tbody>${noteRows || `<tr><td colspan="4" class="empty">No notes.</td></tr>`}</tbody></table><script>document.querySelector('form[data-action="/api/accounts/${id}/notes"]').addEventListener('submit',async function(e){e.preventDefault();var note=this.elements.note.value;var r=await fetch(this.dataset.action,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({note:note})});var d=await r.json();if(!r.ok){alert(d.error||'Failed');return}location.reload()})</script></div>`;
+  const rateCard = `<div class="card"><h2>Rate-limit / restriction controls</h2><p class="muted">Override signup/login limits (admin only). Empty = global default. Wired to signup checks.</p>${rateLimit ? `<p>Current: logins/hr ${rateLimit.max_logins_per_hour ?? "—"} · api/min ${rateLimit.max_api_per_minute ?? "—"}<br><small>${esc(rateLimit.note||"")}</small></p>` : `<p class="muted">No overrides set.</p>`}${canAdmin(staff) ? `<form data-action="/api/accounts/${id}/rate-limit" style="display:flex;gap:8px;flex-wrap:wrap"><input name="max_logins_per_hour" type="number" placeholder="logins/hr" style="width:120px;padding:8px;border:1px solid var(--rule);border-radius:5px"><input name="max_api_per_minute" type="number" placeholder="api/min" style="width:120px;padding:8px;border:1px solid var(--rule);border-radius:5px"><input name="note" placeholder="Reason" style="flex:1;min-width:160px;padding:8px;border:1px solid var(--rule);border-radius:5px"><button class="btn" type="submit">Save</button><button class="btn" type="button" onclick="fetch('/api/accounts/${id}/rate-limit/clear',{method:'POST',headers:{'content-type':'application/json'},body:'{}'}).then(()=>location.reload())">Clear</button></form><script>document.querySelector('form[data-action="/api/accounts/${id}/rate-limit"]').addEventListener('submit',async function(e){e.preventDefault();var b={max_logins_per_hour:this.elements.max_logins_per_hour.value?Number(this.elements.max_logins_per_hour.value):null,max_api_per_minute:this.elements.max_api_per_minute.value?Number(this.elements.max_api_per_minute.value):null,note:this.elements.note.value};var r=await fetch(this.dataset.action,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b)});var d=await r.json();if(!r.ok){alert(d.error);return}location.reload()})</script>` : `<p class="muted">Read-only role.</p>`}</div>`;
+  return c.html(staffPage(`Account ${id}`, `${staffHeader(staff)}<p><a href="/">← All accounts</a></p><div class="card"><div class="card-head"><div><h2>${esc(account.email)} ${verifyBadge}</h2><p class="muted">Account #${id} · created ${new Date(account.created_at * 1000).toISOString().slice(0, 10)} ${isLocked ? `<span class="badge suspended">locked until ${new Date(Number(account.locked_until)*1000).toISOString().slice(0,10)}</span>` : ""}</p>${signupInfo}</div><span class="badge ${account.status === "suspended" ? "suspended" : ""}">${esc(account.status)}</span></div><p>Blogs: ${account.blog_count} · Active sessions: ${account.active_sessions} · API key: ${account.has_api_key ? "present" : "not present"}</p>${account.status_reason ? `<p class="notice">Status reason: ${esc(account.status_reason)}</p>` : ""}${actions}</div>${billingCard}<div class="card"><h2>Blogs</h2><table><thead><tr><th>Title</th><th>View live blog</th><th>Role</th><th>Custom domain</th></tr></thead><tbody>${blogRows || `<tr><td colspan="4" class="empty">No blogs.</td></tr>`}</tbody></table></div><div class="card"><h2>IP / device / session history</h2><p class="muted">Search also covers IP: try an address in the accounts search.</p><table><thead><tr><th>Token</th><th>IP</th><th>Device</th><th>Created</th><th>Expires</th></tr></thead><tbody>${sessionRows || `<tr><td colspan="5" class="empty">No sessions.</td></tr>`}</tbody></table></div><div class="card"><h2>User activity / history</h2><p class="muted">Logins, posts, comments, domain changes, API usage, billing events.</p><table><thead><tr><th>When</th><th>Kind</th><th>Detail</th></tr></thead><tbody>${activityRows || `<tr><td colspan="3" class="empty">No activity yet.</td></tr>`}</tbody></table></div>${notesCard}<div class="card"><h2>Related accounts</h2><p class="muted">Accounts sharing signup/session IPs (payment/domain signals coming soon).</p><table><thead><tr><th>Account</th><th>Reason</th></tr></thead><tbody>${relatedRows || `<tr><td colspan="2" class="empty">No related accounts found.</td></tr>`}</tbody></table></div>${rateCard}`));
 });
+
 
 export default app;
