@@ -185,17 +185,27 @@ export async function currentAccount(c: any): Promise<Account | null> {
   const token = getCookie(c, SESSION_COOKIE);
   if (!token) return null;
   const now = Math.floor(Date.now() / 1000);
-  const row = (await c.env.DB.prepare(
-    `SELECT a.id, a.email, COALESCE(a.status, 'active') AS status, a.status_reason, a.status_changed_at,
-            COALESCE(a.billing_status, 'inactive') AS billing_status,
-            COALESCE(a.billing_cancel_at_period_end, 0) AS billing_cancel_at_period_end,
-            a.crypto_paid_through, COALESCE(a.email_verified, 0) AS email_verified, a.email_verified_at, a.locked_until
-       FROM sessions s JOIN accounts a ON a.id = s.account_id
-      WHERE s.token = ? AND s.expires_at > ?`
-  )
-    .bind(token, now)
-    .first()) as Account | null;
-  return row ?? null;
+  try {
+    const row = (await c.env.DB.prepare(
+      `SELECT a.id, a.email, COALESCE(a.status, 'active') AS status, a.status_reason, a.status_changed_at,
+              COALESCE(a.billing_status, 'inactive') AS billing_status,
+              COALESCE(a.billing_cancel_at_period_end, 0) AS billing_cancel_at_period_end,
+              a.crypto_paid_through, COALESCE(a.email_verified, 0) AS email_verified, a.email_verified_at, a.locked_until
+         FROM sessions s JOIN accounts a ON a.id = s.account_id
+        WHERE s.token = ? AND s.expires_at > ?`
+    ).bind(token, now).first()) as Account | null;
+    return row ?? null;
+  } catch {
+    const row = (await c.env.DB.prepare(
+      `SELECT a.id, a.email, COALESCE(a.status, 'active') AS status, a.status_reason, a.status_changed_at,
+              COALESCE(a.billing_status, 'inactive') AS billing_status,
+              COALESCE(a.billing_cancel_at_period_end, 0) AS billing_cancel_at_period_end,
+              a.crypto_paid_through, COALESCE(a.email_verified, 0) AS email_verified, a.email_verified_at
+         FROM sessions s JOIN accounts a ON a.id = s.account_id
+        WHERE s.token = ? AND s.expires_at > ?`
+    ).bind(token, now).first()) as Account | null;
+    return row ?? null;
+  }
 }
 
 // --- cookie set/clear ------------------------------------------------------
