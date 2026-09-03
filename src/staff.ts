@@ -3,6 +3,10 @@ import { esc } from "./render";
 import { sendEmailDetailed, registrationWelcomeEmail, subscriptionActiveEmail, subscriberConfirmationEmail, passwordResetEmail, subscriberWelcomeEmail, postNotificationEmail } from "./email";
 import { generateResetToken, sha256hex } from "./auth";
 import { classifyTtsError, ttsBytes, TTS_MODEL, TTS_RETRY_DELAYS } from "./tts";
+import { getAffiliatePayoutQueueInDb, getAffiliateSupportActivityInDb, getAffiliateSupportSummaryInDb } from "./affiliate-support";
+import { approveAffiliatePayoutInDb, hasIndependentPayoutApprovalInDb, loadStripePayoutDispatchInDb, parseAffiliateStripeConnectCountries, parsePayoutDualControlThreshold, reconcilePayoutInDb, recordAffiliateAccountRelationshipInDb, recordManualAffiliateAdjustmentInDb, recordPayoutDispatchResultInDb } from "./affiliate";
+import { createAffiliateTransfer } from "./stripe";
+import { relayAffiliateEmailOutboxInDb, type AffiliateEmailJob } from "./affiliate-notifications";
 
 type StaffRole = "read_only" | "support" | "admin";
 type StaffIdentity = { subject: string; email: string; role: StaffRole };
@@ -19,6 +23,10 @@ type StaffBindings = {
   ROOT_DOMAIN?: string;
   STRIPE_MONTHLY_PRICE_ID?: string;
   STRIPE_YEARLY_PRICE_ID?: string;
+  STRIPE_SECRET_KEY?: string;
+  AFFILIATE_PAYOUT_DUAL_CONTROL_THRESHOLD_MINOR?: string;
+  AFFILIATE_STRIPE_CONNECT_COUNTRIES?: string;
+  EMAIL_QUEUE?: Queue<AffiliateEmailJob>;
 };
 
 type TestEmailType = "registration" | "subscription-active" | "subscriber-confirmation" | "subscriber-welcome" | "new-post" | "password-reset";
@@ -211,7 +219,7 @@ async function relatedAccounts(c: any, id: number) {
 }
 
 function staffHeader(staff: StaffIdentity): string {
-  return `<header class="staff-top"><a class="staff-brand" href="/">blognice <span>staff</span></a><div class="staff-top-meta"><small>${esc(staff.email)} · ${esc(staff.role)}</small><a class="logout" href="/cdn-cgi/access/logout">Log out</a><button class="staff-menu-toggle" type="button" aria-controls="staff-sidebar" aria-expanded="false">Menu</button></div></header><div class="staff-shell"><aside class="staff-sidebar" id="staff-sidebar"><nav class="staff-nav" aria-label="Staff navigation"><a href="/dashboard" data-staff-nav>Dashboard</a><a href="/" data-staff-nav>Accounts</a><a href="/audit" data-staff-nav>Audit log</a><a href="/pronunciations" data-staff-nav>Pronunciation dictionary</a><a href="/tts-test" data-staff-nav>TTS test</a><a href="/email-preview" data-staff-nav>Email preview</a></nav></aside><div class="staff-content">`;
+  return `<header class="staff-top"><a class="staff-brand" href="/">blognice <span>staff</span></a><div class="staff-top-meta"><small>${esc(staff.email)} · ${esc(staff.role)}</small><a class="logout" href="/cdn-cgi/access/logout">Log out</a><button class="staff-menu-toggle" type="button" aria-controls="staff-sidebar" aria-expanded="false">Menu</button></div></header><div class="staff-shell"><aside class="staff-sidebar" id="staff-sidebar"><nav class="staff-nav" aria-label="Staff navigation"><a href="/dashboard" data-staff-nav>Dashboard</a><a href="/" data-staff-nav>Accounts</a><a href="/affiliate-payouts" data-staff-nav>Affiliate payouts</a><a href="/audit" data-staff-nav>Audit log</a><a href="/pronunciations" data-staff-nav>Pronunciation dictionary</a><a href="/tts-test" data-staff-nav>TTS test</a><a href="/email-preview" data-staff-nav>Email preview</a></nav></aside><div class="staff-content">`;
 }
 
 function billingPlan(account: any, c: any): string {
@@ -269,6 +277,271 @@ app.get("/api/accounts/:id", async (c) => {
       WHERE m.account_id = ? ORDER BY m.created_at DESC`
   ).bind(id).all();
   return c.json({ account, blogs: blogs.results });
+});
+
+app.get("/api/accounts/:id/affiliate", async (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isSafeInteger(id) || id < 1) return c.json({ error: "invalid account" }, 400);
+  const summary = await getAffiliateSupportSummaryInDb(c.env.DB, id, Math.floor(Date.now() / 1000));
+  if (!summary) return c.json({ error: "affiliate profile not found" }, 404);
+  const activity = await getAffiliateSupportActivityInDb(c.env.DB, id);
+  return c.json({ affiliate: summary, activity });
+});
+
+app.post("/api/accounts/:id/affiliate-status", async (c) => {
+  const staff = c.get("staff") as StaffIdentity;
+  if (!canAdmin(staff)) return c.json({ error: "admin role required for affiliate status changes" }, 403);
+  if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
+  const id = Number(c.req.param("id"));
+  if (!Number.isSafeInteger(id) || id < 1) return c.json({ error: "invalid account" }, 400);
+  const body = await c.req.json<{ status?: unknown; reason?: unknown }>().catch(() => ({} as { status?: unknown; reason?: unknown }));
+  const status = String(body.status || "").trim();
+  const reason = String(body.reason || "").trim().slice(0, 500);
+  if (status !== "active" && status !== "suspended") return c.json({ error: "status must be active or suspended" }, 400);
+  if (!reason) return c.json({ error: "a reason is required" }, 400);
+  const before = await c.env.DB.prepare("SELECT status FROM affiliate_profiles WHERE account_id = ?").bind(id).first<{ status: string }>();
+  if (!before) return c.json({ error: "affiliate profile not found" }, 404);
+  if (before.status === status) return c.json({ error: `affiliate is already ${status}` }, 409);
+  if (before.status !== "active" && before.status !== "suspended") {
+    return c.json({ error: `affiliate status ${before.status} cannot be changed here` }, 409);
+  }
+  const changed = await c.env.DB.prepare(
+    "UPDATE affiliate_profiles SET status = ? WHERE account_id = ? AND status = ?",
+  ).bind(status, id, before.status).run();
+  if (changed.meta.changes !== 1) return c.json({ error: "affiliate status changed concurrently" }, 409);
+  await audit(c, staff, {
+    action: "affiliate-status-change", targetType: "affiliate_profile",
+    targetId: String(id), reason, result: "success",
+    before: { status: before.status }, after: { status },
+  });
+  return c.json({ changed: true, account_id: id, status });
+});
+
+app.post("/api/accounts/:id/affiliate-related-account", async (c) => {
+  const staff = c.get("staff") as StaffIdentity;
+  if (!canAdmin(staff)) return c.json({ error: "admin role required for affiliate relationship changes" }, 403);
+  if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
+  const affiliateId = Number(c.req.param("id"));
+  if (!Number.isSafeInteger(affiliateId) || affiliateId < 1) return c.json({ error: "invalid affiliate account" }, 400);
+  const body = await c.req.json<{ related_account_id?: unknown; relationship_kind?: unknown; reason?: unknown }>()
+    .catch(() => ({} as { related_account_id?: unknown; relationship_kind?: unknown; reason?: unknown }));
+  const relatedAccountId = Number(body.related_account_id);
+  const relationshipKind = String(body.relationship_kind || "").trim();
+  const reason = String(body.reason || "").trim().slice(0, 500);
+  if (!Number.isSafeInteger(relatedAccountId) || relatedAccountId < 1 || relatedAccountId === affiliateId) {
+    return c.json({ error: "a different related account is required" }, 400);
+  }
+  if (!(["same_person", "same_organization", "controlled_account"] as string[]).includes(relationshipKind)) {
+    return c.json({ error: "relationship_kind is invalid" }, 400);
+  }
+  if (!reason) return c.json({ error: "a reason is required" }, 400);
+  const profile = await c.env.DB.prepare("SELECT 1 FROM affiliate_profiles WHERE account_id = ?").bind(affiliateId).first();
+  if (!profile) return c.json({ error: "affiliate profile not found" }, 404);
+  const recordedAt = Math.floor(Date.now() / 1000);
+  const result = await recordAffiliateAccountRelationshipInDb(c.env.DB, {
+    affiliateId, relatedAccountId,
+    relationshipKind: relationshipKind as "same_person" | "same_organization" | "controlled_account",
+    actorSubject: staff.subject, actorRole: "admin", reason, recordedAt,
+  });
+  if (!result.recorded) return c.json({ error: "relationship already exists or account was not found" }, 409);
+  await audit(c, staff, {
+    action: "affiliate-related-account", targetType: "affiliate_profile",
+    targetId: String(affiliateId), reason, result: "recorded",
+    after: { related_account_id: relatedAccountId, relationship_kind: relationshipKind },
+  });
+  return c.json({ recorded: true, affiliate_id: affiliateId, related_account_id: relatedAccountId, affiliate_status: "suspended" });
+});
+
+app.post("/api/accounts/:id/affiliate-adjustment", async (c) => {
+  const staff = c.get("staff") as StaffIdentity;
+  if (!canAdmin(staff)) return c.json({ error: "admin role required for affiliate adjustments" }, 403);
+  if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
+  const affiliateId = Number(c.req.param("id"));
+  if (!Number.isSafeInteger(affiliateId) || affiliateId < 1) return c.json({ error: "invalid affiliate account" }, 400);
+  const body = await c.req.json<{ occurrence_id?: unknown; source_key?: unknown; amount_minor?: unknown; reason?: unknown }>()
+    .catch(() => ({} as { occurrence_id?: unknown; source_key?: unknown; amount_minor?: unknown; reason?: unknown }));
+  const occurrenceId = String(body.occurrence_id || "").trim();
+  const sourceKey = String(body.source_key || "").trim();
+  const amountMinor = Number(body.amount_minor);
+  const reason = String(body.reason || "").trim().slice(0, 500);
+  if (!occurrenceId || occurrenceId.length > 200) return c.json({ error: "a valid occurrence_id is required" }, 400);
+  if (!sourceKey || sourceKey.length > 200) return c.json({ error: "a unique source_key is required" }, 400);
+  if (!Number.isSafeInteger(amountMinor) || amountMinor === 0) return c.json({ error: "amount_minor must be a non-zero integer" }, 400);
+  if (!reason) return c.json({ error: "a reason is required" }, 400);
+  const occurrence = await c.env.DB.prepare(
+    "SELECT affiliate_id, currency FROM affiliate_revenue_occurrences WHERE id = ?",
+  ).bind(occurrenceId).first<{ affiliate_id: number; currency: string }>();
+  if (!occurrence || occurrence.affiliate_id !== affiliateId) return c.json({ error: "affiliate revenue occurrence not found" }, 404);
+  if (occurrence.currency !== "usd") return c.json({ error: "manual adjustments require a USD occurrence" }, 409);
+  const result = await recordManualAffiliateAdjustmentInDb(c.env.DB, {
+    occurrenceId, sourceKey, amountMinor, actorSubject: staff.subject,
+    actorRole: "admin", reason, recordedAt: Math.floor(Date.now() / 1000),
+  });
+  if (!result.recorded) return c.json({ error: "source_key already recorded" }, 409);
+  await audit(c, staff, {
+    action: "affiliate-manual-adjustment", targetType: "affiliate_profile",
+    targetId: String(affiliateId), reason, result: "recorded",
+    after: { occurrence_id: occurrenceId, source_key: sourceKey, amount_minor: amountMinor, currency: "usd" },
+  });
+  return c.json({ recorded: true, affiliate_id: affiliateId, occurrence_id: occurrenceId, amount_minor: amountMinor });
+});
+
+app.get("/api/affiliate-payouts", async (c) => {
+  const requested = String(c.req.query("status") || "all");
+  if (requested !== "all" && requested !== "prepared" && requested !== "reconciliation") {
+    return c.json({ error: "status must be prepared, reconciliation, or all" }, 400);
+  }
+  const payouts = await getAffiliatePayoutQueueInDb(c.env.DB, requested);
+  return c.json({ payouts });
+});
+
+app.post("/api/affiliate-payouts/:id/reconcile", async (c) => {
+  const staff = c.get("staff") as StaffIdentity;
+  if (!canAdmin(staff)) return c.json({ error: "admin role required for payout reconciliation" }, 403);
+  if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
+  const payoutId = String(c.req.param("id") || "").trim();
+  const body = await c.req.json<{
+    decision?: unknown;
+    evidence?: unknown;
+    external_reference?: unknown;
+  }>().catch(() => ({} as {
+    decision?: unknown;
+    evidence?: unknown;
+    external_reference?: unknown;
+  }));
+  const decision = String(body.decision || "").trim();
+  const evidence = String(body.evidence || "").trim().slice(0, 2000);
+  const externalReference = String(body.external_reference || "").trim().slice(0, 255);
+  if (decision !== "confirm_paid" && decision !== "cancel") {
+    return c.json({ error: "decision must be confirm_paid or cancel" }, 400);
+  }
+  if (!evidence) return c.json({ error: "evidence is required" }, 400);
+  if (decision === "confirm_paid" && !externalReference) {
+    return c.json({ error: "external_reference is required when confirming payment" }, 400);
+  }
+  if (decision === "cancel" && externalReference) {
+    return c.json({ error: "external_reference must be empty when cancelling" }, 400);
+  }
+  const reconciledAt = Math.floor(Date.now() / 1000);
+  const result = await reconcilePayoutInDb(c.env.DB, decision === "confirm_paid" ? {
+    payoutId, decision, actorSubject: staff.subject, actorRole: "admin",
+    evidence, externalReference, reconciledAt,
+  } : {
+    payoutId, decision, actorSubject: staff.subject, actorRole: "admin",
+    evidence, externalReference: null, reconciledAt,
+  });
+  if (!result.reconciled) return c.json({ error: "payout is not awaiting reconciliation" }, 409);
+  if (c.env.EMAIL_QUEUE) {
+    c.executionCtx.waitUntil(relayAffiliateEmailOutboxInDb(c.env.DB, c.env.EMAIL_QUEUE));
+  }
+  await audit(c, staff, {
+    action: "affiliate-payout-reconcile", targetType: "affiliate_payout",
+    targetId: payoutId, reason: evidence, result: decision,
+    before: { status: "reconciliation" },
+    after: { status: decision === "confirm_paid" ? "paid" : "cancelled", external_reference: externalReference || null },
+  });
+  return c.json({ reconciled: true, payout_id: payoutId, status: decision === "confirm_paid" ? "paid" : "cancelled" });
+});
+
+app.post("/api/affiliate-payouts/:id/approve", async (c) => {
+  const staff = c.get("staff") as StaffIdentity;
+  if (!canAdmin(staff)) return c.json({ error: "admin role required for payout approval" }, 403);
+  if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
+  const payoutId = String(c.req.param("id") || "").trim();
+  const body = await c.req.json<{ reason?: unknown }>().catch(() => ({} as { reason?: unknown }));
+  const reason = String(body.reason || "").trim().slice(0, 500);
+  if (!reason) return c.json({ error: "a reason is required" }, 400);
+  const approvedAt = Math.floor(Date.now() / 1000);
+  const result = await approveAffiliatePayoutInDb(c.env.DB, {
+    payoutId, actorSubject: staff.subject, actorRole: "admin", reason, approvedAt,
+  });
+  if (!result.approved) return c.json({ error: "payout is not awaiting this approval" }, 409);
+  await audit(c, staff, {
+    action: "affiliate-payout-approve", targetType: "affiliate_payout",
+    targetId: payoutId, reason, result: "approved",
+    before: { approval: null }, after: { approved_at: approvedAt },
+  });
+  return c.json({ approved: true, payout_id: payoutId });
+});
+
+app.post("/api/affiliate-payouts/:id/dispatch", async (c) => {
+  const staff = c.get("staff") as StaffIdentity;
+  if (!canAdmin(staff)) return c.json({ error: "admin role required for payout dispatch" }, 403);
+  if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
+  const payoutId = String(c.req.param("id") || "").trim();
+  const body = await c.req.json<{ reason?: unknown }>().catch(() => ({} as { reason?: unknown }));
+  const reason = String(body.reason || "").trim().slice(0, 500);
+  if (!reason) return c.json({ error: "a reason is required" }, 400);
+  const countryConfig = parseAffiliateStripeConnectCountries(c.env.AFFILIATE_STRIPE_CONNECT_COUNTRIES);
+  if (!countryConfig.configured) {
+    return c.json({ error: "payout country configuration is invalid" }, 503);
+  }
+  const dispatch = await loadStripePayoutDispatchInDb(c.env.DB, payoutId, countryConfig.countries);
+  if (!dispatch.dispatchable) return c.json({ error: "payout is not dispatchable through Stripe" }, 409);
+  const dualControl = parsePayoutDualControlThreshold(c.env.AFFILIATE_PAYOUT_DUAL_CONTROL_THRESHOLD_MINOR);
+  if (!dualControl.configured) {
+    return c.json({ error: "payout dual-control configuration is invalid" }, 503);
+  }
+  if (dispatch.amountMinor >= dualControl.thresholdMinor
+      && !(await hasIndependentPayoutApprovalInDb(c.env.DB, dispatch.payoutId, staff.subject))) {
+    return c.json({ error: "independent admin approval required for this payout" }, 409);
+  }
+  const idempotencyKey = `affiliate-payout:${dispatch.payoutId}`;
+  const recordedAt = Math.floor(Date.now() / 1000);
+  let transfer: Awaited<ReturnType<typeof createAffiliateTransfer>>;
+  try {
+    transfer = await createAffiliateTransfer(c.env, {
+      payoutId: dispatch.payoutId,
+      connectedAccountId: dispatch.connectedAccountId,
+      amountMinor: dispatch.amountMinor,
+      currency: dispatch.currency,
+    });
+  } catch (error) {
+    const result = await recordPayoutDispatchResultInDb(c.env.DB, {
+      payoutId: dispatch.payoutId,
+      provider: "stripe",
+      idempotencyKey,
+      outcome: "ambiguous",
+      externalReference: null,
+      actorSubject: staff.subject,
+      actorRole: "admin",
+      reason,
+      recordedAt,
+    });
+    await audit(c, staff, {
+      action: "affiliate-payout-dispatch",
+      targetType: "affiliate_payout",
+      targetId: dispatch.payoutId,
+      reason,
+      result: "reconciliation",
+      before: { status: "prepared", amount_minor: dispatch.amountMinor, currency: dispatch.currency },
+      after: { status: result.payoutStatus, error: error instanceof Error ? error.message.slice(0, 300) : String(error).slice(0, 300) },
+    });
+    return c.json({ accepted: true, reconciliation_required: true, payout_id: dispatch.payoutId }, 202);
+  }
+  const result = await recordPayoutDispatchResultInDb(c.env.DB, {
+    payoutId: dispatch.payoutId,
+    provider: "stripe",
+    idempotencyKey,
+    outcome: "paid",
+    externalReference: transfer.transferId,
+    actorSubject: staff.subject,
+    actorRole: "admin",
+    reason,
+    recordedAt,
+  });
+  await audit(c, staff, {
+    action: "affiliate-payout-dispatch",
+    targetType: "affiliate_payout",
+    targetId: dispatch.payoutId,
+    reason,
+    result: result.recorded ? "paid" : result.payoutStatus,
+    before: { status: "prepared", amount_minor: dispatch.amountMinor, currency: dispatch.currency },
+    after: { status: result.payoutStatus, stripe_transfer_id: transfer.transferId },
+  });
+  if (!result.recorded) return c.json({ error: "payout state changed before dispatch was recorded" }, 409);
+  if (c.env.EMAIL_QUEUE) c.executionCtx.waitUntil(relayAffiliateEmailOutboxInDb(c.env.DB, c.env.EMAIL_QUEUE));
+  return c.json({ paid: true, payout_id: dispatch.payoutId, stripe_transfer_id: transfer.transferId });
 });
 
 async function mutateAccount(c: any, action: string, id: number, reason: string) {
@@ -592,6 +865,34 @@ async function deletePronunciation(c: any) {
 app.delete("/api/pronunciations/:id", deletePronunciation);
 app.post("/api/pronunciations/:id/delete", deletePronunciation);
 
+app.get("/affiliate-payouts", async (c) => {
+  const staff = c.get("staff") as StaffIdentity;
+  const payouts = await getAffiliatePayoutQueueInDb(c.env.DB, "all");
+  const canOperate = canAdmin(staff);
+  const renderAmount = (minor: number) => `$${(minor / 100).toFixed(2)}`;
+  const renderAffiliate = (payout: typeof payouts[number]) =>
+    `<a href="/accounts/${payout.affiliateId}">${esc(payout.affiliateEmail)}</a><br><small>${esc(payout.referralCode)}</small>`;
+  const prepared = payouts.filter((payout) => payout.status === "prepared").map((payout) => {
+    const destination = payout.connectedAccountId
+      ? `<a href="https://dashboard.stripe.com/connect/accounts/${encodeURIComponent(payout.connectedAccountId)}" target="_blank" rel="noopener noreferrer"><code>${esc(payout.connectedAccountId)}</code> ↗</a>`
+      : `<span class="badge suspended">Not connected</span>`;
+    const approval = payout.latestApproverSubject
+      ? `<p><span class="badge">Approved</span> by <code>${esc(payout.latestApproverSubject)}</code><br><small>${esc(payout.latestApprovalReason || "")} · ${payout.latestApprovedAt ? new Date(payout.latestApprovedAt * 1000).toISOString().replace("T", " ").slice(0, 19) : "unknown time"}${payout.approvalCount > 1 ? ` · ${payout.approvalCount} approvals` : ""}</small></p>`
+      : `<p><span class="badge suspended">No approval recorded</span></p>`;
+    const action = canOperate
+      ? `${approval}<form class="payout-action" data-payout-action="/api/affiliate-payouts/${encodeURIComponent(payout.payoutId)}/approve"><input name="reason" required maxlength="500" aria-label="Approval reason" placeholder="Independent review evidence"><button class="btn" type="submit">Approve payout</button></form><form class="payout-action" data-payout-action="/api/affiliate-payouts/${encodeURIComponent(payout.payoutId)}/dispatch"><input name="reason" required maxlength="500" aria-label="Dispatch reason" placeholder="Reason for dispatch"><button class="btn" type="submit">Dispatch through Stripe</button></form>`
+      : `<span class="muted">Admin role required</span>`;
+    return `<tr><td>${renderAffiliate(payout)}</td><td>${renderAmount(payout.amountMinor)} ${esc(payout.currency.toUpperCase())}</td><td>${destination}</td><td>${new Date(payout.createdAt * 1000).toISOString().slice(0, 10)}</td><td>${action}</td></tr>`;
+  }).join("");
+  const reconciliation = payouts.filter((payout) => payout.status === "reconciliation").map((payout) => {
+    const attempt = `${esc(payout.latestAttemptOutcome || "unknown")} · ${payout.latestAttemptAt ? new Date(payout.latestAttemptAt * 1000).toISOString().replace("T", " ").slice(0, 19) : "unknown time"}${payout.latestDispatchActorSubject ? `<br><small>Dispatched by <code>${esc(payout.latestDispatchActorSubject)}</code> · ${esc(payout.latestDispatchReason || "")}</small>` : ""}`;
+    const action = canOperate ? `<form class="payout-action reconcile" data-payout-action="/api/affiliate-payouts/${encodeURIComponent(payout.payoutId)}/reconcile"><label>Evidence<textarea name="evidence" required maxlength="2000" placeholder="What Stripe shows and how it was verified"></textarea></label><label>Stripe transfer ID<input name="external_reference" maxlength="255" placeholder="tr_… (required to confirm)"></label><div><button class="btn" type="submit" name="decision" value="confirm_paid">Confirm paid</button> <button class="btn danger" type="submit" name="decision" value="cancel">Cancel payout</button></div></form>` : `<span class="muted">Admin role required</span>`;
+    return `<tr><td>${renderAffiliate(payout)}</td><td>${renderAmount(payout.amountMinor)} ${esc(payout.currency.toUpperCase())}</td><td>${attempt}</td><td>${action}</td></tr>`;
+  }).join("");
+  const script = canOperate ? `<script>document.querySelectorAll('.payout-action').forEach(function(form){form.addEventListener('submit',async function(event){event.preventDefault();var submitter=event.submitter,decision=submitter&&submitter.name==='decision'?submitter.value:null;if(decision==='cancel'&&!confirm('Cancel this payout and release its ledger allocations?'))return;var body={reason:this.elements.reason?this.elements.reason.value:undefined,evidence:this.elements.evidence?this.elements.evidence.value:undefined,external_reference:this.elements.external_reference?this.elements.external_reference.value:undefined,decision:decision||undefined};submitter.disabled=true;try{var response=await fetch(this.dataset.payoutAction,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}),data=await response.json();if(!response.ok){alert(data.error||'Payout action failed');return}location.reload()}finally{submitter.disabled=false}})})</script>` : "";
+  return c.html(staffPage("Affiliate payouts", `${staffHeader(staff)}<h2>Affiliate payout operations</h2><p class="muted">Stripe Connect is the only payout rail. Review the destination and evidence before changing financial state. Payouts at or above the configured dual-control threshold must be approved and dispatched by different admins.</p><div class="card"><div class="card-head"><h2>Prepared for dispatch</h2><span class="badge">${payouts.filter((payout) => payout.status === "prepared").length}</span></div><table><thead><tr><th>Affiliate</th><th>Amount</th><th>Stripe destination</th><th>Prepared</th><th>Action</th></tr></thead><tbody>${prepared || `<tr><td colspan="5" class="empty">No payouts are ready to dispatch.</td></tr>`}</tbody></table></div><div class="card"><div class="card-head"><h2>Awaiting reconciliation</h2><span class="badge suspended">${payouts.filter((payout) => payout.status === "reconciliation").length}</span></div><table><thead><tr><th>Affiliate</th><th>Amount</th><th>Latest attempt</th><th>Decision</th></tr></thead><tbody>${reconciliation || `<tr><td colspan="4" class="empty">No payouts need reconciliation.</td></tr>`}</tbody></table></div>${script}`));
+});
+
 app.get("/dashboard", async (c) => {
   const staff = c.get("staff") as StaffIdentity;
   const now = Math.floor(Date.now() / 1000);
@@ -657,6 +958,8 @@ app.get("/accounts/:id", async (c) => {
   const notes = await fetchNotes(c, id);
   const activity = await fetchActivity(c, id);
   const related = await relatedAccounts(c, id);
+  const affiliateSummary = await getAffiliateSupportSummaryInDb(c.env.DB, id, Math.floor(Date.now() / 1000));
+  const affiliateActivity = affiliateSummary ? await getAffiliateSupportActivityInDb(c.env.DB, id) : null;
   let rateLimit: any = null; try { rateLimit = await c.env.DB.prepare("SELECT * FROM staff_rate_limit_overrides WHERE account_id=?").bind(id).first() as any; } catch {}
   const isLocked = account.locked_until && Number(account.locked_until) > Math.floor(Date.now()/1000);
   const signupInfo = `<p class="muted">Created ${new Date(account.created_at * 1000).toISOString().slice(0,10)}${account.signup_ip ? ` · IP ${esc(account.signup_ip)}` : ""}${account.signup_country ? ` · ${esc(account.signup_country)}` : ""}${account.signup_referer ? ` · ref ${esc(String(account.signup_referer).slice(0,80))}` : ""}${account.signup_ua ? `<br><small>${esc(String(account.signup_ua).slice(0,120))}</small>` : ""}</p>`;
@@ -671,9 +974,31 @@ app.get("/accounts/:id", async (c) => {
   const activityRows = activity.map((a:any)=>`<tr><td>${new Date(a.at*1000).toISOString().replace("T"," ").slice(0,19)}</td><td>${esc(a.kind)}</td><td>${esc(a.detail)}</td></tr>`).join("");
   const noteRows = (notes as any).results.map((n:any)=>`<tr><td>${new Date(n.created_at*1000).toISOString().slice(0,10)}</td><td>${esc(n.author_email)}</td><td>${esc(n.note)}</td><td><form method="post" action="/api/notes/${esc(n.id)}/delete" onsubmit="return confirm('Delete note?')"><button class="btn" type="submit">Delete</button></form></td></tr>`).join("");
   const relatedRows = related.map((r:any)=>`<tr><td><a href="/accounts/${r.id}">#${r.id} ${esc(r.email)}</a></td><td>${esc(r.reason)}</td></tr>`).join("");
+  const affiliateCard = affiliateSummary && affiliateActivity ? (() => {
+    const money = (minor: number, currency: string = affiliateSummary.currency) => `${minor < 0 ? "−" : ""}$${(Math.abs(minor) / 100).toFixed(2)} ${esc(currency.toUpperCase())}`;
+    const connectAccount = affiliateSummary.stripeConnectedAccountId
+      ? `<a href="https://dashboard.stripe.com/connect/accounts/${encodeURIComponent(affiliateSummary.stripeConnectedAccountId)}" target="_blank" rel="noopener noreferrer"><code>${esc(affiliateSummary.stripeConnectedAccountId)}</code> ↗</a>`
+      : "Not connected";
+    const attributionRows = affiliateActivity.attributions.map((row) => `<tr><td><a href="/accounts/${row.referredAccountId}">${esc(row.referredEmail)}</a><br><small>#${row.referredAccountId}</small></td><td>${esc(row.source)}</td><td>${new Date(row.capturedAt * 1000).toISOString().replace("T", " ").slice(0, 19)}</td><td><code>${esc(row.policyVersion)}</code></td></tr>`).join("");
+    const ledgerRows = affiliateActivity.ledgerEntries.map((row) => `<tr><td>${new Date(row.createdAt * 1000).toISOString().slice(0, 10)}</td><td>${esc(row.entryKind)}</td><td>${esc(row.provider)}</td><td>${money(row.amountMinor, row.currency)}</td><td>${new Date(row.availableAt * 1000).toISOString().slice(0, 10)}</td><td><code>${esc(row.occurrenceId)}</code></td></tr>`).join("");
+    const uncommissionedRows = affiliateActivity.uncommissionedOccurrences.map((row) => `<tr><td>${new Date(row.paidAt * 1000).toISOString().slice(0, 10)}</td><td>${esc(row.provider)}</td><td>${row.reason === "related_account" ? "Confirmed related account" : "Non-USD; FX policy unavailable"}</td><td>${(row.eligibleRevenueMinor / 100).toFixed(2)} ${esc(row.currency.toUpperCase())}</td><td>${(row.refundedEligibleRevenueMinor / 100).toFixed(2)} ${esc(row.currency.toUpperCase())}</td><td><a href="/accounts/${row.referredAccountId}">#${row.referredAccountId}</a></td><td><code>${esc(row.providerPaymentId || row.providerInvoiceId || row.id)}</code></td><td><code>${esc(row.policyVersion)}</code></td></tr>`).join("");
+    const reserveRows = affiliateActivity.reserves.map((row) => `<tr><td>${esc(row.status)}</td><td>${esc(row.provider)}</td><td>${money(row.amountMinor, row.currency)}</td><td><code>${esc(row.disputeId)}</code></td><td>${new Date(row.openedAt * 1000).toISOString().slice(0, 10)}</td></tr>`).join("");
+    const payoutRows = affiliateActivity.payouts.map((row) => `<tr><td>${new Date(row.createdAt * 1000).toISOString().slice(0, 10)}</td><td>${esc(row.status)}</td><td>${money(row.amountMinor, row.currency)}</td><td>${row.externalReference ? `<code>${esc(row.externalReference)}</code>` : "—"}</td></tr>`).join("");
+    const statusToggle = canAdmin(staff) && (affiliateSummary.status === "active" || affiliateSummary.status === "suspended")
+      ? `<form id="affiliate-status-form" data-action="/api/accounts/${id}/affiliate-status"><input type="hidden" name="status" value="${affiliateSummary.status === "active" ? "suspended" : "active"}"><input name="reason" required maxlength="500" placeholder="Reason"><button class="btn ${affiliateSummary.status === "active" ? "btn-danger" : ""}" type="submit">${affiliateSummary.status === "active" ? "Suspend affiliate" : "Reactivate affiliate"}</button></form><script>document.getElementById('affiliate-status-form').addEventListener('submit',async function(event){event.preventDefault();if(!confirm('Confirm this affiliate status change?'))return;var response=await fetch(this.dataset.action,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({status:this.elements.status.value,reason:this.elements.reason.value})}),data=await response.json();if(!response.ok){alert(data.error||'Status change failed');return}location.reload()})</script>`
+      : "";
+    const relationshipControl = canAdmin(staff)
+      ? `<h3>Confirm related account</h3><p class="muted">Use only after a documented identity or control review. IP and device matches alone are not proof.</p><form id="affiliate-relationship-form" data-action="/api/accounts/${id}/affiliate-related-account"><input name="related_account_id" type="number" min="1" required placeholder="Related account ID"><select name="relationship_kind"><option value="same_person">Same person</option><option value="same_organization">Same organization</option><option value="controlled_account">Controlled account</option></select><input name="reason" required maxlength="500" placeholder="Review evidence and reason"><button class="btn btn-danger" type="submit">Record relationship</button></form><script>document.getElementById('affiliate-relationship-form').addEventListener('submit',async function(event){event.preventDefault();if(!confirm('Confirm this account relationship? Future attribution from this account to the Affiliate will be blocked.'))return;var response=await fetch(this.dataset.action,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({related_account_id:Number(this.elements.related_account_id.value),relationship_kind:this.elements.relationship_kind.value,reason:this.elements.reason.value})}),data=await response.json();if(!response.ok){alert(data.error||'Relationship could not be recorded');return}location.reload()})</script>`
+      : "";
+    const adjustmentControl = canAdmin(staff)
+      ? `<h3>Record commission correction</h3><p class="muted">Append a signed USD correction to an existing revenue occurrence. Use a stable source key so retries cannot duplicate it.</p><form id="affiliate-adjustment-form" data-action="/api/accounts/${id}/affiliate-adjustment"><input name="occurrence_id" required maxlength="200" placeholder="Revenue occurrence ID"><input name="source_key" required maxlength="200" placeholder="Case or correction source key"><input name="amount_minor" type="number" step="1" required placeholder="Signed cents"><input name="reason" required maxlength="500" placeholder="Correction evidence and reason"><button class="btn btn-danger" type="submit">Record correction</button></form><script>document.getElementById('affiliate-adjustment-form').addEventListener('submit',async function(event){event.preventDefault();if(!confirm('Append this immutable commission correction?'))return;var response=await fetch(this.dataset.action,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({occurrence_id:this.elements.occurrence_id.value,source_key:this.elements.source_key.value,amount_minor:Number(this.elements.amount_minor.value),reason:this.elements.reason.value})}),data=await response.json();if(!response.ok){alert(data.error||'Correction could not be recorded');return}location.reload()})</script>`
+      : "";
+    const statusControl = statusToggle + relationshipControl + adjustmentControl;
+    return `<div class="card"><div class="card-head"><h2>Affiliate program</h2><span class="badge ${affiliateSummary.status === "active" ? "" : "suspended"}">${esc(affiliateSummary.status)}</span></div><p><strong>Referral code:</strong> <code>${esc(affiliateSummary.referralCode)}</code> · <strong>Attributions:</strong> ${affiliateSummary.attributionCount}<br><strong>Terms:</strong> ${esc(affiliateSummary.termsVersion)} accepted ${new Date(affiliateSummary.termsAcceptedAt * 1000).toISOString().slice(0, 10)} · <strong>Policy:</strong> ${esc(affiliateSummary.policyVersion)}<br><strong>Stripe Connect:</strong> ${esc(affiliateSummary.stripeConnectStatus)}${affiliateSummary.stripeConnectPayoutsEnabled ? " · payouts enabled" : " · payouts disabled"}${affiliateSummary.stripeConnectCountry ? ` · ${esc(affiliateSummary.stripeConnectCountry)}` : ""} · ${connectAccount}</p>${statusControl}<div class="dashboard-stats"><div><small class="muted">Ledger balance</small><br><strong>${money(affiliateSummary.ledgerBalanceMinor)}</strong></div><div><small class="muted">Matured balance</small><br><strong>${money(affiliateSummary.maturedBalanceMinor)}</strong></div><div><small class="muted">Open reserve</small><br><strong>${money(affiliateSummary.openReserveMinor)}</strong></div><div><small class="muted">Paid payouts</small><br><strong>${money(affiliateSummary.paidPayoutMinor)}</strong></div></div><h3>Referral attributions</h3><table><thead><tr><th>Referred account</th><th>Source</th><th>Captured</th><th>Policy</th></tr></thead><tbody>${attributionRows || `<tr><td colspan="4" class="empty">No attributions.</td></tr>`}</tbody></table><h3>Uncommissioned revenue reconciliation</h3><p class="muted">Provider facts excluded by currency policy or a confirmed account relationship remain visible for reconciliation.</p><table><thead><tr><th>Paid</th><th>Provider</th><th>Reason</th><th>Revenue</th><th>Refunded</th><th>Account</th><th>Provider reference</th><th>Policy</th></tr></thead><tbody>${uncommissionedRows || `<tr><td colspan="8" class="empty">No uncommissioned revenue.</td></tr>`}</tbody></table><h3>Commission ledger</h3><table><thead><tr><th>Created</th><th>Kind</th><th>Provider</th><th>Amount</th><th>Available</th><th>Occurrence</th></tr></thead><tbody>${ledgerRows || `<tr><td colspan="6" class="empty">No ledger entries.</td></tr>`}</tbody></table><h3>Reserves</h3><table><thead><tr><th>Status</th><th>Provider</th><th>Amount</th><th>Dispute</th><th>Opened</th></tr></thead><tbody>${reserveRows || `<tr><td colspan="5" class="empty">No reserves.</td></tr>`}</tbody></table><h3>Payout history</h3><table><thead><tr><th>Created</th><th>Status</th><th>Amount</th><th>External reference</th></tr></thead><tbody>${payoutRows || `<tr><td colspan="4" class="empty">No payouts.</td></tr>`}</tbody></table></div>`;
+  })() : `<div class="card"><h2>Affiliate program</h2><p class="muted">This account has not enabled the Affiliate Program.</p></div>`;
   const notesCard = `<div class="card"><h2>Account notes</h2><p class="muted">Internal admin-only notes. Not visible to the user.</p><form data-action="/api/accounts/${id}/notes" style="display:flex;gap:8px;margin:10px 0"><input name="note" required placeholder="Add internal note" style="flex:1;padding:8px;border:1px solid var(--rule);border-radius:5px"><button class="btn" type="submit">Add note</button></form><table><thead><tr><th>Date</th><th>Author</th><th>Note</th><th></th></tr></thead><tbody>${noteRows || `<tr><td colspan="4" class="empty">No notes.</td></tr>`}</tbody></table><script>document.querySelector('form[data-action="/api/accounts/${id}/notes"]').addEventListener('submit',async function(e){e.preventDefault();var note=this.elements.note.value;var r=await fetch(this.dataset.action,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({note:note})});var d=await r.json();if(!r.ok){alert(d.error||'Failed');return}location.reload()})</script></div>`;
   const rateCard = `<div class="card"><h2>Rate-limit / restriction controls</h2><p class="muted">Override signup/login limits (admin only). Empty = global default. Wired to signup checks.</p>${rateLimit ? `<p>Current: logins/hr ${rateLimit.max_logins_per_hour ?? "—"} · api/min ${rateLimit.max_api_per_minute ?? "—"}<br><small>${esc(rateLimit.note||"")}</small></p>` : `<p class="muted">No overrides set.</p>`}${canAdmin(staff) ? `<form data-action="/api/accounts/${id}/rate-limit" style="display:flex;gap:8px;flex-wrap:wrap"><input name="max_logins_per_hour" type="number" placeholder="logins/hr" style="width:120px;padding:8px;border:1px solid var(--rule);border-radius:5px"><input name="max_api_per_minute" type="number" placeholder="api/min" style="width:120px;padding:8px;border:1px solid var(--rule);border-radius:5px"><input name="note" placeholder="Reason" style="flex:1;min-width:160px;padding:8px;border:1px solid var(--rule);border-radius:5px"><button class="btn" type="submit">Save</button><button class="btn" type="button" onclick="fetch('/api/accounts/${id}/rate-limit/clear',{method:'POST',headers:{'content-type':'application/json'},body:'{}'}).then(()=>location.reload())">Clear</button></form><script>document.querySelector('form[data-action="/api/accounts/${id}/rate-limit"]').addEventListener('submit',async function(e){e.preventDefault();var b={max_logins_per_hour:this.elements.max_logins_per_hour.value?Number(this.elements.max_logins_per_hour.value):null,max_api_per_minute:this.elements.max_api_per_minute.value?Number(this.elements.max_api_per_minute.value):null,note:this.elements.note.value};var r=await fetch(this.dataset.action,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b)});var d=await r.json();if(!r.ok){alert(d.error);return}location.reload()})</script>` : `<p class="muted">Read-only role.</p>`}</div>`;
-  return c.html(staffPage(`Account ${id}`, `${staffHeader(staff)}<p><a href="/">← All accounts</a></p><div class="card"><div class="card-head"><div><h2>${esc(account.email)} ${verifyBadge}</h2><p class="muted">Account #${id} · created ${new Date(account.created_at * 1000).toISOString().slice(0, 10)} ${isLocked ? `<span class="badge suspended">locked until ${new Date(Number(account.locked_until)*1000).toISOString().slice(0,10)}</span>` : ""}</p>${signupInfo}</div><span class="badge ${account.status === "suspended" ? "suspended" : ""}">${esc(account.status)}</span></div><p>Blogs: ${account.blog_count} · Active sessions: ${account.active_sessions} · API key: ${account.has_api_key ? "present" : "not present"}</p>${account.status_reason ? `<p class="notice">Status reason: ${esc(account.status_reason)}</p>` : ""}${actions}</div>${billingCard}<div class="card"><h2>Blogs</h2><table><thead><tr><th>Title</th><th>View live blog</th><th>Role</th><th>Custom domain</th></tr></thead><tbody>${blogRows || `<tr><td colspan="4" class="empty">No blogs.</td></tr>`}</tbody></table></div><div class="card"><h2>IP / device / session history</h2><p class="muted">Search also covers IP: try an address in the accounts search.</p><table><thead><tr><th>Token</th><th>IP</th><th>Device</th><th>Created</th><th>Expires</th></tr></thead><tbody>${sessionRows || `<tr><td colspan="5" class="empty">No sessions.</td></tr>`}</tbody></table></div><div class="card"><h2>User activity / history</h2><p class="muted">Logins, posts, comments, domain changes, API usage, billing events.</p><table><thead><tr><th>When</th><th>Kind</th><th>Detail</th></tr></thead><tbody>${activityRows || `<tr><td colspan="3" class="empty">No activity yet.</td></tr>`}</tbody></table></div>${notesCard}<div class="card"><h2>Related accounts</h2><p class="muted">Accounts sharing signup/session IPs (payment/domain signals coming soon).</p><table><thead><tr><th>Account</th><th>Reason</th></tr></thead><tbody>${relatedRows || `<tr><td colspan="2" class="empty">No related accounts found.</td></tr>`}</tbody></table></div>${rateCard}`));
+  return c.html(staffPage(`Account ${id}`, `${staffHeader(staff)}<p><a href="/">← All accounts</a></p><div class="card"><div class="card-head"><div><h2>${esc(account.email)} ${verifyBadge}</h2><p class="muted">Account #${id} · created ${new Date(account.created_at * 1000).toISOString().slice(0, 10)} ${isLocked ? `<span class="badge suspended">locked until ${new Date(Number(account.locked_until)*1000).toISOString().slice(0,10)}</span>` : ""}</p>${signupInfo}</div><span class="badge ${account.status === "suspended" ? "suspended" : ""}">${esc(account.status)}</span></div><p>Blogs: ${account.blog_count} · Active sessions: ${account.active_sessions} · API key: ${account.has_api_key ? "present" : "not present"}</p>${account.status_reason ? `<p class="notice">Status reason: ${esc(account.status_reason)}</p>` : ""}${actions}</div>${billingCard}${affiliateCard}<div class="card"><h2>Blogs</h2><table><thead><tr><th>Title</th><th>View live blog</th><th>Role</th><th>Custom domain</th></tr></thead><tbody>${blogRows || `<tr><td colspan="4" class="empty">No blogs.</td></tr>`}</tbody></table></div><div class="card"><h2>IP / device / session history</h2><p class="muted">Search also covers IP: try an address in the accounts search.</p><table><thead><tr><th>Token</th><th>IP</th><th>Device</th><th>Created</th><th>Expires</th></tr></thead><tbody>${sessionRows || `<tr><td colspan="5" class="empty">No sessions.</td></tr>`}</tbody></table></div><div class="card"><h2>User activity / history</h2><p class="muted">Logins, posts, comments, domain changes, API usage, billing events.</p><table><thead><tr><th>When</th><th>Kind</th><th>Detail</th></tr></thead><tbody>${activityRows || `<tr><td colspan="3" class="empty">No activity yet.</td></tr>`}</tbody></table></div>${notesCard}<div class="card"><h2>Related accounts</h2><p class="muted">Accounts sharing signup/session IPs (payment/domain signals coming soon).</p><table><thead><tr><th>Account</th><th>Reason</th></tr></thead><tbody>${relatedRows || `<tr><td colspan="2" class="empty">No related accounts found.</td></tr>`}</tbody></table></div>${rateCard}`));
 });
 
 

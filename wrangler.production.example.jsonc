@@ -7,7 +7,13 @@
 		"ROOT_DOMAIN": "example.com",
 		"CF_ZONE_ID": "replace-with-zone-id",
 		"CF_ACCOUNT_ID": "replace-with-account-id",
-		"CNAME_TARGET": "fallback.example.com"
+		"CNAME_TARGET": "fallback.example.com",
+		"STRIPE_AFFILIATE_COUPON_ID": "replace-with-verified-10-percent-12-month-coupon-id",
+		"AFFILIATE_TERMS_VERSION": "affiliate-1",
+		"AFFILIATE_TERMS_DOCUMENT_DIGEST": "sha256:replace-with-published-document-digest",
+		"AFFILIATE_POLICY_VERSION": "affiliate-1",
+		"AFFILIATE_TERMS_URL": "https://www.example.com/affiliate-terms",
+		"AFFILIATE_STRIPE_CONNECT_COUNTRIES": "US,CA,GB,TH"
 	},
 	"routes": [
 		{ "pattern": "*.example.com/*", "zone_name": "example.com" },
@@ -31,7 +37,8 @@
 	],
 	"analytics_engine_datasets": [
 		{ "binding": "METRICS", "dataset": "blognice_pageviews" },
-		{ "binding": "EVENTS", "dataset": "blognice_events" }
+		{ "binding": "EVENTS", "dataset": "blognice_events" },
+		{ "binding": "AFFILIATE_EVENTS", "dataset": "blognice_affiliate_events" }
 	],
 	"triggers": { "crons": ["15 2 * * *"] },
 	"ai": { "binding": "AI" }

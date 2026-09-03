@@ -1,5 +1,6 @@
 export const METRICS_DATASET = "blognice_pageviews";
 export const EVENTS_DATASET = "blognice_events";
+export const AFFILIATE_EVENTS_DATASET = "blognice_affiliate_events";
 export const ANALYTICS_CONSENT_VERSION = "v1";
 const CONSENT_COUNTRIES = new Set([
   "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE",
@@ -28,6 +29,7 @@ export type MetricsEnv = {
   DB?: D1Database;
   METRICS: AnalyticsEngineDataset;
   EVENTS: AnalyticsEngineDataset;
+  AFFILIATE_EVENTS: AnalyticsEngineDataset;
   METRICS_ARCHIVE: R2Bucket;
   CF_ACCOUNT_ID?: string;
   CF_ANALYTICS_TOKEN?: string;
@@ -261,6 +263,23 @@ export function recordCustomEvent(
   });
 }
 
+export function recordAffiliateFunnelEvent(
+  env: Pick<MetricsEnv, "AFFILIATE_EVENTS">,
+  affiliateId: number,
+  event: {
+    name: "affiliate_click" | "affiliate_signup" | "affiliate_conversion";
+    source?: "link" | "code";
+    provider?: "stripe" | "nowpayments";
+    policyVersion: string;
+  },
+): void {
+  env.AFFILIATE_EVENTS.writeDataPoint({
+    indexes: [String(affiliateId)],
+    blobs: [event.name, event.source || "", event.provider || "", event.policyVersion.slice(0, 80)],
+    doubles: [1],
+  });
+}
+
 export function recordAuditEvent(
   env: MetricsEnv,
   tenantId: number,
@@ -372,5 +391,25 @@ export async function archivePreviousDayEvents(env: MetricsEnv, now = new Date()
     httpMetadata: { contentType: "application/json" },
     customMetadata: { schema: "blognice-events-v1" },
   });
+  return key;
+}
+
+
+export async function archivePreviousDayAffiliateEvents(env: MetricsEnv, now = new Date()): Promise<string | null> {
+  if (!metricsConfigured(env)) return null;
+  const day = new Date(now.getTime() - 86_400_000).toISOString().slice(0, 10);
+  const rows = await analyticsSql(
+    env,
+    `SELECT index1 AS affiliate_id, blob1 AS event, blob2 AS source, blob3 AS provider, blob4 AS policy_version, SUM(_sample_interval) AS events FROM ${AFFILIATE_EVENTS_DATASET} WHERE timestamp >= toDateTime(${sqlString(`${day} 00:00:00`)}) AND timestamp < toDateTime(${sqlString(`${day} 00:00:00`)}) + INTERVAL '1' DAY GROUP BY affiliate_id, event, source, provider, policy_version ORDER BY affiliate_id, events DESC`
+  );
+  const key = `affiliate/daily/${day.slice(0, 4)}/${day.slice(5, 7)}/${day}.json`;
+  await env.METRICS_ARCHIVE.put(key, JSON.stringify({ date: day, rows }), {
+    httpMetadata: { contentType: "application/json" },
+    customMetadata: { schema: "blognice-affiliate-events-v1" },
+  });
+  const expiredDay = new Date(now.getTime() - 731 * 86_400_000).toISOString().slice(0, 10);
+  await env.METRICS_ARCHIVE.delete(
+    `affiliate/daily/${expiredDay.slice(0, 4)}/${expiredDay.slice(5, 7)}/${expiredDay}.json`,
+  );
   return key;
 }

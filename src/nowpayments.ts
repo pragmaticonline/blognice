@@ -36,11 +36,11 @@ async function request<T>(env: NowPaymentsEnv, path: string, init?: RequestInit)
 
 export type NowPaymentsInvoice = { id: string | number; invoice_url?: string; payment_url?: string; pay_url?: string };
 
-export function createAnnualInvoice(env: NowPaymentsEnv, input: { orderId: string; callbackUrl: string; successUrl: string; cancelUrl: string }) {
+export function createAnnualInvoice(env: NowPaymentsEnv, input: { orderId: string; priceUsdMinor: number; callbackUrl: string; successUrl: string; cancelUrl: string }) {
   return request<NowPaymentsInvoice>(env, "invoice", {
     method: "POST",
     body: JSON.stringify({
-      price_amount: NOWPAYMENTS_ANNUAL_USD,
+      price_amount: input.priceUsdMinor / 100,
       price_currency: "usd",
       order_id: input.orderId,
       order_description: "blognice pro yearly",
@@ -88,6 +88,26 @@ export async function verifyNowPaymentsIpn(rawBody: string, signature: string | 
 
 export function isTerminalPaidStatus(status: string | undefined): boolean {
   return status === "finished";
+}
+
+function decimalParts(value: string | number | undefined): { coefficient: bigint; scale: number } | null {
+  const raw = String(value ?? "").trim();
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(raw);
+  if (!match) return null;
+  const fraction = match[2] || "";
+  const coefficient = BigInt(`${match[1]}${fraction}`);
+  return coefficient > 0n ? { coefficient, scale: fraction.length } : null;
+}
+
+/** Compare provider-denominated amounts exactly; missing or malformed facts fail closed. */
+export function isNowPaymentsAmountFullyPaid(payment: Pick<NowPaymentsPayment, "pay_amount" | "actually_paid">): boolean {
+  const expected = decimalParts(payment.pay_amount);
+  const actual = decimalParts(payment.actually_paid);
+  if (!expected || !actual) return false;
+  const scale = Math.max(expected.scale, actual.scale);
+  const normalizedExpected = expected.coefficient * 10n ** BigInt(scale - expected.scale);
+  const normalizedActual = actual.coefficient * 10n ** BigInt(scale - actual.scale);
+  return normalizedActual >= normalizedExpected;
 }
 
 export function replayCryptoEntitlements(grants: Array<{ creditedAt: number }>, now: number): number | null {

@@ -11,7 +11,9 @@
       "EMAIL_FROM": "Blog Nice <support@mailer.blognice.com>",
       "ROOT_DOMAIN": "blognice.com",
       "STRIPE_MONTHLY_PRICE_ID": "price_1U15hNPBZtWrx4qGbiLxr4HL",
-      "STRIPE_YEARLY_PRICE_ID": "price_1U15hOPBZtWrx4qGIp4ariDb"
+      "STRIPE_YEARLY_PRICE_ID": "price_1U15hOPBZtWrx4qGIp4ariDb",
+      "AFFILIATE_PAYOUT_DUAL_CONTROL_THRESHOLD_MINOR": "100000",
+      "AFFILIATE_STRIPE_CONNECT_COUNTRIES": "US,CA,GB,TH"
 	},
 	"routes": [
 		{ "pattern": "staff.blognice.com/*", "zone_name": "blognice.com" }
@@ -23,5 +25,6 @@
 			"database_id": "228b44b6-806a-4730-8c44-1b44d01a6536"
 		}
 	],
-	"ai": { "binding": "AI" }
+	"ai": { "binding": "AI" },
+	"queues": { "producers": [{ "binding": "EMAIL_QUEUE", "queue": "blognice-email" }] }
 }

@@ -11,14 +11,16 @@ export function stripeConfigured(env: StripeEnv): boolean {
   return Boolean(env.STRIPE_SECRET_KEY && (env.STRIPE_PRICE_ID || env.STRIPE_MONTHLY_PRICE_ID || env.STRIPE_YEARLY_PRICE_ID));
 }
 
-async function stripeRequest<T>(env: StripeEnv, path: string, params: URLSearchParams): Promise<T> {
+async function stripeRequest<T>(env: StripeEnv, path: string, params: URLSearchParams, idempotencyKey?: string): Promise<T> {
   if (!env.STRIPE_SECRET_KEY) throw new Error("Stripe is not configured.");
+  const headers: Record<string, string> = {
+    Authorization: `Basic ${btoa(`${env.STRIPE_SECRET_KEY}:`)}`,
+    "content-type": "application/x-www-form-urlencoded",
+  };
+  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   const response = await fetch(`https://api.stripe.com/v1/${path}`, {
     method: "POST",
-    headers: {
-      Authorization: `Basic ${btoa(`${env.STRIPE_SECRET_KEY}:`)}`,
-      "content-type": "application/x-www-form-urlencoded",
-    },
+    headers,
     body: params,
   });
   const body = await response.json().catch(() => ({})) as { error?: { message?: string } } & T;
@@ -74,7 +76,7 @@ export function retrieveSubscription(env: StripeEnv, subscriptionId: string) {
   return stripeGet<StripeSubscription>(env, `subscriptions/${encodeURIComponent(subscriptionId)}`);
 }
 
-export function createCheckoutSession(env: StripeEnv, input: { accountId: number; email: string; successUrl: string; cancelUrl: string; priceId: string; customerId?: string | null }) {
+export function createCheckoutSession(env: StripeEnv, input: { accountId: number; email: string; successUrl: string; cancelUrl: string; priceId: string; customerId?: string | null; affiliateCheckoutId?: string | null; promotionCodeId?: string | null }) {
   const params = new URLSearchParams();
   params.set("mode", "subscription");
   params.set("line_items[0][price]", input.priceId);
@@ -86,7 +88,125 @@ export function createCheckoutSession(env: StripeEnv, input: { accountId: number
   params.set("cancel_url", input.cancelUrl);
   params.set("metadata[account_id]", String(input.accountId));
   params.set("subscription_data[metadata][account_id]", String(input.accountId));
+  if (input.affiliateCheckoutId) {
+    params.set("metadata[affiliate_checkout_id]", input.affiliateCheckoutId);
+    params.set("subscription_data[metadata][affiliate_checkout_id]", input.affiliateCheckoutId);
+  }
+  if (input.promotionCodeId) {
+    params.set("discounts[0][promotion_code]", input.promotionCodeId);
+  }
   return stripeRequest<{ id: string; url: string }>(env, "checkout/sessions", params);
+}
+
+export async function createAffiliateConnectedAccount(
+  env: StripeEnv,
+  input: { affiliateAccountId: number; email: string; country: string; allowedCountries: ReadonlySet<string> },
+): Promise<{ connectedAccountId: string }> {
+  const country = input.country.trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(country)) throw new Error("A valid two-letter payout country is required.");
+  if (!input.allowedCountries.has(country)) throw new Error("Affiliate payouts are unavailable in that country.");
+  const params = new URLSearchParams();
+  params.set("type", "express");
+  params.set("country", country);
+  params.set("email", input.email.trim().toLowerCase());
+  params.set("capabilities[transfers][requested]", "true");
+  params.set("metadata[blognice_affiliate_account_id]", String(input.affiliateAccountId));
+  const account = await stripeRequest<{ id: string }>(
+    env,
+    "accounts",
+    params,
+    `blognice-affiliate-connect-${input.affiliateAccountId}`,
+  );
+  if (!account.id) throw new Error("Stripe did not return a connected account ID.");
+  return { connectedAccountId: account.id };
+}
+
+export async function createAffiliateConnectOnboardingLink(
+  env: StripeEnv,
+  input: { connectedAccountId: string; refreshUrl: string; returnUrl: string },
+): Promise<{ url: string; expiresAt: number }> {
+  if (!/^acct_[A-Za-z0-9]+$/.test(input.connectedAccountId)) throw new Error("Stripe connected account ID is invalid.");
+  for (const value of [input.refreshUrl, input.returnUrl]) {
+    if (new URL(value).protocol !== "https:") throw new Error("Stripe onboarding return URLs must use HTTPS.");
+  }
+  const params = new URLSearchParams();
+  params.set("account", input.connectedAccountId);
+  params.set("refresh_url", input.refreshUrl);
+  params.set("return_url", input.returnUrl);
+  params.set("type", "account_onboarding");
+  const link = await stripeRequest<{ url: string; expires_at: number }>(env, "account_links", params);
+  if (!link.url || !link.expires_at) throw new Error("Stripe did not return an onboarding link.");
+  return { url: link.url, expiresAt: link.expires_at };
+}
+
+export async function createAffiliateTransfer(
+  env: StripeEnv,
+  input: {
+    payoutId: string;
+    connectedAccountId: string;
+    amountMinor: number;
+    currency: "usd";
+  },
+): Promise<{ transferId: string }> {
+  if (!/^acct_[A-Za-z0-9]+$/.test(input.connectedAccountId)) throw new Error("Stripe connected account ID is invalid.");
+  if (!Number.isSafeInteger(input.amountMinor) || input.amountMinor <= 0) throw new Error("Stripe transfer amount is invalid.");
+  if (!input.payoutId || input.payoutId.length > 100) throw new Error("Affiliate payout ID is invalid.");
+  const params = new URLSearchParams();
+  params.set("amount", String(input.amountMinor));
+  params.set("currency", input.currency);
+  params.set("destination", input.connectedAccountId);
+  params.set("transfer_group", `affiliate_payout:${input.payoutId}`);
+  params.set("metadata[affiliate_payout_id]", input.payoutId);
+  const transfer = await stripeRequest<{ id: string }>(
+    env,
+    "transfers",
+    params,
+    `affiliate-payout:${input.payoutId}`,
+  );
+  if (!transfer.id) throw new Error("Stripe did not return a transfer ID.");
+  return { transferId: transfer.id };
+}
+
+type StripeAffiliateCoupon = {
+  id: string;
+  percent_off?: number | null;
+  duration?: string;
+  duration_in_months?: number | null;
+  valid?: boolean;
+};
+
+export async function createAffiliatePromotionCode(
+  env: StripeEnv,
+  input: { couponId: string; referralCode: string; affiliateAccountId: number },
+): Promise<{ promotionCodeId: string; customerCode: string }> {
+  const customerCode = input.referralCode.toUpperCase();
+  if (!/^[A-Z0-9-]+$/.test(customerCode)) {
+    throw new Error("Affiliate referral code is not valid for Stripe.");
+  }
+  const coupon = await stripeGet<StripeAffiliateCoupon>(
+    env,
+    `coupons/${encodeURIComponent(input.couponId)}`,
+  );
+  if (
+    coupon.valid !== true
+    || coupon.percent_off !== 10
+    || coupon.duration !== "repeating"
+    || coupon.duration_in_months !== 12
+  ) {
+    throw new Error("Stripe affiliate coupon must be valid and provide 10% off for 12 months.");
+  }
+  const params = new URLSearchParams();
+  params.set("promotion[type]", "coupon");
+  params.set("promotion[coupon]", coupon.id);
+  params.set("code", customerCode);
+  params.set("metadata[affiliate_account_id]", String(input.affiliateAccountId));
+  const promotion = await stripeRequest<{ id: string; code: string }>(
+    env,
+    "promotion_codes",
+    params,
+    `affiliate-promotion:${input.affiliateAccountId}`,
+  );
+  return { promotionCodeId: promotion.id, customerCode: promotion.code };
 }
 
 export function createDomainCheckoutSession(env: StripeEnv, input: {

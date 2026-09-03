@@ -3,7 +3,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 
 const indexSource = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
-for (const [file, title] of [["terms.html", "Terms of Service"], ["cookies.html", "Cookie and Local Storage Policy"], ["security.html", "Security Policy"]]) {
+for (const [file, title] of [["terms.html", "Terms of Service"], ["affiliate-terms.html", "Affiliate Program Terms"], ["cookies.html", "Cookie and Local Storage Policy"], ["security.html", "Security Policy"]]) {
   test(`${file} is published with the shared legal navigation`, () => {
     const page = readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
     assert.match(page, new RegExp(title));
@@ -17,6 +17,8 @@ test("terms and cookies have public worker routes", () => {
   assert.match(indexSource, /import termsPageSource from "\.\.\/terms\.html"/);
   assert.match(indexSource, /import cookiesPage from "\.\.\/cookies\.html"/);
   assert.match(indexSource, /app\.get\("\/terms"/);
+  assert.match(indexSource, /import affiliateTermsPage from "\.\.\/affiliate-terms\.html"/);
+  assert.match(indexSource, /app\.get\("\/affiliate-terms"/);
   assert.match(indexSource, /app\.get\("\/cookies"/);
   assert.match(indexSource, /import securityPage from "\.\.\/security\.html"/);
   assert.match(indexSource, /app\.get\("\/security"/);
@@ -51,6 +53,7 @@ test("policies overview links the platform policies", () => {
   assert.ok(indexSource.includes('[ ["/policies", "All policies"]') || indexSource.includes('[["/policies", "All policies"]'));
   assert.ok(indexSource.includes('["/privacy", "Privacy"]'));
   assert.ok(indexSource.includes('["/terms", "Terms"]'));
+  assert.ok(indexSource.includes('["/affiliate-terms", "Affiliate Terms"]'));
   assert.ok(indexSource.includes('["/cookies", "Cookies"]'));
   assert.ok(indexSource.includes('["/security", "Security"]'));
   assert.ok(indexSource.includes('const canonicalFooter = \'<footer class="footer">'));

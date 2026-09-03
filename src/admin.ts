@@ -427,11 +427,15 @@ export function shell(
       </aside>`;
   } else if (account) {
     // Account-level pages (blog list, new blog).
+    const affiliateCurrent = title.toLowerCase().startsWith("affiliate") ? ' aria-current="page"' : "";
+    const billingCurrent = title.toLowerCase().startsWith("billing") ? ' aria-current="page"' : "";
     bar = `<div class="topbar">
         <span class="brand">blognice</span>
         <div class="right">
           <span style="color:var(--muted);font-size:0.85rem">${esc(account.email)}</span>${planBadge}
           <a href="/admin?list=1">Blogs</a>
+          <a href="/admin/billing"${billingCurrent}>Billing</a>
+          <a href="/admin/affiliate"${affiliateCurrent}>Affiliate</a>
           <a href="/admin/api-key">API</a>
           <form method="post" action="/admin/logout">
             <button class="linkbtn" type="submit">Log out</button>
@@ -441,6 +445,8 @@ export function shell(
         <div class="topbar-menu" id="topbar-menu" hidden>
           <div style="padding:.4rem .55rem; color:var(--muted); font-size:.82rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(account.email)} ${paid ? "· Pro" : "· Free"}</div>
           <a href="/admin?list=1">Blogs</a>
+          <a href="/admin/billing"${billingCurrent}>Billing</a>
+          <a href="/admin/affiliate"${affiliateCurrent}>Affiliate</a>
           <a href="/admin/api-key">API</a>
           <form method="post" action="/admin/logout"><button class="linkbtn" type="submit">Log out</button></form>
         </div>

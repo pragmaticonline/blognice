@@ -88,6 +88,7 @@ import { classifyPushDelivery } from "./push-state";
 import homepage from "../homepage.html";
 import privacyPageSource from "../privacy.html";
 import termsPageSource from "../terms.html";
+import affiliateTermsPage from "../affiliate-terms.html";
 import cookiesPage from "../cookies.html";
 import securityPage from "../security.html";
 
@@ -111,18 +112,24 @@ import {
 import { applyPronunciations, classifyTtsError, mergeWav, narrationChunks, narrationSections, pronunciationReplacements, ttsBytes, wavAssembly, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "./tts";
 import {
   archivePreviousDay,
+  archivePreviousDayAffiliateEvents,
   archivePreviousDayEvents,
   metricsConfigured,
   metricsReport,
   auditReport,
   recordPageView,
   recordCustomEvent,
+  recordAffiliateFunnelEvent,
   recordAuditEvent,
   analyticsConsentRequired,
   ANALYTICS_CONSENT_VERSION,
 } from "./metrics";
-import { checkoutSubscriptionDecision, createCheckoutSession, createDomainCheckoutSession, createPortalSession, retrieveSubscription, stripeConfigured, subscriptionEventMatchesCurrent, verifyStripeSignature } from "./stripe";
-import { createAnnualInvoice, getPayment, isTerminalPaidStatus, nowPaymentsConfigured, verifyNowPaymentsIpn, NOWPAYMENTS_ANNUAL_SECONDS, NOWPAYMENTS_ANNUAL_USD } from "./nowpayments";
+import { checkoutSubscriptionDecision, createAffiliateConnectedAccount, createAffiliateConnectOnboardingLink, createAffiliatePromotionCode, createCheckoutSession, createDomainCheckoutSession, createPortalSession, retrieveSubscription, stripeConfigured, subscriptionEventMatchesCurrent, verifyStripeSignature } from "./stripe";
+import { createAnnualInvoice, getPayment, isNowPaymentsAmountFullyPaid, isTerminalPaidStatus, nowPaymentsConfigured, verifyNowPaymentsIpn, NOWPAYMENTS_ANNUAL_SECONDS, NOWPAYMENTS_ANNUAL_USD } from "./nowpayments";
+import { affiliateAnnualPriceMinor, attachStripeConnectedAccountInDb, attachStripePromotionCodeInDb, beginCheckoutAttributionInDb, createNowPaymentsCheckoutInDb, createStripeCheckoutInDb, enableAffiliateProfileInDb, parseAffiliateStripeConnectCountries, prepareAffiliatePayoutBatchInDb, reacceptAffiliateTermsInDb, recordPendingStripeFinancialEventInDb, refundNowPaymentsCheckoutInDb, requireCurrentAffiliateTermsInDb, requireOutdatedAffiliateTermsInDb, settleNowPaymentsCheckoutInDb, settleStripeInvoiceInDb, updateStripeConnectedAccountStatusInDb } from "./affiliate";
+import { captureSignupReferral, handleReferralCodeSubmission, handleReferralLink } from "./affiliate-referral";
+import { getAffiliateDashboardInDb, type AffiliateDashboard } from "./affiliate-dashboard";
+import { enqueueAffiliateEnrollmentEmailInDb, relayAffiliateEmailOutboxInDb } from "./affiliate-notifications";
 import { renderMarkdown as renderMarkdownSafe } from "./markdown";
 import { buildSitemapIndexXml, cacheVariants, CACHE_VERSION, customDomainRedirectUrl, indexNowKey } from "./indexing";
 import { applySubscriberConfirmation, requestSubscriberConfirmation } from "./subscriber-optin";
@@ -144,6 +151,7 @@ type Bindings = {
   PUSH_IP_HMAC_SECRET?: string;
   METRICS: AnalyticsEngineDataset; // anonymous public page-view events
   EVENTS: AnalyticsEngineDataset; // audio engagement events
+  AFFILIATE_EVENTS: AnalyticsEngineDataset; // approximate affiliate funnel events, indexed by Affiliate
   METRICS_ARCHIVE: R2Bucket; // aggregate daily metrics retained beyond 90 days
   ROOT_DOMAIN: string; // e.g. "blognice.com"
   API_TOKEN?: string; // secret; authorizes the /api routes
@@ -163,10 +171,18 @@ type Bindings = {
   EMAIL_FROM?: string; // var, e.g. "Blog Nice <hello@blognice.com>"
   STRIPE_SECRET_KEY?: string; // secret
   STRIPE_WEBHOOK_SECRET?: string; // secret
+  STRIPE_CONNECT_WEBHOOK_SECRET?: string; // secret for connected-account events
   STRIPE_PRICE_ID?: string; // var/secret
   STRIPE_MONTHLY_PRICE_ID?: string;
   STRIPE_YEARLY_PRICE_ID?: string;
   STRIPE_PORTAL_CONFIGURATION_ID?: string; // optional var
+  STRIPE_AFFILIATE_COUPON_ID?: string; // verified 10%-off repeating 12-month coupon
+  AFFILIATE_REFERRAL_COOKIE_SECRETS?: string; // comma-separated; current signer first, previous keys retained for rotation
+  AFFILIATE_TERMS_VERSION?: string; // Saul-approved version; enrollment is disabled when absent
+  AFFILIATE_TERMS_DOCUMENT_DIGEST?: string; // immutable digest of the approved document
+  AFFILIATE_POLICY_VERSION?: string; // commission and attribution policy snapshot
+  AFFILIATE_TERMS_URL?: string; // public HTTPS URL for the approved Affiliate Terms
+  AFFILIATE_STRIPE_CONNECT_COUNTRIES?: string; // Stripe-confirmed ISO country allowlist for this Thailand platform
   NOWPAYMENTS_API_KEY?: string; // secret
   NOWPAYMENTS_IPN_SECRET?: string; // secret
   INDEXNOW_MASTER_SECRET?: string; // secret; derives per-host IndexNow keys
@@ -177,7 +193,8 @@ type Bindings = {
   DYNADOT_SANDBOX?: string; // var: "true" for sandbox (api-sandbox.dynadot.com)
 };
 
-const app = new Hono<{ Bindings: Bindings }>();
+export const blogniceApp = new Hono<{ Bindings: Bindings }>();
+const app = blogniceApp;
 
 // Keep every authenticated admin page and mutation on the canonical host.
 // Tenant and custom-domain hosts remain public reader origins; they must not
@@ -3776,7 +3793,7 @@ type EmailJobMessage = {
   kind: "email-delivery";
   idempotencyKey: string;
   subscriberId?: number;
-  emailKind?: "post-notification" | "subscription-welcome" | "subscription-active" | "password-reset" | "subscriber-confirmation";
+  emailKind?: "post-notification" | "subscription-welcome" | "subscription-active" | "password-reset" | "subscriber-confirmation" | "affiliate-enrolled" | "affiliate-terms-required" | "affiliate-connect-ready" | "affiliate-connect-restricted" | "affiliate-payout-sent" | "affiliate-payout-cancelled";
   to: string;
   subject: string;
   plainText: string;
@@ -4542,6 +4559,38 @@ function verificationResultPage(ok: boolean, msg?: string): string {
     ? shell(`Email verified — blognice`, `<div class="page narrow"><h1>Email verified</h1><p>Your email is confirmed. Your blog is now active.</p><p><a class="btn" href="/admin">Go to dashboard →</a></p></div>`)
     : shell(`Verification failed — blognice`, `<div class="page narrow"><h1>Link invalid or expired</h1><p>${esc(msg||"This verification link is invalid or has expired.")}</p><p><a href="/verify-email/resend">Resend link</a> · <a href="/admin/login">Sign in</a></p></div>`);
 }
+async function recordAffiliateSignup(c: any, accountId: number): Promise<void> {
+  if (analyticsConsentRequired(c.req.raw.cf?.country)) return;
+  const attribution = await c.env.DB.prepare(
+    "SELECT affiliate_id, source, policy_version FROM affiliate_attributions WHERE referred_account_id = ?",
+  ).bind(accountId).first() as { affiliate_id: number; source: "link" | "code"; policy_version: string } | null;
+  if (attribution) recordAffiliateFunnelEvent(c.env, attribution.affiliate_id, {
+    name: "affiliate_signup",
+    source: attribution.source,
+    policyVersion: attribution.policy_version,
+  });
+}
+async function recordAffiliateConversion(c: any, accountId: number, provider: "stripe" | "nowpayments"): Promise<void> {
+  const attribution = await c.env.DB.prepare(
+    `SELECT attribution.affiliate_id, attribution.source, attribution.policy_version,
+            account.signup_country
+       FROM affiliate_attributions AS attribution
+       JOIN accounts AS account ON account.id = attribution.referred_account_id
+      WHERE attribution.referred_account_id = ?`,
+  ).bind(accountId).first() as {
+    affiliate_id: number;
+    source: "link" | "code";
+    policy_version: string;
+    signup_country: string | null;
+  } | null;
+  if (!attribution || analyticsConsentRequired(attribution.signup_country)) return;
+  recordAffiliateFunnelEvent(c.env, attribution.affiliate_id, {
+    name: "affiliate_conversion",
+    source: attribution.source,
+    provider,
+    policyVersion: attribution.policy_version,
+  });
+}
 app.get("/signup", async (c) => {
   if (await currentAccount(c)) {
     const tok = c.req.query("invite");
@@ -4647,6 +4696,11 @@ app.post("/signup", async (c) => {
   if (invite) {
     await c.env.DB.prepare("INSERT INTO memberships (account_id, tenant_id, role, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(account_id, tenant_id) DO UPDATE SET role = excluded.role")
       .bind(accountId, invite.tenant_id, invite.role, now).run();
+    const affiliateCookieSecrets = String(c.env.AFFILIATE_REFERRAL_COOKIE_SECRETS || "").split(",").map((secret) => secret.trim()).filter(Boolean);
+    if (affiliateCookieSecrets.length) {
+      const capturedReferral = await captureSignupReferral(c.req.raw, c.env.DB, accountId, affiliateCookieSecrets, now);
+      if (capturedReferral.accepted) await recordAffiliateSignup(c, accountId);
+    }
     await c.env.DB.prepare("UPDATE blog_invitations SET accepted_at = ? WHERE id = ?").bind(now, invite.id).run();
     const tenant = await c.env.DB.prepare("SELECT public_id, title FROM tenants WHERE id = ?").bind(invite.tenant_id).first<{ public_id: string; title: string }>();
     if (tenant) {
@@ -4682,6 +4736,11 @@ app.post("/signup", async (c) => {
   )
     .bind(accountId, blogId, now)
     .run();
+  const affiliateCookieSecrets = String(c.env.AFFILIATE_REFERRAL_COOKIE_SECRETS || "").split(",").map((secret) => secret.trim()).filter(Boolean);
+  if (affiliateCookieSecrets.length) {
+    const capturedReferral = await captureSignupReferral(c.req.raw, c.env.DB, accountId, affiliateCookieSecrets, now);
+    if (capturedReferral.accepted) await recordAffiliateSignup(c, accountId);
+  }
   await createEmailVerification(c, accountId, email, title);
   c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...registrationWelcomeEmail({ signInUrl: "https://www.blognice.com/admin" }) }));
   const token = await createSession(c.env.DB, accountId);
@@ -5365,7 +5424,7 @@ function legalPage(c: any, page: string): Response {
   const host = new URL(c.req.url).hostname.toLowerCase();
   if (host !== `www.${c.env.ROOT_DOMAIN}`.toLowerCase()) return c.redirect(`https://www.${c.env.ROOT_DOMAIN}${new URL(c.req.url).pathname}`, 301);
   const currentPath = new URL(c.req.url).pathname;
-  const policyItems = [["/policies", "All policies"], ["/privacy", "Privacy"], ["/terms", "Terms"], ["/cookies", "Cookies"], ["/security", "Security"]] as const;
+  const policyItems = [["/policies", "All policies"], ["/privacy", "Privacy"], ["/terms", "Terms"], ["/affiliate-terms", "Affiliate Terms"], ["/cookies", "Cookies"], ["/security", "Security"]] as const;
   const policyNav = `<nav class="policy-nav" aria-label="Policy pages">${policyItems.map(([href, label]) => `<a href="${href}"${currentPath === href ? ' aria-current="page"' : ""}>${label}</a>`).join("")}</nav>`;
   const policyNavMarkup = policyItems.some(([href]) => href === currentPath) ? policyNav : "";
   const consistentTheme = page
@@ -5392,6 +5451,7 @@ function legalPage(c: any, page: string): Response {
 }
 
 app.get("/terms", (c) => legalPage(c, termsPage));
+app.get("/affiliate-terms", (c) => legalPage(c, affiliateTermsPage));
 app.get("/cookies", (c) => legalPage(c, cookiesPage));
 app.get("/security", (c) => legalPage(c, securityPage));
 app.get("/policies", (c) => legalPage(c, policiesPage));
@@ -5610,11 +5670,13 @@ function billingPage(
   credits?: { used: number; allowance: number },
   prices?: { monthly?: string; yearly?: string },
   cryptoReady = false,
+  attributed = false,
 ): string {
   const status = String(billing.billing_status || "inactive");
   const stripeActive = ["active", "trialing", "past_due"].includes(status);
   const cryptoActive = Number(billing.crypto_paid_through || 0) > Math.floor(Date.now() / 1000);
   const active = stripeActive || cryptoActive;
+  const cryptoPriceMinor = affiliateAnnualPriceMinor(attributed, NOWPAYMENTS_ANNUAL_USD * 100);
   const allowance = Math.max(0, Number(credits?.allowance || AI_MONTHLY_CREDITS));
   const used = Math.min(allowance, Math.max(0, Number(credits?.used || 0)));
   const remaining = allowance - used;
@@ -5648,14 +5710,231 @@ function billingPage(
     : stripeActive
       ? `<div class="crypto-option crypto-option-muted">Crypto payment is available after your current Stripe subscription ends.</div>`
       : cryptoReady
-      ? `<div class="crypto-option"><div class="crypto-option-copy"><strong>Or pay for blognice pro yearly with crypto</strong><span>One year prepaid · no automatic renewal</span><div class="crypto-assets" aria-label="Supported crypto assets"><span role="img" aria-label="Bitcoin">₿</span><span role="img" aria-label="Ethereum">Ξ</span><span role="img" aria-label="Tron">TRX</span><span role="img" aria-label="Tether USDT">₮</span></div></div><form method="post" action="/admin/billing/crypto/checkout"><button class="billing-btn billing-btn-crypto" type="submit">Pay $36 with crypto</button></form></div>`
+      ? `<div class="crypto-option"><div class="crypto-option-copy"><strong>Or pay for blognice pro yearly with crypto</strong><span>One year prepaid · no automatic renewal${attributed ? " · 10% referral discount applied" : ""}</span><div class="crypto-assets" aria-label="Supported crypto assets"><span role="img" aria-label="Bitcoin">₿</span><span role="img" aria-label="Ethereum">Ξ</span><span role="img" aria-label="Tron">TRX</span><span role="img" aria-label="Tether USDT">₮</span></div></div><form method="post" action="/admin/billing/crypto/checkout"><button class="billing-btn billing-btn-crypto" type="submit">Pay $${(cryptoPriceMinor / 100).toFixed(2)} with crypto</button></form></div>`
       : `<div class="crypto-option crypto-option-muted">Crypto payments are being configured.</div>`;
   const unknownPaid = stripeActive && !term ? `<div class="billing-notice">Your Stripe subscription is active. Use Manage billing in Stripe to view its current plan and renewal details.</div>` : "";
   const formerCustomer = !active && billing.stripe_customer_id ? `<div class="billing-history">Already subscribed before? ${portal.replace("Manage billing in Stripe", "View billing history in Stripe")}</div>` : "";
+  const referralCode = !active && !attributed
+    ? `<section class="billing-section billing-referral"><div class="billing-section-head"><h2>Have a referral code?</h2></div><form method="post" action="/admin/billing/referral"><label for="referral-code">Referral code</label><div style="display:flex;gap:.6rem;margin-top:.4rem"><input id="referral-code" name="referral_code" required maxlength="64" autocomplete="off" style="min-width:0;flex:1;border:1px solid var(--rule);border-radius:9px;padding:.7rem;font:inherit"><button class="billing-btn" style="width:auto" type="submit">Apply code</button></div></form></section>`
+    : "";
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Billing · Blog Nice</title><style>
   :root{--bg:#f7f8f3;--card:#fff;--ink:#15170f;--soft:#5c6455;--faint:#8a9182;--green:#1a8917;--deep:#0e5a0c;--mist:#eef5ec;--rule:#e3e7dd}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;padding:3.5rem 1.5rem}.billing-wrap{max-width:1040px;margin:auto}.billing-crumb{color:var(--deep);font-weight:650;text-decoration:none;display:inline-block;margin-bottom:1.8rem}.billing-h1{font-size:30px;margin:0 0 .35rem;letter-spacing:-.02em}.billing-account{color:var(--soft);margin:0 0 2.2rem}.billing-account b{color:var(--ink)}.billing-alert,.billing-notice{padding:.85rem 1rem;border-radius:10px;margin:0 0 1.2rem}.billing-alert{background:#fff4e5;border:1px solid #e8c58c;color:#6b4300}.billing-notice{background:var(--mist);border:1px solid #cfe6cb;color:var(--deep)}.billing-section{margin:0 0 2.4rem}.billing-section-head{display:flex;justify-content:space-between;align-items:baseline;gap:1rem;margin-bottom:1rem}.billing-section-head h2{font-size:19px;margin:0}.billing-section-head span{font-size:13px;color:var(--faint)}.billing-usage{background:var(--card);border:1px solid var(--rule);border-radius:16px;padding:1.5rem 1.7rem}.billing-usage-stat{display:flex;align-items:center;gap:.8rem}.billing-usage-icon{width:2.4rem;height:2.4rem;border-radius:9px;background:var(--mist);color:var(--deep);display:grid;place-items:center;font-size:1.35rem}.billing-usage-stat strong{display:block;font-size:20px}.billing-usage-stat span{display:block;color:var(--soft);font-size:13px}.billing-track{height:8px;background:var(--rule);border-radius:99px;overflow:hidden;margin:1.2rem 0 .5rem}.billing-track div{height:100%;background:var(--green);border-radius:99px}.billing-bar-labels{display:flex;justify-content:space-between;color:var(--soft);font-size:12.5px}.billing-muted{color:var(--faint);font-size:13px;margin:.9rem 0 0}.billing-plan-section{margin-top:2.6rem}.billing-main-action{margin-bottom:1.25rem}.billing-main-action form+form{margin-top:.7rem}.billing-plans{display:grid;grid-template-columns:repeat(3,1fr);gap:1.2rem}.billing-plan{background:var(--card);border:1px solid var(--rule);border-radius:16px;padding:1.6rem 1.45rem;display:flex;flex-direction:column;position:relative}.billing-plan.billing-current{background:var(--mist);border-color:#cfe6cb}.billing-featured{border:2px solid var(--green);box-shadow:0 20px 40px -28px rgb(15 90 12 / .35)}.billing-ribbon{position:absolute;top:-.8rem;left:1.5rem;background:var(--green);color:#fff;padding:.3rem .75rem;border-radius:99px;font-size:11px;font-weight:700}.billing-plan-name{font-size:13px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--soft);margin-bottom:.8rem}.billing-current .billing-plan-name{color:var(--deep)}.billing-price{font-size:36px;font-weight:800;line-height:1.1}.billing-price small{font-size:14px;font-weight:500;color:var(--soft)}.billing-sub{font-size:13px;color:var(--faint);min-height:2.6rem;margin:.35rem 0 1.2rem}.billing-sub b{color:var(--deep)}.billing-current-badge{display:inline-flex;align-items:center;gap:.35rem;color:var(--deep);font-size:12px;font-weight:650;margin:0 0 1.2rem}.billing-current-badge svg{width:13px;height:13px}.billing-includes{font-size:12.5px;color:var(--faint);font-weight:650;margin-bottom:.7rem}.billing-features{list-style:none;padding:0;margin:0 0 1.3rem;display:flex;flex-direction:column;gap:.55rem;flex:1}.billing-features li{display:flex;align-items:flex-start;gap:.45rem;font-size:14px}.billing-features svg{width:16px;height:16px;color:var(--green);flex:none;margin-top:2px}.billing-plan-foot{color:var(--faint);font-size:13px;margin-top:auto}.billing-plan-foot svg{width:14px;height:14px;vertical-align:-2px;color:var(--deep)}.billing-btn{display:block;width:100%;border:1px solid var(--rule);border-radius:9px;padding:.7rem 1rem;background:#fff;color:var(--ink);font:inherit;font-weight:650;cursor:pointer}.billing-btn:hover{border-color:var(--green);background:var(--mist);color:var(--deep)}.billing-btn:focus-visible{outline:3px solid var(--green);outline-offset:2px}.billing-btn-dark{background:var(--ink);border-color:var(--ink);color:#fff}.billing-btn-green{background:var(--green);border-color:var(--green);color:#fff}.billing-btn-solid{background:var(--ink);border-color:var(--ink);color:#fff}.billing-btn-crypto{background:#f3eee3;border-color:#c8b88e}.crypto-option{margin-top:1rem;padding:1rem 1.2rem;border:1px solid #d8cfba;border-radius:12px;background:#fbf8f0;display:flex;align-items:center;justify-content:space-between;gap:1rem}.crypto-option-copy{display:flex;align-items:center;gap:.8rem;flex-wrap:wrap}.crypto-option-copy strong{font-size:14px}.crypto-option-copy>span{font-size:13px;color:var(--soft)}.crypto-assets{display:flex;gap:.35rem}.crypto-assets span{width:1.7rem;height:1.7rem;border-radius:50%;display:grid;place-items:center;background:#efe6d2;color:#6d5524;font-size:.8rem;font-weight:750}.crypto-option-active{color:var(--deep);background:var(--mist);border-color:#cfe6cb;font-size:13px}.crypto-option-active svg{width:15px;height:15px;vertical-align:-3px}.crypto-option-muted{color:var(--faint);font-size:13px}.billing-footnote{color:var(--faint);font-size:13px;margin-top:1.8rem}.billing-footnote a{color:var(--deep);font-weight:650}@media(max-width:1050px){.billing-plans{grid-template-columns:repeat(2,1fr)}}@media(max-width:560px){body{padding:2.5rem 1rem}.billing-h1{font-size:25px}.billing-usage{padding:1.2rem}.billing-plan{padding:1.35rem}.billing-plans{grid-template-columns:1fr}.crypto-option{align-items:flex-start;flex-direction:column}}
-  </style></head><body><main class="billing-wrap"><a class="billing-crumb" href="/admin">← blognice admin</a><h1 class="billing-h1">Billing</h1><p class="billing-account">Account: <b>${esc(account.email)}</b></p>${statusNotice}${unknownPaid}${usage}<section class="billing-section billing-plan-section"><div class="billing-section-head"><h2>Plan</h2>${active && renewal ? `<span>${esc(renewal)}</span>` : cryptoActive ? `<span>Valid through ${esc(cryptoExpiry)}</span>` : ""}</div><p class="billing-notice billing-founder-note"><strong>Founding rates available now</strong><br>$5/month or $36/year. Keep this rate for as long as your subscription remains continuously active. Future subscribers may receive different pricing.</p>${billingAction ? `<div class="billing-main-action">${billingAction}</div>` : ""}<div class="billing-plans">${freeCard}${monthlyCard}${yearlyCard}</div>${cryptoOption}</section><p class="billing-footnote">Stripe remains the primary payment provider. Payment details, receipts, invoices, cancellations, and plan changes are managed securely in Stripe. Crypto payments are annual-only, prepaid, and handled by NOWPayments; there is no automatic renewal. ${active ? "" : "Upgrade when you’re ready; access starts only after the payment provider confirms payment."}</p>${formerCustomer}</main></body></html>`;
+  </style></head><body><main class="billing-wrap"><a class="billing-crumb" href="/admin">← blognice admin</a><h1 class="billing-h1">Billing</h1><p class="billing-account">Account: <b>${esc(account.email)}</b></p>${statusNotice}${unknownPaid}${usage}<section class="billing-section billing-plan-section"><div class="billing-section-head"><h2>Plan</h2>${active && renewal ? `<span>${esc(renewal)}</span>` : cryptoActive ? `<span>Valid through ${esc(cryptoExpiry)}</span>` : ""}</div><p class="billing-notice billing-founder-note"><strong>Founding rates available now</strong><br>$5/month or $36/year. Keep this rate for as long as your subscription remains continuously active. Future subscribers may receive different pricing.</p>${billingAction ? `<div class="billing-main-action">${billingAction}</div>` : ""}<div class="billing-plans">${freeCard}${monthlyCard}${yearlyCard}</div>${cryptoOption}</section>${referralCode}<p class="billing-footnote">Stripe remains the primary payment provider. Payment details, receipts, invoices, cancellations, and plan changes are managed securely in Stripe. Crypto payments are annual-only, prepaid, and handled by NOWPayments; there is no automatic renewal. ${active ? "" : "Upgrade when you’re ready; access starts only after the payment provider confirms payment."}</p>${formerCustomer}</main></body></html>`;
 }
+
+type AffiliateTermsConfig = {
+  termsVersion: string;
+  termsDocumentDigest: string;
+  policyVersion: string;
+  termsUrl: string;
+  couponId: string;
+};
+
+function affiliateTermsConfig(env: Bindings): AffiliateTermsConfig | null {
+  const termsVersion = String(env.AFFILIATE_TERMS_VERSION || "").trim();
+  const termsDocumentDigest = String(env.AFFILIATE_TERMS_DOCUMENT_DIGEST || "").trim();
+  const policyVersion = String(env.AFFILIATE_POLICY_VERSION || "").trim();
+  const termsUrl = String(env.AFFILIATE_TERMS_URL || "").trim();
+  const couponId = String(env.STRIPE_AFFILIATE_COUPON_ID || "").trim();
+  if (!termsVersion || !termsDocumentDigest || !policyVersion || !termsUrl || !couponId) return null;
+  try {
+    if (new URL(termsUrl).protocol !== "https:") return null;
+  } catch {
+    return null;
+  }
+  return { termsVersion, termsDocumentDigest, policyVersion, termsUrl, couponId };
+}
+
+function affiliateDashboardPage(account: Account, dashboard: AffiliateDashboard | null, rootDomain: string, terms: AffiliateTermsConfig | null, message = ""): string {
+  const styles = `<style>
+    .affiliate-page{max-width:1040px}.affiliate-head{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:1.5rem}.affiliate-head h1{margin:0 0 .3rem}.affiliate-eyebrow{color:var(--muted);margin:0}.affiliate-status{display:inline-flex;align-items:center;min-height:2rem;padding:.35rem .7rem;border-radius:999px;background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);font-size:.8rem;font-weight:750}.affiliate-card{background:var(--panel);border:1px solid var(--rule);border-radius:14px;padding:1.4rem;margin:0 0 1rem}.affiliate-card h2{font-size:1.1rem;margin:0 0 .35rem}.affiliate-card-copy{color:var(--muted);margin:.2rem 0 1rem}.affiliate-alert{border:1px solid #e8c58c;background:#fff8e8;border-radius:12px;padding:1rem 1.1rem;margin-bottom:1rem}.affiliate-alert h2{font-size:1rem;margin:0 0 .3rem}.affiliate-alert p{margin:.2rem 0 .8rem}.affiliate-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}.affiliate-enrollment-layout{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(19rem,.85fr);gap:1.25rem;align-items:start}.affiliate-facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.75rem;margin-top:1.2rem}.affiliate-fact,.affiliate-kpi{border:1px solid var(--rule);border-radius:11px;padding:1rem;background:var(--bg)}.affiliate-fact strong,.affiliate-kpi strong{display:block;font-size:1.45rem;line-height:1.15}.affiliate-fact span,.affiliate-kpi span{display:block;color:var(--muted);font-size:.82rem;margin-top:.25rem}.affiliate-form{display:grid;gap:.8rem}.affiliate-form label{font-weight:650}.affiliate-form input[type=text],.affiliate-form select,.affiliate-referral-input{width:100%;min-height:44px;border:1px solid var(--rule);border-radius:9px;background:var(--field);color:var(--ink);padding:.7rem .8rem;font:inherit}.affiliate-check{display:grid;grid-template-columns:auto 1fr;gap:.65rem;align-items:start;font-weight:400!important}.affiliate-check input{width:1.1rem;height:1.1rem;margin-top:.2rem}.affiliate-btn{min-height:44px;border:1px solid var(--accent);border-radius:9px;padding:.65rem 1rem;background:var(--accent);color:var(--accent-ink);font:inherit;font-weight:700;cursor:pointer}.affiliate-btn.secondary{background:var(--panel);color:var(--accent)}.affiliate-referral-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.6rem}.affiliate-referral-input{font-family:var(--mono);overflow:hidden;text-overflow:ellipsis}.affiliate-code{display:inline-flex;padding:.3rem .55rem;border-radius:6px;background:var(--bg);font:700 .9rem var(--mono)}.affiliate-kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.75rem}.affiliate-kpi.primary{background:color-mix(in srgb,var(--accent) 9%,var(--panel));border-color:color-mix(in srgb,var(--accent) 30%,var(--rule))}.affiliate-kpi.primary strong{color:var(--accent)}.affiliate-table-wrap{overflow-x:auto}.affiliate-table{width:100%;min-width:34rem}.affiliate-table th{color:var(--muted);font-size:.75rem;text-transform:uppercase;letter-spacing:.04em}.affiliate-empty{text-align:center;padding:2rem!important;color:var(--muted)}.affiliate-badge{display:inline-flex;padding:.22rem .55rem;border-radius:999px;background:var(--bg);font-size:.78rem;font-weight:700}.affiliate-help{color:var(--muted);font-size:.85rem}.affiliate-copy-status{min-height:1.2rem;color:var(--accent);font-size:.82rem;margin:.45rem 0 0}
+    @media(max-width:800px){.affiliate-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.affiliate-enrollment-layout,.affiliate-grid{grid-template-columns:1fr}}
+    @media(max-width:520px){.affiliate-head{display:block}.affiliate-status{margin-top:.7rem}.affiliate-facts,.affiliate-kpi-grid{grid-template-columns:1fr}.affiliate-referral-row{grid-template-columns:1fr}.affiliate-btn{width:100%}.affiliate-card{padding:1.1rem}}
+    @media(prefers-color-scheme:dark){.affiliate-alert{background:#2a2415;border-color:#66572c}}
+  </style>`;
+  if (!dashboard) {
+    const notice = message ? `<div class="affiliate-alert" role="alert">${esc(message)}</div>` : "";
+    const enrollment = terms
+      ? `<form class="affiliate-card affiliate-form" method="post" action="/admin/affiliate/enroll"><h2>Create your referral code</h2><p class="affiliate-card-copy">Choose the code readers will see in your referral link. It must be unique.</p><label for="referral-code">Referral code</label><input type="text" id="referral-code" name="referral_code" required minlength="3" maxlength="32" pattern="[A-Za-z0-9][A-Za-z0-9-]{2,31}" autocomplete="off" aria-describedby="referral-code-help"><span class="affiliate-help" id="referral-code-help">3–32 letters, numbers, or hyphens.</span><label class="affiliate-check"><input type="checkbox" name="accept_terms" value="yes" required><span>I agree to the <a href="${esc(terms.termsUrl)}" target="_blank" rel="noopener noreferrer">Affiliate Terms</a> (${esc(terms.termsVersion)}).</span></label><button class="affiliate-btn" type="submit">Enable affiliate program</button></form>`
+      : `<p>Affiliate enrollment will open after the Affiliate Terms are published and approved.</p>`;
+    return shell("Affiliate program — blognice", `${styles}<main class="page affiliate-page"><div class="affiliate-head"><div><h1>Affiliate program</h1><p class="affiliate-eyebrow">Recommend Blognice and earn from qualifying subscriptions.</p></div><a href="${esc(terms?.termsUrl || "/affiliate-terms")}">Affiliate Terms</a></div>${notice}<div class="affiliate-enrollment-layout"><section class="affiliate-card"><h2>Share something worth writing on</h2><p>Earn <strong>50% commission</strong> on qualifying referred revenue. Your readers receive 10% off their first 12 paid service months.</p><div class="affiliate-facts"><div class="affiliate-fact"><strong>50%</strong><span>commission</span></div><div class="affiliate-fact"><strong>10%</strong><span>reader discount</span></div><div class="affiliate-fact"><strong>60 days</strong><span>commission maturation</span></div><div class="affiliate-fact"><strong>US$100</strong><span>payout threshold</span></div></div><p class="affiliate-help">Available to eligible Affiliates in the United States, Canada, the United Kingdom, and Thailand.</p></section>${enrollment}</div></main>`, account);
+  }
+  const money = (minor: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(minor / 100);
+  const referralUrl = `https://www.${rootDomain}/?ref=${encodeURIComponent(dashboard.referralCode)}`;
+  const termsAction = dashboard.status === "terms_required" && terms
+    ? `<section class="affiliate-alert" role="alert"><h2>Updated Affiliate Terms</h2><p>Attribution and payouts are paused until you accept the current terms.</p><form class="affiliate-form" method="post" action="/admin/affiliate/accept-terms"><label class="affiliate-check"><input type="checkbox" name="accept_terms" value="yes" required><span>I agree to the <a href="${esc(terms.termsUrl)}" target="_blank" rel="noopener noreferrer">Affiliate Terms</a> (${esc(terms.termsVersion)}).</span></label><button class="affiliate-btn" type="submit">Accept updated terms</button></form></section>`
+    : "";
+  const discountSetup = dashboard.stripePromotionCodeReady
+    ? `<p><strong>Your referral discount is active.</strong></p>`
+    : `<p><strong>Your referral link is not active yet.</strong> Finish Stripe discount setup before sharing it.</p><form method="post" action="/admin/affiliate/promotion"><button class="affiliate-btn secondary" type="submit">Retry discount setup</button></form>`;
+  const connect = dashboard.status === "terms_required"
+    ? `<p>Payout setup is paused until the updated Affiliate Terms are accepted.</p>`
+    : dashboard.stripeConnectStatus === "ready"
+    ? `<p><strong>Stripe payouts are ready.</strong>${dashboard.stripeConnectCountry ? ` Payout country: ${esc(dashboard.stripeConnectCountry)}.` : ""}</p>`
+    : dashboard.stripeConnectStatus === "not_started"
+      ? `<form class="affiliate-form" method="post" action="/admin/affiliate/connect"><label for="payout-country">Payout country</label><select id="payout-country" name="country" required autocomplete="country"><option value="">Choose a country</option><option value="US">United States</option><option value="CA">Canada</option><option value="GB">United Kingdom</option><option value="TH">Thailand</option></select><button class="affiliate-btn" type="submit">Set up Stripe payouts</button></form><p class="affiliate-help">Stripe hosts identity verification and bank-account collection. Blognice does not store your bank details.</p>`
+      : `<form method="post" action="/admin/affiliate/connect"><button class="affiliate-btn secondary" type="submit">${dashboard.stripeConnectStatus === "restricted" ? "Resolve Stripe payout requirements" : "Continue Stripe payout setup"}</button></form>`;
+  const humanStatus: Record<string, string> = { active: "Active", terms_required: "Action required", suspended: "Suspended", closed: "Closed", prepared: "Ready", reconciliation: "Under review", paid: "Paid", cancelled: "Cancelled" };
+  const payoutRows = dashboard.payouts.map((payout) => `<tr><td>${new Date(payout.createdAt * 1000).toISOString().slice(0, 10)}</td><td>${esc(money(payout.amountMinor))}</td><td><span class="affiliate-badge">${esc(humanStatus[payout.status] || payout.status)}</span></td></tr>`).join("");
+  const copyScript = `<script>(function(){var button=document.getElementById('copy-referral-link'),input=document.getElementById('affiliate-referral-link'),status=document.getElementById('copy-referral-status');if(!button||!input||!status)return;button.addEventListener('click',async function(){try{await navigator.clipboard.writeText(input.value);status.textContent='Referral link copied.';button.textContent='Copied';}catch(_){input.select();status.textContent='Select and copy the link.';}});})();</script>`;
+  return shell("Affiliate dashboard — blognice", `${styles}<main class="page affiliate-page"><div class="affiliate-head"><div><h1>Affiliate program</h1><p class="affiliate-eyebrow">Your referrals, commission, and payouts in one place.</p></div><span class="affiliate-status">${esc(humanStatus[dashboard.status] || dashboard.status)}</span></div>${termsAction}<section class="affiliate-card"><h2>Your referral link</h2><p class="affiliate-card-copy">Readers receive 10% off their first 12 paid service months.</p><p>Referral code <span class="affiliate-code">${esc(dashboard.referralCode)}</span></p><div class="affiliate-referral-row"><input class="affiliate-referral-input" id="affiliate-referral-link" type="text" readonly value="${esc(referralUrl)}" aria-label="Referral link"><button class="affiliate-btn" id="copy-referral-link" type="button">Copy link</button></div><p class="affiliate-copy-status" id="copy-referral-status" aria-live="polite"></p>${discountSetup}</section><section class="affiliate-card"><h2>Performance</h2><p class="affiliate-card-copy">Commission matures after 60 days. Payouts are prepared monthly from US$100.</p><div class="affiliate-kpi-grid"><div class="affiliate-kpi primary"><strong>${esc(money(dashboard.availableCommissionMinor))}</strong><span>Available for payout</span></div><div class="affiliate-kpi"><strong>${esc(money(dashboard.pendingCommissionMinor))}</strong><span>Pending maturation</span></div><div class="affiliate-kpi"><strong>${esc(money(dashboard.netCommissionMinor))}</strong><span>Net commission</span></div><div class="affiliate-kpi"><strong>${esc(money(dashboard.paidPayoutMinor))}</strong><span>Paid</span></div><div class="affiliate-kpi"><strong>${dashboard.attributionCount}</strong><span>Attributed accounts</span></div><div class="affiliate-kpi"><strong>${dashboard.conversionCount}</strong><span>Converted accounts</span></div><div class="affiliate-kpi"><strong>${esc(money(dashboard.openReserveMinor))}</strong><span>Reserved</span></div></div></section><div class="affiliate-grid"><section class="affiliate-card"><h2>Stripe payouts</h2><p class="affiliate-card-copy">Complete payout setup before your first payout is ready.</p>${connect}</section><section class="affiliate-card"><h2>Payout policy</h2><p>Available commission is paid monthly after it reaches US$100. Refunds, credits, and disputes can adjust the balance.</p><a href="${esc(terms?.termsUrl || "/affiliate-terms")}">Read Affiliate Terms</a></section></div><section class="affiliate-card"><h2>Payout history</h2><div class="affiliate-table-wrap"><table class="affiliate-table" aria-label="Affiliate payout history"><thead><tr><th>Date</th><th>Amount</th><th>Status</th></tr></thead><tbody>${payoutRows || `<tr><td class="affiliate-empty" colspan="3">No payouts yet. Your first payout will appear here after your available balance reaches US$100.</td></tr>`}</tbody></table></div></section></main>${copyScript}`, account);
+}
+
+app.get("/admin/affiliate", async (c) => {
+  const account = await currentAccount(c);
+  if (!account) return c.redirect("/admin/login");
+  if (isSuspended(account)) return suspendedResponse(c, account);
+  const terms = affiliateTermsConfig(c.env);
+  if (terms) {
+    const review = await requireCurrentAffiliateTermsInDb(c.env.DB, { accountId: account.id, termsVersion: terms.termsVersion, policyVersion: terms.policyVersion, requiredAt: Math.floor(Date.now() / 1000) });
+    if (review.required && c.env.EMAIL_QUEUE) c.executionCtx.waitUntil(relayAffiliateEmailOutboxInDb(c.env.DB, c.env.EMAIL_QUEUE));
+  }
+  const dashboard = await getAffiliateDashboardInDb(c.env.DB, account.id, Math.floor(Date.now() / 1000));
+  return c.html(affiliateDashboardPage(account, dashboard, c.env.ROOT_DOMAIN, terms, String(c.req.query("message") || "").slice(0, 200)));
+});
+
+app.post("/admin/affiliate/accept-terms", async (c) => {
+  const account = await currentAccount(c);
+  if (!account) return c.redirect("/admin/login");
+  if (isSuspended(account)) return suspendedResponse(c, account);
+  if (!isEmailVerified(account)) return c.redirect("/admin/affiliate?message=Verify+your+email+before+accepting+terms", 303);
+  const requestOrigin = c.req.header("Origin");
+  if (!requestOrigin || requestOrigin !== new URL(c.req.url).origin) return c.json({ error: "same-origin request required" }, 403);
+  const terms = affiliateTermsConfig(c.env);
+  if (!terms) return c.json({ error: "affiliate terms are not configured" }, 503);
+  const form = await c.req.formData();
+  if (String(form.get("accept_terms") || "") !== "yes") return c.redirect("/admin/affiliate?message=You+must+accept+the+Affiliate+Terms", 303);
+  const result = await reacceptAffiliateTermsInDb(c.env.DB, {
+    accountId: account.id, termsVersion: terms.termsVersion,
+    termsDocumentDigest: terms.termsDocumentDigest, policyVersion: terms.policyVersion,
+    acceptedAt: Math.floor(Date.now() / 1000),
+  });
+  if (!result.accepted) return c.redirect("/admin/affiliate?message=Updated+terms+were+not+required", 303);
+  return c.redirect("/admin/affiliate", 303);
+});
+
+app.post("/admin/affiliate/enroll", async (c) => {
+  const account = await currentAccount(c);
+  if (!account) return c.redirect("/admin/login");
+  if (isSuspended(account)) return suspendedResponse(c, account);
+  if (!isEmailVerified(account)) return c.redirect("/admin/affiliate?message=Verify+your+email+before+enrolling", 303);
+  const requestOrigin = c.req.header("Origin");
+  if (!requestOrigin || requestOrigin !== new URL(c.req.url).origin) return c.json({ error: "same-origin request required" }, 403);
+  const terms = affiliateTermsConfig(c.env);
+  if (!terms) return c.json({ error: "affiliate enrollment is not configured" }, 503);
+  const existing = await c.env.DB.prepare("SELECT stripe_promotion_code_id FROM affiliate_profiles WHERE account_id = ?").bind(account.id).first<{ stripe_promotion_code_id: string | null }>();
+  if (existing) return c.redirect("/admin/affiliate", 303);
+  const form = await c.req.formData();
+  if (String(form.get("accept_terms") || "") !== "yes") {
+    return c.redirect("/admin/affiliate?message=You+must+accept+the+Affiliate+Terms", 303);
+  }
+  const referralCode = String(form.get("referral_code") || "").trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9-]{2,31}$/.test(referralCode)) {
+    return c.redirect("/admin/affiliate?message=Choose+a+valid+referral+code", 303);
+  }
+  try {
+    await enableAffiliateProfileInDb(c.env.DB, {
+      accountId: account.id,
+      referralCode,
+      termsVersion: terms.termsVersion,
+      termsDocumentDigest: terms.termsDocumentDigest,
+      policyVersion: terms.policyVersion,
+      acceptedAt: Math.floor(Date.now() / 1000),
+    });
+  } catch {
+    return c.redirect("/admin/affiliate?message=That+referral+code+is+unavailable", 303);
+  }
+  try {
+    const promotion = await createAffiliatePromotionCode(c.env, {
+      couponId: terms.couponId,
+      referralCode,
+      affiliateAccountId: account.id,
+    });
+    const attached = await attachStripePromotionCodeInDb(c.env.DB, {
+      accountId: account.id,
+      promotionCodeId: promotion.promotionCodeId,
+    });
+    if (!attached.attached) throw new Error("Affiliate promotion code was not attached.");
+  } catch {
+    return c.redirect("/admin/affiliate?message=Discount+setup+is+pending.+Please+retry", 303);
+  }
+  await enqueueAffiliateEnrollmentEmailInDb(c.env.DB, account.id, Math.floor(Date.now() / 1000));
+  if (c.env.EMAIL_QUEUE) c.executionCtx.waitUntil(relayAffiliateEmailOutboxInDb(c.env.DB, c.env.EMAIL_QUEUE));
+  return c.redirect("/admin/affiliate", 303);
+});
+
+app.post("/admin/affiliate/promotion", async (c) => {
+  const account = await currentAccount(c);
+  if (!account) return c.redirect("/admin/login");
+  if (isSuspended(account)) return suspendedResponse(c, account);
+  const requestOrigin = c.req.header("Origin");
+  if (!requestOrigin || requestOrigin !== new URL(c.req.url).origin) return c.json({ error: "same-origin request required" }, 403);
+  const terms = affiliateTermsConfig(c.env);
+  if (!terms) return c.json({ error: "affiliate enrollment is not configured" }, 503);
+  const profile = await c.env.DB.prepare(
+    "SELECT referral_code, stripe_promotion_code_id FROM affiliate_profiles WHERE account_id = ? AND status = 'active'",
+  ).bind(account.id).first<{ referral_code: string; stripe_promotion_code_id: string | null }>();
+  if (!profile) return c.redirect("/admin/affiliate", 303);
+  if (profile.stripe_promotion_code_id) return c.redirect("/admin/affiliate", 303);
+  try {
+    const promotion = await createAffiliatePromotionCode(c.env, {
+      couponId: terms.couponId,
+      referralCode: profile.referral_code,
+      affiliateAccountId: account.id,
+    });
+    await attachStripePromotionCodeInDb(c.env.DB, {
+      accountId: account.id,
+      promotionCodeId: promotion.promotionCodeId,
+    });
+  } catch {
+    return c.redirect("/admin/affiliate?message=Discount+setup+is+still+pending", 303);
+  }
+  await enqueueAffiliateEnrollmentEmailInDb(c.env.DB, account.id, Math.floor(Date.now() / 1000));
+  if (c.env.EMAIL_QUEUE) c.executionCtx.waitUntil(relayAffiliateEmailOutboxInDb(c.env.DB, c.env.EMAIL_QUEUE));
+  return c.redirect("/admin/affiliate", 303);
+});
+
+app.post("/admin/affiliate/connect", async (c) => {
+  const account = await currentAccount(c);
+  if (!account) return c.redirect("/admin/login");
+  if (isSuspended(account)) return suspendedResponse(c, account);
+  if (c.req.header("Origin") !== new URL(c.req.url).origin) {
+    return c.json({ error: "same-origin request required" }, 403);
+  }
+  const profile = await c.env.DB.prepare(
+    "SELECT stripe_connected_account_id, stripe_connect_country FROM affiliate_profiles WHERE account_id = ? AND status = 'active'",
+  ).bind(account.id).first<{ stripe_connected_account_id: string | null; stripe_connect_country: string | null }>();
+  if (!profile) return c.redirect("/admin/affiliate");
+  const countryConfig = parseAffiliateStripeConnectCountries(c.env.AFFILIATE_STRIPE_CONNECT_COUNTRIES);
+  if (!countryConfig.configured) return c.redirect("/admin/affiliate?message=Payout+onboarding+is+not+available", 303);
+  let connectedAccountId = profile.stripe_connected_account_id;
+  if (!connectedAccountId) {
+    const form = await c.req.formData();
+    const country = String(form.get("country") || "").trim().toUpperCase();
+    const connected = await createAffiliateConnectedAccount(c.env, {
+      affiliateAccountId: account.id,
+      email: account.email,
+      country,
+      allowedCountries: countryConfig.countries,
+    });
+    const attached = await attachStripeConnectedAccountInDb(c.env.DB, {
+      affiliateAccountId: account.id,
+      connectedAccountId: connected.connectedAccountId,
+      country,
+      attachedAt: Math.floor(Date.now() / 1000),
+    });
+    connectedAccountId = attached.connectedAccountId;
+  }
+  const origin = new URL(c.req.url).origin;
+  const link = await createAffiliateConnectOnboardingLink(c.env, {
+    connectedAccountId,
+    refreshUrl: `${origin}/admin/affiliate/connect/refresh`,
+    returnUrl: `${origin}/admin/affiliate?connect=returned`,
+  });
+  return c.redirect(link.url, 303);
+});
+
+app.get("/admin/affiliate/connect/refresh", (c) => c.redirect("/admin/affiliate", 303));
 
 app.get("/admin/billing", async (c) => {
   const account = await currentAccount(c);
@@ -5664,7 +5943,26 @@ app.get("/admin/billing", async (c) => {
   const billing = await c.env.DB.prepare("SELECT stripe_customer_id, stripe_subscription_id, billing_status, billing_price_id, billing_period_end, billing_cancel_at_period_end, crypto_paid_through FROM accounts WHERE id = ?").bind(account.id).first() || {};
   const usage = await c.env.DB.prepare("SELECT credits_used AS used, allowance FROM ai_credit_usage WHERE account_id = ? AND period = ?")
     .bind(account.id, aiCreditPeriod()).first<{ used: number; allowance: number }>();
-  return c.html(billingPage(account, billing, String(c.req.query("message") || ""), usage || { used: 0, allowance: AI_MONTHLY_CREDITS }, { monthly: c.env.STRIPE_MONTHLY_PRICE_ID || c.env.STRIPE_PRICE_ID, yearly: c.env.STRIPE_YEARLY_PRICE_ID }, nowPaymentsConfigured(c.env)).replaceAll("Blog Nice admin", "blognice admin").replaceAll("Billing · Blog Nice", "Billing · blognice"));
+  const attribution = await c.env.DB.prepare("SELECT 1 FROM affiliate_attributions WHERE referred_account_id = ?").bind(account.id).first();
+  return c.html(billingPage(account, billing, String(c.req.query("message") || ""), usage || { used: 0, allowance: AI_MONTHLY_CREDITS }, { monthly: c.env.STRIPE_MONTHLY_PRICE_ID || c.env.STRIPE_PRICE_ID, yearly: c.env.STRIPE_YEARLY_PRICE_ID }, nowPaymentsConfigured(c.env), Boolean(attribution)).replaceAll("Blog Nice admin", "blognice admin").replaceAll("Billing · Blog Nice", "Billing · blognice"));
+});
+
+app.post("/admin/billing/referral", async (c) => {
+  const account = await currentAccount(c);
+  if (!account) return c.redirect("/admin/login");
+  if (isSuspended(account)) return suspendedResponse(c, account);
+  if (c.req.header("Origin") !== new URL(c.req.url).origin) {
+    return c.json({ error: "same-origin request required" }, 403);
+  }
+  return handleReferralCodeSubmission(
+    c.req.raw,
+    c.env.DB,
+    account.id,
+    Math.floor(Date.now() / 1000),
+    analyticsConsentRequired(c.req.raw.cf?.country)
+      ? undefined
+      : (event) => recordAffiliateFunnelEvent(c.env, event.affiliateId, event),
+  );
 });
 
 app.post("/admin/billing/checkout", async (c) => {
@@ -5680,7 +5978,38 @@ app.post("/admin/billing/checkout", async (c) => {
   if (billing && ["active", "trialing", "past_due"].includes(billing.billing_status)) return c.redirect("/admin/billing?message=This account already has a subscription.");
   try {
     const origin = new URL(c.req.url).origin;
-    const session = await createCheckoutSession(c.env, { accountId: account.id, email: account.email, priceId, customerId: billing?.stripe_customer_id, successUrl: `${origin}/admin/billing?message=Checkout completed. Subscription access will update after Stripe confirms payment.`, cancelUrl: `${origin}/admin/billing?message=Checkout cancelled.` });
+    const now = Math.floor(Date.now() / 1000);
+    const { attribution } = await beginCheckoutAttributionInDb(c.env.DB, account.id, now);
+    if (attribution && !attribution.stripePromotionCodeId) throw new Error("The affiliate discount is not configured yet.");
+    const affiliateCheckout = attribution ? await createStripeCheckoutInDb(c.env.DB, {
+      accountId: account.id,
+      attributionId: attribution.attributionId,
+      cadence: plan === "yearly" ? "annual" : "monthly",
+      priceId,
+      promotionCodeId: attribution.stripePromotionCodeId!,
+      policyVersion: attribution.policyVersion,
+      discountRateNumerator: 1,
+      discountRateDenominator: 10,
+      commissionRateNumerator: 1,
+      commissionRateDenominator: 2,
+      createdAt: now,
+      expiresAt: now + 30 * 60,
+    }) : null;
+    const session = await createCheckoutSession(c.env, {
+      accountId: account.id,
+      email: account.email,
+      priceId,
+      customerId: billing?.stripe_customer_id,
+      affiliateCheckoutId: affiliateCheckout?.checkoutId,
+      promotionCodeId: affiliateCheckout?.promotionCodeId,
+      successUrl: `${origin}/admin/billing?message=Checkout completed. Subscription access will update after Stripe confirms payment.`,
+      cancelUrl: `${origin}/admin/billing?message=Checkout cancelled.`,
+    });
+    if (affiliateCheckout) {
+      await c.env.DB.prepare(
+        "UPDATE affiliate_stripe_checkouts SET status = 'created', stripe_session_id = ? WHERE id = ? AND status = 'pending'",
+      ).bind(session.id, affiliateCheckout.checkoutId).run();
+    }
     return c.redirect(session.url, 303);
   } catch (error) {
     return c.redirect(`/admin/billing?message=${encodeURIComponent(error instanceof Error ? error.message : "Stripe checkout failed.")}`);
@@ -5711,15 +6040,33 @@ app.post("/admin/billing/crypto/checkout", async (c) => {
   if (accountHasPaidPlan(billing || {})) return c.redirect("/admin/billing?message=This account already has paid access.");
   try {
     const origin = new URL(c.req.url).origin;
-    const orderId = `blognice-${account.id}-${crypto.randomUUID()}`;
+    const now = Math.floor(Date.now() / 1000);
+    const { attribution } = await beginCheckoutAttributionInDb(c.env.DB, account.id, now);
+    const expectedDiscountedAmountMinor = affiliateAnnualPriceMinor(Boolean(attribution), NOWPAYMENTS_ANNUAL_USD * 100);
+    const checkout = await createNowPaymentsCheckoutInDb(c.env.DB, {
+      accountId: account.id,
+      attributionId: attribution?.attributionId ?? null,
+      expectedDiscountedAmountMinor,
+      policyVersion: attribution?.policyVersion ?? "none",
+      discountRateNumerator: attribution ? 1 : 0,
+      discountRateDenominator: 10,
+      commissionRateNumerator: attribution ? 1 : 0,
+      commissionRateDenominator: 2,
+      createdAt: now,
+      expiresAt: now + 15 * 60,
+    });
     const invoice = await createAnnualInvoice(c.env, {
-      orderId,
+      orderId: checkout.orderId,
+      priceUsdMinor: checkout.expectedDiscountedAmountMinor,
       callbackUrl: `${origin}/nowpayments/webhook`,
       successUrl: `${origin}/admin/billing?message=Crypto payment received. Access will update after NOWPayments confirms it.`,
       cancelUrl: `${origin}/admin/billing?message=Crypto payment cancelled.`,
     });
     const url = invoice.invoice_url || invoice.payment_url || invoice.pay_url;
     if (!url) throw new Error("NOWPayments did not return an invoice URL.");
+    await c.env.DB.prepare(
+      "UPDATE affiliate_nowpayments_checkouts SET status = 'invoiced', provider_invoice_id = ? WHERE order_id = ? AND status = 'pending'",
+    ).bind(String(invoice.id), checkout.orderId).run();
     return c.redirect(url, 303);
   } catch (error) {
     return c.redirect(`/admin/billing?message=${encodeURIComponent(error instanceof Error ? error.message : "Crypto checkout failed.")}`);
@@ -5737,13 +6084,15 @@ app.post("/nowpayments/webhook", async (c) => {
   try {
     const payment = await getPayment(c.env, paymentId);
     if (String(payment.order_id || orderId) !== orderId) throw new Error("NOWPayments order mismatch.");
-    if (Number(payment.price_amount) !== NOWPAYMENTS_ANNUAL_USD || String(payment.price_currency || "").toLowerCase() !== "usd") throw new Error("NOWPayments payment amount mismatch.");
-    const order = await c.env.DB.prepare("SELECT account_id, price_usd_cents, credited_at, revoked_at FROM crypto_payments WHERE order_id = ?").bind(orderId).first<{ account_id: number; price_usd_cents: number; credited_at: number | null; revoked_at: number | null }>();
-    const accountId = order?.account_id || Number(orderId.match(/^blognice-(\d+)-/)?.[1] || 0);
-    if (!accountId) throw new Error("NOWPayments order could not be mapped to an account.");
+    const checkout = await c.env.DB.prepare(
+      "SELECT account_id, expected_discounted_amount_minor FROM affiliate_nowpayments_checkouts WHERE order_id = ?",
+    ).bind(orderId).first<{ account_id: number; expected_discounted_amount_minor: number }>();
+    if (!checkout) throw new Error("NOWPayments order could not be mapped to a durable checkout.");
+    if (Math.round(Number(payment.price_amount) * 100) !== checkout.expected_discounted_amount_minor || String(payment.price_currency || "").toLowerCase() !== "usd") throw new Error("NOWPayments payment amount mismatch.");
+    const accountId = checkout.account_id;
     const now = Math.floor(Date.now() / 1000);
     const paymentStatus = String(payment.payment_status || payload.payment_status || "");
-    const finished = isTerminalPaidStatus(paymentStatus);
+    const finished = isTerminalPaidStatus(paymentStatus) && isNowPaymentsAmountFullyPaid(payment);
     // Unpaid/intermediate states must remain retryable: NOWPayments can send a
     // later finished callback. Only a true post-credit refund revokes access.
     const reversible = paymentStatus === "refunded";
@@ -5751,33 +6100,25 @@ app.post("/nowpayments/webhook", async (c) => {
       `INSERT INTO crypto_payments (id, account_id, order_id, plan, price_usd_cents, pay_currency, pay_amount, actually_paid, status, created_at, updated_at, paid_at, credited_at)
        VALUES (?, ?, ?, 'yearly', ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(order_id) DO UPDATE SET pay_currency = excluded.pay_currency, pay_amount = excluded.pay_amount, actually_paid = excluded.actually_paid, status = excluded.status, updated_at = excluded.updated_at, paid_at = COALESCE(crypto_payments.paid_at, excluded.paid_at), credited_at = COALESCE(crypto_payments.credited_at, excluded.credited_at)`
-    ).bind(paymentId, accountId, orderId, NOWPAYMENTS_ANNUAL_USD * 100, payment.pay_currency || payload.pay_currency || null, payment.pay_amount || payload.pay_amount || null, payment.actually_paid || payload.actually_paid || null, paymentStatus, now, now, finished ? now : null, null).run();
+    ).bind(paymentId, accountId, orderId, checkout.expected_discounted_amount_minor, payment.pay_currency || payload.pay_currency || null, payment.pay_amount || payload.pay_amount || null, payment.actually_paid || payload.actually_paid || null, paymentStatus, now, now, finished ? now : null, null).run();
     if (finished) {
-      const nonce = crypto.randomUUID();
-      const claim = await c.env.DB.batch([
-        c.env.DB.prepare("UPDATE crypto_payments SET credited_at = ?, credit_nonce = ? WHERE order_id = ? AND status = 'finished' AND credited_at IS NULL AND revoked_at IS NULL").bind(now, nonce, orderId),
-        c.env.DB.prepare("UPDATE accounts SET crypto_paid_through = CASE WHEN COALESCE(crypto_paid_through, 0) > ? THEN crypto_paid_through + ? ELSE ? END WHERE id = ? AND EXISTS (SELECT 1 FROM crypto_payments WHERE order_id = ? AND credit_nonce = ?)").bind(now, NOWPAYMENTS_ANNUAL_SECONDS, now + NOWPAYMENTS_ANNUAL_SECONDS, accountId, orderId, nonce),
-        // Keep each payment's own one-year contribution independent from the
-        // account's stacked expiry. Refund recomputation can then remove only
-        // this payment without preserving a cumulative expiry from another one.
-        c.env.DB.prepare("UPDATE crypto_payments SET entitlement_through = ? WHERE order_id = ? AND credit_nonce = ?").bind(now + NOWPAYMENTS_ANNUAL_SECONDS, orderId, nonce),
-      ]);
-      if (claim[0].meta.changes !== 1) console.info(JSON.stringify({ message: "NOWPayments duplicate finished IPN", paymentId, orderId }));
+      const settlement = await settleNowPaymentsCheckoutInDb(c.env.DB, {
+        orderId,
+        paymentId,
+        paidAt: now,
+        entitlementSeconds: NOWPAYMENTS_ANNUAL_SECONDS,
+        maturationSeconds: 60 * 24 * 60 * 60,
+      });
+      if (settlement.settled) await recordAffiliateConversion(c, accountId, "nowpayments");
+      if (!settlement.settled) console.info(JSON.stringify({ message: "NOWPayments duplicate finished IPN", paymentId, orderId }));
     } else if (reversible) {
-      await c.env.DB.batch([
-        c.env.DB.prepare("UPDATE crypto_payments SET revoked_at = COALESCE(revoked_at, ?), updated_at = ? WHERE order_id = ?").bind(now, now, orderId),
-        c.env.DB.prepare(`WITH RECURSIVE ordered AS (
-            SELECT credited_at, ROW_NUMBER() OVER (ORDER BY credited_at, id) AS rn
-              FROM crypto_payments
-             WHERE account_id = ? AND status = 'finished' AND revoked_at IS NULL AND credited_at IS NOT NULL
-          ), timeline(rn, expiry) AS (
-            SELECT rn, credited_at + ? FROM ordered WHERE rn = 1
-            UNION ALL
-            SELECT o.rn, CASE WHEN t.expiry > o.credited_at THEN t.expiry ELSE o.credited_at END + ?
-              FROM timeline t JOIN ordered o ON o.rn = t.rn + 1
-          )
-          UPDATE accounts SET crypto_paid_through = (SELECT expiry FROM timeline ORDER BY rn DESC LIMIT 1) WHERE id = ?`).bind(accountId, NOWPAYMENTS_ANNUAL_SECONDS, NOWPAYMENTS_ANNUAL_SECONDS, accountId),
-      ]);
+      await refundNowPaymentsCheckoutInDb(c.env.DB, {
+        orderId,
+        paymentId,
+        sourceKey: `refund:${paymentId}`,
+        refundedAt: now,
+        entitlementSeconds: NOWPAYMENTS_ANNUAL_SECONDS,
+      });
     }
     return c.json({ received: true });
   } catch (error) {
@@ -5788,7 +6129,10 @@ app.post("/nowpayments/webhook", async (c) => {
 
 app.post("/stripe/webhook", async (c) => {
   const raw = await c.req.text();
-  if (!await verifyStripeSignature(raw, c.req.header("Stripe-Signature"), c.env.STRIPE_WEBHOOK_SECRET)) return c.json({ error: "invalid signature" }, 400);
+  const signature = c.req.header("Stripe-Signature");
+  const platformSignature = await verifyStripeSignature(raw, signature, c.env.STRIPE_WEBHOOK_SECRET);
+  const connectSignature = platformSignature ? false : await verifyStripeSignature(raw, signature, c.env.STRIPE_CONNECT_WEBHOOK_SECRET);
+  if (!platformSignature && !connectSignature) return c.json({ error: "invalid signature" }, 400);
   const event = JSON.parse(raw) as { id: string; type: string; created: number; data?: { object?: any } };
   const eventCreated = event.created || Math.floor(Date.now() / 1000);
   const inserted = await c.env.DB.prepare("INSERT OR IGNORE INTO stripe_events (id, type, created_at, processed_at, status) VALUES (?, ?, ?, 0, 'processing')").bind(event.id, event.type, eventCreated).run();
@@ -5815,6 +6159,22 @@ app.post("/stripe/webhook", async (c) => {
     accountId = row?.id || null;
   }
   if (entitlementEvent && !accountId) throw new Error("Stripe billing event could not be mapped to a Blog Nice account yet.");
+  if (event.type === "account.updated" && typeof object.id === "string") {
+    const connectUpdate = await updateStripeConnectedAccountStatusInDb(c.env.DB, {
+      connectedAccountId: object.id,
+      detailsSubmitted: object.details_submitted === true,
+      payoutsEnabled: object.payouts_enabled === true,
+      transfersStatus: String(object.capabilities?.transfers || "inactive"),
+      eventCreated,
+      eventId: event.id,
+    });
+    if (connectUpdate.updated && c.env.EMAIL_QUEUE) c.executionCtx.waitUntil(relayAffiliateEmailOutboxInDb(c.env.DB, c.env.EMAIL_QUEUE));
+    const affiliate = await c.env.DB.prepare(
+      "SELECT account_id FROM affiliate_profiles WHERE stripe_connected_account_id = ?",
+    ).bind(object.id).first<{ account_id: number }>();
+    accountId = affiliate?.account_id || accountId;
+    if (accountId) await c.env.DB.prepare("UPDATE stripe_events SET account_id = ? WHERE id = ?").bind(accountId, event.id).run();
+  }
   if (event.type === "checkout.session.completed" && object.metadata?.type === "domain_purchase") {
     const meta: any = object.metadata || {};
     const domain = String(meta.domain || "").toLowerCase().trim();
@@ -5944,6 +6304,111 @@ app.post("/stripe/webhook", async (c) => {
       }
     }
     await c.env.DB.prepare("UPDATE stripe_events SET account_id = ? WHERE id = ?").bind(accountId, event.id).run();
+  }
+  if (event.type === "invoice.paid" && accountId && invoiceSubscriptionId) {
+    const invoiceLines = Array.isArray(object.lines?.data) ? object.lines.data : [];
+    for (const line of invoiceLines) {
+      const proration = Boolean(
+        line.proration
+        || line.parent?.subscription_item_details?.proration,
+      );
+      if (proration) continue;
+      const checkoutId = String(
+        line.metadata?.affiliate_checkout_id
+        || object.parent?.subscription_details?.metadata?.affiliate_checkout_id
+        || "",
+      );
+      const priceId = String(line.pricing?.price_details?.price || line.price?.id || "");
+      if (!checkoutId || !priceId || !line.id) continue;
+      if (String(line.currency || object.currency || "").toLowerCase() !== "usd") continue;
+      const pretaxCredits = Array.isArray(line.pretax_credit_amounts)
+        ? line.pretax_credit_amounts.reduce((sum: number, credit: any) => sum + Number(credit.amount || 0), 0)
+        : Array.isArray(line.discount_amounts)
+          ? line.discount_amounts.reduce((sum: number, discount: any) => sum + Number(discount.amount || 0), 0)
+          : 0;
+      const subtotalMinor = Number(line.subtotal ?? line.amount_excluding_tax ?? line.amount ?? 0);
+      const eligibleRevenueMinor = Math.max(0, subtotalMinor - pretaxCredits);
+      if (!eligibleRevenueMinor) continue;
+      const serviceStartAt = Number(line.period?.start || 0);
+      const serviceEndAt = Number(line.period?.end || 0);
+      if (!Number.isSafeInteger(serviceStartAt) || !Number.isSafeInteger(serviceEndAt)
+        || serviceEndAt <= serviceStartAt) continue;
+      const settlement = await settleStripeInvoiceInDb(c.env.DB, {
+        checkoutId,
+        invoiceId: String(object.id),
+        paymentId: String(object.payment_intent || object.id),
+        subscriptionId: invoiceSubscriptionId,
+        lineId: String(line.id),
+        priceId,
+        currency: "usd",
+        discountedAmountExcludingTaxMinor: eligibleRevenueMinor,
+        processingFeeMinor: 0,
+        serviceStartAt,
+        serviceEndAt,
+        paidAt: Number(object.status_transitions?.paid_at || eventCreated),
+        maturationSeconds: 60 * 24 * 60 * 60,
+      });
+      if (settlement.created) await recordAffiliateConversion(c, accountId, "stripe");
+    }
+    await c.env.DB.prepare("UPDATE stripe_events SET account_id = ? WHERE id = ?").bind(accountId, event.id).run();
+  }
+  if (event.type === "charge.refunded") {
+    const paymentId = typeof object.payment_intent === "string" ? object.payment_intent : "";
+    const originalChargeMinor = Number(object.amount || 0);
+    const refunds = Array.isArray(object.refunds?.data) ? object.refunds.data : [];
+    if (paymentId && originalChargeMinor > 0) {
+      for (const refund of refunds) {
+        if (!refund?.id || Number(refund.amount || 0) <= 0) continue;
+        await recordPendingStripeFinancialEventInDb(c.env.DB, {
+          kind: "refund", sourceKey: `refund:${String(refund.id)}`, paymentId,
+          amountMinor: Number(refund.amount), originalAmountMinor: originalChargeMinor,
+          occurredAt: Number(refund.created || eventCreated),
+        });
+      }
+    }
+    if (accountId) {
+      await c.env.DB.prepare("UPDATE stripe_events SET account_id = ? WHERE id = ?").bind(accountId, event.id).run();
+    }
+  }
+  if ((event.type === "credit_note.created" || event.type === "credit_note.updated")
+    && object.status !== "void" && !object.refund) {
+    const invoiceId = typeof object.invoice === "string" ? object.invoice : String(object.invoice?.id || "");
+    const creditNoteId = String(object.id || "");
+    const lines = Array.isArray(object.lines?.data) ? object.lines.data : [];
+    for (const line of lines) {
+      const invoiceLineId = typeof line.invoice_line_item === "string"
+        ? line.invoice_line_item
+        : String(line.invoice_line_item?.id || "");
+      const creditedEligibleRevenueMinor = Number(line.amount_excluding_tax ?? line.amount ?? 0);
+      if (!invoiceId || !creditNoteId || !invoiceLineId || creditedEligibleRevenueMinor <= 0) continue;
+      await recordPendingStripeFinancialEventInDb(c.env.DB, {
+        kind: "credit_note", sourceKey: `credit_note:${creditNoteId}:line:${invoiceLineId}`,
+        invoiceId, invoiceLineId, amountMinor: creditedEligibleRevenueMinor,
+        occurredAt: Number(object.created || eventCreated),
+      });
+    }
+  }
+  if (event.type === "charge.dispute.created") {
+    const paymentId = typeof object.payment_intent === "string" ? object.payment_intent : "";
+    const disputeId = String(object.id || "");
+    if (paymentId && disputeId) {
+      await recordPendingStripeFinancialEventInDb(c.env.DB, {
+        kind: "dispute_open", sourceKey: `dispute:${disputeId}:opened`,
+        paymentId, disputeId, occurredAt: Number(object.created || eventCreated),
+      });
+    }
+  }
+  if (event.type === "charge.dispute.closed") {
+    const disputeId = String(object.id || "");
+    const outcome = object.status === "won" || object.status === "warning_closed"
+      ? "won"
+      : object.status === "lost" ? "lost" : null;
+    if (disputeId && outcome) {
+      await recordPendingStripeFinancialEventInDb(c.env.DB, {
+        kind: "dispute_close", sourceKey: `dispute:${disputeId}:${outcome}`,
+        disputeId, outcome, occurredAt: Number(object.created || eventCreated),
+      });
+    }
   }
   if (event.type.startsWith("customer.subscription.") && accountId && subscriptionObject) {
     const currentBilling = await c.env.DB.prepare("SELECT stripe_subscription_id FROM accounts WHERE id = ?")
@@ -6085,6 +6550,19 @@ app.post("/unsubscribe/:token", async (c) => {
 // Home page: list of published posts.
 app.get("/", async (c) => {
   const host = (c.req.header("host") || "").split(":")[0].toLowerCase();
+  const affiliateCookieSecrets = String(c.env.AFFILIATE_REFERRAL_COOKIE_SECRETS || "").split(",").map((secret) => secret.trim()).filter(Boolean);
+  if (host === `www.${c.env.ROOT_DOMAIN.toLowerCase()}` && affiliateCookieSecrets.length) {
+    const referral = await handleReferralLink(
+      c.req.raw,
+      c.env.DB,
+      affiliateCookieSecrets,
+      Math.floor(Date.now() / 1000),
+      analyticsConsentRequired(c.req.raw.cf?.country)
+        ? undefined
+        : (event) => recordAffiliateFunnelEvent(c.env, event.affiliateId, event),
+    );
+    if (referral) return referral;
+  }
   if (host === `www.${c.env.ROOT_DOMAIN.toLowerCase()}`) {
     return new Response(homepage, {
       status: 200,
@@ -6251,9 +6729,30 @@ export default {
       }
     }
   },
-  scheduled(_controller, env, ctx) {
-    ctx.waitUntil(
-      Promise.all([archivePreviousDay(env), archivePreviousDayEvents(env), refreshPostPopularity(env), cleanupPushState(env)]).catch((error) => {
+      scheduled(controller, env, ctx) {
+        const scheduledTime = Number(controller?.scheduledTime);
+        const now = Number.isFinite(scheduledTime) && scheduledTime > 0
+          ? Math.floor(scheduledTime / 1000)
+          : Math.floor(Date.now() / 1000);
+        const currentAffiliateTerms = affiliateTermsConfig(env);
+        const termsReview = currentAffiliateTerms
+          ? requireOutdatedAffiliateTermsInDb(env.DB, {
+              termsVersion: currentAffiliateTerms.termsVersion,
+              policyVersion: currentAffiliateTerms.policyVersion,
+              requiredAt: now,
+            })
+          : Promise.resolve({ requiredCount: 0 });
+        const payoutPreparation = new Date(now * 1000).getUTCDate() === 1
+          ? termsReview.then(() => prepareAffiliatePayoutBatchInDb(env.DB, { currency: "usd", cutoff: now, minimumMinor: 10_000 }))
+              .then((payouts) => {
+                if (payouts.length) console.info(JSON.stringify({ message: "Affiliate payouts prepared", count: payouts.length }));
+              })
+          : termsReview.then(() => undefined);
+        const affiliateEmails = env.EMAIL_QUEUE
+          ? termsReview.then(() => relayAffiliateEmailOutboxInDb(env.DB, env.EMAIL_QUEUE!))
+          : Promise.resolve({ queued: 0 });
+        ctx.waitUntil(
+          Promise.all([archivePreviousDay(env, new Date(now * 1000)), archivePreviousDayEvents(env, new Date(now * 1000)), archivePreviousDayAffiliateEvents(env, new Date(now * 1000)), refreshPostPopularity(env), cleanupPushState(env), payoutPreparation, affiliateEmails]).catch((error) => {
         console.error(JSON.stringify({
           message: "scheduled metrics maintenance failed",
           error: error instanceof Error ? error.message : String(error),

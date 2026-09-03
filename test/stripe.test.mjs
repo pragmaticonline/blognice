@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { accountHasPaidPlan } from "../src/auth.ts";
-import { checkoutSubscriptionDecision, subscriptionEventMatchesCurrent, verifyStripeSignature } from "../src/stripe.ts";
+import { checkoutSubscriptionDecision, createAffiliateConnectedAccount, createAffiliateConnectOnboardingLink, createAffiliatePromotionCode, createAffiliateTransfer, createCheckoutSession, subscriptionEventMatchesCurrent, verifyStripeSignature } from "../src/stripe.ts";
 
 const source = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
 const stripe = readFileSync(new URL("../src/stripe.ts", import.meta.url), "utf8");
@@ -15,6 +15,164 @@ test("Stripe billing uses hosted Checkout and Customer Portal", () => {
   assert.match(source, /\/admin\/billing\/portal/);
   assert.match(stripe, /checkout\/sessions/);
   assert.match(stripe, /billing_portal\/sessions/);
+});
+
+test("attributed Stripe checkout carries its snapshot and promotion code", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (_url, init) => {
+    requests.push(new URLSearchParams(init.body));
+    return new Response(JSON.stringify({ id: "cs_123", url: "https://checkout.stripe.test/cs_123" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    for (const priceId of ["price_yearly", "price_monthly"]) {
+      await createCheckoutSession({ STRIPE_SECRET_KEY: "sk_test" }, {
+        accountId: 42, email: "reader@example.com", priceId,
+        affiliateCheckoutId: "affiliate-checkout-123",
+        promotionCodeId: "promo_affiliate_17",
+        successUrl: "https://example.com/success",
+        cancelUrl: "https://example.com/cancel",
+      });
+    }
+    for (const params of requests) {
+      assert.equal(params.get("discounts[0][promotion_code]"), "promo_affiliate_17");
+      assert.equal(params.get("metadata[affiliate_checkout_id]"), "affiliate-checkout-123");
+      assert.equal(params.get("subscription_data[metadata][affiliate_checkout_id]"), "affiliate-checkout-123");
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("affiliate promotion provisioning verifies the 10%-for-12-month coupon", async () => {
+  const originalFetch = globalThis.fetch;
+  let promotionParams;
+  let promotionHeaders;
+  globalThis.fetch = async (url, init = {}) => {
+    if (String(url).endsWith("/coupons/affiliate_10_percent_12_months")) {
+      return new Response(JSON.stringify({
+        id: "affiliate_10_percent_12_months",
+        percent_off: 10,
+        duration: "repeating",
+        duration_in_months: 12,
+        valid: true,
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    promotionParams = new URLSearchParams(init.body);
+    promotionHeaders = new Headers(init.headers);
+    return new Response(JSON.stringify({ id: "promo_writer17", code: "WRITER17" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    const promotion = await createAffiliatePromotionCode({ STRIPE_SECRET_KEY: "sk_test" }, {
+      couponId: "affiliate_10_percent_12_months",
+      referralCode: "writer17",
+      affiliateAccountId: 17,
+    });
+    assert.deepEqual(promotion, { promotionCodeId: "promo_writer17", customerCode: "WRITER17" });
+    assert.equal(promotionParams.get("promotion[coupon]"), "affiliate_10_percent_12_months");
+    assert.equal(promotionParams.get("code"), "WRITER17");
+    assert.equal(promotionParams.get("metadata[affiliate_account_id]"), "17");
+    assert.equal(promotionHeaders.get("Idempotency-Key"), "affiliate-promotion:17");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Affiliate payout onboarding uses a Stripe-hosted Express connected account", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url, init = {}) => {
+    requests.push({ url: String(url), params: new URLSearchParams(init.body), headers: new Headers(init.headers) });
+    if (String(url).endsWith("/accounts")) {
+      return new Response(JSON.stringify({ id: "acct_1Affiliate17" }), {
+        status: 200, headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify({ url: "https://connect.stripe.test/onboard/17", expires_at: 1_800_001_800 }), {
+      status: 200, headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    const connected = await createAffiliateConnectedAccount({ STRIPE_SECRET_KEY: "sk_test" }, {
+      affiliateAccountId: 17,
+      email: "alex@example.com",
+      country: "GB",
+      allowedCountries: new Set(["GB"]),
+    });
+    const onboarding = await createAffiliateConnectOnboardingLink({ STRIPE_SECRET_KEY: "sk_test" }, {
+      connectedAccountId: connected.connectedAccountId,
+      refreshUrl: "https://www.blognice.com/admin/affiliate/connect/refresh",
+      returnUrl: "https://www.blognice.com/admin/affiliate?connect=returned",
+    });
+
+    assert.deepEqual(connected, { connectedAccountId: "acct_1Affiliate17" });
+    assert.deepEqual(onboarding, { url: "https://connect.stripe.test/onboard/17", expiresAt: 1_800_001_800 });
+    assert.equal(requests[0].url, "https://api.stripe.com/v1/accounts");
+    assert.equal(requests[0].params.get("type"), "express");
+    assert.equal(requests[0].params.get("country"), "GB");
+    assert.equal(requests[0].params.get("email"), "alex@example.com");
+    assert.equal(requests[0].params.get("capabilities[transfers][requested]"), "true");
+    assert.equal(requests[0].params.get("metadata[blognice_affiliate_account_id]"), "17");
+    assert.equal(requests[0].headers.get("idempotency-key"), "blognice-affiliate-connect-17");
+    assert.equal(requests[1].url, "https://api.stripe.com/v1/account_links");
+    assert.equal(requests[1].params.get("account"), "acct_1Affiliate17");
+    assert.equal(requests[1].params.get("type"), "account_onboarding");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Affiliate Connect onboarding fails closed outside the operator-approved corridor", async () => {
+  await assert.rejects(
+    createAffiliateConnectedAccount({ STRIPE_SECRET_KEY: "sk_test" }, {
+      affiliateAccountId: 17, email: "alex@example.com", country: "US",
+      allowedCountries: new Set(["TH", "GB"]),
+    }),
+    /unavailable in that country/,
+  );
+  await assert.rejects(
+    createAffiliateConnectedAccount({ STRIPE_SECRET_KEY: "sk_test" }, {
+      affiliateAccountId: 17, email: "alex@example.com", country: "TH",
+      allowedCountries: new Set(),
+    }),
+    /unavailable in that country/,
+  );
+});
+
+test("a prepared Affiliate payout becomes one idempotent Stripe transfer", async () => {
+  const originalFetch = globalThis.fetch;
+  let request;
+  globalThis.fetch = async (url, init = {}) => {
+    request = { url: String(url), params: new URLSearchParams(init.body), headers: new Headers(init.headers) };
+    return new Response(JSON.stringify({ id: "tr_1AffiliatePayout" }), {
+      status: 200, headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    const transfer = await createAffiliateTransfer({ STRIPE_SECRET_KEY: "sk_test" }, {
+      payoutId: "payout-123",
+      connectedAccountId: "acct_1Affiliate17",
+      amountMinor: 10_000,
+      currency: "usd",
+    });
+
+    assert.deepEqual(transfer, { transferId: "tr_1AffiliatePayout" });
+    assert.equal(request.url, "https://api.stripe.com/v1/transfers");
+    assert.equal(request.params.get("amount"), "10000");
+    assert.equal(request.params.get("currency"), "usd");
+    assert.equal(request.params.get("destination"), "acct_1Affiliate17");
+    assert.equal(request.params.get("transfer_group"), "affiliate_payout:payout-123");
+    assert.equal(request.params.get("metadata[affiliate_payout_id]"), "payout-123");
+    assert.equal(request.headers.get("idempotency-key"), "affiliate-payout:payout-123");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("billing presents monthly AI credits and Stripe-owned plan management", () => {
@@ -65,6 +223,11 @@ test("Stripe signature verification accepts valid and repeated signatures only w
   assert.equal(await verifyStripeSignature(body, `t=${timestamp - 301},v1=${digest}`, secret), false);
 });
 
+test("Stripe route supports a distinct Connect webhook signing secret", () => {
+  assert.match(source, /STRIPE_CONNECT_WEBHOOK_SECRET/);
+  assert.match(source, /!platformSignature && !connectSignature/);
+});
+
 test("Stripe webhook processing is retryable and rejects stale events", () => {
   assert.match(source, /status = 'failed'/);
   assert.match(source, /status = 'processed'/);
@@ -82,6 +245,25 @@ test("Stripe webhook processing is retryable and rejects stale events", () => {
   assert.match(reliabilityMigration, /billing_subscription_event_created_at/);
   assert.match(reliabilityMigration, /ai_credit_refunds/);
   assert.match(checkoutOrderingMigration, /billing_subscription_created_at/);
+});
+
+test("Stripe dispute webhooks reserve and reverse affiliate commission by payment intent", () => {
+  assert.match(source, /event\.type === "charge\.dispute\.created"/);
+  assert.match(source, /recordPendingStripeFinancialEventInDb\(c\.env\.DB/);
+  assert.match(source, /kind: "dispute_open"/);
+  assert.match(source, /paymentId/);
+  assert.match(source, /event\.type === "charge\.dispute\.closed"/);
+  assert.match(source, /kind: "dispute_close"/);
+  assert.match(source, /object\.status === "won"/);
+  assert.match(source, /object\.status === "warning_closed"/);
+});
+
+test("Stripe credit-note webhooks append line-specific affiliate adjustments", () => {
+  assert.match(source, /credit_note\.created/);
+  assert.match(source, /credit_note\.updated/);
+  assert.match(source, /line\.invoice_line_item/);
+  assert.match(source, /kind: "credit_note"/);
+  assert.match(source, /!object\.refund/);
 });
 
 test("a delayed Checkout event cannot replace a newer subscription", () => {

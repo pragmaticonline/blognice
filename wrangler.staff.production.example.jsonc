@@ -7,7 +7,9 @@
     "ACCESS_TEAM_DOMAIN": "https://your-team.cloudflareaccess.com",
     "ACCESS_AUD": "replace-with-access-application-audience-tag",
     "STAFF_ALLOWED_EMAILS": "staff@example.com",
-    "EMAIL_FROM": "Blog Nice <support@mailer.blognice.com>"
+    "EMAIL_FROM": "Blog Nice <support@mailer.blognice.com>",
+    "AFFILIATE_PAYOUT_DUAL_CONTROL_THRESHOLD_MINOR": "100000",
+    "AFFILIATE_STRIPE_CONNECT_COUNTRIES": "US,CA,GB,TH"
   },
   "routes": [
     { "pattern": "staff.blognice.com/*", "zone_name": "blognice.com" }
@@ -19,5 +21,6 @@
       "database_id": "replace-with-index-database-id"
     }
   ],
-  "ai": { "binding": "AI" }
+  "ai": { "binding": "AI" },
+  "queues": { "producers": [{ "binding": "EMAIL_QUEUE", "queue": "blognice-email" }] }
 }

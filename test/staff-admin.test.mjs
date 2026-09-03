@@ -41,6 +41,76 @@ test("staff phase 1 mutations require role, same origin, reason, and audit", () 
   assert.match(staff, /senderName: type === "subscriber-confirmation"/);
 });
 
+test("staff payout reconciliation is inspectable and restricted to admins", () => {
+  assert.match(staff, /app\.get\("\/api\/affiliate-payouts"/);
+  assert.match(staff, /getAffiliatePayoutQueueInDb/);
+  assert.match(staff, /app\.post\("\/api\/affiliate-payouts\/:id\/reconcile"/);
+  assert.match(staff, /admin role required for payout reconciliation/);
+  assert.match(staff, /decision must be confirm_paid or cancel/);
+  assert.match(staff, /evidence is required/);
+  assert.match(staff, /affiliate-payout-reconcile/);
+  assert.match(staff, /reconcilePayoutInDb/);
+});
+
+test("manual affiliate corrections are admin-only, same-origin, immutable, and audited", () => {
+  assert.match(staff, /app\.post\("\/api\/accounts\/:id\/affiliate-adjustment"/);
+  assert.match(staff, /admin role required for affiliate adjustments/);
+  assert.match(staff, /recordManualAffiliateAdjustmentInDb/);
+  assert.match(staff, /affiliate-manual-adjustment/);
+  assert.match(staff, /a unique source_key is required/);
+  assert.match(staff, /Append this immutable commission correction/);
+});
+
+test("only Stripe transfer creation is classified as an ambiguous dispatch", () => {
+  const route = staff.slice(
+    staff.indexOf('app.post("/api/affiliate-payouts/:id/dispatch"'),
+    staff.indexOf("async function mutateAccount"),
+  );
+  const ambiguityBoundary = route.match(/try \{([\s\S]*?)\n  \} catch \(error\) \{/);
+  assert.ok(ambiguityBoundary);
+  assert.match(ambiguityBoundary[1], /createAffiliateTransfer/);
+  assert.doesNotMatch(ambiguityBoundary[1], /recordPayoutDispatchResultInDb/);
+  assert.doesNotMatch(ambiguityBoundary[1], /await audit/);
+});
+
+test("staff can operate the affiliate payout queue from one page", () => {
+  assert.match(staff, /app\.get\("\/affiliate-payouts"/);
+  assert.match(staff, /href="\/affiliate-payouts" data-staff-nav>Affiliate payouts/);
+  assert.match(staff, /Affiliate payout operations/);
+  assert.match(staff, /Awaiting reconciliation/);
+  assert.match(staff, /Dispatch through Stripe/);
+  assert.match(staff, /Confirm paid/);
+  assert.match(staff, /Cancel payout/);
+  assert.match(staff, /Stripe transfer ID/);
+  assert.match(staff, /Evidence/);
+  assert.match(staff, /\/api\/affiliate-payouts\/.*\/dispatch/);
+  assert.match(staff, /\/api\/affiliate-payouts\/.*\/reconcile/);
+});
+
+test("staff account pages expose read-only affiliate support context", () => {
+  assert.match(staff, /getAffiliateSupportSummaryInDb\(c\.env\.DB, id/);
+  assert.match(staff, /getAffiliateSupportActivityInDb\(c\.env\.DB, id\)/);
+  assert.match(staff, /Affiliate program/);
+  assert.match(staff, /Referral code/);
+  assert.match(staff, /Matured balance/);
+  assert.match(staff, /Open reserve/);
+  assert.match(staff, /Paid payouts/);
+  assert.match(staff, /Referral attributions/);
+  assert.match(staff, /Commission ledger/);
+  assert.match(staff, /Payout history/);
+});
+
+test("admins can suspend and reactivate an affiliate without changing account state", () => {
+  assert.match(staff, /app\.post\("\/api\/accounts\/:id\/affiliate-status"/);
+  assert.match(staff, /admin role required for affiliate status changes/);
+  assert.match(staff, /status must be active or suspended/);
+  assert.match(staff, /UPDATE affiliate_profiles SET status = \?/);
+  assert.match(staff, /affiliate-status-change/);
+  assert.match(staff, /Suspend affiliate/);
+  assert.match(staff, /Reactivate affiliate/);
+  assert.match(staff, /\/api\/accounts\/\$\{id\}\/affiliate-status/);
+});
+
 test("staff test email uses MailNice without exposing its API key", () => {
   assert.match(mailnice, /api\.mailnice\.net\/api\/v1\/send\/message/);
   assert.match(mailnice, /X-Server-API-Key/);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { passwordResetEmail, postNotificationEmail, subscriberWelcomeEmail } from "../src/email.ts";
+import { affiliateConnectRestrictedEmail, affiliateEnrollmentEmail, affiliatePayoutCancelledEmail, affiliatePayoutSentEmail, affiliateTermsRequiredEmail, passwordResetEmail, postNotificationEmail, subscriberWelcomeEmail } from "../src/email.ts";
 
 const email = readFileSync(new URL("../src/email.ts", import.meta.url), "utf8");
 const index = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
@@ -11,6 +11,49 @@ const postsSchema = readFileSync(new URL("../schema-posts.sql", import.meta.url)
 const productionConfig = readFileSync(new URL("../wrangler.production.jsonc", import.meta.url), "utf8");
 const subscriberMigration = readFileSync(new URL("../migrations/040-subscriber-double-opt-in.sql", import.meta.url), "utf8");
 const subscriberOptin = readFileSync(new URL("../src/subscriber-optin.ts", import.meta.url), "utf8");
+
+test("affiliate payout email identifies the exact Stripe transfer", () => {
+  const message = affiliatePayoutSentEmail({ amountMinor: 10_000, currency: "usd", transferId: "tr_123" });
+  assert.equal(message.subject, "Your $100.00 Blognice affiliate payout was sent");
+  assert.match(message.plainText, /tr_123/);
+  assert.match(message.html, /\$100\.00/);
+});
+
+test("affiliate enrollment email confirms the referral code and dashboard", () => {
+  const message = affiliateEnrollmentEmail({ referralCode: "WRITER-17", dashboardUrl: "https://www.blognice.com/admin/affiliate" });
+  assert.equal(message.subject, "Welcome to the Blognice affiliate program");
+  assert.match(message.plainText, /WRITER-17/);
+  assert.match(message.html, /admin\/affiliate/);
+});
+
+test("affiliate terms email explains the pause and links to acceptance", () => {
+  const message = affiliateTermsRequiredEmail({ dashboardUrl: "https://www.blognice.com/admin/affiliate" });
+  assert.match(message.subject, /updated Blognice Affiliate Terms/i);
+  assert.match(message.plainText, /attribution and payouts are paused/i);
+  assert.match(message.html, /admin\/affiliate/);
+});
+
+test("affiliate restriction email directs the Affiliate to resolve payout requirements", () => {
+  const message = affiliateConnectRestrictedEmail({ dashboardUrl: "https://www.blognice.com/admin/affiliate" });
+  assert.equal(message.subject, "Action needed for your Blognice affiliate payouts");
+  assert.match(message.plainText, /needs more information/i);
+  assert.match(message.html, /Resolve payout requirements/);
+});
+
+test("cancelled affiliate payout email explains that commission was restored", () => {
+  const message = affiliatePayoutCancelledEmail({ amountMinor: 10_000, currency: "usd", dashboardUrl: "https://www.blognice.com/admin/affiliate" });
+  assert.equal(message.subject, "Your $100.00 Blognice affiliate payout was not sent");
+  assert.match(message.plainText, /available balance/i);
+  assert.match(message.html, /admin\/affiliate/);
+});
+
+test("affiliate lifecycle transitions wake the durable email relay", () => {
+  const staff = readFileSync(new URL("../src/staff.ts", import.meta.url), "utf8");
+  assert.match(index, /if \(event\.type === "account\.updated"[\s\S]{0,1200}waitUntil\(relayAffiliateEmailOutboxInDb/);
+  assert.match(staff, /if \(c\.env\.EMAIL_QUEUE\) \{\s*c\.executionCtx\.waitUntil\(relayAffiliateEmailOutboxInDb/);
+  assert.doesNotMatch(staff, /if \(decision === "confirm_paid" && c\.env\.EMAIL_QUEUE\)/);
+  assert.match(index, /const affiliateEmails = env\.EMAIL_QUEUE\s*\? termsReview\.then\(\(\) => relayAffiliateEmailOutboxInDb/);
+});
 
 test("MailNice is preferred for transactional email", () => {
   assert.match(email, /MAILNICE_API_KEY/);

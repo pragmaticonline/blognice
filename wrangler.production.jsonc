@@ -26,7 +26,13 @@
 		"CNAME_TARGET": "fallback.blognice.com",
 		"EMAIL_FROM": "blognice <support@mailer.blognice.com>",
 		"STRIPE_MONTHLY_PRICE_ID": "price_1U7W3OAqOquRLVdtVt83qzRH",
-		"STRIPE_YEARLY_PRICE_ID": "price_1U7W3PAqOquRLVdtJFW7uSqT"
+		"STRIPE_YEARLY_PRICE_ID": "price_1U7W3PAqOquRLVdtJFW7uSqT",
+		"STRIPE_AFFILIATE_COUPON_ID": "blognice-affiliate-10-12m",
+		"AFFILIATE_TERMS_VERSION": "affiliate-1",
+		"AFFILIATE_TERMS_DOCUMENT_DIGEST": "sha256:1014af2de33b2d73d9b7f27b93ab3ee7d68479e2bacc9999ac2d4b71788d0e61",
+		"AFFILIATE_POLICY_VERSION": "affiliate-1",
+		"AFFILIATE_TERMS_URL": "https://www.blognice.com/affiliate-terms",
+		"AFFILIATE_STRIPE_CONNECT_COUNTRIES": "US,CA,GB,TH"
 	},
 	"routes": [
 		{
@@ -68,6 +74,10 @@
 		{
 			"binding": "EVENTS",
 			"dataset": "blognice_events"
+		},
+		{
+			"binding": "AFFILIATE_EVENTS",
+			"dataset": "blognice_affiliate_events"
 		}
 	],
 	"triggers": {

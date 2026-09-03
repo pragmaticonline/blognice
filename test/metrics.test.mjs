@@ -3,14 +3,35 @@ import test from "node:test";
 import {
   analyticsSql,
   archivePreviousDay,
+  archivePreviousDayAffiliateEvents,
   auditReport,
   metricsBeacon,
   analyticsConsentRequired,
+  recordAffiliateFunnelEvent,
   recordCustomEvent,
   recordAuditEvent,
   recordPageView,
   reportQueries,
 } from "../src/metrics.ts";
+
+test("affiliate funnel analytics are keyed by Affiliate and contain no customer identity", () => {
+  const points = [];
+  recordAffiliateFunnelEvent({
+    AFFILIATE_EVENTS: { writeDataPoint(point) { points.push(point); } },
+  }, 17, {
+    name: "affiliate_conversion",
+    source: "link",
+    provider: "stripe",
+    policyVersion: "affiliate-1",
+  });
+
+  assert.deepEqual(points, [{
+    indexes: ["17"],
+    blobs: ["affiliate_conversion", "link", "stripe", "affiliate-1"],
+    doubles: [1],
+  }]);
+  assert.doesNotMatch(JSON.stringify(points), /account|email|visitor|cookie|payment/i);
+});
 
 test("report queries are tenant scoped, time bounded, and sampling aware", () => {
   const queries = reportQueries(42, 30);
@@ -150,6 +171,38 @@ test("daily archive stores aggregate rows under a date-partitioned R2 key", asyn
     assert.equal(put.key, key);
     assert.equal(JSON.parse(put.value).date, "2026-08-01");
     assert.equal(put.options.customMetadata.schema, "blognice-pageviews-v1");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("affiliate daily archive is aggregate-only and deletes data beyond 730 days", async () => {
+  const originalFetch = globalThis.fetch;
+  let query = "";
+  let put;
+  const deleted = [];
+  globalThis.fetch = async (_url, init) => {
+    query = String(init.body);
+    return new Response(JSON.stringify({
+      data: [{ affiliate_id: "17", event: "affiliate_click", source: "link", events: "3" }],
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const env = {
+      CF_ACCOUNT_ID: "account",
+      CF_ANALYTICS_TOKEN: "token",
+      METRICS_ARCHIVE: {
+        async put(key, value, options) { put = { key, value, options }; },
+        async delete(key) { deleted.push(key); },
+      },
+    };
+    const key = await archivePreviousDayAffiliateEvents(env, new Date("2026-08-02T12:00:00Z"));
+    assert.equal(key, "affiliate/daily/2026/08/2026-08-01.json");
+    assert.equal(put.key, key);
+    assert.equal(put.options.customMetadata.schema, "blognice-affiliate-events-v1");
+    assert.match(query, /FROM blognice_affiliate_events/);
+    assert.doesNotMatch(query, /customer|account\.email|referred_account/i);
+    assert.deepEqual(deleted, ["affiliate/daily/2024/08/2024-08-01.json"]);
   } finally {
     globalThis.fetch = originalFetch;
   }

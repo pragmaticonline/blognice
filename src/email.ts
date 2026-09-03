@@ -132,6 +132,63 @@ export function postNotificationEmail(input: { blogTitle: string; postTitle: str
     html: `<p style="text-align:center;color:#0e5a0c;font-size:12.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;margin:0 0 18px">New post on ${blogTitle}</p>${image}<h2 style="font-family:Arial,sans-serif;margin:0 0 8px;line-height:1.3"><a href="${postUrl}" style="color:#181a12;text-decoration:none">${title}</a></h2><p style="color:#5c6455;font-size:13px;margin:0 0 8px">${author}${htmlEscape(input.publishedLabel)} · ${input.readingMinutes} min read</p><p style="color:#5c6455">${htmlEscape(input.excerpt)}</p><p style="text-align:center;margin:26px 0 8px"><a href="${postUrl}" style="display:inline-block;background:#1a8917;color:#fff;text-decoration:none;padding:13px 28px;border-radius:9px;font-weight:700">Read it →</a></p><hr><p style="color:#5c6455;font-size:12px;text-align:center">You're subscribed to ${blogTitle}. <a href="${unsub}" style="color:#5c6455">Unsubscribe</a> · <a href="${manage}" style="color:#5c6455">Manage subscriptions</a>.</p>`,
   };
 }
+
+export function affiliatePayoutSentEmail(input: { amountMinor: number; currency: string; transferId: string }) {
+  const amount = new Intl.NumberFormat("en-US", { style: "currency", currency: input.currency.toUpperCase() }).format(input.amountMinor / 100);
+  const transferId = htmlEscape(input.transferId);
+  return {
+    subject: `Your ${amount} Blognice affiliate payout was sent`,
+    plainText: `Your ${amount} Blognice affiliate payout was sent through Stripe.\n\nStripe transfer: ${input.transferId}\n\nStripe controls delivery to your connected payout account.`,
+    html: `<div style="text-align:center"><h2 style="font-family:Arial,sans-serif;margin:0 0 14px;color:#181a12">Affiliate payout sent</h2><p><strong>${htmlEscape(amount)}</strong> was sent through Stripe.</p><p style="color:#5c6455">Stripe transfer: <code>${transferId}</code></p><p>Stripe controls delivery to your connected payout account.</p></div>`,
+  };
+}
+
+export function affiliatePayoutCancelledEmail(input: { amountMinor: number; currency: string; dashboardUrl: string }) {
+  const amount = new Intl.NumberFormat("en-US", { style: "currency", currency: input.currency.toUpperCase() }).format(input.amountMinor / 100);
+  const dashboardUrl = htmlEscape(input.dashboardUrl);
+  return {
+    subject: `Your ${amount} Blognice affiliate payout was not sent`,
+    plainText: `Your ${amount} Blognice affiliate payout was not sent. The commission has been restored to your available balance and can be included in a future payout.\n\nDashboard: ${input.dashboardUrl}`,
+    html: `<div style="text-align:center"><h2 style="font-family:Arial,sans-serif;margin:0 0 14px;color:#181a12">Affiliate payout not sent</h2><p>The ${htmlEscape(amount)} commission has been restored to your available balance and can be included in a future payout.</p><p><a href="${dashboardUrl}">Open affiliate dashboard</a></p></div>`,
+  };
+}
+
+export function affiliateEnrollmentEmail(input: { referralCode: string; dashboardUrl: string }) {
+  const code = htmlEscape(input.referralCode);
+  const dashboardUrl = htmlEscape(input.dashboardUrl);
+  return {
+    subject: "Welcome to the Blognice affiliate program",
+    plainText: `Your Blognice affiliate account is ready.\n\nReferral code: ${input.referralCode}\nDashboard: ${input.dashboardUrl}\n\nYour referral link becomes active after Stripe discount setup completes.`,
+    html: `<div style="text-align:center"><h2 style="font-family:Arial,sans-serif;margin:0 0 14px;color:#181a12">Welcome to the affiliate program</h2><p>Your referral code is <code>${code}</code>.</p><p><a href="${dashboardUrl}" style="display:inline-block;background:#1a8917;color:#fff;text-decoration:none;padding:13px 28px;border-radius:9px;font-weight:700">Open affiliate dashboard</a></p><p style="color:#5c6455">Your referral link becomes active after Stripe discount setup completes.</p></div>`,
+  };
+}
+
+export function affiliateTermsRequiredEmail(input: { dashboardUrl: string }) {
+  const dashboardUrl = htmlEscape(input.dashboardUrl);
+  return {
+    subject: "Updated Blognice Affiliate Terms require your acceptance",
+    plainText: `The Blognice Affiliate Terms have been updated. Attribution and payouts are paused until you accept them.\n\nReview and accept the updated terms: ${input.dashboardUrl}`,
+    html: `<div style="text-align:center"><h2 style="font-family:Arial,sans-serif;margin:0 0 14px;color:#181a12">Updated Affiliate Terms</h2><p>Attribution and payouts are paused until you accept the updated terms.</p><p><a href="${dashboardUrl}" style="display:inline-block;background:#1a8917;color:#fff;text-decoration:none;padding:13px 28px;border-radius:9px;font-weight:700">Review updated terms</a></p></div>`,
+  };
+}
+
+export function affiliateConnectReadyEmail(input: { dashboardUrl: string }) {
+  const dashboardUrl = htmlEscape(input.dashboardUrl);
+  return {
+    subject: "Your Blognice affiliate payouts are ready",
+    plainText: `Stripe has confirmed that your Blognice affiliate payout account is ready.\n\nView payout details: ${input.dashboardUrl}`,
+    html: `<div style="text-align:center"><h2 style="font-family:Arial,sans-serif;margin:0 0 14px;color:#181a12">Affiliate payouts are ready</h2><p>Stripe has confirmed that your payout account is ready.</p><p><a href="${dashboardUrl}">Open affiliate dashboard</a></p></div>`,
+  };
+}
+
+export function affiliateConnectRestrictedEmail(input: { dashboardUrl: string }) {
+  const dashboardUrl = htmlEscape(input.dashboardUrl);
+  return {
+    subject: "Action needed for your Blognice affiliate payouts",
+    plainText: `Stripe needs more information before Blognice can send affiliate payouts to your account.\n\nReview and resolve the payout requirements: ${input.dashboardUrl}`,
+    html: `<div style="text-align:center"><h2 style="font-family:Arial,sans-serif;margin:0 0 14px;color:#181a12">Payout action needed</h2><p>Stripe needs more information before Blognice can send affiliate payouts to your account.</p><p><a href="${dashboardUrl}">Resolve payout requirements</a></p></div>`,
+  };
+}
 function withIdentityFooter(msg: EmailMessage): EmailMessage {
   const sender = msg.senderName?.trim() || "blognice";
   const senderHtml = htmlEscape(sender);
