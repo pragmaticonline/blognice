@@ -127,7 +127,7 @@ import {
 import { checkoutSubscriptionDecision, createAffiliateConnectedAccount, createAffiliateConnectOnboardingLink, createAffiliatePromotionCode, createCheckoutSession, createDomainCheckoutSession, createPortalSession, retrieveSubscription, stripeConfigured, subscriptionEventMatchesCurrent, verifyStripeSignature } from "./stripe";
 import { createAnnualInvoice, getPayment, isNowPaymentsAmountFullyPaid, isTerminalPaidStatus, nowPaymentsConfigured, verifyNowPaymentsIpn, NOWPAYMENTS_ANNUAL_SECONDS, NOWPAYMENTS_ANNUAL_USD } from "./nowpayments";
 import { affiliateAnnualPriceMinor, attachStripeConnectedAccountInDb, attachStripePromotionCodeInDb, beginCheckoutAttributionInDb, createNowPaymentsCheckoutInDb, createStripeCheckoutInDb, enableAffiliateProfileInDb, parseAffiliateStripeConnectCountries, prepareAffiliatePayoutBatchInDb, reacceptAffiliateTermsInDb, recordPendingStripeFinancialEventInDb, refundNowPaymentsCheckoutInDb, requireCurrentAffiliateTermsInDb, requireOutdatedAffiliateTermsInDb, settleNowPaymentsCheckoutInDb, settleStripeInvoiceInDb, updateStripeConnectedAccountStatusInDb } from "./affiliate";
-import { captureSignupReferral, handleReferralCodeSubmission, handleReferralLink } from "./affiliate-referral";
+import { captureSignupReferral, handleReferralCodeSubmission, handleReferralLink, hasActiveReferralOffer } from "./affiliate-referral";
 import { getAffiliateDashboardInDb, type AffiliateDashboard } from "./affiliate-dashboard";
 import { enqueueAffiliateEnrollmentEmailInDb, relayAffiliateEmailOutboxInDb } from "./affiliate-notifications";
 import { renderMarkdown as renderMarkdownSafe } from "./markdown";
@@ -6554,6 +6554,48 @@ app.post("/unsubscribe/:token", async (c) => {
   return c.html(
     renderSimplePage(tenant, "Unsubscribed", `<p>You've been unsubscribed from ${esc(tenant.title)}. Sorry to see you go.</p>`)
   );
+});
+
+function affiliateOfferPage(rootDomain: string): string {
+  const canonical = `https://www.${rootDomain}/affiliate-offer`;
+  return homepage
+    .replace("<title>blognice — A nicer way to blog</title>", "<title>10% off Blognice for 12 months</title>")
+    .replace(
+      '<meta name="description" content="Create beautiful, fast blogs without hosting, plugins, updates, or technical maintenance.">',
+      '<meta name="description" content="Start a beautiful Blognice blog and save 10% on your first 12 paid months.">\n<meta name="robots" content="noindex,follow">',
+    )
+    .replace('<link rel="canonical" href="https://www.blognice.com/">', `<link rel="canonical" href="${canonical}">`)
+    .replace('<meta property="og:title" content="blognice — A nicer way to blog">', '<meta property="og:title" content="Save 10% on Blognice for 12 months">')
+    .replace('<meta property="og:description" content="Create beautiful, fast blogs without hosting, plugins, updates, or technical maintenance.">', '<meta property="og:description" content="Start writing on Blognice and receive 10% off your first 12 paid months.">')
+    .replace('<meta property="og:url" content="https://www.blognice.com/">', `<meta property="og:url" content="${canonical}">`)
+    .replace('<meta name="twitter:title" content="blognice — A nicer way to blog">', '<meta name="twitter:title" content="Save 10% on Blognice for 12 months">')
+    .replace('<meta name="twitter:description" content="Create beautiful, fast blogs without hosting, plugins, updates, or technical maintenance.">', '<meta name="twitter:description" content="Start writing on Blognice and receive 10% off your first 12 paid months.">')
+    .replaceAll("https://www.blognice.com/signup", "/signup")
+    .replaceAll("https://www.blognice.com/admin/login", "/admin/login")
+    .replace("<h1>A nicer way to blog.</h1>", "<h1>Save 10% for your first 12 paid months.</h1>")
+    .replace(
+      "<p class=\"hero-sub\">Create beautiful, fast blogs without hosting, plugins, updates, or technical maintenance. Just choose an address and start writing.</p>",
+      "<p class=\"hero-sub\">Your referral offer is ready. Create a beautiful, fast blog now; when you upgrade, your discount is applied automatically to the first 12 paid service months.</p>",
+    )
+    .replace('<a href="#pricing" class="btn btn-green">See pricing</a>', '<a href="/signup" class="btn btn-green">Claim 10% off</a>')
+    .replace("<p class=\"hero-trial-note\">Your first blog is free to try.</p>", "<p class=\"hero-trial-note\">Free to start · no payment details required · referral offer saved for 60 days</p>");
+}
+
+app.get("/affiliate-offer", async (c) => {
+  const host = (c.req.header("host") || "").split(":")[0].toLowerCase();
+  if (host !== `www.${c.env.ROOT_DOMAIN.toLowerCase()}`) {
+    return c.redirect(`https://www.${c.env.ROOT_DOMAIN}/affiliate-offer`, 301);
+  }
+  const signingSecrets = String(c.env.AFFILIATE_REFERRAL_COOKIE_SECRETS || "").split(",").map((secret) => secret.trim()).filter(Boolean);
+  if (!await hasActiveReferralOffer(c.req.raw, c.env.DB, signingSecrets, Math.floor(Date.now() / 1000))) {
+    return c.redirect("/", 302);
+  }
+  return new Response(affiliateOfferPage(c.env.ROOT_DOMAIN), {
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "private, no-store",
+    },
+  });
 });
 
 // Home page: list of published posts.

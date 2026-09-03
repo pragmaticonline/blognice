@@ -204,6 +204,7 @@ export async function handleReferralLink(
     source: "link",
     policyVersion: affiliate.policy_version,
   });
+  url.pathname = "/affiliate-offer";
   url.searchParams.delete("ref");
   const location = `${url.pathname}${url.search}${url.hash}`;
   return new Response(null, {
@@ -214,6 +215,24 @@ export async function handleReferralLink(
       "cache-control": "no-store",
     },
   });
+}
+
+export async function hasActiveReferralOffer(
+  request: Request,
+  db: D1Database,
+  signingSecrets: string[],
+  now: number,
+): Promise<boolean> {
+  const payload = await readReferralCookie(requestCookie(request, COOKIE_NAME), signingSecrets, now);
+  if (!payload) return false;
+  const active = await db.prepare(
+    `SELECT 1
+       FROM affiliate_profiles AS profile
+       JOIN affiliate_terms_acceptances AS acceptance ON acceptance.id = profile.terms_acceptance_id
+      WHERE profile.account_id = ? AND profile.status = 'active'
+        AND profile.stripe_promotion_code_id IS NOT NULL AND acceptance.policy_version = ?`,
+  ).bind(payload.affiliateId, payload.policyVersion).first();
+  return Boolean(active);
 }
 
 export async function captureSignupReferral(

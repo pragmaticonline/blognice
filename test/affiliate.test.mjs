@@ -471,7 +471,7 @@ test("referral cookies survive key rotation but reject tampering and exact expir
       (event) => funnelEvents.push(event),
     );
     assert.equal(response?.status, 302);
-    assert.equal(response?.headers.get("location"), "/");
+    assert.equal(response?.headers.get("location"), "/affiliate-offer");
     const setCookie = response?.headers.get("set-cookie") || "";
     assert.match(setCookie, /^bn_ref=[^;]+;.*Max-Age=5184000/);
     assert.match(setCookie, /HttpOnly/);

@@ -153,7 +153,24 @@ test("verified accounts enroll through the production HTTP and Stripe seams", as
       "https://www.blognice.test/?ref=Writer-7", { headers: { Host: "www.blognice.test" } }, env, executionCtx,
     );
     assert.equal(activeLink.status, 302);
+    assert.equal(activeLink.headers.get("location"), "/affiliate-offer");
     assert.match(activeLink.headers.get("set-cookie"), /^bn_ref=/);
+    const activeReferralCookie = activeLink.headers.get("set-cookie").split(";", 1)[0];
+    const affiliateOffer = await blogniceApp.request(
+      "https://www.blognice.test/affiliate-offer", { headers: { Host: "www.blognice.test", cookie: activeReferralCookie } }, env, executionCtx,
+    );
+    assert.equal(affiliateOffer.status, 200);
+    const affiliateOfferHtml = await affiliateOffer.text();
+    assert.match(affiliateOfferHtml, /<title>10% off Blognice for 12 months<\/title>/);
+    assert.match(affiliateOfferHtml, /<link rel="canonical" href="https:\/\/www\.blognice\.test\/affiliate-offer">/);
+    assert.match(affiliateOfferHtml, /<meta name="robots" content="noindex,follow">/);
+    assert.match(affiliateOfferHtml, /Save 10% for your first 12 paid months/);
+    assert.match(affiliateOfferHtml, /href="\/signup"[^>]*>Claim 10% off/);
+    const offerWithoutReferral = await blogniceApp.request(
+      "https://www.blognice.test/affiliate-offer", { headers: { Host: "www.blognice.test" } }, env, executionCtx,
+    );
+    assert.equal(offerWithoutReferral.status, 302);
+    assert.equal(offerWithoutReferral.headers.get("location"), "/");
 
     await db.prepare(
       "INSERT INTO accounts (id, email, pw_hash, email_verified, created_at) VALUES (8, 'reader-code@example.com', 'test', 1, ?)",
