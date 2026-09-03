@@ -75,7 +75,12 @@ export function confidentLocalMarkdownFormat(text: string): string | null {
   );
   if (headlineAndStandfirst) return conservativeMarkdownFallback(normalized);
   const structured = formatObviousStructures(normalized);
-  return structured === normalized ? null : structured;
+  if (structured !== normalized) return structured;
+  const alreadyStructured = /^\s{0,3}#{1,6}\s+\S/m.test(normalized) && (
+    /^\s{0,3}(?:[-+*]\s+|\d+[.)]\s+|>\s+|\|.+\|)/m.test(normalized) ||
+    /\*\*[^*\n]+\*\*/.test(normalized)
+  );
+  return alreadyStructured ? normalized : null;
 }
 
 const MARKDOWN_BLOCK = /^\s{0,3}(?:#{1,6}\s|>|[-+*]\s|\d+[.)]\s|```|\|)/;

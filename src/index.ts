@@ -2733,7 +2733,7 @@ app.post("/admin/b/:blogId/format-markdown", async (c) => {
   const instantMarkdown = confidentLocalMarkdownFormat(text);
   if (instantMarkdown) {
     queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "markdown_formatted_locally", `characters:${text.length}`);
-    return c.json({ markdown: instantMarkdown, instant: true });
+    return c.json({ markdown: instantMarkdown, instant: true, unchanged: instantMarkdown === text });
   }
   let creditReservation: { accountId: number; period: string };
   try { creditReservation = await reserveAiCredits(c.env, ctx.tenant.id, AI_FORMAT_CREDITS); }

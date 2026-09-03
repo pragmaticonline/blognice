@@ -66,6 +66,8 @@ test("clearly structured drafts take the instant local formatting path", () => {
   assert.match(formatted, /## list of tasks\n\n- write\n- review$/);
   assert.equal(preservesAuthorTokens(article, formatted), true);
   assert.equal(confidentLocalMarkdownFormat("One ambiguous paragraph with no structural signals."), null);
+  const alreadyFormatted = "# Headline\n**Standfirst**\n\nParagraph.\n\n## list\n\n- one\n- two";
+  assert.equal(confidentLocalMarkdownFormat(alreadyFormatted), alreadyFormatted);
 });
 
 test("auto-format endpoint is tenant scoped, same-origin, paid, metered, and refundable", () => {
@@ -77,6 +79,7 @@ test("auto-format endpoint is tenant scoped, same-origin, paid, metered, and ref
   assert.match(index, /refundAiCredits\(c\.env, creditReservation\.accountId, creditReservation\.period, AI_FORMAT_CREDITS\)/);
   assert.match(index, /confidentLocalMarkdownFormat/);
   assert.match(index, /instant: true/);
+  assert.match(index, /unchanged: instantMarkdown === text/);
 });
 
 test("editor exposes busy, error, replacement, and undo states", () => {
@@ -84,6 +87,7 @@ test("editor exposes busy, error, replacement, and undo states", () => {
   assert.match(admin, /id="auto-format-status"[^>]+aria-live="polite"/);
   assert.match(admin, /Undo auto-format/);
   assert.match(admin, /body\.value = data\.markdown/);
+  assert.match(admin, /No formatting changes were needed/);
 });
 
 test("authenticated editor auto-format consumes one credit and returns AI Markdown without saving", async () => {
@@ -104,9 +108,15 @@ test("authenticated editor auto-format consumes one credit and returns AI Markdo
       "## Completely different", "## Still different",
     ];
     const env = { DB: db, POSTS: db, ROOT_DOMAIN: "blognice.test", EVENTS: { writeDataPoint() {} }, AI: { run: async (_model, input) => { calls.push(input); return { response: aiResponses.shift() }; } } };
-    const request = () => blogniceApp.request(new Request("https://www.blognice.test/admin/b/blog-public/format-markdown", {
-      method: "POST", headers: { cookie: "bn_session=format-session", origin: "https://www.blognice.test", "content-type": "application/json" }, body: JSON.stringify({ text: "First line\n\nSecond line" }),
+    const request = (text = "First line\n\nSecond line") => blogniceApp.request(new Request("https://www.blognice.test/admin/b/blog-public/format-markdown", {
+      method: "POST", headers: { cookie: "bn_session=format-session", origin: "https://www.blognice.test", "content-type": "application/json" }, body: JSON.stringify({ text }),
     }), undefined, env, { waitUntil() {}, passThroughOnException() {} });
+    const formattedDraft = "# Headline\n**Standfirst**\n\nParagraph.\n\n## list\n\n- one\n- two";
+    const repeat = await request(formattedDraft);
+    assert.equal(repeat.status, 200);
+    assert.deepEqual(await repeat.json(), { markdown: formattedDraft, instant: true, unchanged: true });
+    assert.equal(calls.length, 0);
+    assert.equal(await db.prepare("SELECT credits_used FROM ai_credit_usage WHERE account_id=1").first(), null);
     const response = await request();
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { markdown: "## First line\n\nSecond line" });
