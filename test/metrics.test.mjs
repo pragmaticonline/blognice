@@ -7,12 +7,44 @@ import {
   auditReport,
   metricsBeacon,
   analyticsConsentRequired,
+  affiliateFunnelSeries,
   recordAffiliateFunnelEvent,
   recordCustomEvent,
   recordAuditEvent,
   recordPageView,
   reportQueries,
 } from "../src/metrics.ts";
+
+test("affiliate funnel series fills a bounded 90-day click and sales timeline", async () => {
+  const originalFetch = globalThis.fetch;
+  let query = "";
+  globalThis.fetch = async (_input, init) => {
+    query = String(init?.body || "");
+    return new Response(JSON.stringify({ data: [
+      { date: "2026-09-01", event: "affiliate_click", events: 7 },
+      { date: "2026-09-01", event: "affiliate_conversion", events: 2 },
+      { date: "2026-09-03", event: "affiliate_click", events: 3 },
+    ] }), { status: 200 });
+  };
+  try {
+    const series = await affiliateFunnelSeries({
+      CF_ACCOUNT_ID: "account", CF_ANALYTICS_TOKEN: "token",
+    }, 17, 90, new Date("2026-09-03T12:00:00Z"));
+    assert.equal(series.length, 90);
+    assert.deepEqual(series.slice(-3), [
+      { date: "2026-09-01", clicks: 7, sales: 2 },
+      { date: "2026-09-02", clicks: 0, sales: 0 },
+      { date: "2026-09-03", clicks: 3, sales: 0 },
+    ]);
+    assert.match(query, /index1 = '17'/);
+    assert.match(query, /blob1 IN \('affiliate_click', 'affiliate_conversion'\)/);
+    assert.match(query, /SUM\(_sample_interval\) AS events/);
+    assert.match(query, /2026-06-06 00:00:00/);
+    assert.doesNotMatch(query, /account|email|customer/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 test("affiliate funnel analytics are keyed by Affiliate and contain no customer identity", () => {
   const points = [];

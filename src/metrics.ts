@@ -280,6 +280,39 @@ export function recordAffiliateFunnelEvent(
   });
 }
 
+export type AffiliateFunnelDay = { date: string; clicks: number; sales: number };
+
+export async function affiliateFunnelSeries(
+  env: MetricsEnv,
+  affiliateId: number,
+  days = 90,
+  now = new Date(),
+): Promise<AffiliateFunnelDay[]> {
+  if (!Number.isSafeInteger(affiliateId) || affiliateId <= 0) return [];
+  const boundedDays = Math.max(1, Math.min(90, Math.trunc(days)));
+  const endDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const startDay = new Date(endDay.getTime() - (boundedDays - 1) * 86_400_000);
+  const nextDay = new Date(endDay.getTime() + 86_400_000);
+  const isoDay = (value: Date) => value.toISOString().slice(0, 10);
+  const rows = await analyticsSql(
+    env,
+    `SELECT formatDateTime(timestamp, '%Y-%m-%d') AS date, blob1 AS event, SUM(_sample_interval) AS events FROM ${AFFILIATE_EVENTS_DATASET} WHERE index1 = ${sqlString(String(affiliateId))} AND timestamp >= toDateTime(${sqlString(`${isoDay(startDay)} 00:00:00`)}) AND timestamp < toDateTime(${sqlString(`${isoDay(nextDay)} 00:00:00`)}) AND blob1 IN ('affiliate_click', 'affiliate_conversion') GROUP BY date, event ORDER BY date`,
+  );
+  const byDate = new Map<string, AffiliateFunnelDay>();
+  for (let offset = 0; offset < boundedDays; offset += 1) {
+    const date = isoDay(new Date(startDay.getTime() + offset * 86_400_000));
+    byDate.set(date, { date, clicks: 0, sales: 0 });
+  }
+  for (const row of rows) {
+    const day = byDate.get(String(row.date || ""));
+    if (!day) continue;
+    const events = Math.max(0, Math.round(numberValue(row.events)));
+    if (row.event === "affiliate_click") day.clicks = events;
+    if (row.event === "affiliate_conversion") day.sales = events;
+  }
+  return [...byDate.values()];
+}
+
 export function recordAuditEvent(
   env: MetricsEnv,
   tenantId: number,

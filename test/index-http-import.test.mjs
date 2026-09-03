@@ -68,6 +68,12 @@ test("verified accounts enroll through the production HTTP and Stripe seams", as
     const stripeRequests = [];
     let couponValid = false;
     globalThis.fetch = async (url, init = {}) => {
+      if (String(url).includes("/analytics_engine/sql")) {
+        return new Response(JSON.stringify({ data: [
+          { date: new Date().toISOString().slice(0, 10), event: "affiliate_click", events: 8 },
+          { date: new Date().toISOString().slice(0, 10), event: "affiliate_conversion", events: 2 },
+        ] }), { status: 200, headers: { "content-type": "application/json" } });
+      }
       stripeRequests.push({ url: String(url), method: init.method || "GET", body: String(init.body || "") });
       if (String(url).includes("/coupons/")) {
         return new Response(JSON.stringify({
@@ -87,6 +93,8 @@ test("verified accounts enroll through the production HTTP and Stripe seams", as
       AFFILIATE_TERMS_URL: "https://www.blognice.test/legal/affiliate-terms",
       STRIPE_AFFILIATE_COUPON_ID: "coupon_affiliate",
       AFFILIATE_REFERRAL_COOKIE_SECRETS: "r".repeat(32),
+      CF_ACCOUNT_ID: "cloudflare-account",
+      CF_ANALYTICS_TOKEN: "analytics-token",
     };
     const enrollmentPage = await blogniceApp.request(new Request("https://www.blognice.test/admin/affiliate", {
       headers: { cookie: "bn_session=enrollment-session" },
@@ -139,6 +147,11 @@ test("verified accounts enroll through the production HTTP and Stripe seams", as
     assert.equal(dashboardPage.status, 200);
     assert.match(dashboardHtml, /affiliate-kpi-grid/);
     assert.match(dashboardHtml, /aria-live="polite"/);
+    assert.match(dashboardHtml, /Referral clicks and sales over 90 days/);
+    assert.match(dashboardHtml, /Clicks 8/);
+    assert.match(dashboardHtml, /Sales 2/);
+    assert.match(dashboardHtml, /class="affiliate-chart-line clicks"/);
+    assert.match(dashboardHtml, /class="affiliate-chart-line sales"/);
     assert.match(dashboardHtml, />Copy link</);
     assert.match(dashboardHtml, /readonly[^>]+value="https:\/\/www\.blognice\.test\/\?ref=Writer-7"/);
     assert.match(dashboardHtml, /<select[^>]+name="country"/);
