@@ -213,6 +213,7 @@ const ADMIN_STYLES = /* css */ `
   .markdown-help-note { margin:.8rem 0 0; }
   .markdown-help code { color:var(--ink); }
   @media (max-width: 560px) { .markdown-help-grid { grid-template-columns:1fr; } }
+  .save-toast { position:fixed; right:1.25rem; bottom:1.25rem; z-index:40; max-width:min(22rem,calc(100vw - 2.5rem)); padding:.7rem 1rem; border:1px solid color-mix(in srgb,var(--accent) 40%,var(--rule)); border-radius:8px; background:var(--panel); color:var(--ink); box-shadow:0 8px 24px rgb(0 0 0 / .16); }
   .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1rem; }
   .media-card { min-width: 0; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
   .media-card img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: var(--rule); }
@@ -1355,6 +1356,7 @@ export function editorPage(
           ${isEdit ? `<a class="btn ghost" href="${viewUrl}" target="_blank">View</a>` : ""}
         </div>
       </form>
+      <div class="save-toast" id="save-status" role="status" aria-live="polite" hidden></div>
     </div>
     <script>
       (function () {
@@ -1491,7 +1493,50 @@ export function editorPage(
         var isExistingPost = ${isEdit ? "true" : "false"};
         var editorForm = document.getElementById("post-editor-form");
         var saveContinue = document.getElementById("save-continue");
+        var saveStatus = document.getElementById("save-status");
         var featuredSavePending = false;
+        var saveStatusTimer = null;
+
+        function showSaved() {
+          clearTimeout(saveStatusTimer);
+          saveStatus.className = "save-toast";
+          saveStatus.textContent = "Saved";
+          saveStatus.hidden = false;
+          saveStatusTimer = setTimeout(function () { saveStatus.hidden = true; }, 3000);
+        }
+
+        editorForm.addEventListener("submit", function (event) {
+          if (event.submitter !== saveContinue) return;
+          event.preventDefault();
+          var originalLabel = saveContinue.textContent;
+          var formData = new FormData(editorForm);
+          formData.set("save", "continue");
+          saveContinue.disabled = true;
+          saveContinue.textContent = "Saving…";
+          fetch(editorForm.action, {
+            method: "POST",
+            headers: { "accept": "application/json", "x-blognice-save": "continue" },
+            body: formData
+          }).then(function (response) {
+            if (!response.ok) throw new Error("This post could not be saved. Please try again.");
+            return response.json();
+          }).then(function (result) {
+            if (!result.saved || !result.id) throw new Error("This post could not be saved. Please try again.");
+            var editUrl = "${base}/edit/" + encodeURIComponent(result.id);
+            editorForm.action = "${base}/save?id=" + encodeURIComponent(result.id);
+            history.replaceState(null, "", editUrl);
+            isExistingPost = true;
+            showSaved();
+          }).catch(function (error) {
+            saveStatus.className = "save-toast error";
+            saveStatus.textContent = error.message;
+            saveStatus.hidden = false;
+          }).finally(function () {
+            featuredSavePending = false;
+            saveContinue.disabled = false;
+            saveContinue.textContent = originalLabel;
+          });
+        });
 
         function startGeneration(status, message) {
           var started = Date.now();

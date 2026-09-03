@@ -11,12 +11,18 @@ test("editor offers save-and-continue and autosaves featured-image changes", () 
   assert.match(admin, /name="save" value="close"/);
   assert.match(admin, /name="save" value="continue"/);
   assert.match(admin, /editorForm\.requestSubmit\(saveContinue\)/);
+  assert.match(admin, /x-blognice-save/);
+  assert.match(admin, /history\.replaceState/);
+  assert.match(admin, /Saved/);
+  assert.match(admin, /role="status"/);
 });
 
 test("save handler keeps the editor open when requested", () => {
   assert.match(index, /stayInEditor/);
   assert.match(index, /inserted\.meta\.last_row_id/);
   assert.match(index, /\/edit\/\$\{savedId\}/);
+  assert.match(index, /x-blognice-save/);
+  assert.match(index, /c\.json\(\{ saved: true, id: savedId \}\)/);
 });
 
 test("editor teaches Markdown and provides accessible formatting shortcuts", () => {

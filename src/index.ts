@@ -3091,6 +3091,7 @@ app.post("/admin/b/:blogId/save", async (c) => {
   const form = await c.req.formData();
   const idParam = c.req.query("id");
   const stayInEditor = String(form.get("save") ?? "close") === "continue";
+  const inPlaceSave = stayInEditor && c.req.header("x-blognice-save") === "continue";
   const title = String(form.get("title") ?? "").trim();
   let slug = slugify(String(form.get("slug") ?? ""));
   const body_md = String(form.get("body_md") ?? "");
@@ -3190,6 +3191,7 @@ app.post("/admin/b/:blogId/save", async (c) => {
   queueBlogAudit(c, ctx.tenant.id, ctx.account.id, idParam ? "post_updated" : "post_created", slug);
   if (published === 1 && wasPublished === 0)
     queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "post_published", slug);
+  if (inPlaceSave && savedId) return c.json({ saved: true, id: savedId });
   return c.redirect(
     stayInEditor && savedId
       ? `/admin/b/${ctx.tenant.public_id}/edit/${savedId}`
