@@ -29,6 +29,8 @@ test("affiliate offer experiment reporting stays Access-protected and controls a
   assert.match(staff, /Decision diagnostics/);
   assert.match(staff, /Payment failures/);
   assert.match(staff, /Largest affiliate share/);
+  assert.match(staff, /Trend data unavailable/);
+  assert.match(staff, /No trend events have been recorded yet/);
 });
 
 test("staff phase 1 mutations require role, same origin, reason, and audit", () => {
