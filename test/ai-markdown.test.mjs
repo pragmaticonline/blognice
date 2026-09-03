@@ -68,6 +68,8 @@ test("clearly structured drafts take the instant local formatting path", () => {
   assert.equal(confidentLocalMarkdownFormat("One ambiguous paragraph with no structural signals."), null);
   const alreadyFormatted = "# Headline\n**Standfirst**\n\nParagraph.\n\n## list\n\n- one\n- two";
   assert.equal(confidentLocalMarkdownFormat(alreadyFormatted), alreadyFormatted);
+  const readableProse = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph.";
+  assert.equal(confidentLocalMarkdownFormat(readableProse), readableProse);
 });
 
 test("auto-format endpoint is tenant scoped, same-origin, paid, metered, and refundable", () => {

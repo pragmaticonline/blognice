@@ -80,7 +80,8 @@ export function confidentLocalMarkdownFormat(text: string): string | null {
     /^\s{0,3}(?:[-+*]\s+|\d+[.)]\s+|>\s+|\|.+\|)/m.test(normalized) ||
     /\*\*[^*\n]+\*\*/.test(normalized)
   );
-  return alreadyStructured ? normalized : null;
+  const readableParagraphs = normalized.split(/\n\s*\n/).filter((paragraph) => paragraph.trim()).length >= 3;
+  return alreadyStructured || readableParagraphs ? normalized : null;
 }
 
 const MARKDOWN_BLOCK = /^\s{0,3}(?:#{1,6}\s|>|[-+*]\s|\d+[.)]\s|```|\|)/;
