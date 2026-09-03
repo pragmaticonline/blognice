@@ -18,6 +18,8 @@ async function fixture() {
   await db.prepare("INSERT INTO affiliate_installments (id,attribution_id,cadence,installment_number,provider,source_key,claimed_at) VALUES (8,9,'annual',1,'stripe','invoice:i:line:l',?)").bind(now).run();
   await db.prepare("INSERT INTO affiliate_revenue_occurrences (id,provider,source_key,affiliate_id,referred_account_id,attribution_id,installment_id,currency,eligible_revenue_minor,processing_fee_minor,policy_version,commission_rate_numerator,commission_rate_denominator,service_start_at,service_end_at,paid_at) VALUES ('occ','stripe','invoice:i:line:l',17,42,9,8,'usd',3240,0,'p',1,2,?,?,?)").bind(now,now+86400,now).run();
   await db.prepare("INSERT INTO funnel_experiment_conversions (experiment_key,account_id,journey_id,variant,occurrence_id,provider,source_key,cadence,eligible_revenue_minor,currency,converted_at) VALUES ('affiliate-offer-v1',42,'journey_control_1234567','control','occ','stripe','invoice:i:line:l','annual',3240,'usd',?)").bind(now).run();
+  await db.prepare("INSERT INTO affiliate_revenue_adjustments (id,occurrence_id,provider,source_key,refunded_eligible_revenue_minor,commission_reversal_minor,recorded_at) VALUES ('adj','occ','stripe','refund:r',1000,-500,?)").bind(now).run();
+  await db.prepare("INSERT INTO affiliate_stripe_checkouts (id,account_id,attribution_id,cadence,price_id,promotion_code_id,policy_version,discount_rate_numerator,discount_rate_denominator,commission_rate_numerator,commission_rate_denominator,status,created_at,expires_at,experiment_key,experiment_variant) VALUES ('co',42,9,'annual','price','promo','p',1,10,1,2,'failed',?,?, 'affiliate-offer-v1','control')").bind(now, now + 3600).run();
   return { mf, db };
 }
 
@@ -30,6 +32,14 @@ test("staff report returns exact denominators, money, cadence, and an explicit r
     assert.equal(report.variants.focused.exposures, 1);
     assert.equal(report.decision.ready, false);
     assert.match(report.decision.reason, /100 exposures per variant/);
+    assert.deepEqual(report.diagnostics.control, {
+      paymentFailures: 1, refundedConversions: 1, refundedRevenueMinor: 1000,
+      distinctAffiliates: 1, largestAffiliateExposures: 1,
+    });
+    assert.deepEqual(report.diagnostics.focused, {
+      paymentFailures: 0, refundedConversions: 0, refundedRevenueMinor: 0,
+      distinctAffiliates: 1, largestAffiliateExposures: 1,
+    });
     assert.equal(report.exact, true);
   } finally { await mf.dispose(); }
 });

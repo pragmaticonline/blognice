@@ -10,6 +10,10 @@ export type FunnelExperimentReport = {
     requiredSamplePerVariant: number | null; baselineRate: number | null; minimumDetectableRelativeUplift: number | null;
   };
   variants: Record<"control" | "focused", FunnelVariantTotals>;
+  diagnostics: Record<"control" | "focused", {
+    paymentFailures: number; refundedConversions: number; refundedRevenueMinor: number;
+    distinctAffiliates: number; largestAffiliateExposures: number;
+  }>;
   interval: { difference: number; lower: number; upper: number } | null;
   exclusions: number;
   decision: { ready: boolean; reason: string };
@@ -52,6 +56,41 @@ export async function getFunnelExperimentReportInDb(db: D1Database, experimentKe
     conversions: Number(row.conversions), annualConversions: Number(row.annual_conversions), monthlyConversions: Number(row.monthly_conversions), revenueMinor: Number(row.revenue_minor),
   });
   const excluded = await db.prepare("SELECT COUNT(*) AS count FROM funnel_experiment_assignments WHERE experiment_key = ? AND excluded_at IS NOT NULL").bind(experimentKey).first<{ count: number }>();
+  const failureRows = await db.prepare(
+    `SELECT experiment_variant AS variant, COUNT(*) AS payment_failures FROM (
+       SELECT experiment_variant FROM affiliate_stripe_checkouts
+        WHERE experiment_key = ? AND status = 'failed'
+       UNION ALL
+       SELECT experiment_variant FROM affiliate_nowpayments_checkouts
+        WHERE experiment_key = ? AND status = 'failed'
+     ) GROUP BY experiment_variant`,
+  ).bind(experimentKey, experimentKey).all<{ variant: "control" | "focused"; payment_failures: number }>();
+  const refundRows = await db.prepare(
+    `SELECT conversion.variant, COUNT(DISTINCT adjustment.occurrence_id) AS refunded_conversions,
+            COALESCE(SUM(adjustment.refunded_eligible_revenue_minor), 0) AS refunded_revenue_minor
+       FROM funnel_experiment_conversions AS conversion
+       JOIN affiliate_revenue_adjustments AS adjustment ON adjustment.occurrence_id = conversion.occurrence_id
+      WHERE conversion.experiment_key = ? GROUP BY conversion.variant`,
+  ).bind(experimentKey).all<{ variant: "control" | "focused"; refunded_conversions: number; refunded_revenue_minor: number }>();
+  const affiliateRows = await db.prepare(
+    `SELECT variant, COUNT(*) AS distinct_affiliates, MAX(exposures) AS largest_affiliate_exposures FROM (
+       SELECT variant, affiliate_id, COUNT(*) AS exposures
+         FROM funnel_experiment_assignments
+        WHERE experiment_key = ? AND exposed_at IS NOT NULL AND excluded_at IS NULL
+        GROUP BY variant, affiliate_id
+     ) GROUP BY variant`,
+  ).bind(experimentKey).all<{ variant: "control" | "focused"; distinct_affiliates: number; largest_affiliate_exposures: number }>();
+  const diagnostics = {
+    control: { paymentFailures: 0, refundedConversions: 0, refundedRevenueMinor: 0, distinctAffiliates: 0, largestAffiliateExposures: 0 },
+    focused: { paymentFailures: 0, refundedConversions: 0, refundedRevenueMinor: 0, distinctAffiliates: 0, largestAffiliateExposures: 0 },
+  };
+  for (const row of failureRows.results) if (row.variant in diagnostics) diagnostics[row.variant].paymentFailures = Number(row.payment_failures);
+  for (const row of refundRows.results) if (row.variant in diagnostics) Object.assign(diagnostics[row.variant], {
+    refundedConversions: Number(row.refunded_conversions), refundedRevenueMinor: Number(row.refunded_revenue_minor),
+  });
+  for (const row of affiliateRows.results) if (row.variant in diagnostics) Object.assign(diagnostics[row.variant], {
+    distinctAffiliates: Number(row.distinct_affiliates), largestAffiliateExposures: Number(row.largest_affiliate_exposures),
+  });
   const c = variants.control, f = variants.focused;
   let interval: FunnelExperimentReport["interval"] = null;
   if (c.exposures && f.exposures) {
@@ -69,7 +108,7 @@ export async function getFunnelExperimentReportInDb(db: D1Database, experimentKe
   return {
     exact: true,
     experiment: { experimentKey: experiment.experiment_key, status: experiment.status, startedAt: experiment.started_at, stoppedAt: experiment.stopped_at, requiredSamplePerVariant: target, baselineRate: experiment.baseline_rate, minimumDetectableRelativeUplift: experiment.minimum_detectable_relative_uplift },
-    variants, interval, exclusions: Number(excluded?.count || 0),
+    variants, diagnostics, interval, exclusions: Number(excluded?.count || 0),
     decision: { ready: reason.startsWith("Ready"), reason },
   };
 }
