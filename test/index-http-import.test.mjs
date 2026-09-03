@@ -209,6 +209,16 @@ test("verified accounts enroll through the production HTTP and Stripe seams", as
     assert.deepEqual(await db.prepare("SELECT stripe_connected_account_id, stripe_connect_country FROM affiliate_profiles WHERE account_id = 7").first(), {
       stripe_connected_account_id: "acct_affiliate7", stripe_connect_country: "GB",
     });
+
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      error: { message: "Connect is not enabled for this platform." },
+    }), { status: 400, headers: { "content-type": "application/json" } });
+    const rejectedConnect = await blogniceApp.request(new Request("https://www.blognice.test/admin/affiliate/connect", {
+      method: "POST", body: connectForm(),
+      headers: { cookie: "bn_session=enrollment-session", Origin: "https://www.blognice.test" },
+    }), undefined, connectEnv, executionCtx);
+    assert.equal(rejectedConnect.status, 303);
+    assert.equal(rejectedConnect.headers.get("location"), "/admin/affiliate?message=Payout+setup+could+not+be+started.+Please+try+again+or+contact+support.");
   } finally {
     globalThis.fetch = originalFetch;
     await mf.dispose();

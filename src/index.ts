@@ -5907,31 +5907,40 @@ app.post("/admin/affiliate/connect", async (c) => {
   if (!profile) return c.redirect("/admin/affiliate");
   const countryConfig = parseAffiliateStripeConnectCountries(c.env.AFFILIATE_STRIPE_CONNECT_COUNTRIES);
   if (!countryConfig.configured) return c.redirect("/admin/affiliate?message=Payout+onboarding+is+not+available", 303);
-  let connectedAccountId = profile.stripe_connected_account_id;
-  if (!connectedAccountId) {
-    const form = await c.req.formData();
-    const country = String(form.get("country") || "").trim().toUpperCase();
-    const connected = await createAffiliateConnectedAccount(c.env, {
-      affiliateAccountId: account.id,
-      email: account.email,
-      country,
-      allowedCountries: countryConfig.countries,
+  try {
+    let connectedAccountId = profile.stripe_connected_account_id;
+    if (!connectedAccountId) {
+      const form = await c.req.formData();
+      const country = String(form.get("country") || "").trim().toUpperCase();
+      const connected = await createAffiliateConnectedAccount(c.env, {
+        affiliateAccountId: account.id,
+        email: account.email,
+        country,
+        allowedCountries: countryConfig.countries,
+      });
+      const attached = await attachStripeConnectedAccountInDb(c.env.DB, {
+        affiliateAccountId: account.id,
+        connectedAccountId: connected.connectedAccountId,
+        country,
+        attachedAt: Math.floor(Date.now() / 1000),
+      });
+      connectedAccountId = attached.connectedAccountId;
+    }
+    const origin = new URL(c.req.url).origin;
+    const link = await createAffiliateConnectOnboardingLink(c.env, {
+      connectedAccountId,
+      refreshUrl: `${origin}/admin/affiliate/connect/refresh`,
+      returnUrl: `${origin}/admin/affiliate?connect=returned`,
     });
-    const attached = await attachStripeConnectedAccountInDb(c.env.DB, {
-      affiliateAccountId: account.id,
-      connectedAccountId: connected.connectedAccountId,
-      country,
-      attachedAt: Math.floor(Date.now() / 1000),
-    });
-    connectedAccountId = attached.connectedAccountId;
+    return c.redirect(link.url, 303);
+  } catch (error) {
+    console.error(JSON.stringify({
+      message: "Stripe Connect onboarding failed",
+      accountId: account.id,
+      error: error instanceof Error ? error.message.slice(0, 300) : "Unknown Stripe Connect error",
+    }));
+    return c.redirect("/admin/affiliate?message=Payout+setup+could+not+be+started.+Please+try+again+or+contact+support.", 303);
   }
-  const origin = new URL(c.req.url).origin;
-  const link = await createAffiliateConnectOnboardingLink(c.env, {
-    connectedAccountId,
-    refreshUrl: `${origin}/admin/affiliate/connect/refresh`,
-    returnUrl: `${origin}/admin/affiliate?connect=returned`,
-  });
-  return c.redirect(link.url, 303);
 });
 
 app.get("/admin/affiliate/connect/refresh", (c) => c.redirect("/admin/affiliate", 303));
