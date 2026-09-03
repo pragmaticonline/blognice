@@ -1,6 +1,6 @@
 export const AI_MARKDOWN_TEXT_MAX = 20_000;
 
-export type AiMarkdownMessage = { role: "system" | "user"; content: string };
+export type AiMarkdownMessage = { role: "system" | "user" | "assistant"; content: string };
 
 export function markdownFormattingMessages(text: string): AiMarkdownMessage[] {
   return [
@@ -24,8 +24,19 @@ export function normalizedMarkdownResponse(value: unknown): string {
   return (fenced ? fenced[1] : response).trim();
 }
 
+export function markdownFormattingRetryMessages(text: string, rejected: string): AiMarkdownMessage[] {
+  return [
+    ...markdownFormattingMessages(text),
+    { role: "assistant", content: rejected },
+    {
+      role: "user",
+      content: "That response changed the draft. Try again: copy every original word in the original order; only add Markdown punctuation and whitespace. Return only Markdown.",
+    },
+  ];
+}
+
 function authorTokens(value: string): string[] {
-  return value.normalize("NFKC").match(/[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu) || [];
+  return value.normalize("NFKC").toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
 }
 
 export function preservesAuthorTokens(original: string, formatted: string): boolean {

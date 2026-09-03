@@ -204,8 +204,13 @@ const ADMIN_STYLES = /* css */ `
   .markdown-tool:focus-visible, .markdown-help summary:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
   .markdown-help { margin:0 0 .8rem; border:1px solid var(--rule); border-radius:7px; background:var(--panel); }
   .markdown-help summary { padding:.65rem .8rem; color:var(--accent); font-size:.86rem; font-weight:650; cursor:pointer; }
-  .markdown-help-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.45rem 1rem; padding:0 .8rem .8rem; color:var(--muted); font-size:.84rem; }
-  .markdown-help-grid p { margin:0; }
+  .markdown-help-content { padding:0 .8rem .9rem; color:var(--muted); font-size:.84rem; }
+  .markdown-help-section + .markdown-help-section { border-top:1px solid var(--rule); margin-top:.8rem; padding-top:.65rem; }
+  .markdown-help-section h3 { color:var(--ink); font-size:.84rem; margin:0 0 .45rem; }
+  .markdown-help-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.45rem 1rem; }
+  .markdown-help-grid p { display:flex; align-items:baseline; gap:.45rem; min-width:0; margin:0; }
+  .markdown-help-grid code { flex:0 1 auto; overflow-wrap:anywhere; }
+  .markdown-help-note { margin:.8rem 0 0; }
   .markdown-help code { color:var(--ink); }
   @media (max-width: 560px) { .markdown-help-grid { grid-template-columns:1fr; } }
   .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1rem; }
@@ -1265,13 +1270,35 @@ export function editorPage(
         <div class="notice" id="auto-format-status" aria-live="polite" hidden></div>
         <details class="markdown-help" id="markdown-help">
           <summary>Markdown formatting help</summary>
-          <div class="markdown-help-grid">
-            <p><code>## Heading</code> creates a heading</p>
-            <p><code>**bold**</code> makes text bold</p>
-            <p><code>_italic_</code> makes text italic</p>
-            <p><code>[link text](https://example.com)</code> adds a link</p>
-            <p><code>- list item</code> starts a bulleted list</p>
-            <p><code>&gt; quote</code> creates a quotation</p>
+          <div class="markdown-help-content">
+            <section class="markdown-help-section" aria-labelledby="markdown-help-text"><h3 id="markdown-help-text">Text and headings</h3><div class="markdown-help-grid">
+              <p><code># to ######</code><span>Six heading levels</span></p>
+              <p><code>**bold**</code><span>Bold</span></p>
+              <p><code>_italic_</code><span>Italic</span></p>
+              <p><code>***both***</code><span>Bold and italic</span></p>
+              <p><code>~~removed~~</code><span>Strikethrough</span></p>
+              <p><code>&gt; quote</code><span>Block quotation</span></p>
+            </div></section>
+            <section class="markdown-help-section" aria-labelledby="markdown-help-structure"><h3 id="markdown-help-structure">Structure</h3><div class="markdown-help-grid">
+              <p><code>- item</code><span>Bulleted list</span></p>
+              <p><code>1. item</code><span>Numbered list</span></p>
+              <p><code>&nbsp;&nbsp;- item</code><span>Nested list</span></p>
+              <p><code>---</code><span>Divider</span></p>
+              <p><code>Blank line</code><span>New paragraph</span></p>
+              <p><code>Two spaces + Return</code><span>Line break</span></p>
+            </div></section>
+            <section class="markdown-help-section" aria-labelledby="markdown-help-links"><h3 id="markdown-help-links">Links, media, and code</h3><div class="markdown-help-grid">
+              <p><code>[text](https://example.com)</code><span>Link</span></p>
+              <p><code>[Jump](#heading-name)</code><span>Link to a heading</span></p>
+              <p><code>![Alt text](https://example.com/image.jpg)</code><span>Image—Add image is easier</span></p>
+              <p><code>&#96;code&#96;</code><span>Inline code</span></p>
+              <p><code>&#96;&#96;&#96; … &#96;&#96;&#96;</code><span>Code block</span></p>
+              <p><code>&#92;*not italic&#92;*</code><span>Show Markdown symbols</span></p>
+            </div></section>
+            <section class="markdown-help-section" aria-labelledby="markdown-help-table"><h3 id="markdown-help-table">Table</h3><div class="markdown-help-grid">
+              <p><code>| Name | Note |<br>| --- | --- |<br>| Ada | Writer |</code><span>Header, divider row, then values</span></p>
+            </div></section>
+            <p class="markdown-help-note">Use the Preview tab to check the result. Raw HTML is removed for safety.</p>
           </div>
         </details>
         <dialog class="media-dialog" id="media-dialog">

@@ -27,6 +27,13 @@ test("editor teaches Markdown and provides accessible formatting shortcuts", () 
   assert.match(admin, /setSelectionRange/);
   assert.match(admin, /aria-describedby="markdown-intro markdown-help"/);
   assert.match(admin, /id="auto-format"/);
+  for (const topic of [
+    "Six heading levels", "Bold and italic", "Strikethrough", "Numbered list",
+    "Nested list", "Inline code", "Code block", "Divider", "Image", "Table",
+    "Link to a heading", "New paragraph", "Line break", "Show Markdown symbols",
+  ]) assert.match(admin, new RegExp(topic));
+  assert.match(admin, /Raw HTML is removed for safety/);
+  assert.match(admin, /Use the Preview tab/);
 });
 
 test("generated editor scripts compile in the browser", () => {
