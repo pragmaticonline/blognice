@@ -13,7 +13,9 @@
       "STRIPE_MONTHLY_PRICE_ID": "price_1U15hNPBZtWrx4qGbiLxr4HL",
       "STRIPE_YEARLY_PRICE_ID": "price_1U15hOPBZtWrx4qGIp4ariDb",
       "AFFILIATE_PAYOUT_DUAL_CONTROL_THRESHOLD_MINOR": "100000",
-      "AFFILIATE_STRIPE_CONNECT_COUNTRIES": "US,CA,GB,TH"
+      "AFFILIATE_STRIPE_CONNECT_COUNTRIES": "US,CA,GB,TH",
+      "AFFILIATE_OFFER_EXPERIMENT": "off",
+      "CF_ACCOUNT_ID": "30142eba9e53a37522d1c59b298db661"
 	},
 	"routes": [
 		{ "pattern": "staff.blognice.com/*", "zone_name": "blognice.com" }

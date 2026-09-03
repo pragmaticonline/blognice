@@ -7,6 +7,8 @@ import { getAffiliatePayoutQueueInDb, getAffiliateSupportActivityInDb, getAffili
 import { approveAffiliatePayoutInDb, hasIndependentPayoutApprovalInDb, loadStripePayoutDispatchInDb, parseAffiliateStripeConnectCountries, parsePayoutDualControlThreshold, reconcilePayoutInDb, recordAffiliateAccountRelationshipInDb, recordManualAffiliateAdjustmentInDb, recordPayoutDispatchResultInDb } from "./affiliate";
 import { createAffiliateTransfer } from "./stripe";
 import { relayAffiliateEmailOutboxInDb, type AffiliateEmailJob } from "./affiliate-notifications";
+import { getFunnelExperimentReportInDb } from "./funnel-experiment-report";
+import { experimentFunnelSeries } from "./metrics";
 
 type StaffRole = "read_only" | "support" | "admin";
 type StaffIdentity = { subject: string; email: string; role: StaffRole };
@@ -26,6 +28,9 @@ type StaffBindings = {
   STRIPE_SECRET_KEY?: string;
   AFFILIATE_PAYOUT_DUAL_CONTROL_THRESHOLD_MINOR?: string;
   AFFILIATE_STRIPE_CONNECT_COUNTRIES?: string;
+  AFFILIATE_OFFER_EXPERIMENT?: string;
+  CF_ACCOUNT_ID?: string;
+  CF_ANALYTICS_TOKEN?: string;
   EMAIL_QUEUE?: Queue<AffiliateEmailJob>;
 };
 
@@ -219,7 +224,7 @@ async function relatedAccounts(c: any, id: number) {
 }
 
 function staffHeader(staff: StaffIdentity): string {
-  return `<header class="staff-top"><a class="staff-brand" href="/">blognice <span>staff</span></a><div class="staff-top-meta"><small>${esc(staff.email)} · ${esc(staff.role)}</small><a class="logout" href="/cdn-cgi/access/logout">Log out</a><button class="staff-menu-toggle" type="button" aria-controls="staff-sidebar" aria-expanded="false">Menu</button></div></header><div class="staff-shell"><aside class="staff-sidebar" id="staff-sidebar"><nav class="staff-nav" aria-label="Staff navigation"><a href="/dashboard" data-staff-nav>Dashboard</a><a href="/" data-staff-nav>Accounts</a><a href="/affiliate-payouts" data-staff-nav>Affiliate payouts</a><a href="/audit" data-staff-nav>Audit log</a><a href="/pronunciations" data-staff-nav>Pronunciation dictionary</a><a href="/tts-test" data-staff-nav>TTS test</a><a href="/email-preview" data-staff-nav>Email preview</a></nav></aside><div class="staff-content">`;
+  return `<header class="staff-top"><a class="staff-brand" href="/">blognice <span>staff</span></a><div class="staff-top-meta"><small>${esc(staff.email)} · ${esc(staff.role)}</small><a class="logout" href="/cdn-cgi/access/logout">Log out</a><button class="staff-menu-toggle" type="button" aria-controls="staff-sidebar" aria-expanded="false">Menu</button></div></header><div class="staff-shell"><aside class="staff-sidebar" id="staff-sidebar"><nav class="staff-nav" aria-label="Staff navigation"><a href="/dashboard" data-staff-nav>Dashboard</a><a href="/" data-staff-nav>Accounts</a><a href="/affiliate-payouts" data-staff-nav>Affiliate payouts</a><a href="/staff/experiments/affiliate-offer" data-staff-nav>Offer experiment</a><a href="/audit" data-staff-nav>Audit log</a><a href="/pronunciations" data-staff-nav>Pronunciation dictionary</a><a href="/tts-test" data-staff-nav>TTS test</a><a href="/email-preview" data-staff-nav>Email preview</a></nav></aside><div class="staff-content">`;
 }
 
 function billingPlan(account: any, c: any): string {
@@ -924,6 +929,62 @@ app.get("/audit", async (c) => {
 });
 
 function emailPreviewPanel(staff: StaffIdentity): string { return canMutate(staff) ? `<div class="card" id="email-preview"><h2>Email preview</h2><p class="muted">Send a production-format sample to any address you control. This tool uses the same branded delivery wrapper as live email. Preview links are non-functional.</p><form id="test-email-form"><label>To <input name="to" type="email" required placeholder="you@example.com" style="padding:8px;border:1px solid var(--rule);border-radius:5px;min-width:280px"></label> <label>Type <select name="type" style="padding:8px;border:1px solid var(--rule);border-radius:5px"><option value="registration">Registration</option><option value="subscription-active">Subscription active</option><option value="subscriber-confirmation">Confirm subscription</option><option value="subscriber-welcome">Subscriber welcome</option><option value="new-post">New-post notification</option><option value="password-reset">Password reset</option></select></label> <button class="btn" type="submit">Send test email</button></form><p id="test-email-status" class="muted" aria-live="polite"></p></div><script>document.getElementById('test-email-form').addEventListener('submit',async function(event){event.preventDefault();var form=this;var status=document.getElementById('test-email-status');if(!confirm('Send this email now?'))return;var button=form.querySelector('button');button.disabled=true;status.textContent='Sending…';var response=await fetch('/api/test-email',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({to:form.elements.to.value,type:form.elements.type.value})});var data=await response.json();button.disabled=false;status.textContent=response.ok?'Sent to '+data.recipient+'.':'Error: '+(data.error||'Test email failed.');})</script>` : `<p class="muted">Your role is read-only; email testing requires support or admin access.</p>`; }
+
+app.post("/api/experiments/affiliate-offer/status", async (c) => {
+  const staff = c.get("staff") as StaffIdentity;
+  if (!canAdmin(staff)) return c.json({ error: "admin role required" }, 403);
+  if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
+  const body = await c.req.json().catch(() => ({})) as { status?: string; winner?: string; reason?: string };
+  if (body.status !== "paused" && body.status !== "completed") return c.json({ error: "status must be paused or completed" }, 400);
+  if (body.status === "completed" && body.winner !== "control" && body.winner !== "focused") return c.json({ error: "a valid winner is required" }, 400);
+  const reason = String(body.reason || "").trim();
+  if (reason.length < 10 || reason.length > 500) return c.json({ error: "a 10–500 character reason is required" }, 400);
+  const before = await c.env.DB.prepare("SELECT status, winner_variant FROM funnel_experiments WHERE experiment_key = 'affiliate-offer-v1'").first();
+  if (!before) return c.json({ error: "experiment not found" }, 404);
+  const now = Math.floor(Date.now() / 1000);
+  await c.env.DB.prepare("UPDATE funnel_experiments SET status = ?, winner_variant = ?, stopped_at = ? WHERE experiment_key = 'affiliate-offer-v1' AND status = 'running'")
+    .bind(body.status, body.status === "completed" ? body.winner : null, now).run();
+  const after = await c.env.DB.prepare("SELECT status, winner_variant FROM funnel_experiments WHERE experiment_key = 'affiliate-offer-v1'").first();
+  await audit(c, staff, { action: "affiliate-offer-experiment-status", targetType: "experiment", targetId: "affiliate-offer-v1", reason, result: "updated", before, after });
+  return c.json({ updated: true, experiment: after });
+});
+
+function experimentTrendChart(rows: Array<{ date: string; variant: string; event: string; events: number }>): string {
+  const wanted = rows.filter((row) => row.event === "affiliate_offer_exposure" || row.event === "affiliate_conversion");
+  if (!wanted.length) return "";
+  const dates = [...new Set(wanted.map((row) => row.date))].sort();
+  const max = Math.max(1, ...wanted.map((row) => row.events));
+  const series = [
+    ["control", "affiliate_offer_exposure", "#687064", "Control exposures"],
+    ["focused", "affiliate_offer_exposure", "#1a8917", "Focused exposures"],
+    ["control", "affiliate_conversion", "#8259c8", "Control paid"],
+    ["focused", "affiliate_conversion", "#dd6b20", "Focused paid"],
+  ];
+  const paths = series.map(([variant,event,color,label]) => {
+    const values = new Map(wanted.filter((row) => row.variant === variant && row.event === event).map((row) => [row.date,row.events]));
+    const points = dates.map((date,index) => `${40 + index * 620 / Math.max(1,dates.length-1)},${210 - 180 * Number(values.get(date)||0) / max}`).join(" ");
+    return `<polyline points="${points}" fill="none" stroke="${color}" stroke-width="3"><title>${label}</title></polyline>`;
+  }).join("");
+  const legend = series.map(([, , color,label],i) => `<g transform="translate(${40+i*160} 238)"><line x2="18" stroke="${color}" stroke-width="3"/><text x="24" y="4">${label}</text></g>`).join("");
+  return `<svg viewBox="0 0 700 255" role="img" aria-label="Approximate daily experiment exposures and paid conversions" style="width:100%;height:auto"><line x1="40" y1="30" x2="40" y2="210" stroke="#dfe4da"/><line x1="40" y1="210" x2="660" y2="210" stroke="#dfe4da"/>${paths}<g font-size="11" fill="#687064">${legend}</g></svg>`;
+}
+
+app.get("/staff/experiments/affiliate-offer", async (c) => {
+  const staff = c.get("staff") as StaffIdentity;
+  const report = await getFunnelExperimentReportInDb(c.env.DB, "affiliate-offer-v1", Math.floor(Date.now() / 1000));
+  const trends = await experimentFunnelSeries(c.env as any, "affiliate-offer-v1", 42).catch(() => []);
+  const percent = (n: number, d: number) => d ? `${(100 * n / d).toFixed(2)}%` : "—";
+  const rows = (["control", "focused"] as const).map((variant) => {
+    const t = report.variants[variant];
+    return `<tr><th>${esc(variant)}</th><td>${t.exposures}</td><td>${t.ctaClicks} (${percent(t.ctaClicks,t.exposures)})</td><td>${t.signups} (${percent(t.signups,t.exposures)})</td><td>${t.checkoutStarts} (${percent(t.checkoutStarts,t.exposures)})</td><td>${t.conversions} (${percent(t.conversions,t.exposures)})</td><td>${t.annualConversions} / ${t.monthlyConversions}</td><td>$${(t.revenueMinor/100).toFixed(2)}</td></tr>`;
+  }).join("");
+  const trendRows = trends.map((row) => `<tr><td>${esc(row.date)}</td><td>${esc(row.variant)}</td><td>${esc(row.event)}</td><td>${row.events}</td></tr>`).join("");
+  const trendChart = experimentTrendChart(trends);
+  const interval = report.interval ? `${(report.interval.difference*100).toFixed(2)} points (95% CI ${(report.interval.lower*100).toFixed(2)} to ${(report.interval.upper*100).toFixed(2)})` : "Not available";
+  const controls = canAdmin(staff) && report.experiment.status === "running" ? `<div class="card"><h2>Operational controls</h2><p class="notice">Pausing or completing stops new assignments. The production configuration must be changed separately and remains the release safety switch.</p><form id="experiment-status"><select name="status"><option value="paused">Pause</option><option value="completed">Complete</option></select><select name="winner"><option value="">No winner</option><option value="control">Control</option><option value="focused">Focused</option></select><input name="reason" required minlength="10" maxlength="500" placeholder="Decision evidence and reason"><button class="btn btn-danger">Apply</button></form><script>document.getElementById('experiment-status').addEventListener('submit',async function(e){e.preventDefault();if(!confirm('Apply this experiment status change?'))return;var r=await fetch('/api/experiments/affiliate-offer/status',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({status:this.elements.status.value,winner:this.elements.winner.value,reason:this.elements.reason.value})});var d=await r.json();if(!r.ok){alert(d.error||'Update failed');return}location.reload()})</script></div>` : "";
+  const body = `${staffHeader(staff)}<div class="top"><h1>Affiliate offer experiment</h1><small>Exact operational totals · approximate trends</small></div><div class="card"><div class="card-head"><h2>${esc(report.experiment.experimentKey)}</h2><span class="badge">${esc(report.experiment.status)}</span></div><p><strong>Production switch:</strong> <code>${esc(c.env.AFFILIATE_OFFER_EXPERIMENT || "off")}</code> · <strong>Started:</strong> ${report.experiment.startedAt ? new Date(report.experiment.startedAt*1000).toISOString().slice(0,10) : "not started"} · <strong>Excluded:</strong> ${report.exclusions}</p><p class="notice"><strong>${report.decision.ready ? "Decision review ready" : "Inconclusive"}:</strong> ${esc(report.decision.reason)}</p><p><strong>Focused − control paid conversion:</strong> ${esc(interval)}</p></div><div class="card"><h2>Exact D1 funnel totals</h2><table><thead><tr><th>Variant</th><th>Exposures</th><th>CTA</th><th>Signups</th><th>Checkout</th><th>Paid</th><th>Annual / monthly</th><th>Eligible revenue</th></tr></thead><tbody>${rows}</tbody></table></div><div class="card"><h2>Approximate 42-day daily trends</h2><p class="muted">Analytics Engine estimates use sampling intervals. They are directional and never replace the exact totals above.</p>${trendChart}<table><thead><tr><th>Date</th><th>Variant</th><th>Event</th><th>Estimated events</th></tr></thead><tbody>${trendRows || `<tr><td colspan="4" class="empty">No trend data is available yet.</td></tr>`}</tbody></table></div>${controls}`;
+  return c.html(staffPage("Affiliate offer experiment", body));
+});
 
 app.get("/email-preview", async (c) => {
   const staff = c.get("staff") as StaffIdentity;

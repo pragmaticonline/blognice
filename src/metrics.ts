@@ -267,17 +267,49 @@ export function recordAffiliateFunnelEvent(
   env: Pick<MetricsEnv, "AFFILIATE_EVENTS">,
   affiliateId: number,
   event: {
-    name: "affiliate_click" | "affiliate_signup" | "affiliate_conversion";
+    name: "affiliate_click" | "affiliate_offer_exposure" | "affiliate_offer_cta" | "affiliate_signup" | "affiliate_checkout_start" | "affiliate_conversion";
     source?: "link" | "code";
     provider?: "stripe" | "nowpayments";
     policyVersion: string;
+    experimentKey?: string;
+    variant?: "control" | "focused";
   },
 ): void {
   env.AFFILIATE_EVENTS.writeDataPoint({
     indexes: [String(affiliateId)],
-    blobs: [event.name, event.source || "", event.provider || "", event.policyVersion.slice(0, 80)],
+    blobs: [event.name, event.source || "", event.provider || "", event.policyVersion.slice(0, 80), event.experimentKey?.slice(0, 80) || "", event.variant || ""],
     doubles: [1],
   });
+}
+
+export type ExperimentFunnelDay = {
+  date: string;
+  variant: "control" | "focused";
+  event: "affiliate_offer_exposure" | "affiliate_offer_cta" | "affiliate_signup" | "affiliate_checkout_start" | "affiliate_conversion";
+  events: number;
+};
+
+export async function experimentFunnelSeries(
+  env: MetricsEnv,
+  experimentKey: string,
+  days = 42,
+  now = new Date(),
+): Promise<ExperimentFunnelDay[]> {
+  if (!/^[a-z0-9_-]{3,80}$/i.test(experimentKey)) return [];
+  const boundedDays = Math.max(1, Math.min(90, Math.trunc(days)));
+  const endDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const startDay = new Date(endDay.getTime() - (boundedDays - 1) * 86_400_000);
+  const nextDay = new Date(endDay.getTime() + 86_400_000);
+  const rows = await analyticsSql(
+    env,
+    `SELECT formatDateTime(timestamp, '%Y-%m-%d') AS date, blob6 AS variant, blob1 AS event, SUM(_sample_interval) AS events FROM ${AFFILIATE_EVENTS_DATASET} WHERE blob5 = ${sqlString(experimentKey)} AND timestamp >= toDateTime(${sqlString(`${startDay.toISOString().slice(0, 10)} 00:00:00`)}) AND timestamp < toDateTime(${sqlString(`${nextDay.toISOString().slice(0, 10)} 00:00:00`)}) AND blob1 IN ('affiliate_offer_exposure', 'affiliate_offer_cta', 'affiliate_signup', 'affiliate_checkout_start', 'affiliate_conversion') GROUP BY date, variant, event ORDER BY date, variant, event`,
+  );
+  return rows.filter((row) => row.variant === "control" || row.variant === "focused").map((row) => ({
+    date: String(row.date || ""),
+    variant: row.variant as "control" | "focused",
+    event: row.event as ExperimentFunnelDay["event"],
+    events: Math.max(0, Math.round(numberValue(row.events))),
+  }));
 }
 
 export type AffiliateFunnelDay = { date: string; clicks: number; sales: number };

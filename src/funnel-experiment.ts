@@ -142,6 +142,32 @@ export async function recordFunnelExperimentCheckoutInDb(db: D1Database, account
   ).bind(startedAt, startedAt, accountId).run();
 }
 
+export async function recordFunnelExperimentConversionInDb(
+  db: D1Database,
+  input: { accountId: number; provider: "stripe" | "nowpayments"; sourceKey: string },
+): Promise<{ created: boolean }> {
+  const result = await db.prepare(
+    `INSERT OR IGNORE INTO funnel_experiment_conversions
+       (experiment_key, account_id, journey_id, variant, occurrence_id, provider, source_key,
+        cadence, eligible_revenue_minor, currency, converted_at)
+     SELECT assignment.experiment_key, assignment.account_id, assignment.journey_id, assignment.variant,
+            occurrence.id, occurrence.provider, occurrence.source_key, installment.cadence,
+            occurrence.eligible_revenue_minor, occurrence.currency, occurrence.paid_at
+       FROM funnel_experiment_assignments AS assignment
+       JOIN affiliate_revenue_occurrences AS occurrence
+         ON occurrence.referred_account_id = assignment.account_id
+        AND occurrence.affiliate_id = assignment.affiliate_id
+        AND occurrence.policy_version = assignment.policy_version
+       JOIN affiliate_installments AS installment ON installment.id = occurrence.installment_id
+      WHERE assignment.account_id = ?
+        AND assignment.checkout_started_at IS NOT NULL
+        AND assignment.excluded_at IS NULL
+        AND occurrence.provider = ?
+        AND occurrence.source_key = ?`,
+  ).bind(input.accountId, input.provider, input.sourceKey).run();
+  return { created: result.meta.changes === 1 };
+}
+
 export function renderAffiliateOfferPage(
   homepage: string,
   rootDomain: string,

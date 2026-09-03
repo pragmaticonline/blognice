@@ -114,5 +114,13 @@ Completed slice — affiliate UI redesign:
 - Enrollment now uses a responsive value-proposition plus enrollment-card layout showing 50% commission, 10% customer discount for 12 paid service months, 60-day maturation, and the US$100 threshold.
 - Reuse the established admin shell and Billing page visual language; remove inline styles and retain keyboard focus, mobile behavior, `aria-live` copy feedback, alert semantics, and 44px touch targets.
 - Keep Affiliate Terms as a legal-document surface; optional improvements are a table of contents, print styles, and a backlink to the affiliate dashboard.
+
+## Affiliate offer experiment handoff — 2026-09-03
+
+- The complete experiment implementation is in migration `054-affiliate-offer-experiments.sql`, `src/funnel-experiment.ts`, `src/funnel-experiment-report.ts`, the signed referral-cookie extension, main Worker funnel routes, Analytics Engine fields/queries, and the Access-protected staff page at `/staff/experiments/affiliate-offer`.
+- Both production configurations explicitly keep `AFFILIATE_OFFER_EXPERIMENT=off`. Do not turn it on merely because the dormant code is deployed.
+- Migration 054 seeds `affiliate-offer-v1` in `draft`; activation must freeze the baseline, MDE, sample target, and dates, change D1 status to `running`, then change the main Worker flag in a controlled release.
+- Exact conversions come only from normalized provider-confirmed Affiliate Revenue Occurrences after checkout. Stripe and NOWPayments retries are idempotent; Analytics Engine events are consent-aware approximate trends only.
+- Local release validation: 343/343 full tests, focused A/A and delayed-provider coverage, typecheck, diff check, and both Worker dry-runs passed. Remote migration, deployment, Bruv, and production smoke remain credential-dependent at this handoff point.
 - Public HTTP coverage validates enrollment and active dashboard states. The complete suite passed 332/332; typecheck, diff check, and production dry-run passed.
 - Bruv reported no P0/P1 issues and one intentionally deferred P2: adding a dashboard backlink to the approved Affiliate Terms would change its accepted digest and should wait for a new terms version. Stickler reported zero test gaps.

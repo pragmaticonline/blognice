@@ -130,7 +130,7 @@ import { checkoutSubscriptionDecision, createAffiliateConnectedAccount, createAf
 import { createAnnualInvoice, getPayment, isNowPaymentsAmountFullyPaid, isTerminalPaidStatus, nowPaymentsConfigured, verifyNowPaymentsIpn, NOWPAYMENTS_ANNUAL_SECONDS, NOWPAYMENTS_ANNUAL_USD } from "./nowpayments";
 import { affiliateAnnualPriceMinor, attachStripeConnectedAccountInDb, attachStripePromotionCodeInDb, beginCheckoutAttributionInDb, createNowPaymentsCheckoutInDb, createStripeCheckoutInDb, enableAffiliateProfileInDb, parseAffiliateStripeConnectCountries, prepareAffiliatePayoutBatchInDb, reacceptAffiliateTermsInDb, recordPendingStripeFinancialEventInDb, refundNowPaymentsCheckoutInDb, requireCurrentAffiliateTermsInDb, requireOutdatedAffiliateTermsInDb, settleNowPaymentsCheckoutInDb, settleStripeInvoiceInDb, updateStripeConnectedAccountStatusInDb } from "./affiliate";
 import { captureSignupReferral, handleReferralCodeSubmission, handleReferralLink, hasActiveReferralOffer, prepareReferralExperiment, readReferralExperiment } from "./affiliate-referral";
-import { assignAndExposeFunnelExperimentInDb, associateFunnelExperimentSignupInDb, loadRunningAffiliateOfferExperimentInDb, recordFunnelExperimentCheckoutInDb, recordFunnelExperimentCtaInDb, renderAffiliateOfferPage } from "./funnel-experiment";
+import { assignAndExposeFunnelExperimentInDb, associateFunnelExperimentSignupInDb, loadRunningAffiliateOfferExperimentInDb, recordFunnelExperimentCheckoutInDb, recordFunnelExperimentConversionInDb, recordFunnelExperimentCtaInDb, renderAffiliateOfferPage } from "./funnel-experiment";
 import { getAffiliateDashboardInDb, type AffiliateDashboard } from "./affiliate-dashboard";
 import { enqueueAffiliateEnrollmentEmailInDb, relayAffiliateEmailOutboxInDb } from "./affiliate-notifications";
 import { renderMarkdown as renderMarkdownSafe } from "./markdown";
@@ -4566,12 +4566,30 @@ function verificationResultPage(ok: boolean, msg?: string): string {
 async function recordAffiliateSignup(c: any, accountId: number): Promise<void> {
   if (analyticsConsentRequired(c.req.raw.cf?.country)) return;
   const attribution = await c.env.DB.prepare(
-    "SELECT affiliate_id, source, policy_version FROM affiliate_attributions WHERE referred_account_id = ?",
-  ).bind(accountId).first() as { affiliate_id: number; source: "link" | "code"; policy_version: string } | null;
+    `SELECT attribution.affiliate_id, attribution.source, attribution.policy_version,
+            assignment.experiment_key, assignment.variant
+       FROM affiliate_attributions AS attribution
+       LEFT JOIN funnel_experiment_assignments AS assignment
+         ON assignment.account_id = attribution.referred_account_id AND assignment.excluded_at IS NULL
+      WHERE attribution.referred_account_id = ?`,
+  ).bind(accountId).first() as { affiliate_id: number; source: "link" | "code"; policy_version: string; experiment_key: string | null; variant: "control" | "focused" | null } | null;
   if (attribution) recordAffiliateFunnelEvent(c.env, attribution.affiliate_id, {
     name: "affiliate_signup",
     source: attribution.source,
     policyVersion: attribution.policy_version,
+    experimentKey: attribution.experiment_key || undefined,
+    variant: attribution.variant || undefined,
+  });
+}
+async function recordExperimentCheckoutStart(c: any, accountId: number): Promise<void> {
+  if (analyticsConsentRequired(c.req.raw.cf?.country)) return;
+  const row = await c.env.DB.prepare(
+    `SELECT affiliate_id, policy_version, experiment_key, variant
+       FROM funnel_experiment_assignments WHERE account_id = ? AND excluded_at IS NULL`,
+  ).bind(accountId).first() as { affiliate_id: number; policy_version: string; experiment_key: string; variant: "control" | "focused" } | null;
+  if (row) recordAffiliateFunnelEvent(c.env, row.affiliate_id, {
+    name: "affiliate_checkout_start", source: "link", policyVersion: row.policy_version,
+    experimentKey: row.experiment_key, variant: row.variant,
   });
 }
 async function associateFunnelExperimentSignup(c: any, accountId: number, signingSecrets: string[], now: number): Promise<void> {
@@ -4585,15 +4603,19 @@ async function associateFunnelExperimentSignup(c: any, accountId: number, signin
 async function recordAffiliateConversion(c: any, accountId: number, provider: "stripe" | "nowpayments"): Promise<void> {
   const attribution = await c.env.DB.prepare(
     `SELECT attribution.affiliate_id, attribution.source, attribution.policy_version,
-            account.signup_country
+            account.signup_country, assignment.experiment_key, assignment.variant
        FROM affiliate_attributions AS attribution
        JOIN accounts AS account ON account.id = attribution.referred_account_id
+       LEFT JOIN funnel_experiment_assignments AS assignment
+         ON assignment.account_id = attribution.referred_account_id AND assignment.excluded_at IS NULL
       WHERE attribution.referred_account_id = ?`,
   ).bind(accountId).first() as {
     affiliate_id: number;
     source: "link" | "code";
     policy_version: string;
     signup_country: string | null;
+    experiment_key: string | null;
+    variant: "control" | "focused" | null;
   } | null;
   if (!attribution || analyticsConsentRequired(attribution.signup_country)) return;
   recordAffiliateFunnelEvent(c.env, attribution.affiliate_id, {
@@ -4601,6 +4623,8 @@ async function recordAffiliateConversion(c: any, accountId: number, provider: "s
     source: attribution.source,
     provider,
     policyVersion: attribution.policy_version,
+    experimentKey: attribution.experiment_key || undefined,
+    variant: attribution.variant || undefined,
   });
 }
 app.get("/signup", async (c) => {
@@ -4712,8 +4736,8 @@ app.post("/signup", async (c) => {
     if (affiliateCookieSecrets.length) {
       const capturedReferral = await captureSignupReferral(c.req.raw, c.env.DB, accountId, affiliateCookieSecrets, now);
       if (capturedReferral.accepted) {
-        await recordAffiliateSignup(c, accountId);
         await associateFunnelExperimentSignup(c, accountId, affiliateCookieSecrets, now);
+        await recordAffiliateSignup(c, accountId);
       }
     }
     await c.env.DB.prepare("UPDATE blog_invitations SET accepted_at = ? WHERE id = ?").bind(now, invite.id).run();
@@ -4755,8 +4779,8 @@ app.post("/signup", async (c) => {
   if (affiliateCookieSecrets.length) {
     const capturedReferral = await captureSignupReferral(c.req.raw, c.env.DB, accountId, affiliateCookieSecrets, now);
     if (capturedReferral.accepted) {
-      await recordAffiliateSignup(c, accountId);
       await associateFunnelExperimentSignup(c, accountId, affiliateCookieSecrets, now);
+      await recordAffiliateSignup(c, accountId);
     }
   }
   await createEmailVerification(c, accountId, email, title);
@@ -6066,6 +6090,7 @@ app.post("/admin/billing/checkout", async (c) => {
       ).bind(session.id, affiliateCheckout.checkoutId).run();
     }
     await recordFunnelExperimentCheckoutInDb(c.env.DB, account.id, now).catch((error) => console.error(JSON.stringify({ message: "Funnel Experiment checkout milestone failed", accountId: account.id, error: error instanceof Error ? error.message : String(error) })));
+    await recordExperimentCheckoutStart(c, account.id);
     return c.redirect(session.url, 303);
   } catch (error) {
     return c.redirect(`/admin/billing?message=${encodeURIComponent(error instanceof Error ? error.message : "Stripe checkout failed.")}`);
@@ -6124,6 +6149,7 @@ app.post("/admin/billing/crypto/checkout", async (c) => {
       "UPDATE affiliate_nowpayments_checkouts SET status = 'invoiced', provider_invoice_id = ? WHERE order_id = ? AND status = 'pending'",
     ).bind(String(invoice.id), checkout.orderId).run();
     await recordFunnelExperimentCheckoutInDb(c.env.DB, account.id, now).catch((error) => console.error(JSON.stringify({ message: "Funnel Experiment checkout milestone failed", accountId: account.id, error: error instanceof Error ? error.message : String(error) })));
+    await recordExperimentCheckoutStart(c, account.id);
     return c.redirect(url, 303);
   } catch (error) {
     return c.redirect(`/admin/billing?message=${encodeURIComponent(error instanceof Error ? error.message : "Crypto checkout failed.")}`);
@@ -6167,6 +6193,11 @@ app.post("/nowpayments/webhook", async (c) => {
         maturationSeconds: 60 * 24 * 60 * 60,
       });
       if (settlement.settled) await recordAffiliateConversion(c, accountId, "nowpayments");
+      await recordFunnelExperimentConversionInDb(c.env.DB, {
+        accountId,
+        provider: "nowpayments",
+        sourceKey: `order:${orderId}:payment:${paymentId}`,
+      });
       if (!settlement.settled) console.info(JSON.stringify({ message: "NOWPayments duplicate finished IPN", paymentId, orderId }));
     } else if (reversible) {
       await refundNowPaymentsCheckoutInDb(c.env.DB, {
@@ -6406,6 +6437,11 @@ app.post("/stripe/webhook", async (c) => {
         maturationSeconds: 60 * 24 * 60 * 60,
       });
       if (settlement.created) await recordAffiliateConversion(c, accountId, "stripe");
+      await recordFunnelExperimentConversionInDb(c.env.DB, {
+        accountId,
+        provider: "stripe",
+        sourceKey: `invoice:${String(object.id)}:line:${String(line.id)}`,
+      });
     }
     await c.env.DB.prepare("UPDATE stripe_events SET account_id = ? WHERE id = ?").bind(accountId, event.id).run();
   }
@@ -6632,6 +6668,10 @@ app.get("/affiliate-offer", async (c) => {
         });
         variant = result.assignment.variant;
         upgradedCookie = prepared.setCookie;
+        if (!analyticsConsentRequired(c.req.raw.cf?.country)) recordAffiliateFunnelEvent(c.env, result.assignment.affiliateId, {
+          name: "affiliate_offer_exposure", source: "link", policyVersion: result.assignment.policyVersion,
+          experimentKey: result.assignment.experimentKey, variant: result.assignment.variant,
+        });
       }
     }
   } catch (error) {
@@ -6649,6 +6689,10 @@ app.get("/experiment/affiliate-offer/cta", async (c) => {
   const assignment = await readReferralExperiment(c.req.raw, secrets, Math.floor(Date.now() / 1000));
   if (!assignment) return c.redirect("/", 302);
   await recordFunnelExperimentCtaInDb(c.env.DB, assignment.assignment.journeyId, Math.floor(Date.now() / 1000));
+  if (!analyticsConsentRequired(c.req.raw.cf?.country)) recordAffiliateFunnelEvent(c.env, assignment.referral.affiliateId, {
+    name: "affiliate_offer_cta", source: "link", policyVersion: assignment.referral.policyVersion,
+    experimentKey: assignment.assignment.experimentKey, variant: assignment.assignment.variant,
+  });
   return c.redirect("/signup", 302);
 });
 

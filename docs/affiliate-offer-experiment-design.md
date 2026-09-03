@@ -1,6 +1,6 @@
 # Affiliate offer funnel experiment design
 
-Status: proposed implementation specification
+Status: implemented behind an off-by-default production switch; activation prerequisites remain open
 
 ## Objective
 
@@ -185,3 +185,11 @@ Workers gradual deployments are a release-safety mechanism. Even with version af
 - Measure and freeze baseline conversion, minimum detectable uplift, sample target, and experiment dates.
 - Build and verify the staff results page before assigning production traffic.
 - Keep the production flag `off` until A/A validation proves stable assignment and end-to-end payment attribution.
+
+## Implementation status — 2026-09-03
+
+Slices 1–8 are implemented and locally verified. Migration 054 creates the exact assignment and conversion stores and seeds `affiliate-offer-v1` as `draft`. The main and staff Worker configurations both remain `AFFILIATE_OFFER_EXPERIMENT=off`, so deployment does not assign traffic.
+
+The automated A/A allocation fixture verifies an exact 5,000/5,000 split over all 10,000 allocation buckets. Provider-seam tests cover Stripe and delayed/duplicate NOWPayments facts. The staff page is available at `/staff/experiments/affiliate-offer` behind Cloudflare Access and labels D1 totals exact and Analytics Engine trends approximate.
+
+Activation is intentionally a later operational decision. Before changing the flag, an authorized owner must approve the copy and privacy/retention treatment, freeze the baseline, detectable uplift, sample target and dates in D1, verify staff Analytics Engine credentials, and run a live payment-attribution canary. Deployment of the dormant implementation is not activation.

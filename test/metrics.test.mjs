@@ -8,6 +8,7 @@ import {
   metricsBeacon,
   analyticsConsentRequired,
   affiliateFunnelSeries,
+  experimentFunnelSeries,
   recordAffiliateFunnelEvent,
   recordCustomEvent,
   recordAuditEvent,
@@ -59,10 +60,33 @@ test("affiliate funnel analytics are keyed by Affiliate and contain no customer 
 
   assert.deepEqual(points, [{
     indexes: ["17"],
-    blobs: ["affiliate_conversion", "link", "stripe", "affiliate-1"],
+    blobs: ["affiliate_conversion", "link", "stripe", "affiliate-1", "", ""],
     doubles: [1],
   }]);
   assert.doesNotMatch(JSON.stringify(points), /account|email|visitor|cookie|payment/i);
+});
+
+test("experiment analytics use bounded variant fields and sampling-aware daily trends", async () => {
+  const points = [];
+  recordAffiliateFunnelEvent({ AFFILIATE_EVENTS: { writeDataPoint(point) { points.push(point); } } }, 17, {
+    name: "affiliate_offer_exposure", source: "link", policyVersion: "affiliate-1",
+    experimentKey: "affiliate-offer-v1", variant: "focused",
+  });
+  assert.deepEqual(points[0].blobs, ["affiliate_offer_exposure", "link", "", "affiliate-1", "affiliate-offer-v1", "focused"]);
+
+  const originalFetch = globalThis.fetch;
+  let query = "";
+  globalThis.fetch = async (_input, init) => {
+    query = String(init?.body || "");
+    return new Response(JSON.stringify({ data: [{ date: "2026-09-03", variant: "focused", event: "affiliate_offer_exposure", events: 11 }] }), { status: 200 });
+  };
+  try {
+    const rows = await experimentFunnelSeries({ CF_ACCOUNT_ID: "account", CF_ANALYTICS_TOKEN: "token" }, "affiliate-offer-v1", 14, new Date("2026-09-03T12:00:00Z"));
+    assert.deepEqual(rows.at(-1), { date: "2026-09-03", variant: "focused", event: "affiliate_offer_exposure", events: 11 });
+    assert.match(query, /blob5 = 'affiliate-offer-v1'/);
+    assert.match(query, /SUM\(_sample_interval\)/);
+    assert.doesNotMatch(query, /journey|account|email|cookie/i);
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test("report queries are tenant scoped, time bounded, and sampling aware", () => {

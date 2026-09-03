@@ -48,3 +48,34 @@ CREATE UNIQUE INDEX idx_funnel_experiment_account
 
 CREATE INDEX idx_funnel_experiment_results
   ON funnel_experiment_assignments(experiment_key, variant, exposed_at);
+
+CREATE TABLE funnel_experiment_conversions (
+  experiment_key        TEXT NOT NULL,
+  account_id            INTEGER NOT NULL,
+  journey_id            TEXT NOT NULL,
+  variant               TEXT NOT NULL,
+  occurrence_id         TEXT NOT NULL UNIQUE,
+  provider              TEXT NOT NULL CHECK (provider IN ('stripe', 'nowpayments')),
+  source_key            TEXT NOT NULL,
+  cadence               TEXT NOT NULL CHECK (cadence IN ('monthly', 'annual')),
+  eligible_revenue_minor INTEGER NOT NULL CHECK (eligible_revenue_minor >= 0),
+  currency              TEXT NOT NULL,
+  converted_at          INTEGER NOT NULL,
+  PRIMARY KEY (experiment_key, account_id),
+  UNIQUE (provider, source_key),
+  FOREIGN KEY (experiment_key) REFERENCES funnel_experiments(experiment_key) ON DELETE RESTRICT,
+  FOREIGN KEY (journey_id) REFERENCES funnel_experiment_assignments(journey_id) ON DELETE RESTRICT,
+  FOREIGN KEY (occurrence_id) REFERENCES affiliate_revenue_occurrences(id) ON DELETE RESTRICT,
+  FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE RESTRICT
+);
+
+CREATE INDEX idx_funnel_experiment_conversions_results
+  ON funnel_experiment_conversions(experiment_key, variant, converted_at);
+
+INSERT INTO funnel_experiments
+  (experiment_key, route, status, control_variant, treatment_variant,
+   treatment_allocation_basis_points, control_presentation_version,
+   treatment_presentation_version, created_at)
+VALUES
+  ('affiliate-offer-v1', 'affiliate_offer', 'draft', 'control', 'focused',
+   5000, 'control-v1', 'focused-v1', 1788451200);

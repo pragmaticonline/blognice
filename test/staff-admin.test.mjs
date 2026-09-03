@@ -18,6 +18,16 @@ test("staff Worker validates Access JWTs and keeps staff identity separate", () 
   assert.match(staff, /STAFF_ALLOWED_EMAILS/);
 });
 
+test("affiliate offer experiment reporting stays Access-protected and controls are admin-only, same-origin, and audited", () => {
+  assert.match(staff, /app\.get\("\/staff\/experiments\/affiliate-offer"/);
+  assert.match(staff, /app\.post\("\/api\/experiments\/affiliate-offer\/status"/);
+  assert.match(staff, /if \(!canAdmin\(staff\)\)/);
+  assert.match(staff, /if \(!sameOrigin\(c\)\)/);
+  assert.match(staff, /affiliate-offer-experiment-status/);
+  assert.match(staff, /Exact D1 funnel totals/);
+  assert.match(staff, /Analytics Engine estimates use sampling intervals/);
+});
+
 test("staff phase 1 mutations require role, same origin, reason, and audit", () => {
   assert.match(staff, /function canMutate/);
   assert.match(staff, /same-origin request required/);

@@ -163,7 +163,7 @@ test("verified accounts enroll through the production HTTP and Stripe seams", as
     assert.match(stripeRequests[1].url, /\/coupons\/coupon_affiliate$/);
     assert.match(stripeRequests[2].body, /code=WRITER-7/);
     assert.match(stripeRequests[2].body, /metadata%5Baffiliate_account_id%5D=7/);
-    await db.prepare("INSERT INTO funnel_experiments (experiment_key, route, status, control_variant, treatment_variant, treatment_allocation_basis_points, control_presentation_version, treatment_presentation_version, created_at, started_at) VALUES ('affiliate-offer-v1', 'affiliate_offer', 'running', 'control', 'focused', 10000, 'control-v1', 'focused-v1', ?, ?)").bind(now, now).run();
+    await db.prepare("INSERT OR REPLACE INTO funnel_experiments (experiment_key, route, status, control_variant, treatment_variant, treatment_allocation_basis_points, control_presentation_version, treatment_presentation_version, created_at, started_at) VALUES ('affiliate-offer-v1', 'affiliate_offer', 'running', 'control', 'focused', 10000, 'control-v1', 'focused-v1', ?, ?)").bind(now, now).run();
     const activeLink = await blogniceApp.request(
       "https://www.blognice.test/?ref=Writer-7", { headers: { Host: "www.blognice.test" } }, env, executionCtx,
     );

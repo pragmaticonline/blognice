@@ -157,11 +157,11 @@ export async function prepareReferralExperiment(
   }
   const entropy = randomBytes || crypto.getRandomValues(new Uint8Array(20));
   if (entropy.byteLength < 20) throw new Error("experiment assignment entropy is too short");
-  const bucket = new DataView(entropy.buffer, entropy.byteOffset, 4).getUint32(0) % 10_000;
+  const variant = selectFunnelExperimentVariant(entropy, config.treatmentAllocationBasisPoints);
   const assignment = {
     journeyId: base64UrlEncode(entropy.slice(4, 20)),
     experimentKey: config.experimentKey,
-    variant: bucket < config.treatmentAllocationBasisPoints ? "focused" as const : "control" as const,
+    variant,
     assignedAt: now,
   };
   const cookie = await createReferralCookie({
@@ -176,6 +176,18 @@ export async function prepareReferralExperiment(
     assignment,
     setCookie: `${COOKIE_NAME}=${cookie}; Path=/; Max-Age=${payload.expiresAt - now}; HttpOnly; Secure; SameSite=Lax`,
   };
+}
+
+export function selectFunnelExperimentVariant(
+  entropy: Uint8Array,
+  treatmentAllocationBasisPoints: number,
+): "control" | "focused" {
+  if (entropy.byteLength < 4) throw new Error("experiment assignment entropy is too short");
+  if (!Number.isInteger(treatmentAllocationBasisPoints) || treatmentAllocationBasisPoints < 0 || treatmentAllocationBasisPoints > 10_000) {
+    throw new Error("invalid experiment allocation");
+  }
+  const bucket = new DataView(entropy.buffer, entropy.byteOffset, 4).getUint32(0) % 10_000;
+  return bucket < treatmentAllocationBasisPoints ? "focused" : "control";
 }
 
 function requestCookie(request: Request, name: string): string {
