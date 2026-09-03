@@ -135,7 +135,7 @@ import { getAffiliateDashboardInDb, type AffiliateDashboard } from "./affiliate-
 import { enqueueAffiliateEnrollmentEmailInDb, relayAffiliateEmailOutboxInDb } from "./affiliate-notifications";
 import { renderMarkdown as renderMarkdownSafe } from "./markdown";
 import { buildSitemapIndexXml, cacheVariants, CACHE_VERSION, customDomainRedirectUrl, indexNowKey } from "./indexing";
-import { AI_MARKDOWN_TEXT_MAX, conservativeMarkdownFallback, formatObviousStructures, markdownFormattingMessages, markdownFormattingRetryMessages, markdownOutputTokenBudget, normalizedMarkdownResponse, preservesAuthorTokens } from "./ai-markdown";
+import { AI_MARKDOWN_TEXT_MAX, confidentLocalMarkdownFormat, conservativeMarkdownFallback, formatObviousStructures, markdownFormattingMessages, markdownFormattingRetryMessages, markdownOutputTokenBudget, normalizedMarkdownResponse, preservesAuthorTokens } from "./ai-markdown";
 import { applySubscriberConfirmation, requestSubscriberConfirmation } from "./subscriber-optin";
 import { refreshPostPopularity } from "./popularity";
 
@@ -2730,6 +2730,11 @@ app.post("/admin/b/:blogId/format-markdown", async (c) => {
   const text = String(input.text ?? "").trim();
   if (!text) return c.json({ error: "Write something before using auto-format." }, 400);
   if (text.length > AI_MARKDOWN_TEXT_MAX) return c.json({ error: `Auto-format supports drafts up to ${AI_MARKDOWN_TEXT_MAX.toLocaleString()} characters.` }, 400);
+  const instantMarkdown = confidentLocalMarkdownFormat(text);
+  if (instantMarkdown) {
+    queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "markdown_formatted_locally", `characters:${text.length}`);
+    return c.json({ markdown: instantMarkdown, instant: true });
+  }
   let creditReservation: { accountId: number; period: string };
   try { creditReservation = await reserveAiCredits(c.env, ctx.tenant.id, AI_FORMAT_CREDITS); }
   catch (error) { return c.json({ error: error instanceof Error ? error.message : "AI credits unavailable" }, 402); }

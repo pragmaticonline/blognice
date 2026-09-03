@@ -1210,7 +1210,7 @@ export function editorPage(
       <div class="breadcrumb"><a href="/admin?list=1">blognice</a> / <a href="${base}">${esc(tenant.title)}</a> / ${isEdit ? "Edit post" : "New post"}</div>
       <h1>${isEdit ? "Edit post" : "New post"}</h1>
       ${error ? `<div class="error">${esc(error)}</div>` : ""}
-      <form id="post-editor-form" method="post" action="${action}">
+      <form id="post-editor-form" method="post" action="${action}" autocomplete="off">
         <label for="title">Title</label>
         <input id="title" name="title" type="text" value="${title}" required>
         <label for="slug">URL slug <span style="color:var(--muted)">(leave blank to generate from the title)</span></label>
@@ -1224,7 +1224,7 @@ export function editorPage(
         <label for="author-account">Author</label>
         <select id="author-account" name="author_account_id">${authors.map((author) => `<option value="${author.id}"${author.id === authorId ? " selected" : ""}>${esc(author.label)}</option>`).join("")}</select>
         <label for="author-name">Public author name <span style="color:var(--muted)">(optional; defaults to the selected account)</span></label>
-        <input id="author-name" name="author_name" type="text" value="${esc(authorName)}" maxlength="120" placeholder="e.g. Joe Bloggs">
+        <input id="author-name" name="author_name" type="text" value="${esc(authorName)}" maxlength="120" placeholder="e.g. Joe Bloggs" autocomplete="off">
         <p style="color:var(--muted);font-size:.85rem;margin:-.5rem 0 1.2rem">The blog identity remains separate from the person credited on this post.</p>` : ""}
 
         <label>Featured image <span style="color:var(--muted)">(used on the post and in lists)</span></label>
@@ -1350,7 +1350,7 @@ export function editorPage(
         </div>
         <div class="actions">
           <button class="btn" type="submit" name="save" value="close">Save &amp; close</button>
-          <button class="btn ghost" type="submit" id="save-continue" name="save" value="continue">Save &amp; continue</button>
+          <button class="btn ghost" type="button" id="save-continue">Save &amp; continue</button>
           <a class="btn ghost" href="${base}">Cancel</a>
           <span class="spacer"></span>
           ${isEdit ? `<a class="btn ghost" href="${viewUrl}" target="_blank">View</a>` : ""}
@@ -1505,9 +1505,8 @@ export function editorPage(
           saveStatusTimer = setTimeout(function () { saveStatus.hidden = true; }, 3000);
         }
 
-        editorForm.addEventListener("submit", function (event) {
-          if (event.submitter !== saveContinue) return;
-          event.preventDefault();
+        function saveAndContinue() {
+          if (saveContinue.disabled) return;
           var originalLabel = saveContinue.textContent;
           var formData = new FormData(editorForm);
           formData.set("save", "continue");
@@ -1536,7 +1535,8 @@ export function editorPage(
             saveContinue.disabled = false;
             saveContinue.textContent = originalLabel;
           });
-        });
+        }
+        saveContinue.addEventListener("click", saveAndContinue);
 
         function startGeneration(status, message) {
           var started = Date.now();
@@ -1564,7 +1564,7 @@ export function editorPage(
           chooseFeatured.textContent = key ? "Change" : "Choose image";
           if (isExistingPost && !featuredSavePending) {
             featuredSavePending = true;
-            setTimeout(function () { editorForm.requestSubmit(saveContinue); }, 0);
+            setTimeout(function () { saveAndContinue(); }, 0);
           }
         }
 

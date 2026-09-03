@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import test from "node:test";
 import { Miniflare } from "miniflare";
-import { conservativeMarkdownFallback, formatObviousStructures, markdownFormattingMessages, markdownFormattingRetryMessages, markdownOutputTokenBudget, normalizedMarkdownResponse, preservesAuthorTokens } from "../src/ai-markdown.ts";
+import { confidentLocalMarkdownFormat, conservativeMarkdownFallback, formatObviousStructures, markdownFormattingMessages, markdownFormattingRetryMessages, markdownOutputTokenBudget, normalizedMarkdownResponse, preservesAuthorTokens } from "../src/ai-markdown.ts";
 
 const require = createRequire(import.meta.url);
 for (const extension of [".html", ".svg"]) require.extensions[extension] = (module, filename) => { module.exports = readFileSync(filename, "utf8"); };
@@ -59,6 +59,15 @@ test("obvious tables and lists receive Markdown structure without changing words
   assert.equal(preservesAuthorTokens("numbered list: steps\n1 plan\n2 execute\n3 earn", numbered), true);
 });
 
+test("clearly structured drafts take the instant local formatting path", () => {
+  const article = "Headline here\nA concise standfirst here\n\nFirst article paragraph.\n\nlist of tasks\nwrite\nreview";
+  const formatted = confidentLocalMarkdownFormat(article);
+  assert.match(formatted, /^# Headline here\n\*A concise standfirst here\*/);
+  assert.match(formatted, /## list of tasks\n\n- write\n- review$/);
+  assert.equal(preservesAuthorTokens(article, formatted), true);
+  assert.equal(confidentLocalMarkdownFormat("One ambiguous paragraph with no structural signals."), null);
+});
+
 test("auto-format endpoint is tenant scoped, same-origin, paid, metered, and refundable", () => {
   assert.match(index, /app\.post\("\/admin\/b\/:blogId\/format-markdown"/);
   assert.match(index, /AI_FORMAT_CREDITS/);
@@ -66,6 +75,8 @@ test("auto-format endpoint is tenant scoped, same-origin, paid, metered, and ref
   assert.match(index, /same-origin request required/);
   assert.match(index, /reserveAiCredits\(c\.env, ctx\.tenant\.id, AI_FORMAT_CREDITS\)/);
   assert.match(index, /refundAiCredits\(c\.env, creditReservation\.accountId, creditReservation\.period, AI_FORMAT_CREDITS\)/);
+  assert.match(index, /confidentLocalMarkdownFormat/);
+  assert.match(index, /instant: true/);
 });
 
 test("editor exposes busy, error, replacement, and undo states", () => {

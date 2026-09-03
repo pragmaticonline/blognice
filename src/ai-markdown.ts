@@ -62,6 +62,22 @@ export function conservativeMarkdownFallback(text: string): string {
   return formatObviousStructures(lines.join("\n"));
 }
 
+export function confidentLocalMarkdownFormat(text: string): string | null {
+  const normalized = text.replace(/\r\n?/g, "\n").trim();
+  const lines = normalized.split("\n");
+  const content = lines.map((line, index) => ({ line: line.trim(), index })).filter(({ line }) => line);
+  const [first, second, third] = content;
+  const headlineAndStandfirst = Boolean(
+    first && second && third &&
+    first.index === 0 && second.index === 1 && third.index >= 3 &&
+    first.line.length <= 180 && second.line.length <= 280 &&
+    !MARKDOWN_BLOCK.test(first.line)
+  );
+  if (headlineAndStandfirst) return conservativeMarkdownFallback(normalized);
+  const structured = formatObviousStructures(normalized);
+  return structured === normalized ? null : structured;
+}
+
 const MARKDOWN_BLOCK = /^\s{0,3}(?:#{1,6}\s|>|[-+*]\s|\d+[.)]\s|```|\|)/;
 
 export function formatObviousStructures(markdown: string): string {

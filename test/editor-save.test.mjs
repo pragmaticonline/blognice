@@ -8,9 +8,12 @@ const index = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
 
 test("editor offers save-and-continue and autosaves featured-image changes", () => {
   assert.match(admin, /id="post-editor-form"/);
+  assert.match(admin, /id="post-editor-form"[^>]+autocomplete="off"/);
   assert.match(admin, /name="save" value="close"/);
-  assert.match(admin, /name="save" value="continue"/);
-  assert.match(admin, /editorForm\.requestSubmit\(saveContinue\)/);
+  assert.match(admin, /type="button" id="save-continue"/);
+  assert.match(admin, /saveContinue\.addEventListener\("click", saveAndContinue\)/);
+  assert.match(admin, /setFeatured[\s\S]+saveAndContinue\(\)/);
+  assert.doesNotMatch(admin, /requestSubmit\(saveContinue\)/);
   assert.match(admin, /x-blognice-save/);
   assert.match(admin, /history\.replaceState/);
   assert.match(admin, /Saved/);
