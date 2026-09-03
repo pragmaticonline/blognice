@@ -76,7 +76,7 @@ export function retrieveSubscription(env: StripeEnv, subscriptionId: string) {
   return stripeGet<StripeSubscription>(env, `subscriptions/${encodeURIComponent(subscriptionId)}`);
 }
 
-export function createCheckoutSession(env: StripeEnv, input: { accountId: number; email: string; successUrl: string; cancelUrl: string; priceId: string; customerId?: string | null; affiliateCheckoutId?: string | null; promotionCodeId?: string | null }) {
+export function createCheckoutSession(env: StripeEnv, input: { accountId: number; email: string; successUrl: string; cancelUrl: string; priceId: string; customerId?: string | null; affiliateCheckoutId?: string | null; promotionCodeId?: string | null; experimentKey?: string | null; experimentVariant?: "control" | "focused" | null }) {
   const params = new URLSearchParams();
   params.set("mode", "subscription");
   params.set("line_items[0][price]", input.priceId);
@@ -91,6 +91,12 @@ export function createCheckoutSession(env: StripeEnv, input: { accountId: number
   if (input.affiliateCheckoutId) {
     params.set("metadata[affiliate_checkout_id]", input.affiliateCheckoutId);
     params.set("subscription_data[metadata][affiliate_checkout_id]", input.affiliateCheckoutId);
+  }
+  if (input.experimentKey && input.experimentVariant) {
+    params.set("metadata[experiment_key]", input.experimentKey);
+    params.set("metadata[experiment_variant]", input.experimentVariant);
+    params.set("subscription_data[metadata][experiment_key]", input.experimentKey);
+    params.set("subscription_data[metadata][experiment_variant]", input.experimentVariant);
   }
   if (input.promotionCodeId) {
     params.set("discounts[0][promotion_code]", input.promotionCodeId);

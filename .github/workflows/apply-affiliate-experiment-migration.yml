@@ -34,15 +34,15 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Apply migration 054
-        run: npx wrangler d1 execute blognice --remote --config wrangler.production.jsonc --file migrations/054-affiliate-offer-experiments.sql --yes
+      - name: Apply migration 055
+        run: npx wrangler d1 execute blognice --remote --config wrangler.production.jsonc --file migrations/055-affiliate-experiment-hardening.sql --yes
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Verify tables, indexes, draft definition, and foreign keys
+      - name: Verify snapshots, immutability triggers, and foreign keys
         run: |
-          npx wrangler d1 execute blognice --remote --config wrangler.production.jsonc --json --command "SELECT name, type FROM sqlite_master WHERE name IN ('funnel_experiments','funnel_experiment_assignments','funnel_experiment_conversions','idx_one_running_affiliate_offer_experiment','idx_funnel_experiment_account','idx_funnel_experiment_results','idx_funnel_experiment_conversions_results') ORDER BY type, name; SELECT experiment_key, status, treatment_allocation_basis_points, control_presentation_version, treatment_presentation_version FROM funnel_experiments WHERE experiment_key = 'affiliate-offer-v1'; PRAGMA foreign_key_check;"
+          npx wrangler d1 execute blognice --remote --config wrangler.production.jsonc --json --command "SELECT name, type FROM sqlite_master WHERE name IN ('trg_funnel_experiment_presentation_immutable','trg_affiliate_stripe_experiment_snapshot','trg_affiliate_nowpayments_experiment_snapshot') ORDER BY name; SELECT name FROM pragma_table_info('affiliate_stripe_checkouts') WHERE name IN ('experiment_key','experiment_variant') UNION ALL SELECT name FROM pragma_table_info('affiliate_nowpayments_checkouts') WHERE name IN ('experiment_key','experiment_variant'); PRAGMA foreign_key_check;"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

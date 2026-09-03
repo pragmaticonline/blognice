@@ -188,7 +188,7 @@ Workers gradual deployments are a release-safety mechanism. Even with version af
 
 ## Implementation status — 2026-09-03
 
-Slices 1–8 are implemented, deployed, and verified dormant. Migration 054 creates the exact assignment and conversion stores and seeds `affiliate-offer-v1` as `draft`. The main and staff Worker configurations both remain `AFFILIATE_OFFER_EXPERIMENT=off`, so deployment does not assign traffic.
+Slices 1–8 are implemented, deployed, and verified dormant. Migration 054 creates the exact assignment and conversion stores and seeds `affiliate-offer-v1` as `draft`; migration 055 makes exposed presentations immutable and snapshots experiment context into both provider checkout records. The main and staff Worker configurations both remain `AFFILIATE_OFFER_EXPERIMENT=off`, so deployment does not assign traffic.
 
 The automated A/A allocation fixture verifies an exact 5,000/5,000 split over all 10,000 allocation buckets. Provider-seam tests cover Stripe and delayed/duplicate NOWPayments facts. The staff page is available at `/staff/experiments/affiliate-offer` behind Cloudflare Access and labels D1 totals exact and Analytics Engine trends approximate.
 

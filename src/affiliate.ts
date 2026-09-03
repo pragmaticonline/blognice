@@ -655,6 +655,8 @@ export type CreateNowPaymentsCheckout = {
   commissionRateDenominator: number;
   createdAt: number;
   expiresAt: number;
+  experimentKey?: string;
+  experimentVariant?: "control" | "focused";
 };
 
 export async function createNowPaymentsCheckoutInDb(
@@ -662,13 +664,23 @@ export async function createNowPaymentsCheckoutInDb(
   input: CreateNowPaymentsCheckout,
 ): Promise<{ orderId: string; expectedDiscountedAmountMinor: number }> {
   const orderId = `affiliate_${crypto.randomUUID()}`;
-  const inserted = await db.prepare(
+  const experiment = input.experimentKey && input.experimentVariant;
+  const statement = experiment ? db.prepare(
     `INSERT INTO affiliate_nowpayments_checkouts
        (order_id, account_id, attribution_id, expected_discounted_amount_minor,
-        currency, policy_version, discount_rate_numerator, discount_rate_denominator,
+        currency, policy_version, experiment_key, experiment_variant, discount_rate_numerator, discount_rate_denominator,
         commission_rate_numerator, commission_rate_denominator, status, created_at, expires_at)
-     VALUES (?, ?, ?, ?, 'usd', ?, ?, ?, ?, ?, 'pending', ?, ?)`,
-  ).bind(
+     VALUES (?, ?, ?, ?, 'usd', ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+  ).bind(orderId, input.accountId, input.attributionId, input.expectedDiscountedAmountMinor, input.policyVersion,
+    input.experimentKey, input.experimentVariant, input.discountRateNumerator, input.discountRateDenominator,
+    input.commissionRateNumerator, input.commissionRateDenominator, input.createdAt, input.expiresAt)
+    : db.prepare(
+      `INSERT INTO affiliate_nowpayments_checkouts
+         (order_id, account_id, attribution_id, expected_discounted_amount_minor, currency, policy_version,
+          discount_rate_numerator, discount_rate_denominator, commission_rate_numerator, commission_rate_denominator,
+          status, created_at, expires_at)
+       VALUES (?, ?, ?, ?, 'usd', ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+    ).bind(
     orderId,
     input.accountId,
     input.attributionId,
@@ -680,7 +692,8 @@ export async function createNowPaymentsCheckoutInDb(
     input.commissionRateDenominator,
     input.createdAt,
     input.expiresAt,
-  ).run();
+  );
+  const inserted = await statement.run();
   if (inserted.meta.changes !== 1) {
     throw new Error("NOWPayments checkout could not be created.");
   }
@@ -703,6 +716,8 @@ export type CreateStripeCheckout = {
   commissionRateDenominator: number;
   createdAt: number;
   expiresAt: number;
+  experimentKey?: string;
+  experimentVariant?: "control" | "focused";
 };
 
 export async function createStripeCheckoutInDb(
@@ -710,13 +725,14 @@ export async function createStripeCheckoutInDb(
   input: CreateStripeCheckout,
 ): Promise<{ checkoutId: string; promotionCodeId: string }> {
   const checkoutId = crypto.randomUUID();
-  const inserted = await db.prepare(
+  const experiment = input.experimentKey && input.experimentVariant;
+  const statement = experiment ? db.prepare(
     `INSERT INTO affiliate_stripe_checkouts
        (id, account_id, attribution_id, cadence, price_id, promotion_code_id,
-        policy_version, discount_rate_numerator, discount_rate_denominator,
+        policy_version, experiment_key, experiment_variant, discount_rate_numerator, discount_rate_denominator,
         commission_rate_numerator, commission_rate_denominator, status,
         created_at, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
   ).bind(
     checkoutId,
     input.accountId,
@@ -725,13 +741,24 @@ export async function createStripeCheckoutInDb(
     input.priceId,
     input.promotionCodeId,
     input.policyVersion,
+    input.experimentKey,
+    input.experimentVariant,
     input.discountRateNumerator,
     input.discountRateDenominator,
     input.commissionRateNumerator,
     input.commissionRateDenominator,
     input.createdAt,
     input.expiresAt,
-  ).run();
+  ) : db.prepare(
+    `INSERT INTO affiliate_stripe_checkouts
+       (id, account_id, attribution_id, cadence, price_id, promotion_code_id, policy_version,
+        discount_rate_numerator, discount_rate_denominator, commission_rate_numerator,
+        commission_rate_denominator, status, created_at, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+  ).bind(checkoutId, input.accountId, input.attributionId, input.cadence, input.priceId,
+    input.promotionCodeId, input.policyVersion, input.discountRateNumerator, input.discountRateDenominator,
+    input.commissionRateNumerator, input.commissionRateDenominator, input.createdAt, input.expiresAt);
+  const inserted = await statement.run();
   if (inserted.meta.changes !== 1) throw new Error("Stripe affiliate checkout could not be created.");
   return { checkoutId, promotionCodeId: input.promotionCodeId };
 }

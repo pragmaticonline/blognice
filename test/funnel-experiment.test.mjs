@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 import { Miniflare } from "miniflare";
-import { assignAndExposeFunnelExperimentInDb, associateFunnelExperimentSignupInDb, recordFunnelExperimentCheckoutInDb, recordFunnelExperimentConversionInDb, recordFunnelExperimentCtaInDb, renderAffiliateOfferPage } from "../src/funnel-experiment.ts";
+import { assignAndExposeFunnelExperimentInDb, associateFunnelExperimentSignupInDb, isAutomatedExperimentRequest, loadAffiliateOfferExperimentInDb, loadFunnelExperimentAssignmentInDb, recordFunnelExperimentCheckoutInDb, recordFunnelExperimentConversionInDb, recordFunnelExperimentCtaInDb, renderAffiliateOfferPage } from "../src/funnel-experiment.ts";
 import { handleReferralLink, prepareReferralExperiment, selectFunnelExperimentVariant } from "../src/affiliate-referral.ts";
 
 async function applySql(db, path) {
@@ -22,6 +22,7 @@ async function experimentDb(name) {
   await db.exec("CREATE TABLE accounts (id INTEGER PRIMARY KEY, email TEXT NOT NULL, status TEXT NOT NULL, email_verified INTEGER NOT NULL, billing_status TEXT NOT NULL, crypto_paid_through INTEGER);");
   await applySql(db, "migrations/053-affiliate-program.sql");
   await applySql(db, "migrations/054-affiliate-offer-experiments.sql");
+  await applySql(db, "migrations/055-affiliate-experiment-hardening.sql");
   await db.prepare("INSERT INTO accounts (id, email, status, email_verified, billing_status) VALUES (17, 'affiliate@example.com', 'active', 1, 'inactive')").run();
   await db.prepare("INSERT INTO affiliate_terms_acceptances (id, account_id, terms_version, terms_document_digest, policy_version, accepted_at) VALUES ('terms-17', 17, 'affiliate-1', 'sha256:test', 'affiliate-1', 1800000000)").run();
   await db.prepare("INSERT INTO affiliate_profiles (account_id, referral_code, stripe_promotion_code_id, status, terms_acceptance_id, enabled_at) VALUES (17, 'writer-17', 'promo_17', 'active', 'terms-17', 1800000000)").run();
@@ -57,6 +58,21 @@ test("one referral journey receives one immutable assignment and exposure", asyn
   }
 });
 
+test("paused and completed lifecycle keeps old assignments while exposing the permanent winner", async () => {
+  const { mf, db } = await experimentDb("funnel-lifecycle");
+  try {
+    const journeyId = "journey_lifecycle_123456";
+    await assignAndExposeFunnelExperimentInDb(db, { journeyId, experimentKey: "affiliate-offer-v1", variant: "focused", affiliateId: 17, policyVersion: "affiliate-1", assignedAt: 1_800_000_010, exposedAt: 1_800_000_011 });
+    await assert.rejects(db.prepare("UPDATE funnel_experiments SET treatment_presentation_version = 'mutated' WHERE experiment_key = 'affiliate-offer-v1'").run(), /exposed experiment presentation is immutable/);
+    await db.prepare("UPDATE funnel_experiments SET status = 'paused', stopped_at = 1800000020 WHERE experiment_key = 'affiliate-offer-v1'").run();
+    assert.deepEqual(await loadAffiliateOfferExperimentInDb(db, "affiliate-offer-v1"), { experimentKey: "affiliate-offer-v1", treatmentAllocationBasisPoints: 5000, status: "paused", winnerVariant: null });
+    assert.equal((await loadFunnelExperimentAssignmentInDb(db, "affiliate-offer-v1", journeyId))?.variant, "focused");
+    await db.prepare("UPDATE funnel_experiments SET status = 'completed', winner_variant = 'control' WHERE experiment_key = 'affiliate-offer-v1'").run();
+    assert.equal((await loadAffiliateOfferExperimentInDb(db, "affiliate-offer-v1"))?.winnerVariant, "control");
+    assert.equal((await loadFunnelExperimentAssignmentInDb(db, "affiliate-offer-v1", journeyId))?.variant, "focused");
+  } finally { await mf.dispose(); }
+});
+
 test("A/A instrumentation fixture assigns the frozen 50/50 allocation without presentation skew", () => {
   const counts = { control: 0, focused: 0 };
   for (let bucket = 0; bucket < 10_000; bucket++) {
@@ -65,6 +81,13 @@ test("A/A instrumentation fixture assigns the frozen 50/50 allocation without pr
     counts[selectFunnelExperimentVariant(entropy, 5000)] += 1;
   }
   assert.deepEqual(counts, { control: 5000, focused: 5000 });
+});
+
+test("verified and definitively low-score bots are excluded from assignment", () => {
+  assert.equal(isAutomatedExperimentRequest({ cf: { botManagement: { verifiedBot: true, score: 99 } } }), true);
+  assert.equal(isAutomatedExperimentRequest({ cf: { botManagement: { verifiedBot: false, score: 1 } } }), true);
+  assert.equal(isAutomatedExperimentRequest({ cf: { botManagement: { verifiedBot: false, score: 2 } } }), false);
+  assert.equal(isAutomatedExperimentRequest(new Request("https://www.blognice.test/")), false);
 });
 
 test("a legacy signed referral journey upgrades once to a stable 50/50 experiment assignment", async () => {

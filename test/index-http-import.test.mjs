@@ -218,6 +218,9 @@ test("verified accounts enroll through the production HTTP and Stripe seams", as
     assert.equal(experimentCheckoutResponse.status, 303);
     assert.equal(experimentCheckoutResponse.headers.get("location"), "https://checkout.stripe.test/experiment");
     assert.equal(await db.prepare("SELECT checkout_started_at IS NOT NULL AS started FROM funnel_experiment_assignments").first().then((row) => row.started), 1);
+    assert.deepEqual(await db.prepare("SELECT experiment_key, experiment_variant FROM affiliate_stripe_checkouts WHERE account_id = 8").first(), {
+      experiment_key: "affiliate-offer-v1", experiment_variant: "focused",
+    });
     const offerWithoutReferral = await blogniceApp.request(
       "https://www.blognice.test/affiliate-offer", { headers: { Host: "www.blognice.test" } }, env, executionCtx,
     );

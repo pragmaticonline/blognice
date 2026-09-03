@@ -130,7 +130,7 @@ import { checkoutSubscriptionDecision, createAffiliateConnectedAccount, createAf
 import { createAnnualInvoice, getPayment, isNowPaymentsAmountFullyPaid, isTerminalPaidStatus, nowPaymentsConfigured, verifyNowPaymentsIpn, NOWPAYMENTS_ANNUAL_SECONDS, NOWPAYMENTS_ANNUAL_USD } from "./nowpayments";
 import { affiliateAnnualPriceMinor, attachStripeConnectedAccountInDb, attachStripePromotionCodeInDb, beginCheckoutAttributionInDb, createNowPaymentsCheckoutInDb, createStripeCheckoutInDb, enableAffiliateProfileInDb, parseAffiliateStripeConnectCountries, prepareAffiliatePayoutBatchInDb, reacceptAffiliateTermsInDb, recordPendingStripeFinancialEventInDb, refundNowPaymentsCheckoutInDb, requireCurrentAffiliateTermsInDb, requireOutdatedAffiliateTermsInDb, settleNowPaymentsCheckoutInDb, settleStripeInvoiceInDb, updateStripeConnectedAccountStatusInDb } from "./affiliate";
 import { captureSignupReferral, handleReferralCodeSubmission, handleReferralLink, hasActiveReferralOffer, prepareReferralExperiment, readReferralExperiment } from "./affiliate-referral";
-import { assignAndExposeFunnelExperimentInDb, associateFunnelExperimentSignupInDb, loadRunningAffiliateOfferExperimentInDb, recordFunnelExperimentCheckoutInDb, recordFunnelExperimentConversionInDb, recordFunnelExperimentCtaInDb, renderAffiliateOfferPage } from "./funnel-experiment";
+import { assignAndExposeFunnelExperimentInDb, associateFunnelExperimentSignupInDb, isAutomatedExperimentRequest, loadAffiliateOfferExperimentInDb, loadFunnelExperimentAssignmentInDb, loadFunnelExperimentCheckoutContextInDb, recordFunnelExperimentCheckoutInDb, recordFunnelExperimentConversionInDb, recordFunnelExperimentCtaInDb, renderAffiliateOfferPage } from "./funnel-experiment";
 import { getAffiliateDashboardInDb, type AffiliateDashboard } from "./affiliate-dashboard";
 import { enqueueAffiliateEnrollmentEmailInDb, relayAffiliateEmailOutboxInDb } from "./affiliate-notifications";
 import { renderMarkdown as renderMarkdownSafe } from "./markdown";
@@ -6059,6 +6059,7 @@ app.post("/admin/billing/checkout", async (c) => {
     const origin = new URL(c.req.url).origin;
     const now = Math.floor(Date.now() / 1000);
     const { attribution } = await beginCheckoutAttributionInDb(c.env.DB, account.id, now);
+    const experimentContext = await loadFunnelExperimentCheckoutContextInDb(c.env.DB, account.id);
     if (attribution && !attribution.stripePromotionCodeId) throw new Error("The affiliate discount is not configured yet.");
     const affiliateCheckout = attribution ? await createStripeCheckoutInDb(c.env.DB, {
       accountId: account.id,
@@ -6073,6 +6074,8 @@ app.post("/admin/billing/checkout", async (c) => {
       commissionRateDenominator: 2,
       createdAt: now,
       expiresAt: now + 30 * 60,
+      experimentKey: experimentContext?.experimentKey,
+      experimentVariant: experimentContext?.variant,
     }) : null;
     const session = await createCheckoutSession(c.env, {
       accountId: account.id,
@@ -6081,6 +6084,8 @@ app.post("/admin/billing/checkout", async (c) => {
       customerId: billing?.stripe_customer_id,
       affiliateCheckoutId: affiliateCheckout?.checkoutId,
       promotionCodeId: affiliateCheckout?.promotionCodeId,
+      experimentKey: experimentContext?.experimentKey,
+      experimentVariant: experimentContext?.variant,
       successUrl: `${origin}/admin/billing?message=Checkout completed. Subscription access will update after Stripe confirms payment.`,
       cancelUrl: `${origin}/admin/billing?message=Checkout cancelled.`,
     });
@@ -6123,6 +6128,7 @@ app.post("/admin/billing/crypto/checkout", async (c) => {
     const origin = new URL(c.req.url).origin;
     const now = Math.floor(Date.now() / 1000);
     const { attribution } = await beginCheckoutAttributionInDb(c.env.DB, account.id, now);
+    const experimentContext = await loadFunnelExperimentCheckoutContextInDb(c.env.DB, account.id);
     const expectedDiscountedAmountMinor = affiliateAnnualPriceMinor(Boolean(attribution), NOWPAYMENTS_ANNUAL_USD * 100);
     const checkout = await createNowPaymentsCheckoutInDb(c.env.DB, {
       accountId: account.id,
@@ -6135,9 +6141,13 @@ app.post("/admin/billing/crypto/checkout", async (c) => {
       commissionRateDenominator: 2,
       createdAt: now,
       expiresAt: now + 15 * 60,
+      experimentKey: experimentContext?.experimentKey,
+      experimentVariant: experimentContext?.variant,
     });
     const invoice = await createAnnualInvoice(c.env, {
       orderId: checkout.orderId,
+      experimentKey: experimentContext?.experimentKey,
+      experimentVariant: experimentContext?.variant,
       priceUsdMinor: checkout.expectedDiscountedAmountMinor,
       callbackUrl: `${origin}/nowpayments/webhook`,
       successUrl: `${origin}/admin/billing?message=Crypto payment received. Access will update after NOWPayments confirms it.`,
@@ -6653,10 +6663,11 @@ app.get("/affiliate-offer", async (c) => {
   let variant: "control" | "focused" = "control";
   let upgradedCookie: string | null = null;
   try {
-    const experiment = await loadRunningAffiliateOfferExperimentInDb(c.env.DB, c.env.AFFILIATE_OFFER_EXPERIMENT);
-    if (experiment) {
-      const prepared = await prepareReferralExperiment(c.req.raw, signingSecrets, now, experiment);
-      if (prepared) {
+    const experiment = await loadAffiliateOfferExperimentInDb(c.env.DB, c.env.AFFILIATE_OFFER_EXPERIMENT);
+    if (experiment && !isAutomatedExperimentRequest(c.req.raw)) {
+      if (experiment.status === "running") {
+        const prepared = await prepareReferralExperiment(c.req.raw, signingSecrets, now, experiment);
+        if (prepared) {
         const result = await assignAndExposeFunnelExperimentInDb(c.env.DB, {
           journeyId: prepared.assignment.journeyId,
           experimentKey: prepared.assignment.experimentKey,
@@ -6672,6 +6683,14 @@ app.get("/affiliate-offer", async (c) => {
           name: "affiliate_offer_exposure", source: "link", policyVersion: result.assignment.policyVersion,
           experimentKey: result.assignment.experimentKey, variant: result.assignment.variant,
         });
+        }
+      } else {
+        const signed = await readReferralExperiment(c.req.raw, signingSecrets, now);
+        const existing = signed?.assignment.experimentKey === experiment.experimentKey
+          ? await loadFunnelExperimentAssignmentInDb(c.env.DB, experiment.experimentKey, signed.assignment.journeyId)
+          : null;
+        if (existing) variant = existing.variant;
+        else if (experiment.status === "completed" && experiment.winnerVariant) variant = experiment.winnerVariant;
       }
     }
   } catch (error) {

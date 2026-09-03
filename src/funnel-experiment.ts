@@ -1,25 +1,34 @@
 export type FunnelExperimentVariant = "control" | "focused";
 
-export type RunningFunnelExperiment = {
+export function isAutomatedExperimentRequest(request: Request): boolean {
+  const bot = (request as Request & { cf?: { botManagement?: { verifiedBot?: boolean; score?: number } } }).cf?.botManagement;
+  return bot?.verifiedBot === true || (typeof bot?.score === "number" && bot.score <= 1);
+}
+
+export type AffiliateOfferExperiment = {
   experimentKey: string;
   treatmentAllocationBasisPoints: number;
+  status: "running" | "paused" | "completed";
+  winnerVariant: FunnelExperimentVariant | null;
 };
 
-export async function loadRunningAffiliateOfferExperimentInDb(
+export async function loadAffiliateOfferExperimentInDb(
   db: D1Database,
   configuredKey: string | undefined,
-): Promise<RunningFunnelExperiment | null> {
+): Promise<AffiliateOfferExperiment | null> {
   const experimentKey = String(configuredKey || "").trim();
   if (!experimentKey || experimentKey === "off" || !/^[a-z0-9_-]{3,80}$/i.test(experimentKey)) return null;
   const row = await db.prepare(
-    `SELECT experiment_key, treatment_allocation_basis_points
+    `SELECT experiment_key, treatment_allocation_basis_points, status, winner_variant
        FROM funnel_experiments
-      WHERE experiment_key = ? AND route = 'affiliate_offer' AND status = 'running'`,
-  ).bind(experimentKey).first<{ experiment_key: string; treatment_allocation_basis_points: number }>();
+      WHERE experiment_key = ? AND route = 'affiliate_offer' AND status IN ('running', 'paused', 'completed')`,
+  ).bind(experimentKey).first<{ experiment_key: string; treatment_allocation_basis_points: number; status: "running" | "paused" | "completed"; winner_variant: FunnelExperimentVariant | null }>();
   if (!row) return null;
   return {
     experimentKey: row.experiment_key,
     treatmentAllocationBasisPoints: Number(row.treatment_allocation_basis_points),
+    status: row.status,
+    winnerVariant: row.winner_variant,
   };
 }
 
@@ -53,6 +62,19 @@ function assignmentFromRow(row: AssignmentRow): FunnelExperimentAssignment {
     assignedAt: Number(row.assigned_at),
     exposedAt: Number(row.exposed_at),
   };
+}
+
+export async function loadFunnelExperimentAssignmentInDb(
+  db: D1Database,
+  experimentKey: string,
+  journeyId: string,
+): Promise<FunnelExperimentAssignment | null> {
+  const row = await db.prepare(
+    `SELECT journey_id, experiment_key, variant, affiliate_id, policy_version, assigned_at, exposed_at
+       FROM funnel_experiment_assignments
+      WHERE experiment_key = ? AND journey_id = ? AND exposed_at IS NOT NULL AND excluded_at IS NULL`,
+  ).bind(experimentKey, journeyId).first<AssignmentRow>();
+  return row ? assignmentFromRow(row) : null;
 }
 
 export async function assignAndExposeFunnelExperimentInDb(
@@ -140,6 +162,18 @@ export async function recordFunnelExperimentCheckoutInDb(db: D1Database, account
           WHEN checkout_started_at IS NULL OR ? < checkout_started_at THEN ? ELSE checkout_started_at END
       WHERE account_id = ? AND signup_at IS NOT NULL AND excluded_at IS NULL`,
   ).bind(startedAt, startedAt, accountId).run();
+}
+
+export async function loadFunnelExperimentCheckoutContextInDb(
+  db: D1Database,
+  accountId: number,
+): Promise<{ experimentKey: string; variant: FunnelExperimentVariant } | null> {
+  const row = await db.prepare(
+    `SELECT experiment_key, variant FROM funnel_experiment_assignments
+      WHERE account_id = ? AND signup_at IS NOT NULL AND excluded_at IS NULL
+      ORDER BY assigned_at DESC LIMIT 1`,
+  ).bind(accountId).first<{ experiment_key: string; variant: FunnelExperimentVariant }>();
+  return row ? { experimentKey: row.experiment_key, variant: row.variant } : null;
 }
 
 export async function recordFunnelExperimentConversionInDb(

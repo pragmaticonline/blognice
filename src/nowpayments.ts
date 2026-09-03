@@ -36,14 +36,16 @@ async function request<T>(env: NowPaymentsEnv, path: string, init?: RequestInit)
 
 export type NowPaymentsInvoice = { id: string | number; invoice_url?: string; payment_url?: string; pay_url?: string };
 
-export function createAnnualInvoice(env: NowPaymentsEnv, input: { orderId: string; priceUsdMinor: number; callbackUrl: string; successUrl: string; cancelUrl: string }) {
+export function createAnnualInvoice(env: NowPaymentsEnv, input: { orderId: string; priceUsdMinor: number; callbackUrl: string; successUrl: string; cancelUrl: string; experimentKey?: string | null; experimentVariant?: "control" | "focused" | null }) {
   return request<NowPaymentsInvoice>(env, "invoice", {
     method: "POST",
     body: JSON.stringify({
       price_amount: input.priceUsdMinor / 100,
       price_currency: "usd",
       order_id: input.orderId,
-      order_description: "blognice pro yearly",
+      order_description: input.experimentKey && input.experimentVariant
+        ? `blognice pro yearly (${input.experimentKey}/${input.experimentVariant})`
+        : "blognice pro yearly",
       ipn_callback_url: input.callbackUrl,
       success_url: input.successUrl,
       cancel_url: input.cancelUrl,

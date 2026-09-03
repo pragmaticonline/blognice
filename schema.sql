@@ -225,6 +225,8 @@ CREATE TABLE affiliate_nowpayments_checkouts (
   expected_discounted_amount_minor INTEGER NOT NULL CHECK (expected_discounted_amount_minor > 0),
   currency                         TEXT NOT NULL DEFAULT 'usd' CHECK (currency = 'usd'),
   policy_version                   TEXT NOT NULL,
+  experiment_key                  TEXT,
+  experiment_variant              TEXT CHECK (experiment_variant IN ('control', 'focused')),
   discount_rate_numerator          INTEGER NOT NULL CHECK (discount_rate_numerator >= 0),
   discount_rate_denominator        INTEGER NOT NULL CHECK (discount_rate_denominator > 0),
   commission_rate_numerator        INTEGER NOT NULL CHECK (commission_rate_numerator >= 0),
@@ -239,6 +241,7 @@ CREATE TABLE affiliate_nowpayments_checkouts (
   created_at                       INTEGER NOT NULL,
   expires_at                       INTEGER NOT NULL,
   CHECK (expires_at > created_at),
+  CHECK ((experiment_key IS NULL) = (experiment_variant IS NULL)),
   FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE RESTRICT,
   FOREIGN KEY (attribution_id) REFERENCES affiliate_attributions(id) ON DELETE RESTRICT
 );
@@ -251,6 +254,8 @@ CREATE TABLE affiliate_stripe_checkouts (
   price_id                     TEXT NOT NULL,
   promotion_code_id            TEXT NOT NULL,
   policy_version               TEXT NOT NULL,
+  experiment_key              TEXT,
+  experiment_variant          TEXT CHECK (experiment_variant IN ('control', 'focused')),
   discount_rate_numerator      INTEGER NOT NULL CHECK (discount_rate_numerator > 0),
   discount_rate_denominator    INTEGER NOT NULL CHECK (discount_rate_denominator > 0),
   commission_rate_numerator    INTEGER NOT NULL CHECK (commission_rate_numerator > 0),
@@ -262,6 +267,7 @@ CREATE TABLE affiliate_stripe_checkouts (
   created_at                   INTEGER NOT NULL,
   expires_at                   INTEGER NOT NULL,
   CHECK (expires_at > created_at),
+  CHECK ((experiment_key IS NULL) = (experiment_variant IS NULL)),
   FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE RESTRICT,
   FOREIGN KEY (attribution_id) REFERENCES affiliate_attributions(id) ON DELETE RESTRICT
 );
@@ -926,3 +932,25 @@ CREATE TABLE funnel_experiment_conversions (
 
 CREATE INDEX idx_funnel_experiment_conversions_results
   ON funnel_experiment_conversions(experiment_key, variant, converted_at);
+
+CREATE TRIGGER trg_funnel_experiment_presentation_immutable
+BEFORE UPDATE OF control_variant, treatment_variant, treatment_allocation_basis_points,
+  control_presentation_version, treatment_presentation_version ON funnel_experiments
+WHEN EXISTS (SELECT 1 FROM funnel_experiment_assignments WHERE experiment_key = OLD.experiment_key AND exposed_at IS NOT NULL)
+BEGIN SELECT RAISE(ABORT, 'exposed experiment presentation is immutable'); END;
+
+CREATE TRIGGER trg_affiliate_stripe_experiment_snapshot
+BEFORE INSERT ON affiliate_stripe_checkouts
+WHEN NEW.experiment_key IS NOT NULL AND NOT EXISTS (
+  SELECT 1 FROM funnel_experiment_assignments WHERE account_id = NEW.account_id
+    AND experiment_key = NEW.experiment_key AND variant = NEW.experiment_variant AND excluded_at IS NULL
+)
+BEGIN SELECT RAISE(ABORT, 'invalid Stripe experiment snapshot'); END;
+
+CREATE TRIGGER trg_affiliate_nowpayments_experiment_snapshot
+BEFORE INSERT ON affiliate_nowpayments_checkouts
+WHEN NEW.experiment_key IS NOT NULL AND NOT EXISTS (
+  SELECT 1 FROM funnel_experiment_assignments WHERE account_id = NEW.account_id
+    AND experiment_key = NEW.experiment_key AND variant = NEW.experiment_variant AND excluded_at IS NULL
+)
+BEGIN SELECT RAISE(ABORT, 'invalid NOWPayments experiment snapshot'); END;

@@ -44,6 +44,8 @@ test("attributed Stripe checkout carries its snapshot and promotion code", async
         accountId: 42, email: "reader@example.com", priceId,
         affiliateCheckoutId: "affiliate-checkout-123",
         promotionCodeId: "promo_affiliate_17",
+        experimentKey: "affiliate-offer-v1",
+        experimentVariant: "focused",
         successUrl: "https://example.com/success",
         cancelUrl: "https://example.com/cancel",
       });
@@ -52,6 +54,9 @@ test("attributed Stripe checkout carries its snapshot and promotion code", async
       assert.equal(params.get("discounts[0][promotion_code]"), "promo_affiliate_17");
       assert.equal(params.get("metadata[affiliate_checkout_id]"), "affiliate-checkout-123");
       assert.equal(params.get("subscription_data[metadata][affiliate_checkout_id]"), "affiliate-checkout-123");
+      assert.equal(params.get("metadata[experiment_key]"), "affiliate-offer-v1");
+      assert.equal(params.get("metadata[experiment_variant]"), "focused");
+      assert.equal(params.get("subscription_data[metadata][experiment_key]"), "affiliate-offer-v1");
     }
   } finally {
     globalThis.fetch = originalFetch;

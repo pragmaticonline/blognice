@@ -46,9 +46,12 @@ test("NOWPayments invoice uses the durable checkout amount", async () => {
       callbackUrl: "https://example.com/nowpayments/webhook",
       successUrl: "https://example.com/success",
       cancelUrl: "https://example.com/cancel",
+      experimentKey: "affiliate-offer-v1",
+      experimentVariant: "focused",
     });
     assert.equal(requestBody.price_amount, 32.4);
     assert.equal(requestBody.order_id, "affiliate_123");
+    assert.equal(requestBody.order_description, "blognice pro yearly (affiliate-offer-v1/focused)");
   } finally {
     globalThis.fetch = originalFetch;
   }
