@@ -181,6 +181,7 @@ test("verified accounts enroll through the production HTTP and Stripe seams", as
     assert.match(affiliateOfferHtml, /href="\/signup"[^>]*>Claim 10% off/);
     assert.match(affiliateOfferHtml, /Founding member pricing/);
     assert.match(affiliateOfferHtml, /Planned standard pricing:<\/strong> \$119\/year or \$12\.99\/month/);
+    assert.match(affiliateOfferHtml, /We plan to close founding pricing after the first 1,000 paying members\./);
     const offerWithoutReferral = await blogniceApp.request(
       "https://www.blognice.test/affiliate-offer", { headers: { Host: "www.blognice.test" } }, env, executionCtx,
     );

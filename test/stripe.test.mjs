@@ -24,6 +24,7 @@ test("billing clearly distinguishes founding and planned standard pricing", () =
   assert.match(source, /billing-ribbon">Founding price/);
   assert.match(source, /checkout\("yearly", "Lock in \$36\/year"/);
   assert.match(source, /checkout\("monthly", "Choose \$5\/month"/);
+  assert.match(source, /We plan to close founding pricing after the first 1,000 paying members\./);
   assert.doesNotMatch(source, /Founding rates available now/);
 });
 

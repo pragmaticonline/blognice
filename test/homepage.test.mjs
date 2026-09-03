@@ -27,6 +27,8 @@ test("marketing homepage clearly distinguishes founding and planned standard pri
   assert.match(homepage, /class="founder-badge">Founding member price/);
   assert.match(homepage, /class="planned-price">Planned standard price: <s>\$119\/year<\/s>/);
   assert.match(homepage, /class="founder-lock">Keep \$36\/year/);
+  assert.match(homepage, /class="founder-limit">We plan to close founding pricing after the first 1,000 paying members\./);
+  assert.equal((homepage.match(/first 1,000 paying members/g) || []).length, 3);
   assert.match(homepage, /class="btn founder-cta"[^>]*>Lock in founding price<\/a>/);
   assert.match(homepage, /\.price-box\.recommended\{[^{]*background:var\(--green-deep\)/);
   assert.doesNotMatch(homepage, /Founding rates available now/);
