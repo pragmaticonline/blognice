@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { editorPage } from "../src/admin.ts";
 
 const admin = readFileSync(new URL("../src/admin.ts", import.meta.url), "utf8");
 const index = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
@@ -25,4 +26,14 @@ test("editor teaches Markdown and provides accessible formatting shortcuts", () 
   assert.match(admin, /aria-label="Add a link"/);
   assert.match(admin, /setSelectionRange/);
   assert.match(admin, /aria-describedby="markdown-intro markdown-help"/);
+  assert.match(admin, /id="auto-format"/);
+});
+
+test("generated editor scripts compile in the browser", () => {
+  const html = editorPage(
+    { id: 1, email: "writer@example.com", billing_status: "active" },
+    { id: 2, public_id: "blog-public", slug: "notes", title: "Notes", membership_role: "owner" },
+    "blognice.test", { id: 3, title: "Draft", slug: "draft", body_md: "Body", tags_json: "[]", published: 1 },
+  );
+  for (const match of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) assert.doesNotThrow(() => new Function(match[1]));
 });

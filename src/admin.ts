@@ -200,6 +200,7 @@ const ADMIN_STYLES = /* css */ `
   .markdown-tools { display:flex; flex-wrap:wrap; align-items:center; gap:.35rem; margin:0 0 .7rem; }
   .markdown-tool { min-width:2.75rem; min-height:2.75rem; padding:.4rem .65rem; border:1px solid var(--rule); border-radius:6px; background:var(--field); color:var(--ink); font:600 .85rem/1 var(--sans); cursor:pointer; }
   .markdown-tool:hover { border-color:var(--accent); color:var(--accent); }
+  .markdown-tool.auto-format { color:var(--accent); border-color:color-mix(in srgb, var(--accent) 45%, var(--rule)); }
   .markdown-tool:focus-visible, .markdown-help summary:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
   .markdown-help { margin:0 0 .8rem; border:1px solid var(--rule); border-radius:7px; background:var(--panel); }
   .markdown-help summary { padding:.65rem .8rem; color:var(--accent); font-size:.86rem; font-weight:650; cursor:pointer; }
@@ -1259,7 +1260,9 @@ export function editorPage(
           <button class="markdown-tool" type="button" aria-label="Add a link" title="Add a link" data-prefix="[" data-suffix="](https://)">Link</button>
           <button class="markdown-tool" type="button" aria-label="Bulleted list" title="Bulleted list" data-prefix="- ">List</button>
           <button class="markdown-tool" type="button" aria-label="Quote" title="Quote" data-prefix="&gt; ">Quote</button>
+          <button class="markdown-tool auto-format" type="button" id="auto-format" title="Use one AI credit to add Markdown formatting">✨ Auto-format</button>
         </div>
+        <div class="notice" id="auto-format-status" aria-live="polite" hidden></div>
         <details class="markdown-help" id="markdown-help">
           <summary>Markdown formatting help</summary>
           <div class="markdown-help-grid">
@@ -1333,6 +1336,9 @@ export function editorPage(
         var tw = document.getElementById("tab-write");
         var tp = document.getElementById("tab-preview");
         var markdownTools = document.getElementById("markdown-tools");
+        var autoFormat = document.getElementById("auto-format");
+        var autoFormatStatus = document.getElementById("auto-format-status");
+        var autoFormatUndo = null;
         var lastRendered = null;
 
         function show(which) {
@@ -1361,6 +1367,50 @@ export function editorPage(
           body.focus();
           if (selected === "link text") body.setSelectionRange(start + prefix.length, start + prefix.length + selected.length);
           body.dispatchEvent(new Event("input", { bubbles:true }));
+        });
+
+        autoFormat.addEventListener("click", function () {
+          var original = body.value;
+          if (!original.trim()) {
+            autoFormatStatus.className = "error";
+            autoFormatStatus.textContent = "Write something before using auto-format.";
+            autoFormatStatus.hidden = false;
+            return;
+          }
+          autoFormat.disabled = true;
+          var stopTimer = startGeneration(autoFormatStatus, "Adding Markdown formatting…");
+          fetch("${base}/format-markdown", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ text: original })
+          }).then(function (response) {
+            return response.json().then(function (data) {
+              if (!response.ok) throw new Error(data.error || "Auto-format failed.");
+              return data;
+            });
+          }).then(function (data) {
+            if (body.value !== original) throw new Error("Your draft changed while formatting, so it was left untouched. Run auto-format again when you are ready.");
+            autoFormatUndo = original;
+            body.value = data.markdown;
+            body.dispatchEvent(new Event("input", { bubbles:true }));
+            autoFormatStatus.className = "notice";
+            autoFormatStatus.innerHTML = 'Markdown formatting added. Review it before saving. <button class="btn ghost" type="button" id="undo-auto-format">Undo auto-format</button>';
+            document.getElementById("undo-auto-format").addEventListener("click", function () {
+              if (autoFormatUndo === null) return;
+              body.value = autoFormatUndo;
+              autoFormatUndo = null;
+              body.dispatchEvent(new Event("input", { bubbles:true }));
+              autoFormatStatus.textContent = "Auto-format undone.";
+              body.focus();
+            });
+            body.focus();
+          }).catch(function (error) {
+            autoFormatStatus.className = "error";
+            autoFormatStatus.textContent = error.message || "Auto-format failed. Your draft has not been changed.";
+          }).finally(function () {
+            stopTimer();
+            autoFormat.disabled = false;
+          });
         });
 
         function renderPreview() {

@@ -135,6 +135,7 @@ import { getAffiliateDashboardInDb, type AffiliateDashboard } from "./affiliate-
 import { enqueueAffiliateEnrollmentEmailInDb, relayAffiliateEmailOutboxInDb } from "./affiliate-notifications";
 import { renderMarkdown as renderMarkdownSafe } from "./markdown";
 import { buildSitemapIndexXml, cacheVariants, CACHE_VERSION, customDomainRedirectUrl, indexNowKey } from "./indexing";
+import { AI_MARKDOWN_TEXT_MAX, markdownFormattingMessages, normalizedMarkdownResponse, preservesAuthorTokens } from "./ai-markdown";
 import { applySubscriberConfirmation, requestSubscriberConfirmation } from "./subscriber-optin";
 import { refreshPostPopularity } from "./popularity";
 
@@ -2710,6 +2711,45 @@ app.post("/admin/preview", async (c) => {
   return c.html(renderMarkdown(md));
 });
 
+// Add Markdown structure to a draft without saving or changing its wording.
+app.post("/admin/b/:blogId/format-markdown", async (c) => {
+  const ctx = await blogContext(c);
+  if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401);
+  if ("suspended" in ctx) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
+  const denied = requireBlogCapability(c, ctx, "posts.create");
+  if (denied) return c.json({ error: "forbidden" }, 403);
+  const requestOrigin = c.req.header("origin");
+  const requestUrl = new URL(c.req.url);
+  const localRequest = c.env.DEV_TENANT || requestUrl.hostname === "localhost" || requestUrl.hostname === "127.0.0.1";
+  const allowedOrigins = new Set(localRequest ? [requestUrl.origin] : [adminOriginOf(c)]);
+  if (!requestOrigin || !allowedOrigins.has(requestOrigin)) return c.json({ error: "same-origin request required" }, 403);
+  if (!(await tenantHasPaidPlan(c.env, ctx.tenant.id))) return c.json({ error: "AI auto-format is available on a paid plan." }, 402);
+  if (oversizedAiRequest(c.req.raw)) return c.json({ error: "request too large" }, 413);
+  let input: { text?: unknown };
+  try { input = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+  const text = String(input.text ?? "").trim();
+  if (!text) return c.json({ error: "Write something before using auto-format." }, 400);
+  if (text.length > AI_MARKDOWN_TEXT_MAX) return c.json({ error: `Auto-format supports drafts up to ${AI_MARKDOWN_TEXT_MAX.toLocaleString()} characters.` }, 400);
+  let creditReservation: { accountId: number; period: string };
+  try { creditReservation = await reserveAiCredits(c.env, ctx.tenant.id, AI_FORMAT_CREDITS); }
+  catch (error) { return c.json({ error: error instanceof Error ? error.message : "AI credits unavailable" }, 402); }
+  try {
+    const generated = await c.env.AI.run(AI_BRIEF_MODEL, {
+      messages: markdownFormattingMessages(text), max_tokens: 6000, temperature: 0.1,
+    });
+    const markdown = normalizedMarkdownResponse(generated.response);
+    if (!markdown) throw new Error("The formatting model returned no text.");
+    if (markdown.length > AI_MARKDOWN_TEXT_MAX * 2) throw new Error("The formatting result was unexpectedly long.");
+    if (!preservesAuthorTokens(text, markdown)) throw new Error("The formatting model changed the author's words.");
+    queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "ai_markdown_formatted", `characters:${text.length}`);
+    return c.json({ markdown });
+  } catch (error) {
+    await refundAiCredits(c.env, creditReservation.accountId, creditReservation.period, AI_FORMAT_CREDITS);
+    console.error(JSON.stringify({ message: "AI Markdown formatting failed", tenantId: ctx.tenant.id, error: error instanceof Error ? error.message : String(error) }));
+    return c.json({ error: "Auto-format failed. Your draft has not been changed." }, 502);
+  }
+});
+
 // --- Blog-scoped post routes: /admin/b/:blogId/... -------------------------
 
 // Post list for a blog.
@@ -3842,6 +3882,7 @@ type ImageJobManifest = {
 
 const AI_MONTHLY_CREDITS = 1000;
 const AI_IMAGE_CREDITS = 3;
+const AI_FORMAT_CREDITS = 1;
 const AI_AUDIO_WORDS_PER_CREDIT = 500;
 
 function aiCreditPeriod(now = Date.now()): string {
@@ -5734,7 +5775,7 @@ function billingPage(
   const check = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="m5 13 4 4L19 7"/></svg>`;
   const freeFeatures = ["One blognice blog", "blognice subdomain", "Editor, publishing, and images", "RSS, themes, tags, and basic metrics"];
   // Free plan remains the default until a provider confirms payment.
-  const proFeatures = ["Up to five blogs", "AI image generation and audio narration", "Collaborators and authors", "Custom domains and favicons", "API access"];
+  const proFeatures = ["Up to five blogs", "AI Markdown formatting, image generation, and audio narration", "Collaborators and authors", "Custom domains and favicons", "API access"];
   const features = (items: string[]) => `<ul class="billing-features">${items.map((item) => `<li>${check}${esc(item)}</li>`).join("")}</ul>`;
   const checkout = (plan: "monthly" | "yearly", label: string, cls = "") => `<form method="post" action="/admin/billing/checkout"><input type="hidden" name="plan" value="${plan}"><button class="billing-btn ${cls}" type="submit">${label}</button></form>`;
   const portal = `<form method="post" action="/admin/billing/portal"><button class="billing-btn billing-btn-solid" type="submit">Manage billing in Stripe</button></form>`;
