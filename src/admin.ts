@@ -1421,7 +1421,7 @@ export function editorPage(
             body.value = data.markdown;
             body.dispatchEvent(new Event("input", { bubbles:true }));
             autoFormatStatus.className = "notice";
-            autoFormatStatus.innerHTML = 'Markdown formatting added. Review it before saving. <button class="btn ghost" type="button" id="undo-auto-format">Undo auto-format</button>';
+            autoFormatStatus.innerHTML = (data.warning ? data.warning : 'Markdown formatting added. Review it before saving.') + ' <button class="btn ghost" type="button" id="undo-auto-format">Undo auto-format</button>';
             document.getElementById("undo-auto-format").addEventListener("click", function () {
               if (autoFormatUndo === null) return;
               body.value = autoFormatUndo;

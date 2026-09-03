@@ -1,5 +1,9 @@
 export const AI_MARKDOWN_TEXT_MAX = 20_000;
 
+export function markdownOutputTokenBudget(text: string): number {
+  return Math.min(4096, Math.max(512, Math.ceil(text.length / 2)));
+}
+
 export type AiMarkdownMessage = { role: "system" | "user" | "assistant"; content: string };
 
 export function markdownFormattingMessages(text: string): AiMarkdownMessage[] {
@@ -43,4 +47,17 @@ export function preservesAuthorTokens(original: string, formatted: string): bool
   const before = authorTokens(original);
   const after = authorTokens(formatted);
   return before.length === after.length && before.every((token, index) => token === after[index]);
+}
+
+export function conservativeMarkdownFallback(text: string): string {
+  const lines = text.replace(/\r\n?/g, "\n").trim().split("\n");
+  const contentLines = lines.map((line, index) => ({ line, index })).filter(({ line }) => line.trim());
+  if (!contentLines.length) return "";
+  const first = contentLines[0];
+  if (!/^\s{0,3}(?:#{1,6}\s|>|[-+*]\s|\d+[.)]\s|```)/.test(first.line)) lines[first.index] = `# ${first.line}`;
+  const second = contentLines[1];
+  if (second && second.index === first.index + 1 && second.line.length <= 240 && !/^\s{0,3}(?:#{1,6}\s|>|[-+*]\s|\d+[.)]\s|```)/.test(second.line)) {
+    lines[second.index] = `*${second.line}*`;
+  }
+  return lines.join("\n");
 }

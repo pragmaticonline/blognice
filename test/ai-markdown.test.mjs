@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import test from "node:test";
 import { Miniflare } from "miniflare";
-import { markdownFormattingMessages, markdownFormattingRetryMessages, normalizedMarkdownResponse, preservesAuthorTokens } from "../src/ai-markdown.ts";
+import { conservativeMarkdownFallback, markdownFormattingMessages, markdownFormattingRetryMessages, markdownOutputTokenBudget, normalizedMarkdownResponse, preservesAuthorTokens } from "../src/ai-markdown.ts";
 
 const require = createRequire(import.meta.url);
 for (const extension of [".html", ".svg"]) require.extensions[extension] = (module, filename) => { module.exports = readFileSync(filename, "utf8"); };
@@ -30,6 +30,15 @@ test("Markdown formatting rejects rewritten or reordered words", () => {
   assert.equal(preservesAuthorTokens("First line. Second line.", "## Better first line.\n\nSecond line."), false);
   assert.equal(preservesAuthorTokens("First line. Second line.", "Second line. First line."), false);
   assert.match(markdownFormattingRetryMessages("Original", "Changed").at(-1).content, /copy every original word/i);
+});
+
+test("Markdown formatting bounds model output and has a word-preserving fallback", () => {
+  assert.equal(markdownOutputTokenBudget("short"), 512);
+  assert.equal(markdownOutputTokenBudget("x".repeat(20_000)), 4096);
+  const original = "Iran targets US bases\nAir bases used by US hit\n\nIran has continued to demonstrate an ability to target bases.";
+  const fallback = conservativeMarkdownFallback(original);
+  assert.equal(fallback, "# Iran targets US bases\n*Air bases used by US hit*\n\nIran has continued to demonstrate an ability to target bases.");
+  assert.equal(preservesAuthorTokens(original, fallback), true);
 });
 
 test("auto-format endpoint is tenant scoped, same-origin, paid, metered, and refundable", () => {
@@ -80,8 +89,10 @@ test("authenticated editor auto-format consumes one credit and returns AI Markdo
     assert.equal(calls.length, 3);
     assert.equal(await db.prepare("SELECT credits_used FROM ai_credit_usage WHERE account_id=1").first().then((row) => row.credits_used), 2);
     const rejected = await request();
-    assert.equal(rejected.status, 502);
-    assert.match((await rejected.json()).error, /without changing its wording/);
+    assert.equal(rejected.status, 200);
+    const fallback = await rejected.json();
+    assert.equal(fallback.markdown, "# First line\n\nSecond line");
+    assert.match(fallback.warning, /safe basic formatting/);
     assert.equal(calls.length, 5);
     assert.equal(await db.prepare("SELECT credits_used FROM ai_credit_usage WHERE account_id=1").first().then((row) => row.credits_used), 2);
   } finally { await mf.dispose(); }
