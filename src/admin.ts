@@ -196,6 +196,17 @@ const ADMIN_STYLES = /* css */ `
   .tab.active { color: var(--ink); border-bottom-color: var(--accent); }
   .img-btn { color: var(--accent); border-bottom-color: transparent !important; font-weight: 500; }
   .img-btn:hover { color: var(--accent); filter: brightness(1.1); }
+  .markdown-intro { color:var(--muted); font-size:.88rem; margin:.1rem 0 .65rem; }
+  .markdown-tools { display:flex; flex-wrap:wrap; align-items:center; gap:.35rem; margin:0 0 .7rem; }
+  .markdown-tool { min-width:2.75rem; min-height:2.75rem; padding:.4rem .65rem; border:1px solid var(--rule); border-radius:6px; background:var(--field); color:var(--ink); font:600 .85rem/1 var(--sans); cursor:pointer; }
+  .markdown-tool:hover { border-color:var(--accent); color:var(--accent); }
+  .markdown-tool:focus-visible, .markdown-help summary:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .markdown-help { margin:0 0 .8rem; border:1px solid var(--rule); border-radius:7px; background:var(--panel); }
+  .markdown-help summary { padding:.65rem .8rem; color:var(--accent); font-size:.86rem; font-weight:650; cursor:pointer; }
+  .markdown-help-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.45rem 1rem; padding:0 .8rem .8rem; color:var(--muted); font-size:.84rem; }
+  .markdown-help-grid p { margin:0; }
+  .markdown-help code { color:var(--ink); }
+  @media (max-width: 560px) { .markdown-help-grid { grid-template-columns:1fr; } }
   .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1rem; }
   .media-card { min-width: 0; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
   .media-card img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: var(--rule); }
@@ -1240,6 +1251,26 @@ export function editorPage(
           <button class="tab img-btn" type="button" id="add-image">🖼 Add image</button>
           <input type="file" id="file-input" accept="image/*" multiple hidden>
         </div>
+        <p class="markdown-intro" id="markdown-intro">You can write normally. Markdown adds formatting when you want it—select some text and use these buttons.</p>
+        <div class="markdown-tools" id="markdown-tools" role="toolbar" aria-label="Text formatting">
+          <button class="markdown-tool" type="button" aria-label="Heading" title="Heading" data-prefix="## ">Heading</button>
+          <button class="markdown-tool" type="button" aria-label="Bold" title="Bold" data-prefix="**" data-suffix="**">B</button>
+          <button class="markdown-tool" type="button" aria-label="Italic" title="Italic" data-prefix="_" data-suffix="_"><em>I</em></button>
+          <button class="markdown-tool" type="button" aria-label="Add a link" title="Add a link" data-prefix="[" data-suffix="](https://)">Link</button>
+          <button class="markdown-tool" type="button" aria-label="Bulleted list" title="Bulleted list" data-prefix="- ">List</button>
+          <button class="markdown-tool" type="button" aria-label="Quote" title="Quote" data-prefix="&gt; ">Quote</button>
+        </div>
+        <details class="markdown-help" id="markdown-help">
+          <summary>Markdown formatting help</summary>
+          <div class="markdown-help-grid">
+            <p><code>## Heading</code> creates a heading</p>
+            <p><code>**bold**</code> makes text bold</p>
+            <p><code>_italic_</code> makes text italic</p>
+            <p><code>[link text](https://example.com)</code> adds a link</p>
+            <p><code>- list item</code> starts a bulleted list</p>
+            <p><code>&gt; quote</code> creates a quotation</p>
+          </div>
+        </details>
         <dialog class="media-dialog" id="media-dialog">
           <div class="media-dialog-head"><strong id="media-dialog-title">Choose from media</strong><span class="spacer"></span><button class="btn ghost" type="button" id="media-close">Close</button></div>
           <div class="media-dialog-body" id="media-dialog-body"><p style="color:var(--muted)">Loading…</p></div>
@@ -1278,7 +1309,7 @@ export function editorPage(
           </div>
         </dialog>
         <div class="editor">
-          <textarea id="body" name="body_md" spellcheck="true" placeholder="Write your post in Markdown…  (drag, paste, or add an image)">${body}</textarea>
+          <textarea id="body" name="body_md" spellcheck="true" aria-describedby="markdown-intro markdown-help" placeholder="Start writing… (drag, paste, or add an image)">${body}</textarea>
           <div id="preview" class="preview" hidden></div>
         </div>
 
@@ -1301,6 +1332,7 @@ export function editorPage(
         var preview = document.getElementById("preview");
         var tw = document.getElementById("tab-write");
         var tp = document.getElementById("tab-preview");
+        var markdownTools = document.getElementById("markdown-tools");
         var lastRendered = null;
 
         function show(which) {
@@ -1311,8 +1343,25 @@ export function editorPage(
           tp.classList.toggle("active", !writing);
           tw.setAttribute("aria-selected", writing);
           tp.setAttribute("aria-selected", !writing);
+          markdownTools.hidden = !writing;
           if (writing) body.focus();
         }
+
+        markdownTools.addEventListener("click", function (event) {
+          var button = event.target.closest("button[data-prefix]");
+          if (!button) return;
+          var start = body.selectionStart;
+          var end = body.selectionEnd;
+          var selected = body.value.slice(start, end);
+          var prefix = button.dataset.prefix || "";
+          var suffix = button.dataset.suffix || "";
+          if (!selected && button.getAttribute("aria-label") === "Add a link") selected = "link text";
+          var replacement = prefix + selected + suffix;
+          body.setRangeText(replacement, start, end, "end");
+          body.focus();
+          if (selected === "link text") body.setSelectionRange(start + prefix.length, start + prefix.length + selected.length);
+          body.dispatchEvent(new Event("input", { bubbles:true }));
+        });
 
         function renderPreview() {
           if (body.value === lastRendered) return;      // skip if unchanged

@@ -17,3 +17,12 @@ test("save handler keeps the editor open when requested", () => {
   assert.match(index, /inserted\.meta\.last_row_id/);
   assert.match(index, /\/edit\/\$\{savedId\}/);
 });
+
+test("editor teaches Markdown and provides accessible formatting shortcuts", () => {
+  assert.match(admin, /You can write normally\. Markdown adds formatting/);
+  assert.match(admin, /<summary>Markdown formatting help<\/summary>/);
+  assert.match(admin, /aria-label="Bold"[^>]+data-prefix="\*\*"[^>]+data-suffix="\*\*"/);
+  assert.match(admin, /aria-label="Add a link"/);
+  assert.match(admin, /setSelectionRange/);
+  assert.match(admin, /aria-describedby="markdown-intro markdown-help"/);
+});
