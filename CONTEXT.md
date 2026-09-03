@@ -44,6 +44,24 @@ _Avoid_: Approved commission, cleared earnings
 A reviewed allocation of available Commission Entries for external payment to an Affiliate.
 _Avoid_: Withdrawal, transfer
 
+## Funnel experiments
+
+**Funnel Experiment**:
+A versioned, time-bounded comparison of approved sales-funnel presentations that preserves the same underlying product, price, and referral terms.
+_Avoid_: Gradual deployment, split release
+
+**Experiment Assignment**:
+The immutable association of one eligible referral journey with one Funnel Experiment variant.
+_Avoid_: Cohort, traffic split
+
+**Experiment Exposure**:
+The first successful rendering of the assigned variant during an eligible referral journey.
+_Avoid_: Page view, impression
+
+**Experiment Conversion**:
+The first provider-confirmed paid Blognice subscription for an account associated with an Experiment Assignment.
+_Avoid_: CTA click, signup, checkout
+
 ## Affiliate rollout handoff — 2026-09-02
 
 The accepted affiliate specification is implemented and deployed. Do not repeat migration 053.

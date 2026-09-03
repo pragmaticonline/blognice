@@ -10,7 +10,46 @@ type ReferralCookie = {
   policyVersion: string;
   interactedAt: number;
   expiresAt: number;
+  experimentJourneyId?: string;
+  experimentKey?: string;
+  experimentVariant?: "control" | "focused";
+  experimentAssignedAt?: number;
 };
+
+export type PreparedReferralExperiment = {
+  referral: Pick<ReferralCookie, "affiliateId" | "policyVersion" | "interactedAt" | "expiresAt">;
+  assignment: {
+    journeyId: string;
+    experimentKey: string;
+    variant: "control" | "focused";
+    assignedAt: number;
+  };
+  setCookie: string | null;
+};
+
+export async function readReferralExperiment(
+  request: Request,
+  signingSecrets: string[],
+  now: number,
+): Promise<Omit<PreparedReferralExperiment, "setCookie"> | null> {
+  const payload = await readReferralCookie(requestCookie(request, COOKIE_NAME), signingSecrets, now);
+  if (!payload?.experimentJourneyId || !payload.experimentKey || !payload.experimentVariant
+    || payload.experimentAssignedAt === undefined) return null;
+  return {
+    referral: {
+      affiliateId: payload.affiliateId,
+      policyVersion: payload.policyVersion,
+      interactedAt: payload.interactedAt,
+      expiresAt: payload.expiresAt,
+    },
+    assignment: {
+      journeyId: payload.experimentJourneyId,
+      experimentKey: payload.experimentKey,
+      variant: payload.experimentVariant,
+      assignedAt: payload.experimentAssignedAt,
+    },
+  };
+}
 
 function base64UrlEncode(value: string | Uint8Array): string {
   const bytes = typeof value === "string" ? encoder.encode(value) : value;
@@ -68,10 +107,75 @@ async function readReferralCookie(value: string, secrets: string[], now: number)
     if (!Number.isInteger(parsed.affiliateId) || !Number.isInteger(parsed.interactedAt)
       || !Number.isInteger(parsed.expiresAt) || typeof parsed.policyVersion !== "string"
       || parsed.expiresAt! <= now || parsed.interactedAt! > now) return null;
+    const experimentValues = [parsed.experimentJourneyId, parsed.experimentKey, parsed.experimentVariant, parsed.experimentAssignedAt];
+    const hasExperimentValue = experimentValues.some((value) => value !== undefined);
+    if (hasExperimentValue && (
+      !/^[a-z0-9_-]{20,96}$/i.test(String(parsed.experimentJourneyId || ""))
+      || !/^[a-z0-9_-]{3,80}$/i.test(String(parsed.experimentKey || ""))
+      || !["control", "focused"].includes(String(parsed.experimentVariant || ""))
+      || !Number.isInteger(parsed.experimentAssignedAt)
+      || parsed.experimentAssignedAt! < parsed.interactedAt!
+      || parsed.experimentAssignedAt! > now
+    )) return null;
     return parsed as ReferralCookie;
   } catch {
     return null;
   }
+}
+
+export async function prepareReferralExperiment(
+  request: Request,
+  signingSecrets: string[],
+  now: number,
+  config: { experimentKey: string; treatmentAllocationBasisPoints: number },
+  randomBytes?: Uint8Array,
+): Promise<PreparedReferralExperiment | null> {
+  const secrets = validSigningSecrets(signingSecrets);
+  if (!secrets[0] || !/^[a-z0-9_-]{3,80}$/i.test(config.experimentKey)
+    || !Number.isInteger(config.treatmentAllocationBasisPoints)
+    || config.treatmentAllocationBasisPoints < 0 || config.treatmentAllocationBasisPoints > 10_000) return null;
+  const payload = await readReferralCookie(requestCookie(request, COOKIE_NAME), secrets, now);
+  if (!payload) return null;
+  const referral = {
+    affiliateId: payload.affiliateId,
+    policyVersion: payload.policyVersion,
+    interactedAt: payload.interactedAt,
+    expiresAt: payload.expiresAt,
+  };
+  if (payload.experimentJourneyId && payload.experimentKey === config.experimentKey
+    && payload.experimentVariant && payload.experimentAssignedAt !== undefined) {
+    return {
+      referral,
+      assignment: {
+        journeyId: payload.experimentJourneyId,
+        experimentKey: payload.experimentKey,
+        variant: payload.experimentVariant,
+        assignedAt: payload.experimentAssignedAt,
+      },
+      setCookie: null,
+    };
+  }
+  const entropy = randomBytes || crypto.getRandomValues(new Uint8Array(20));
+  if (entropy.byteLength < 20) throw new Error("experiment assignment entropy is too short");
+  const bucket = new DataView(entropy.buffer, entropy.byteOffset, 4).getUint32(0) % 10_000;
+  const assignment = {
+    journeyId: base64UrlEncode(entropy.slice(4, 20)),
+    experimentKey: config.experimentKey,
+    variant: bucket < config.treatmentAllocationBasisPoints ? "focused" as const : "control" as const,
+    assignedAt: now,
+  };
+  const cookie = await createReferralCookie({
+    ...referral,
+    experimentJourneyId: assignment.journeyId,
+    experimentKey: assignment.experimentKey,
+    experimentVariant: assignment.variant,
+    experimentAssignedAt: assignment.assignedAt,
+  }, secrets[0]);
+  return {
+    referral,
+    assignment,
+    setCookie: `${COOKIE_NAME}=${cookie}; Path=/; Max-Age=${payload.expiresAt - now}; HttpOnly; Secure; SameSite=Lax`,
+  };
 }
 
 function requestCookie(request: Request, name: string): string {

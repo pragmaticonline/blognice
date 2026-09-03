@@ -93,6 +93,7 @@ test("verified accounts enroll through the production HTTP and Stripe seams", as
       AFFILIATE_TERMS_URL: "https://www.blognice.test/legal/affiliate-terms",
       STRIPE_AFFILIATE_COUPON_ID: "coupon_affiliate",
       AFFILIATE_REFERRAL_COOKIE_SECRETS: "r".repeat(32),
+      AFFILIATE_OFFER_EXPERIMENT: "affiliate-offer-v1",
       CF_ACCOUNT_ID: "cloudflare-account",
       CF_ANALYTICS_TOKEN: "analytics-token",
     };
@@ -162,6 +163,7 @@ test("verified accounts enroll through the production HTTP and Stripe seams", as
     assert.match(stripeRequests[1].url, /\/coupons\/coupon_affiliate$/);
     assert.match(stripeRequests[2].body, /code=WRITER-7/);
     assert.match(stripeRequests[2].body, /metadata%5Baffiliate_account_id%5D=7/);
+    await db.prepare("INSERT INTO funnel_experiments (experiment_key, route, status, control_variant, treatment_variant, treatment_allocation_basis_points, control_presentation_version, treatment_presentation_version, created_at, started_at) VALUES ('affiliate-offer-v1', 'affiliate_offer', 'running', 'control', 'focused', 10000, 'control-v1', 'focused-v1', ?, ?)").bind(now, now).run();
     const activeLink = await blogniceApp.request(
       "https://www.blognice.test/?ref=Writer-7", { headers: { Host: "www.blognice.test" } }, env, executionCtx,
     );
@@ -173,15 +175,49 @@ test("verified accounts enroll through the production HTTP and Stripe seams", as
       "https://www.blognice.test/affiliate-offer", { headers: { Host: "www.blognice.test", cookie: activeReferralCookie } }, env, executionCtx,
     );
     assert.equal(affiliateOffer.status, 200);
+    const experimentCookie = affiliateOffer.headers.get("set-cookie").split(";", 1)[0];
     const affiliateOfferHtml = await affiliateOffer.text();
     assert.match(affiliateOfferHtml, /<title>10% off Blognice for 12 months<\/title>/);
     assert.match(affiliateOfferHtml, /<link rel="canonical" href="https:\/\/www\.blognice\.test\/affiliate-offer">/);
     assert.match(affiliateOfferHtml, /<meta name="robots" content="noindex,follow">/);
-    assert.match(affiliateOfferHtml, /Save 10% for your first 12 paid months/);
-    assert.match(affiliateOfferHtml, /href="\/signup"[^>]*>Claim 10% off/);
+    assert.match(affiliateOfferHtml, /Save 10% and lock in \$36\/year/);
+    assert.match(affiliateOfferHtml, /href="\/experiment\/affiliate-offer\/cta"[^>]*>Claim 10% and lock in \$36\/year/);
     assert.match(affiliateOfferHtml, /Founding member pricing/);
     assert.match(affiliateOfferHtml, /Planned standard pricing:<\/strong> \$119\/year or \$12\.99\/month/);
     assert.match(affiliateOfferHtml, /We plan to close founding pricing after the first 1,000 paying members\./);
+    const experimentCta = await blogniceApp.request(
+      "https://www.blognice.test/experiment/affiliate-offer/cta", { headers: { Host: "www.blognice.test", cookie: experimentCookie } }, env, executionCtx,
+    );
+    assert.equal(experimentCta.status, 302);
+    assert.equal(experimentCta.headers.get("location"), "/signup");
+    assert.deepEqual(await db.prepare("SELECT variant, exposed_at IS NOT NULL AS exposed, cta_clicked_at IS NOT NULL AS clicked FROM funnel_experiment_assignments").first(), {
+      variant: "focused", exposed: 1, clicked: 1,
+    });
+    const experimentSignup = new FormData();
+    experimentSignup.set("slug", "experiment-reader");
+    experimentSignup.set("title", "Experiment Reader");
+    experimentSignup.set("email", "experiment-reader@example.com");
+    experimentSignup.set("password", "correct horse battery staple");
+    const experimentSignupResponse = await blogniceApp.request(new Request("https://www.blognice.test/signup", {
+      method: "POST", body: experimentSignup,
+      headers: { cookie: experimentCookie, "CF-Connecting-IP": "203.0.113.71" },
+    }), undefined, env, executionCtx);
+    assert.equal(experimentSignupResponse.status, 302);
+    const experimentSession = experimentSignupResponse.headers.get("set-cookie").match(/bn_session=[^;]+/)[0];
+    assert.deepEqual(await db.prepare("SELECT account_id, signup_at IS NOT NULL AS signed_up FROM funnel_experiment_assignments").first(), {
+      account_id: 8, signed_up: 1,
+    });
+    globalThis.fetch = async () => new Response(JSON.stringify({ id: "cs_experiment", url: "https://checkout.stripe.test/experiment" }), {
+      status: 200, headers: { "content-type": "application/json" },
+    });
+    const experimentCheckout = new FormData();
+    experimentCheckout.set("plan", "yearly");
+    const experimentCheckoutResponse = await blogniceApp.request(new Request("https://www.blognice.test/admin/billing/checkout", {
+      method: "POST", body: experimentCheckout, headers: { cookie: experimentSession },
+    }), undefined, { ...env, STRIPE_YEARLY_PRICE_ID: "price_yearly" }, executionCtx);
+    assert.equal(experimentCheckoutResponse.status, 303);
+    assert.equal(experimentCheckoutResponse.headers.get("location"), "https://checkout.stripe.test/experiment");
+    assert.equal(await db.prepare("SELECT checkout_started_at IS NOT NULL AS started FROM funnel_experiment_assignments").first().then((row) => row.started), 1);
     const offerWithoutReferral = await blogniceApp.request(
       "https://www.blognice.test/affiliate-offer", { headers: { Host: "www.blognice.test" } }, env, executionCtx,
     );
@@ -189,10 +225,10 @@ test("verified accounts enroll through the production HTTP and Stripe seams", as
     assert.equal(offerWithoutReferral.headers.get("location"), "/");
 
     await db.prepare(
-      "INSERT INTO accounts (id, email, pw_hash, email_verified, created_at) VALUES (8, 'reader-code@example.com', 'test', 1, ?)",
+      "INSERT INTO accounts (id, email, pw_hash, email_verified, created_at) VALUES (9, 'reader-code@example.com', 'test', 1, ?)",
     ).bind(now).run();
     await db.prepare(
-      "INSERT INTO sessions (token, account_id, created_at, expires_at) VALUES ('code-session', 8, ?, ?)",
+      "INSERT INTO sessions (token, account_id, created_at, expires_at) VALUES ('code-session', 9, ?, ?)",
     ).bind(now, now + 3600).run();
     const codeForm = new FormData();
     codeForm.set("referral_code", "Writer-7");
@@ -209,7 +245,7 @@ test("verified accounts enroll through the production HTTP and Stripe seams", as
     }), undefined, env, executionCtx);
     assert.equal(validCode.status, 303);
     assert.match(validCode.headers.get("location"), /Referral%20code%20applied/);
-    assert.deepEqual(await db.prepare("SELECT affiliate_id, source FROM affiliate_attributions WHERE referred_account_id = 8").first(), {
+    assert.deepEqual(await db.prepare("SELECT affiliate_id, source FROM affiliate_attributions WHERE referred_account_id = 9").first(), {
       affiliate_id: 7, source: "code",
     });
 

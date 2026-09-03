@@ -18,7 +18,8 @@
 		// What customers point their CNAME at. Configure this hostname as your
 		// SaaS fallback origin in the Cloudflare dashboard.
 		"CNAME_TARGET": "fallback.blognice.com",
-		"AFFILIATE_STRIPE_CONNECT_COUNTRIES": "US,CA,GB,TH"
+		"AFFILIATE_STRIPE_CONNECT_COUNTRIES": "US,CA,GB,TH",
+		"AFFILIATE_OFFER_EXPERIMENT": "off"
 	},
 	// Run the Worker for every tenant subdomain (and the apex).
 	"routes": [

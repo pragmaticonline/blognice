@@ -129,7 +129,8 @@ import {
 import { checkoutSubscriptionDecision, createAffiliateConnectedAccount, createAffiliateConnectOnboardingLink, createAffiliatePromotionCode, createCheckoutSession, createDomainCheckoutSession, createPortalSession, retrieveSubscription, stripeConfigured, subscriptionEventMatchesCurrent, verifyStripeSignature } from "./stripe";
 import { createAnnualInvoice, getPayment, isNowPaymentsAmountFullyPaid, isTerminalPaidStatus, nowPaymentsConfigured, verifyNowPaymentsIpn, NOWPAYMENTS_ANNUAL_SECONDS, NOWPAYMENTS_ANNUAL_USD } from "./nowpayments";
 import { affiliateAnnualPriceMinor, attachStripeConnectedAccountInDb, attachStripePromotionCodeInDb, beginCheckoutAttributionInDb, createNowPaymentsCheckoutInDb, createStripeCheckoutInDb, enableAffiliateProfileInDb, parseAffiliateStripeConnectCountries, prepareAffiliatePayoutBatchInDb, reacceptAffiliateTermsInDb, recordPendingStripeFinancialEventInDb, refundNowPaymentsCheckoutInDb, requireCurrentAffiliateTermsInDb, requireOutdatedAffiliateTermsInDb, settleNowPaymentsCheckoutInDb, settleStripeInvoiceInDb, updateStripeConnectedAccountStatusInDb } from "./affiliate";
-import { captureSignupReferral, handleReferralCodeSubmission, handleReferralLink, hasActiveReferralOffer } from "./affiliate-referral";
+import { captureSignupReferral, handleReferralCodeSubmission, handleReferralLink, hasActiveReferralOffer, prepareReferralExperiment, readReferralExperiment } from "./affiliate-referral";
+import { assignAndExposeFunnelExperimentInDb, associateFunnelExperimentSignupInDb, loadRunningAffiliateOfferExperimentInDb, recordFunnelExperimentCheckoutInDb, recordFunnelExperimentCtaInDb, renderAffiliateOfferPage } from "./funnel-experiment";
 import { getAffiliateDashboardInDb, type AffiliateDashboard } from "./affiliate-dashboard";
 import { enqueueAffiliateEnrollmentEmailInDb, relayAffiliateEmailOutboxInDb } from "./affiliate-notifications";
 import { renderMarkdown as renderMarkdownSafe } from "./markdown";
@@ -154,6 +155,7 @@ type Bindings = {
   METRICS: AnalyticsEngineDataset; // anonymous public page-view events
   EVENTS: AnalyticsEngineDataset; // audio engagement events
   AFFILIATE_EVENTS: AnalyticsEngineDataset; // approximate affiliate funnel events, indexed by Affiliate
+  AFFILIATE_OFFER_EXPERIMENT?: string; // off or an active Funnel Experiment key
   METRICS_ARCHIVE: R2Bucket; // aggregate daily metrics retained beyond 90 days
   ROOT_DOMAIN: string; // e.g. "blognice.com"
   API_TOKEN?: string; // secret; authorizes the /api routes
@@ -4572,6 +4574,14 @@ async function recordAffiliateSignup(c: any, accountId: number): Promise<void> {
     policyVersion: attribution.policy_version,
   });
 }
+async function associateFunnelExperimentSignup(c: any, accountId: number, signingSecrets: string[], now: number): Promise<void> {
+  try {
+    const experiment = await readReferralExperiment(c.req.raw, signingSecrets, now);
+    if (experiment) await associateFunnelExperimentSignupInDb(c.env.DB, experiment.assignment.journeyId, accountId, now);
+  } catch (error) {
+    console.error(JSON.stringify({ message: "Funnel Experiment signup association failed", accountId, error: error instanceof Error ? error.message : String(error) }));
+  }
+}
 async function recordAffiliateConversion(c: any, accountId: number, provider: "stripe" | "nowpayments"): Promise<void> {
   const attribution = await c.env.DB.prepare(
     `SELECT attribution.affiliate_id, attribution.source, attribution.policy_version,
@@ -4701,7 +4711,10 @@ app.post("/signup", async (c) => {
     const affiliateCookieSecrets = String(c.env.AFFILIATE_REFERRAL_COOKIE_SECRETS || "").split(",").map((secret) => secret.trim()).filter(Boolean);
     if (affiliateCookieSecrets.length) {
       const capturedReferral = await captureSignupReferral(c.req.raw, c.env.DB, accountId, affiliateCookieSecrets, now);
-      if (capturedReferral.accepted) await recordAffiliateSignup(c, accountId);
+      if (capturedReferral.accepted) {
+        await recordAffiliateSignup(c, accountId);
+        await associateFunnelExperimentSignup(c, accountId, affiliateCookieSecrets, now);
+      }
     }
     await c.env.DB.prepare("UPDATE blog_invitations SET accepted_at = ? WHERE id = ?").bind(now, invite.id).run();
     const tenant = await c.env.DB.prepare("SELECT public_id, title FROM tenants WHERE id = ?").bind(invite.tenant_id).first<{ public_id: string; title: string }>();
@@ -4741,7 +4754,10 @@ app.post("/signup", async (c) => {
   const affiliateCookieSecrets = String(c.env.AFFILIATE_REFERRAL_COOKIE_SECRETS || "").split(",").map((secret) => secret.trim()).filter(Boolean);
   if (affiliateCookieSecrets.length) {
     const capturedReferral = await captureSignupReferral(c.req.raw, c.env.DB, accountId, affiliateCookieSecrets, now);
-    if (capturedReferral.accepted) await recordAffiliateSignup(c, accountId);
+    if (capturedReferral.accepted) {
+      await recordAffiliateSignup(c, accountId);
+      await associateFunnelExperimentSignup(c, accountId, affiliateCookieSecrets, now);
+    }
   }
   await createEmailVerification(c, accountId, email, title);
   c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...registrationWelcomeEmail({ signInUrl: "https://www.blognice.com/admin" }) }));
@@ -6049,6 +6065,7 @@ app.post("/admin/billing/checkout", async (c) => {
         "UPDATE affiliate_stripe_checkouts SET status = 'created', stripe_session_id = ? WHERE id = ? AND status = 'pending'",
       ).bind(session.id, affiliateCheckout.checkoutId).run();
     }
+    await recordFunnelExperimentCheckoutInDb(c.env.DB, account.id, now).catch((error) => console.error(JSON.stringify({ message: "Funnel Experiment checkout milestone failed", accountId: account.id, error: error instanceof Error ? error.message : String(error) })));
     return c.redirect(session.url, 303);
   } catch (error) {
     return c.redirect(`/admin/billing?message=${encodeURIComponent(error instanceof Error ? error.message : "Stripe checkout failed.")}`);
@@ -6106,6 +6123,7 @@ app.post("/admin/billing/crypto/checkout", async (c) => {
     await c.env.DB.prepare(
       "UPDATE affiliate_nowpayments_checkouts SET status = 'invoiced', provider_invoice_id = ? WHERE order_id = ? AND status = 'pending'",
     ).bind(String(invoice.id), checkout.orderId).run();
+    await recordFunnelExperimentCheckoutInDb(c.env.DB, account.id, now).catch((error) => console.error(JSON.stringify({ message: "Funnel Experiment checkout milestone failed", accountId: account.id, error: error instanceof Error ? error.message : String(error) })));
     return c.redirect(url, 303);
   } catch (error) {
     return c.redirect(`/admin/billing?message=${encodeURIComponent(error instanceof Error ? error.message : "Crypto checkout failed.")}`);
@@ -6586,31 +6604,6 @@ app.post("/unsubscribe/:token", async (c) => {
   );
 });
 
-function affiliateOfferPage(rootDomain: string): string {
-  const canonical = `https://www.${rootDomain}/affiliate-offer`;
-  return homepage
-    .replace("<title>blognice — A nicer way to blog</title>", "<title>10% off Blognice for 12 months</title>")
-    .replace(
-      '<meta name="description" content="Create beautiful, fast blogs without hosting, plugins, updates, or technical maintenance.">',
-      '<meta name="description" content="Start a beautiful Blognice blog and save 10% on your first 12 paid months.">\n<meta name="robots" content="noindex,follow">',
-    )
-    .replace('<link rel="canonical" href="https://www.blognice.com/">', `<link rel="canonical" href="${canonical}">`)
-    .replace('<meta property="og:title" content="blognice — A nicer way to blog">', '<meta property="og:title" content="Save 10% on Blognice for 12 months">')
-    .replace('<meta property="og:description" content="Create beautiful, fast blogs without hosting, plugins, updates, or technical maintenance.">', '<meta property="og:description" content="Start writing on Blognice and receive 10% off your first 12 paid months.">')
-    .replace('<meta property="og:url" content="https://www.blognice.com/">', `<meta property="og:url" content="${canonical}">`)
-    .replace('<meta name="twitter:title" content="blognice — A nicer way to blog">', '<meta name="twitter:title" content="Save 10% on Blognice for 12 months">')
-    .replace('<meta name="twitter:description" content="Create beautiful, fast blogs without hosting, plugins, updates, or technical maintenance.">', '<meta name="twitter:description" content="Start writing on Blognice and receive 10% off your first 12 paid months.">')
-    .replaceAll("https://www.blognice.com/signup", "/signup")
-    .replaceAll("https://www.blognice.com/admin/login", "/admin/login")
-    .replace("<h1>A nicer way to blog.</h1>", "<h1>Save 10% for your first 12 paid months.</h1>")
-    .replace(
-      "<p class=\"hero-sub\">Create beautiful, fast blogs without hosting, plugins, updates, or technical maintenance. Just choose an address and start writing.</p>",
-      "<p class=\"hero-sub\">Your referral offer is ready. Create a beautiful, fast blog now; when you upgrade, your discount is applied automatically to the first 12 paid service months.</p>",
-    )
-    .replace('<a href="#pricing" class="btn btn-green">See pricing</a>', '<a href="/signup" class="btn btn-green">Claim 10% off</a>')
-    .replace("<p class=\"hero-trial-note\">Your first blog is free to try.</p>", "<p class=\"hero-trial-note\">Free to start · no payment details required · referral offer saved for 60 days</p>");
-}
-
 app.get("/affiliate-offer", async (c) => {
   const host = (c.req.header("host") || "").split(":")[0].toLowerCase();
   if (host !== `www.${c.env.ROOT_DOMAIN.toLowerCase()}`) {
@@ -6620,12 +6613,43 @@ app.get("/affiliate-offer", async (c) => {
   if (!await hasActiveReferralOffer(c.req.raw, c.env.DB, signingSecrets, Math.floor(Date.now() / 1000))) {
     return c.redirect("/", 302);
   }
-  return new Response(affiliateOfferPage(c.env.ROOT_DOMAIN), {
-    headers: {
-      "content-type": "text/html; charset=utf-8",
-      "cache-control": "private, no-store",
-    },
+  const now = Math.floor(Date.now() / 1000);
+  let variant: "control" | "focused" = "control";
+  let upgradedCookie: string | null = null;
+  try {
+    const experiment = await loadRunningAffiliateOfferExperimentInDb(c.env.DB, c.env.AFFILIATE_OFFER_EXPERIMENT);
+    if (experiment) {
+      const prepared = await prepareReferralExperiment(c.req.raw, signingSecrets, now, experiment);
+      if (prepared) {
+        const result = await assignAndExposeFunnelExperimentInDb(c.env.DB, {
+          journeyId: prepared.assignment.journeyId,
+          experimentKey: prepared.assignment.experimentKey,
+          variant: prepared.assignment.variant,
+          affiliateId: prepared.referral.affiliateId,
+          policyVersion: prepared.referral.policyVersion,
+          assignedAt: prepared.assignment.assignedAt,
+          exposedAt: now,
+        });
+        variant = result.assignment.variant;
+        upgradedCookie = prepared.setCookie;
+      }
+    }
+  } catch (error) {
+    console.error(JSON.stringify({ message: "Affiliate offer experiment assignment failed closed", error: error instanceof Error ? error.message : String(error) }));
+  }
+  const response = new Response(renderAffiliateOfferPage(homepage, c.env.ROOT_DOMAIN, variant), {
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "private, no-store" },
   });
+  if (upgradedCookie) response.headers.append("set-cookie", upgradedCookie);
+  return response;
+});
+
+app.get("/experiment/affiliate-offer/cta", async (c) => {
+  const secrets = String(c.env.AFFILIATE_REFERRAL_COOKIE_SECRETS || "").split(",").map((secret) => secret.trim()).filter(Boolean);
+  const assignment = await readReferralExperiment(c.req.raw, secrets, Math.floor(Date.now() / 1000));
+  if (!assignment) return c.redirect("/", 302);
+  await recordFunnelExperimentCtaInDb(c.env.DB, assignment.assignment.journeyId, Math.floor(Date.now() / 1000));
+  return c.redirect("/signup", 302);
 });
 
 // Home page: list of published posts.
