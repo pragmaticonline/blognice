@@ -17,6 +17,14 @@ test("Stripe billing uses hosted Checkout and Customer Portal", () => {
   assert.match(stripe, /billing_portal\/sessions/);
 });
 
+test("billing clearly distinguishes founding and planned standard pricing", () => {
+  assert.match(source, /Founding member pricing/);
+  assert.match(source, /\$36\/year or \$5\/month/);
+  assert.match(source, /Planned standard pricing:<\/strong> \$119\/year or \$9\.99\/month/);
+  assert.match(source, /billing-ribbon">Founding price/);
+  assert.doesNotMatch(source, /Founding rates available now/);
+});
+
 test("attributed Stripe checkout carries its snapshot and promotion code", async () => {
   const originalFetch = globalThis.fetch;
   const requests = [];

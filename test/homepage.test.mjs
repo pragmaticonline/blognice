@@ -19,6 +19,14 @@ test("marketing homepage provides a central login button", () => {
   assert.match(homepage, /href="https:\/\/www\.blognice\.com\/admin\/login"[^>]*>Log in<\/a>/);
 });
 
+test("marketing homepage clearly distinguishes founding and planned standard pricing", () => {
+  assert.match(homepage, /Founding member pricing/);
+  assert.match(homepage, /\$36\/year or \$5\/month/);
+  assert.match(homepage, /Planned standard pricing:<\/strong> \$119\/year or \$9\.99\/month/);
+  assert.equal((homepage.match(/Founding member price/g) || []).length, 2);
+  assert.doesNotMatch(homepage, /Founding rates available now/);
+});
+
 test("marketing homepage protects narrow mobile layout and anchor targets", () => {
   assert.match(homepage, /scroll-padding-top:74px/);
   assert.match(homepage, /@media \(max-width: 560px\)[\s\S]*?scroll-padding-top:64px/);
