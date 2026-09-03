@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import test from "node:test";
 import { Miniflare } from "miniflare";
-import { conservativeMarkdownFallback, markdownFormattingMessages, markdownFormattingRetryMessages, markdownOutputTokenBudget, normalizedMarkdownResponse, preservesAuthorTokens } from "../src/ai-markdown.ts";
+import { conservativeMarkdownFallback, formatObviousStructures, markdownFormattingMessages, markdownFormattingRetryMessages, markdownOutputTokenBudget, normalizedMarkdownResponse, preservesAuthorTokens } from "../src/ai-markdown.ts";
 
 const require = createRequire(import.meta.url);
 for (const extension of [".html", ".svg"]) require.extensions[extension] = (module, filename) => { module.exports = readFileSync(filename, "utf8"); };
@@ -39,6 +39,24 @@ test("Markdown formatting bounds model output and has a word-preserving fallback
   const fallback = conservativeMarkdownFallback(original);
   assert.equal(fallback, "# Iran targets US bases\n*Air bases used by US hit*\n\nIran has continued to demonstrate an ability to target bases.");
   assert.equal(preservesAuthorTokens(original, fallback), true);
+});
+
+test("obvious tables and lists receive Markdown structure without changing words", () => {
+  const original = "table of things\n1 football energetic\n2 surfing energetic\n3 reading calm\n\nlist of stuff\nwrite a plan\nexecute the plan\nget paid";
+  const formatted = formatObviousStructures(original);
+  assert.equal(formatted, [
+    "## table of things", "", "|  |  |  |", "| --- | --- | --- |",
+    "| 1 | football | energetic |", "| 2 | surfing | energetic |", "| 3 | reading | calm |",
+    "", "## list of stuff", "", "- write a plan", "- execute the plan", "- get paid",
+  ].join("\n"));
+  assert.equal(preservesAuthorTokens(original, formatted), true);
+  assert.match(formatObviousStructures("table: scores\n1 Ada 10 excellent\n2 Lin 9 strong"), /\| 1 \| Ada \| 10 \| excellent \|/);
+  assert.match(formatObviousStructures("table: totals\n1 20\n2 30"), /\| 1 \| 20 \|/);
+  assert.equal(formatObviousStructures(formatted), formatted);
+  assert.equal(formatObviousStructures("A list can improve an article.\nThis is ordinary prose."), "A list can improve an article.\nThis is ordinary prose.");
+  const numbered = formatObviousStructures("numbered list: steps\n1 plan\n2 execute\n3 earn");
+  assert.equal(numbered, "## numbered list: steps\n\n1. plan\n2. execute\n3. earn");
+  assert.equal(preservesAuthorTokens("numbered list: steps\n1 plan\n2 execute\n3 earn", numbered), true);
 });
 
 test("auto-format endpoint is tenant scoped, same-origin, paid, metered, and refundable", () => {

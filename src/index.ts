@@ -135,7 +135,7 @@ import { getAffiliateDashboardInDb, type AffiliateDashboard } from "./affiliate-
 import { enqueueAffiliateEnrollmentEmailInDb, relayAffiliateEmailOutboxInDb } from "./affiliate-notifications";
 import { renderMarkdown as renderMarkdownSafe } from "./markdown";
 import { buildSitemapIndexXml, cacheVariants, CACHE_VERSION, customDomainRedirectUrl, indexNowKey } from "./indexing";
-import { AI_MARKDOWN_TEXT_MAX, conservativeMarkdownFallback, markdownFormattingMessages, markdownFormattingRetryMessages, markdownOutputTokenBudget, normalizedMarkdownResponse, preservesAuthorTokens } from "./ai-markdown";
+import { AI_MARKDOWN_TEXT_MAX, conservativeMarkdownFallback, formatObviousStructures, markdownFormattingMessages, markdownFormattingRetryMessages, markdownOutputTokenBudget, normalizedMarkdownResponse, preservesAuthorTokens } from "./ai-markdown";
 import { applySubscriberConfirmation, requestSubscriberConfirmation } from "./subscriber-optin";
 import { refreshPostPopularity } from "./popularity";
 
@@ -2738,14 +2738,14 @@ app.post("/admin/b/:blogId/format-markdown", async (c) => {
     const generated = await c.env.AI.run(AI_BRIEF_MODEL, {
       messages: markdownFormattingMessages(text), max_tokens: markdownOutputTokenBudget(text), temperature: 0.1,
     });
-    let markdown = normalizedMarkdownResponse(generated.response);
+    let markdown = formatObviousStructures(normalizedMarkdownResponse(generated.response));
     if (!markdown) throw new Error("The formatting model returned no text.");
     if (markdown.length > AI_MARKDOWN_TEXT_MAX * 2) throw new Error("The formatting result was unexpectedly long.");
     if (!preservesAuthorTokens(text, markdown)) {
       const retry = await c.env.AI.run(AI_BRIEF_MODEL, {
         messages: markdownFormattingRetryMessages(text, markdown), max_tokens: markdownOutputTokenBudget(text), temperature: 0,
       });
-      markdown = normalizedMarkdownResponse(retry.response);
+      markdown = formatObviousStructures(normalizedMarkdownResponse(retry.response));
       if (!markdown || markdown.length > AI_MARKDOWN_TEXT_MAX * 2 || !preservesAuthorTokens(text, markdown)) {
         changedWording = true;
         throw new Error("The formatting model changed the author's words after retrying.");

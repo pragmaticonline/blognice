@@ -12,7 +12,7 @@ export function markdownFormattingMessages(text: string): AiMarkdownMessage[] {
       role: "system",
       content: [
         "Format the supplied blog-post draft as clear, restrained Markdown.",
-        "Use headings, short paragraphs, lists, bold, italic, and blockquotes only where the existing text supports them; leave URLs and existing links exactly as written.",
+        "Use headings, short paragraphs, lists, bold, italic, blockquotes, and Markdown tables where the existing text supports them; convert plainly labelled table and list sections instead of leaving them as loose lines; leave URLs and existing links exactly as written.",
         "Do not add, remove, paraphrase, correct, or reorder any of the author's words, punctuation, URLs, or facts.",
         "Do not add a title if the draft does not contain one. Never add commentary or a summary.",
         "Return only the formatted Markdown, with no enclosing code fence.",
@@ -58,6 +58,51 @@ export function conservativeMarkdownFallback(text: string): string {
   const second = contentLines[1];
   if (second && second.index === first.index + 1 && second.line.length <= 240 && !/^\s{0,3}(?:#{1,6}\s|>|[-+*]\s|\d+[.)]\s|```)/.test(second.line)) {
     lines[second.index] = `*${second.line}*`;
+  }
+  return formatObviousStructures(lines.join("\n"));
+}
+
+const MARKDOWN_BLOCK = /^\s{0,3}(?:#{1,6}\s|>|[-+*]\s|\d+[.)]\s|```|\|)/;
+
+export function formatObviousStructures(markdown: string): string {
+  const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
+  for (let index = 0; index < lines.length; index += 1) {
+    const label = lines[index].trim();
+    if (/^table(?:\s+of\b|\s*:|$)/i.test(label) && !MARKDOWN_BLOCK.test(lines[index])) {
+      const rows: string[][] = [];
+      let cursor = index + 1;
+      while (cursor < lines.length && lines[cursor].trim()) {
+        const cells = lines[cursor].trim().split(/\s+/);
+        if (!/^\d+$/.test(cells[0]) || cells.length < 2 || cells.length > 6) break;
+        rows.push(cells);
+        cursor += 1;
+      }
+      const columnCount = rows[0]?.length || 0;
+      if (rows.length >= 2 && rows.every((row) => row.length === columnCount)) {
+        const blanks = Array.from({ length: columnCount }, () => "").join(" | ");
+        const dividers = Array.from({ length: columnCount }, () => "---").join(" | ");
+        const table = ["", `| ${blanks} |`, `| ${dividers} |`, ...rows.map((row) => `| ${row.join(" | ")} |`)];
+        lines.splice(index, cursor - index, `## ${label}`, ...table);
+        index += table.length;
+      }
+      continue;
+    }
+    if (/^(?:(?:numbered|ordered|bulleted|bullet)\s+)?list(?:\s+of\b|\s*:|$)/i.test(label) && !MARKDOWN_BLOCK.test(lines[index])) {
+      const items: string[] = [];
+      let cursor = index + 1;
+      while (cursor < lines.length && lines[cursor].trim() && !MARKDOWN_BLOCK.test(lines[cursor])) {
+        items.push(lines[cursor].trim());
+        cursor += 1;
+      }
+      if (items.length >= 2) {
+        const numbered = items.every((item) => /^\d+\s+\S/.test(item));
+        const formattedItems = numbered
+          ? items.map((item) => item.replace(/^(\d+)\s+/, "$1. "))
+          : items.map((item) => `- ${item}`);
+        lines.splice(index, cursor - index, `## ${label}`, "", ...formattedItems);
+        index += items.length + 1;
+      }
+    }
   }
   return lines.join("\n");
 }
