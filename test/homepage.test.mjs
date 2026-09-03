@@ -22,8 +22,13 @@ test("marketing homepage provides a central login button", () => {
 test("marketing homepage clearly distinguishes founding and planned standard pricing", () => {
   assert.match(homepage, /Founding member pricing/);
   assert.match(homepage, /\$36\/year or \$5\/month/);
-  assert.match(homepage, /Planned standard pricing:<\/strong> \$119\/year or \$9\.99\/month/);
+  assert.match(homepage, /Planned standard pricing:<\/strong> \$119\/year or \$12\.99\/month/);
   assert.equal((homepage.match(/Founding member price/g) || []).length, 2);
+  assert.match(homepage, /class="founder-badge">Founding member price/);
+  assert.match(homepage, /class="planned-price">Planned standard price: <s>\$119\/year<\/s>/);
+  assert.match(homepage, /class="founder-lock">Keep \$36\/year/);
+  assert.match(homepage, /class="btn founder-cta"[^>]*>Lock in founding price<\/a>/);
+  assert.match(homepage, /\.price-box\.recommended\{[^{]*background:var\(--green-deep\)/);
   assert.doesNotMatch(homepage, /Founding rates available now/);
 });
 

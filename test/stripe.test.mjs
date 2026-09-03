@@ -20,8 +20,10 @@ test("Stripe billing uses hosted Checkout and Customer Portal", () => {
 test("billing clearly distinguishes founding and planned standard pricing", () => {
   assert.match(source, /Founding member pricing/);
   assert.match(source, /\$36\/year or \$5\/month/);
-  assert.match(source, /Planned standard pricing:<\/strong> \$119\/year or \$9\.99\/month/);
+  assert.match(source, /Planned standard pricing:<\/strong> \$119\/year or \$12\.99\/month/);
   assert.match(source, /billing-ribbon">Founding price/);
+  assert.match(source, /checkout\("yearly", "Lock in \$36\/year"/);
+  assert.match(source, /checkout\("monthly", "Choose \$5\/month"/);
   assert.doesNotMatch(source, /Founding rates available now/);
 });
 

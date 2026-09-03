@@ -330,7 +330,7 @@
   /* ---------- PRICING ---------- */
   .price-grid{display:grid; grid-template-columns:1fr 1fr; gap:24px; max-width:760px; margin:0 auto;}
   .price-box{border:1px solid var(--rule); border-radius:12px; padding:36px 32px;}
-  .price-box.recommended{border-color:var(--green); position:relative;}
+  .price-box.recommended{background:var(--green-deep);border-color:var(--green-deep);color:#fff;position:relative;box-shadow:0 24px 50px -28px rgba(14,90,12,.8);transform:translateY(-8px);}
   .rec-tag{
     font-family:var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:.07em;
     color:var(--green-deep); margin-bottom:14px; display:block;
@@ -339,6 +339,15 @@
   .price-amount span{font-family:var(--body); font-size:14.5px; font-weight:500; color:var(--ink-soft);}
   .price-note{font-size:13.5px; color:var(--ink-soft); margin-top:6px;}
   .price-includes{margin-top:24px; padding-top:22px; border-top:1px solid var(--rule); font-size:14px; color:var(--ink-soft); line-height:1.7;}
+  .founder-badge{display:inline-block;background:#fff;color:var(--green-deep);border-radius:100px;padding:7px 12px;margin-bottom:18px;font-family:var(--mono);font-size:11px;font-weight:750;letter-spacing:.07em;text-transform:uppercase;}
+  .founder-price{font-size:58px;line-height:1;}
+  .price-box.recommended .price-amount span,.price-box.recommended .price-note,.price-box.recommended .price-includes{color:#dcebd9;}
+  .price-box.recommended .price-includes{border-color:rgba(255,255,255,.24);}
+  .planned-price{margin-top:14px;color:#dcebd9;font-size:14px;}
+  .planned-price s{text-decoration-thickness:1.5px;text-decoration-color:#a9d3a3;}
+  .founder-lock{margin-top:10px;color:#fff;font-size:14px;font-weight:650;line-height:1.5;}
+  .founder-cta{margin-top:22px;width:100%;justify-content:center;background:#fff;color:var(--green-deep);border:1px solid #fff;}
+  .founder-cta:hover{background:var(--green-mist);color:var(--green-deep);transform:translateY(-1px);box-shadow:0 10px 22px -10px rgba(0,0,0,.45);}
   .price-support{text-align:center; margin-top:28px; font-size:14.5px; color:var(--ink-soft); font-style:italic; font-family:var(--display);}
   .founder-note{max-width:680px;margin:0 auto 24px;padding:16px 20px;border:1px solid var(--rule);border-radius:8px;background:var(--green-mist);font-size:15px;color:var(--ink);line-height:1.6;text-align:center;}
   .founder-note strong{display:block;color:var(--green-deep);font-family:var(--mono);font-size:13px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:5px;}
@@ -399,6 +408,7 @@
     .feat-list{grid-template-columns:1fr;}
     .compare-grid{grid-template-columns:1fr; gap:36px;}
     .price-grid{grid-template-columns:1fr;}
+    .price-box.recommended{transform:none;}
     section{padding:68px 0;}
     .hero{padding:56px 0 64px;}
     .manifesto{padding:64px 0;}
@@ -693,14 +703,16 @@ they hand you a blank page.
       <h2>Five blogs. One simple price.</h2>
       <p style="margin-left:auto;margin-right:auto;">Your first blog is free to try. Upgrade whenever you're ready for up to five.</p>
     </div>
-    <p class="founder-note"><strong>Founding member pricing</strong>Join Blognice while we're still building and help shape what comes next. <b>$36/year or $5/month.</b> Founding members keep their selected price for as long as that subscription remains continuously active. <strong>Planned standard pricing:</strong> $119/year or $9.99/month.</p>
+    <p class="founder-note"><strong>Founding member pricing</strong>Join Blognice while we're still building and help shape what comes next. <b>$36/year or $5/month.</b> Founding members keep their selected price for as long as that subscription remains continuously active. <strong>Planned standard pricing:</strong> $119/year or $12.99/month.</p>
     <div class="price-grid">
       <div class="price-box recommended">
-        <span class="rec-tag">Recommended</span>
-        <div class="price-amount">$36<span> / year</span></div>
-        <p class="price-note">Founding member price · equivalent to $3/month, billed annually</p>
+        <span class="founder-badge">Founding member price</span>
+        <div class="price-amount founder-price">$36<span> / year</span></div>
+        <p class="planned-price">Planned standard price: <s>$119/year</s></p>
+        <p class="founder-lock">Keep $36/year for as long as your subscription remains continuously active.</p>
+        <p class="price-note">Equivalent to $3/month, billed annually</p>
         <div class="price-includes">Up to five blogs, unlimited posts and image hosting, blognice subdomains, and custom-domain support.</div>
-        <a href="https://www.blognice.com/signup" class="btn btn-green" style="margin-top:22px; width:100%; justify-content:center;">Try your first blog free</a>
+        <a href="https://www.blognice.com/signup" class="btn founder-cta">Lock in founding price</a>
       </div>
       <div class="price-box">
         <span class="rec-tag" style="color:var(--ink-faint);">Monthly</span>
@@ -750,7 +762,7 @@ they hand you a blank page.
       </div>
       <div class="faq-item">
         <button class="faq-q" aria-expanded="false" aria-controls="faq-a-2">What does it cost?<span class="plus" aria-hidden="true"></span></button>
-        <div class="faq-a" id="faq-a-2" hidden><div class="faq-a-inner">Your first blog is free to try. Founding member pricing is $36 a year, recommended, or $5 a month. Founding members keep their selected price while that subscription remains continuously active. Planned standard pricing is $119 a year or $9.99 a month. Either paid plan includes up to five blogs, unlimited posts, image hosting, and custom-domain support.</div></div>
+        <div class="faq-a" id="faq-a-2" hidden><div class="faq-a-inner">Your first blog is free to try. Founding member pricing is $36 a year, recommended, or $5 a month. Founding members keep their selected price while that subscription remains continuously active. Planned standard pricing is $119 a year or $12.99 a month. Either paid plan includes up to five blogs, unlimited posts, image hosting, and custom-domain support.</div></div>
       </div>
       <div class="faq-item">
         <button class="faq-q" aria-expanded="false" aria-controls="faq-a-3">Do I need to know anything about DNS to connect my domain?<span class="plus" aria-hidden="true"></span></button>
