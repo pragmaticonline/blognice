@@ -5797,7 +5797,7 @@ async function processEmailFanout(env: Bindings, job: EmailFanoutMessage): Promi
   const origin = publicOrigin(env, tenant);
   const postUrl = `${origin}/${job.postSlug}`;
   const imageUrl = post.featured_image_key ? `${origin}/media/${post.featured_image_key}` : "";
-  const excerpt = post.body_md.replace(/```[\s\S]*?```/g, " ").replace(/[#>*_`\[\]()>-]/g, " ").replace(/\s+/g, " ").trim().slice(0, 220);
+  const excerpt = post.body_md.replace(/```[\s\S]*?```/g, " ").replace(/^[=\-]{3,}\s*$/gm, " ").replace(/[#>*_`\[\]()>=-]/g, " ").replace(/\s+/g, " ").trim().slice(0, 220);
   const author = post.author_visible && post.author_name ? `By ${post.author_name}` : "";
   const publishedLabel = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date(post.created_at * 1000));
   const deliveries: EmailJobMessage[] = [];
