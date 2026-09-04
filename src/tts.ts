@@ -17,7 +17,7 @@ export function containsNonLatinScript(text: string): boolean {
 }
 
 export function assertEnglishText(text: string): void {
-  if (containsNonLatinScript(text)) throw new Error("Narration is English only. Please use English text — Thai concepts written in English letters like 'Tom Kha Gai' or 'Muay Thai' are fine.");
+  if (containsNonLatinScript(text)) throw new Error("Narration is currently English only. Please use English text.");
 }
 
 export function classifyTtsError(error: unknown, emptyAudio = false): TtsErrorInfo {
