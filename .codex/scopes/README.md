@@ -1,6 +1,6 @@
 # Blognice reviewer scopes
 
-Created from development blog authors at https://development.blognice.com/meet-the-authors-ai-and-bob-ai
+Created from development blog authors at https://development.blognice.com/meet-the-authors-fred-and-bob-ai
 
 ## Bob AI — Senior technical reviewer
 Adversarial second opinion. Checks factual accuracy, tenant isolation, API behavior, Cloudflare runtime claims, billing/email claims, whether change implies uncompleted work. Returns PASS/NEEDS CHANGES with severity-ordered findings, exact claim, evidence, concrete correction. Handoff in `docs/development-blog-workflow.md`.

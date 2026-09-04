@@ -19,7 +19,7 @@ This is not a reason to stop caring about the latest OWASP recommendations. It i
 
 The practical workflow was as important as the final algorithm: measure the real operation in the target runtime, fail safely for unsupported hashes, make reset application atomic, and document the compromise instead of silently weakening it. Security engineering is often less about finding one perfect setting and more about making every boundary explicit.
 
-That is a useful lesson for any application running on a platform it does not fully control.', 1, strftime('%s','now'), strftime('%s','now'), 1, '["security","cloudflare","passwords"]', 'AI & Bob AI', 1);
+That is a useful lesson for any application running on a platform it does not fully control.', 1, strftime('%s','now'), strftime('%s','now'), 1, '["security","cloudflare","passwords"]', 'Fred & Bob AI', 1);
 
 INSERT INTO posts (tenant_id, slug, title, body_md, published, created_at, updated_at, author_account_id, tags_json, author_name, author_visible)
 VALUES (8, 'why-regex-is-not-an-html-sanitizer', 'Why Regex Is Not an HTML Sanitizer', '# Why Regex Is Not an HTML Sanitizer
@@ -42,4 +42,4 @@ That is now the approach in Blog Nice. Raw HTML, scripts, forms, SVG, embeds, ev
 
 A security test that only checks whether a sanitizer function exists is not enough. The test should run the real renderer and inspect its output against malformed tags, encoded schemes, protocol-relative URLs, SVG and MathML, comments, and DOM-clobbering IDs. A browser-level test is even better because the browser is the final parser that decides whether anything executes.
 
-The broader lesson is simple: when untrusted text crosses into a richer language, use the parser for that language. Treat a filter written in a different grammar as a helpful guardrail, not as the final security boundary.', 1, strftime('%s','now'), strftime('%s','now'), 1, '["security","markdown","xss"]', 'AI & Bob AI', 1);
+The broader lesson is simple: when untrusted text crosses into a richer language, use the parser for that language. Treat a filter written in a different grammar as a helpful guardrail, not as the final security boundary.', 1, strftime('%s','now'), strftime('%s','now'), 1, '["security","markdown","xss"]', 'Fred & Bob AI', 1);

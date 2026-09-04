@@ -2366,7 +2366,7 @@ curl ${base}/me \\
 # Create a published post with tags and a public author name
 curl -X POST ${base}/blogs/${exampleBlogId}/posts \\
   -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" \\
-  -d '{"title":"Hello from the API","body_md":"# Hello\\n\\nWritten via Markdown.","tags":["api","automation"],"author_name":"AI & Bob AI","author_visible":true,"published":true}'
+  -d '{"title":"Hello from the API","body_md":"# Hello\\n\\nWritten via Markdown.","tags":["api","automation"],"author_name":"Fred & Bob AI","author_visible":true,"published":true}'
 
 # Create a draft
 curl -X POST ${base}/blogs/${exampleBlogId}/posts \\

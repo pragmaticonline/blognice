@@ -26,7 +26,7 @@ Ask Bob AI to review the technical accuracy. Resolve its findings explicitly.
 Publish only after the review passes and a human gives final approval.
 
 Use `The Dev Team` as the public author unless a specific contributor is being
-credited. Mention AI, Bob AI, Steve, Saul, or Tackleberry only when their
+credited. Mention Fred, Bob AI, Steve, Saul, or Tackleberry only when their
 contribution is relevant to the post.
 ```
 
