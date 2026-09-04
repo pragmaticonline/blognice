@@ -6519,6 +6519,7 @@ app.post("/mailnice/webhook", async (c) => {
   const rawEvent = String(payload.event || payload.type || payload.action || payload.message?.event || "").toLowerCase();
   const tag = String(payload.tag || payload.tenant_id || payload.tenantId || payload.message?.tag || payload.message?.tenant_id || payload.data?.tag || "").trim();
   const toEmail = String(payload.email || payload.recipient || payload.to || payload.message?.to || payload.data?.email || "").trim();
+  const domain = String(payload.domain || payload.data?.domain || payload.message?.domain || "").trim().toLowerCase();
   let tenantId: number | null = null;
   if (/^\d+$/.test(tag)) tenantId = Number(tag);
   else if (tag) {
@@ -6529,19 +6530,40 @@ app.post("/mailnice/webhook", async (c) => {
     const sub = await c.env.DB.prepare("SELECT tenant_id FROM subscribers WHERE email = ? LIMIT 1").bind(toEmail.toLowerCase()).first<{ tenant_id: number }>();
     tenantId = sub?.tenant_id ?? null;
   }
+  if (!tenantId && domain) {
+    const domRow = await c.env.DB.prepare("SELECT id FROM tenants WHERE custom_domain = ? OR slug = ? LIMIT 1").bind(domain, domain.replace(/\.blognice\.com$/i, "")).first<{ id: number }>();
+    tenantId = domRow?.id ?? null;
+    if (!tenantId) {
+      try { recordCustomEvent(c.env as any, 0, { name: "domain_dns_error" as any, path: domain.slice(0,253), visitor: "", country: "", device: "", browser: "" }); } catch {}
+    }
+  }
+  const exactMap: Record<string, string> = {
+    messagesent: "email_delivered",
+    messagedelayed: "email_delayed",
+    messagedeliveryfailed: "email_delivery_failed",
+    messageheld: "email_held",
+    messagebounced: "email_bounced",
+    messagelinkclicked: "email_clicked",
+    messageloaded: "email_opened",
+    domaindnserror: "domain_dns_error",
+  };
   const map: Record<string, string> = {
-    bounced: "email_bounced", bounce: "email_bounced", held: "email_bounced", failed: "email_bounced",
+    bounced: "email_bounced", bounce: "email_bounced",
+    held: "email_held",
+    failed: "email_delivery_failed", deliveryfailed: "email_delivery_failed",
+    delayed: "email_delayed",
     complaint: "email_complained", spam: "email_complained", complained: "email_complained",
     opened: "email_opened", open: "email_opened", loaded: "email_opened",
     clicked: "email_clicked", click: "email_clicked",
     delivered: "email_delivered", sent: "email_delivered",
+    dnserror: "domain_dns_error",
   };
-  let eventName: string | null = null;
-  for (const [key, val] of Object.entries(map)) if (rawEvent.includes(key)) { eventName = val; break; }
+  let eventName: string | null = exactMap[rawEvent] || null;
+  if (!eventName) for (const [key, val] of Object.entries(map)) if (rawEvent.includes(key)) { eventName = val; break; }
   if (!eventName) return c.json({ ok: true, ignored: true });
   if (!tenantId) return c.json({ ok: true, ignored: true, reason: "tenant not resolved" });
   try { recordCustomEvent(c.env as any, tenantId, { name: eventName as any, path: "/", visitor: "", country: "", device: "", browser: "" }); } catch {}
-  if (eventName === "email_bounced" || eventName === "email_complained") {
+  if (eventName === "email_bounced" || eventName === "email_complained" || eventName === "email_delivery_failed") {
     try {
       const email = toEmail.toLowerCase();
       if (email) await c.env.DB.prepare("INSERT OR IGNORE INTO email_suppressions (email, tenant_id, reason, created_at) VALUES (?, ?, ?, ?)").bind(email, tenantId, eventName, Math.floor(Date.now()/1000)).run().catch(()=>undefined);

@@ -285,7 +285,7 @@ export function recordPageView(
 export function recordCustomEvent(
   env: MetricsEnv,
   tenantId: number,
-  event: { name: "audio_start" | "audio_complete" | "engaged_read" | "email_subscribe_requested" | "email_subscribed" | "email_unsubscribed" | "push_subscribed" | "push_unsubscribed" | "email_bounced" | "email_complained" | "email_opened" | "email_clicked" | "email_delivered" | "push_delivered" | "push_clicked"; path: string; visitor: string; country: string; device: string; browser: string }
+  event: { name: "audio_start" | "audio_complete" | "engaged_read" | "email_subscribe_requested" | "email_subscribed" | "email_unsubscribed" | "push_subscribed" | "push_unsubscribed" | "email_bounced" | "email_complained" | "email_opened" | "email_clicked" | "email_delivered" | "email_delayed" | "email_delivery_failed" | "email_held" | "domain_dns_error" | "push_delivered" | "push_clicked"; path: string; visitor: string; country: string; device: string; browser: string }
 ): void {
   env.EVENTS.writeDataPoint({
     indexes: [String(tenantId)],
