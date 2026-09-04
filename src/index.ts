@@ -83,6 +83,10 @@ import {
   type MediaItem,
 } from "./admin";
 import { tenantDb } from "./db";
+
+async function ensurePostsMetaColumn(db: D1Database): Promise<void> {
+  try { await db.prepare("ALTER TABLE posts ADD COLUMN meta_description TEXT").run(); } catch {}
+}
 import { checkLoginRateLimit, clearFailedLoginForEmail, recordFailedLogin } from "./login-rate-limit";
 import { pushConfigured, sendBrowserPush, validBrowserPushSubscription, type BrowserPushSubscription, type PushPayload } from "./push";
 import { classifyPushDelivery } from "./push-state";
@@ -1437,6 +1441,7 @@ app.post("/api/v1/blogs/:blogId/posts", async (c) => {
   const now = Math.floor(Date.now() / 1000);
 
   const pdb = tenantDb(c.env, tenant);
+  await ensurePostsMetaColumn(pdb);
   slug = await uniquePostSlug(pdb, tenant.id, slug);
 
   let res: any;
@@ -1480,6 +1485,7 @@ app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
   if (!role || (!can(role, "posts.edit.any") && !can(role, "posts.edit.own"))) return c.json({ error: "forbidden" }, 403);
 
   const pdb = tenantDb(c.env, tenant);
+  await ensurePostsMetaColumn(pdb);
   const post = await pdb
     .prepare("SELECT * FROM posts WHERE id = ? AND tenant_id = ?")
     .bind(c.req.param("id"), tenant.id)
@@ -3290,6 +3296,7 @@ app.post("/admin/b/:blogId/save", async (c) => {
 
   const now = Math.floor(Date.now() / 1000);
   const pdb = tenantDb(c.env, ctx.tenant);
+  await ensurePostsMetaColumn(pdb);
   let savedId = idParam ? Number(idParam) : undefined;
   let wasPublished = 0;
   let previousSlug = "";
