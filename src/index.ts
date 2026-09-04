@@ -1966,7 +1966,7 @@ app.post("/api/v1/blogs/:blogId/pages", async (c) => {
   }
   const id = res.meta.last_row_id as number;
   const page = await tenantDb(c.env, tenant).prepare("SELECT * FROM pages WHERE id = ?").bind(id).first<Page>();
-  c.executionCtx.waitUntil(purgeTenant(c.env, tenant, ["/" + slug, "/sitemap.xml"]).catch(()=>{}));
+  c.executionCtx.waitUntil(purgeTenant(c.env, tenant, ["/", "/" + slug, `/pages/${slug}`, "/sitemap.xml"]).catch(()=>{}));
   queueBlogAudit(c, tenant.id, account.id, published ? "page_published" : "page_created", slug);
   return c.json({ page: page ? pageToJson(page) : { id, slug, title, body_md, published: !!published, show_in_navigation: !!showInNavigation, navigation_label: navigationLabel, navigation_order: navigationOrder, meta_description: metaDescription } }, 201);
 });
@@ -2016,7 +2016,7 @@ app.patch("/api/v1/blogs/:blogId/pages/:id", async (c) => {
     }
   }
   const updated = await pdb.prepare("SELECT * FROM pages WHERE id = ?").bind(page.id).first<Page>();
-  c.executionCtx.waitUntil(purgeTenant(c.env, tenant, ["/" + page.slug, "/" + slug, "/sitemap.xml"]).catch(()=>{}));
+  c.executionCtx.waitUntil(purgeTenant(c.env, tenant, ["/", "/" + page.slug, "/" + slug, `/pages/${page.slug}`, `/pages/${slug}`, "/sitemap.xml"]).catch(()=>{}));
   return c.json({ page: updated ? pageToJson(updated) : { id: page.id, slug, title, body_md, published: !!published, show_in_navigation: !!showInNavigation, navigation_label: navigationLabel, navigation_order: navigationOrder, meta_description: metaDescription } });
 });
 
@@ -2031,7 +2031,16 @@ app.delete("/api/v1/blogs/:blogId/pages/:id", async (c) => {
   const page = await tenantDb(c.env, tenant).prepare("SELECT * FROM pages WHERE id = ? AND tenant_id = ?").bind(Number(c.req.param("id")), tenant.id).first<Page>();
   if (!page) return c.json({ error: "page not found" }, 404);
   await tenantDb(c.env, tenant).prepare("DELETE FROM pages WHERE id = ? AND tenant_id = ?").bind(page.id, tenant.id).run();
-  c.executionCtx.waitUntil(purgeTenant(c.env, tenant, ["/" + page.slug, "/sitemap.xml"]).catch(()=>{}));
+  try {
+    const navLinks = parseNavigationLinks(tenant as any);
+    const href = `/pages/${page.slug}`;
+    const filtered = navLinks.filter((l) => l.href !== href);
+    if (filtered.length !== navLinks.length) {
+      await c.env.DB.prepare("UPDATE tenants SET navigation_links_json = ? WHERE id = ?").bind(JSON.stringify(filtered), tenant.id).run();
+      tenant = { ...tenant, navigation_links_json: JSON.stringify(filtered) } as any;
+    }
+  } catch {}
+  c.executionCtx.waitUntil(purgeTenant(c.env, tenant, ["/", "/" + page.slug, `/pages/${page.slug}`, "/sitemap.xml"]).catch(()=>{}));
   queueBlogAudit(c, tenant.id, account.id, "page_deleted", page.slug);
   return new Response(null, { status: 204 });
 });
@@ -2997,7 +3006,16 @@ app.post("/admin/b/:blogId/pages/delete/:id", async (c) => {
   const page = await tenantDb(c.env, ctx.tenant).prepare("SELECT slug FROM pages WHERE id = ? AND tenant_id = ?").bind(c.req.param("id"), ctx.tenant.id).first<{ slug: string }>();
   if (page) {
     await tenantDb(c.env, ctx.tenant).prepare("DELETE FROM pages WHERE id = ? AND tenant_id = ?").bind(c.req.param("id"), ctx.tenant.id).run();
-    purgeTenant(c.env, ctx.tenant, ["/", `/pages/${page.slug}`, "/sitemap.xml"]);
+    try {
+      const navLinks = parseNavigationLinks(ctx.tenant as any);
+      const href = `/pages/${page.slug}`;
+      const filtered = navLinks.filter((l) => l.href !== href);
+      if (filtered.length !== navLinks.length) {
+        await c.env.DB.prepare("UPDATE tenants SET navigation_links_json = ? WHERE id = ?").bind(JSON.stringify(filtered), ctx.tenant.id).run();
+        ctx.tenant = { ...ctx.tenant, navigation_links_json: JSON.stringify(filtered) } as any;
+      }
+    } catch {}
+    await purgeTenant(c.env, ctx.tenant, ["/", `/pages/${page.slug}`, "/sitemap.xml"]);
   }
   return c.redirect(`/admin/b/${ctx.tenant.public_id}/pages`);
 });
@@ -7028,7 +7046,13 @@ app.get("/pages/:slug", async (c) => {
     const merged = [...pageItems, ...linkItems].sort((a, b) => a.order === b.order ? a.label.localeCompare(b.label) : a.order - b.order).slice(0, 6);
     return merged.map(({ label, href, external }) => ({ label, href, external }));
   })();
-  return c.html(renderPage(tenant, page, renderMarkdown(page.body_md), originOf(c), analyticsConsentRequired(c.req.raw.cf?.country), false, navigationItems));
+  const account = await currentAccount(c);
+  let isOwner = false;
+  if (account) {
+    const role = await membershipRoleFor(c.env, account.id, tenant.id);
+    if (role) isOwner = true;
+  }
+  return c.html(renderPage(tenant, page, renderMarkdown(page.body_md), originOf(c), analyticsConsentRequired(c.req.raw.cf?.country), isOwner, navigationItems));
 });
 
 app.get("/:slug", async (c) => {
