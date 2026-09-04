@@ -210,7 +210,7 @@ export async function currentAccount(c: any): Promise<Account | null> {
       `SELECT a.id, a.email, COALESCE(a.status, 'active') AS status, a.status_reason, a.status_changed_at,
               COALESCE(a.billing_status, 'inactive') AS billing_status,
               COALESCE(a.billing_cancel_at_period_end, 0) AS billing_cancel_at_period_end,
-              a.crypto_paid_through, a.vip_granted_at, a.vip_expires_at, a.max_blogs_override, COALESCE(a.email_verified, 0) AS email_verified, a.email_verified_at, a.locked_until
+              a.crypto_paid_through, a.vip_granted_at, a.vip_expires_at, a.max_blogs_override, a.vip_reason, COALESCE(a.email_verified, 0) AS email_verified, a.email_verified_at, a.locked_until
          FROM sessions s JOIN accounts a ON a.id = s.account_id
         WHERE s.token = ? AND s.expires_at > ?`
     ).bind(token, now).first()) as Account | null;
@@ -220,7 +220,7 @@ export async function currentAccount(c: any): Promise<Account | null> {
       `SELECT a.id, a.email, COALESCE(a.status, 'active') AS status, a.status_reason, a.status_changed_at,
               COALESCE(a.billing_status, 'inactive') AS billing_status,
               COALESCE(a.billing_cancel_at_period_end, 0) AS billing_cancel_at_period_end,
-              a.crypto_paid_through, a.vip_granted_at, a.vip_expires_at, a.max_blogs_override, COALESCE(a.email_verified, 0) AS email_verified, a.email_verified_at
+              a.crypto_paid_through, COALESCE(a.email_verified, 0) AS email_verified, a.email_verified_at
          FROM sessions s JOIN accounts a ON a.id = s.account_id
         WHERE s.token = ? AND s.expires_at > ?`
     ).bind(token, now).first()) as Account | null;
@@ -288,8 +288,15 @@ export async function accountFromApiKey(
 ): Promise<Account | null> {
   if (!key || !key.startsWith("bnk_")) return null;
   const hash = await sha256hex(key);
-  return (await db
-    .prepare("SELECT id, email, COALESCE(status, 'active') AS status, status_reason, status_changed_at, COALESCE(billing_status, 'inactive') AS billing_status, COALESCE(billing_cancel_at_period_end, 0) AS billing_cancel_at_period_end, crypto_paid_through, vip_granted_at, vip_expires_at, max_blogs_override FROM accounts WHERE api_key_hash = ?")
-    .bind(hash)
-    .first()) as Account | null;
+  try {
+    return (await db
+      .prepare("SELECT id, email, COALESCE(status, 'active') AS status, status_reason, status_changed_at, COALESCE(billing_status, 'inactive') AS billing_status, COALESCE(billing_cancel_at_period_end, 0) AS billing_cancel_at_period_end, crypto_paid_through, vip_granted_at, vip_expires_at, max_blogs_override FROM accounts WHERE api_key_hash = ?")
+      .bind(hash)
+      .first()) as Account | null;
+  } catch {
+    return (await db
+      .prepare("SELECT id, email, COALESCE(status, 'active') AS status, status_reason, status_changed_at, COALESCE(billing_status, 'inactive') AS billing_status, COALESCE(billing_cancel_at_period_end, 0) AS billing_cancel_at_period_end, crypto_paid_through FROM accounts WHERE api_key_hash = ?")
+      .bind(hash)
+      .first()) as Account | null;
+  }
 }

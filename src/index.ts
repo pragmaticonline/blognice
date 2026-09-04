@@ -6261,7 +6261,12 @@ app.get("/admin/billing", async (c) => {
   const account = await currentAccount(c);
   if (!account) return c.redirect("/admin/login");
   if (isSuspended(account)) return suspendedResponse(c, account);
-  const billing = await c.env.DB.prepare("SELECT stripe_customer_id, stripe_subscription_id, billing_status, billing_price_id, billing_period_end, billing_cancel_at_period_end, crypto_paid_through, vip_granted_at, vip_expires_at, vip_reason FROM accounts WHERE id = ?").bind(account.id).first() || {};
+  let billing: any = {};
+  try {
+    billing = await c.env.DB.prepare("SELECT stripe_customer_id, stripe_subscription_id, billing_status, billing_price_id, billing_period_end, billing_cancel_at_period_end, crypto_paid_through, vip_granted_at, vip_expires_at, vip_reason FROM accounts WHERE id = ?").bind(account.id).first() || {};
+  } catch {
+    billing = await c.env.DB.prepare("SELECT stripe_customer_id, stripe_subscription_id, billing_status, billing_price_id, billing_period_end, billing_cancel_at_period_end, crypto_paid_through FROM accounts WHERE id = ?").bind(account.id).first() || {};
+  }
   const usage = await c.env.DB.prepare("SELECT credits_used AS used, allowance FROM ai_credit_usage WHERE account_id = ? AND period = ?")
     .bind(account.id, aiCreditPeriod()).first<{ used: number; allowance: number }>();
   const attribution = await c.env.DB.prepare("SELECT 1 FROM affiliate_attributions WHERE referred_account_id = ?").bind(account.id).first();
@@ -6295,8 +6300,13 @@ app.post("/admin/billing/checkout", async (c) => {
   const plan = String(form.get("plan") || "monthly");
   const priceId = plan === "yearly" ? (c.env.STRIPE_YEARLY_PRICE_ID || "") : (c.env.STRIPE_MONTHLY_PRICE_ID || c.env.STRIPE_PRICE_ID || "");
   if (!priceId) return c.redirect("/admin/billing?message=The selected Stripe plan is not configured yet.");
-  const billing = await c.env.DB.prepare("SELECT stripe_customer_id, billing_status, vip_granted_at, vip_expires_at FROM accounts WHERE id = ?").bind(account.id).first<{ stripe_customer_id?: string | null; billing_status: string; vip_granted_at?: number | null; vip_expires_at?: number | null }>();
-  if (billing && (["active", "trialing", "past_due"].includes(billing.billing_status) || (Number(billing.vip_granted_at || 0) > 0 && (billing.vip_expires_at == null || Number(billing.vip_expires_at) > Math.floor(Date.now()/1000))))) return c.redirect("/admin/billing?message=This account already has a subscription.");
+  let billing: any;
+  try {
+    billing = await c.env.DB.prepare("SELECT stripe_customer_id, billing_status, vip_granted_at, vip_expires_at FROM accounts WHERE id = ?").bind(account.id).first<{ stripe_customer_id?: string | null; billing_status: string; vip_granted_at?: number | null; vip_expires_at?: number | null }>();
+  } catch {
+    billing = await c.env.DB.prepare("SELECT stripe_customer_id, billing_status FROM accounts WHERE id = ?").bind(account.id).first<{ stripe_customer_id?: string | null; billing_status: string }>();
+  }
+  if (billing && (["active", "trialing", "past_due"].includes(billing.billing_status) || (Number((billing as any).vip_granted_at || 0) > 0 && ((billing as any).vip_expires_at == null || Number((billing as any).vip_expires_at) > Math.floor(Date.now()/1000))))) return c.redirect("/admin/billing?message=This account already has a subscription.");
   try {
     const origin = new URL(c.req.url).origin;
     const now = Math.floor(Date.now() / 1000);
@@ -6364,7 +6374,12 @@ app.post("/admin/billing/crypto/checkout", async (c) => {
   if (!account) return c.redirect("/admin/login");
   if (isSuspended(account)) return suspendedResponse(c, account);
   if (!nowPaymentsConfigured(c.env)) return c.redirect("/admin/billing?message=Crypto payments are not configured yet.");
-  const billing = await c.env.DB.prepare("SELECT billing_status, crypto_paid_through, vip_granted_at, vip_expires_at FROM accounts WHERE id = ?").bind(account.id).first<{ billing_status: string; crypto_paid_through?: number | null; vip_granted_at?: number | null; vip_expires_at?: number | null }>();
+  let billing: any;
+  try {
+    billing = await c.env.DB.prepare("SELECT billing_status, crypto_paid_through, vip_granted_at, vip_expires_at FROM accounts WHERE id = ?").bind(account.id).first<{ billing_status: string; crypto_paid_through?: number | null; vip_granted_at?: number | null; vip_expires_at?: number | null }>();
+  } catch {
+    billing = await c.env.DB.prepare("SELECT billing_status, crypto_paid_through FROM accounts WHERE id = ?").bind(account.id).first<{ billing_status: string; crypto_paid_through?: number | null }>();
+  }
   if (accountHasPaidPlan(billing || {})) return c.redirect("/admin/billing?message=This account already has paid access.");
   try {
     const origin = new URL(c.req.url).origin;

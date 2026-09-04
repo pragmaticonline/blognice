@@ -192,7 +192,7 @@ async function accountById(c: any, id: number) {
     ).bind(now, id).first();
   } catch {
     return await c.env.DB.prepare(
-      `SELECT a.id, a.email, COALESCE(a.status, 'active') AS status, a.status_reason, a.status_changed_at, a.created_at, a.stripe_customer_id, a.billing_status, a.billing_price_id, a.billing_period_end, a.billing_cancel_at_period_end, a.api_key_hash IS NOT NULL AS has_api_key, a.vip_granted_at, a.vip_expires_at, a.vip_reason, (SELECT COUNT(*) FROM sessions s WHERE s.account_id = a.id AND s.expires_at > ?) AS active_sessions, (SELECT COUNT(*) FROM memberships m WHERE m.account_id = a.id) AS blog_count FROM accounts a WHERE a.id = ?`
+      `SELECT a.id, a.email, COALESCE(a.status, 'active') AS status, a.status_reason, a.status_changed_at, a.created_at, a.stripe_customer_id, a.billing_status, a.billing_price_id, a.billing_period_end, a.billing_cancel_at_period_end, a.api_key_hash IS NOT NULL AS has_api_key, COALESCE(a.email_verified,0) AS email_verified, a.email_verified_at, a.signup_ip, a.signup_ua, a.signup_referer, a.signup_country, a.locked_until, a.deleted_at, (SELECT COUNT(*) FROM sessions s WHERE s.account_id = a.id AND s.expires_at > ?) AS active_sessions, (SELECT COUNT(*) FROM memberships m WHERE m.account_id = a.id) AS blog_count FROM accounts a WHERE a.id = ?`
     ).bind(now, id).first();
   }
 }
