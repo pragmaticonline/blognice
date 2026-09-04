@@ -3,17 +3,28 @@
 	"name": "blognice",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-06-20",
+	"compatibility_flags": ["nodejs_compat"],
+	"limits": { "cpu_ms": 300000 },
+	"rules": [
+		{ "type": "Text", "globs": ["**/*.html", "**/*.svg"], "fallthrough": false }
+	],
 	"vars": {
 		"ROOT_DOMAIN": "example.com",
 		"CF_ZONE_ID": "replace-with-zone-id",
 		"CF_ACCOUNT_ID": "replace-with-account-id",
 		"CNAME_TARGET": "fallback.example.com",
+		"EMAIL_FROM": "Blognice <support@mailer.example.com>",
+		"VAPID_SUBJECT": "mailto:support@example.com",
+		"VAPID_PUBLIC_KEY": "replace-with-vapid-public-key",
+		"STRIPE_MONTHLY_PRICE_ID": "replace-with-monthly-price-id",
+		"STRIPE_YEARLY_PRICE_ID": "replace-with-yearly-price-id",
 		"STRIPE_AFFILIATE_COUPON_ID": "replace-with-verified-10-percent-12-month-coupon-id",
 		"AFFILIATE_TERMS_VERSION": "affiliate-1",
 		"AFFILIATE_TERMS_DOCUMENT_DIGEST": "sha256:replace-with-published-document-digest",
 		"AFFILIATE_POLICY_VERSION": "affiliate-1",
 		"AFFILIATE_TERMS_URL": "https://www.example.com/affiliate-terms",
-		"AFFILIATE_STRIPE_CONNECT_COUNTRIES": "US,CA,GB,TH"
+		"AFFILIATE_STRIPE_CONNECT_COUNTRIES": "US,CA,GB,TH",
+		"AFFILIATE_OFFER_EXPERIMENT": "off"
 	},
 	"routes": [
 		{ "pattern": "*.example.com/*", "zone_name": "example.com" },
@@ -41,5 +52,19 @@
 		{ "binding": "AFFILIATE_EVENTS", "dataset": "blognice_affiliate_events" }
 	],
 	"triggers": { "crons": ["15 2 * * *"] },
-	"ai": { "binding": "AI" }
+	"ai": { "binding": "AI" },
+	"queues": {
+		"producers": [
+			{ "binding": "AUDIO_QUEUE", "queue": "blognice-audio" },
+			{ "binding": "EMAIL_QUEUE", "queue": "blognice-email" },
+			{ "binding": "PUSH_QUEUE", "queue": "blognice-push" },
+			{ "binding": "INDEXNOW_QUEUE", "queue": "blognice-indexnow" }
+		],
+		"consumers": [
+			{ "queue": "blognice-audio", "max_batch_size": 1, "max_batch_timeout": 5, "max_retries": 5 },
+			{ "queue": "blognice-email", "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 5, "dead_letter_queue": "blognice-email-dlq" },
+			{ "queue": "blognice-push", "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 5, "dead_letter_queue": "blognice-push-dlq" },
+			{ "queue": "blognice-indexnow", "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 5 }
+		]
+	}
 }

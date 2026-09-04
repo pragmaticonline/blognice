@@ -18,21 +18,24 @@ fast, server-rendered pages.
 
 ## What's in the box
 
-- **One Worker** ([Hono](https://hono.dev)) that routes every request to the
-  right tenant based on the `Host` header, renders Markdown through a
+- **Two Workers** built with [Hono](https://hono.dev): the public Worker routes
+  tenant and account traffic, while the separately deployed staff Worker is
+  protected by Cloudflare Access. The public Worker renders Markdown through a
   sanitized Markdown-to-HTML pipeline, and serves it server-side (good for SEO, with
   only small progressive scripts for editor, audio, and metrics behavior).
-- **One D1 database** (Cloudflare's SQLite) holding two tables: `tenants` and
-  `posts`. All queries filter by `tenant_id`.
+- **Two D1 databases**: the index database stores accounts, tenants, billing,
+  staff, affiliate, subscription, and operational state; the posts database
+  stores tenant-scoped content and content-delivery state.
 - **Edge caching** via the Cache API. Reads are cached at the edge; publishing a
   post purges the pages it affects.
 - **Accounts with multiple blogs** — a login (account) can own several blogs.
   After signing in you get a blog picker at `/admin`; each blog is managed at
   `/admin/b/<public-id>/…`. Access is enforced through a `memberships` table, so an
   account only ever sees and edits its own blogs.
-- **Self-service signup** at `/signup` — a visitor picks a blog address, and an
-  account, first blog, and session are created in one step; they land in their
-  own editor. (No email verification yet — see notes.)
+- **Self-service signup** at `/signup` — a visitor picks a blog address and
+  creates an account and first blog. When MailNice is configured, activation is
+  gated by email verification; signup is rate-limited. Without email delivery,
+  the deployment explicitly falls back to immediate verification.
 - **A minimal admin UI** — password login, server-side sessions, a blog picker,
   a post list, and a Markdown editor with a Write/Preview toggle. Every action
   is scoped to a blog the account owns.
@@ -87,22 +90,19 @@ fast, server-rendered pages.
     src/cloudflare.ts Cloudflare for SaaS custom-hostname API wrapper
     src/email.ts      Transactional email via MailNice
     src/metrics.ts    Analytics Engine writes/queries + daily R2 rollups
+    src/staff.ts      Separate Cloudflare Access-protected staff Worker
+    src/affiliate*.ts Affiliate attribution, commission, payout, and reporting
+    src/stripe.ts     Stripe billing, webhooks, and Connect integration
+    src/nowpayments.ts NOWPayments annual billing integration
+    src/push.ts       Browser-push subscription and delivery behavior
     schema.sql        Index database: accounts, memberships, tenants, sessions, domains
     schema-posts.sql  Posts database: post bodies
     seed.sql          Demo blog + account + membership (index database)
     seed-posts.sql    Demo posts (posts database)
     migrations/       One-off SQL migrations for existing databases
-    wrangler.jsonc    Cloudflare config
-
-## Zuck QA bridge
-
-Zuck is Blognice's explicitly invoked, read-only external QA agent. It uses
-Muse Spark Contributor (`muse-spark-1.2-contributor`) only through the local
-bridge; it does not modify files or deploy anything. This project accepts the
-Contributor privacy trade-off for open-source QA work.
-Keep the API key in the shell environment (never in Git or Worker files):
-
-    $env:MODEL_API_KEY = "your-key"
+    wrangler.jsonc    Local/development public Worker configuration
+    wrangler.production.example.jsonc Public production config template
+    wrangler.staff.production.example.jsonc Staff production config template
 
 ### Browser notifications
 
@@ -120,40 +120,10 @@ Apply the migrations to the two databases before enabling the feature:
 Push is disabled per blog until an owner enables it in Blog settings. Readers then click “Enable browser notifications”, grant browser permission, and can revoke the subscription in browser settings. Delivery is at-least-once across the external push boundary: transient provider failures are retried, permanent recipient failures are isolated, and operators can replay unfinished campaigns. The subscription model is topic-ready for future comment replies and mentions; typing indicators will remain realtime-only and will not generate push notifications.
 The scheduled Worker job removes old rate-limit rows, completed delivery records, stale subscriptions, and subscriptions belonging to blogs that have kept push disabled for 30 days.
 
-Invoke it with a prompt and optional context files:
-
-    npm run qa:zuck -- --prompt "Review the latest changes" --file src/index.ts --file test/example.test.mjs
-
-For large files, submit only relevant 1-indexed inclusive line ranges. Repeat
-`--range` for multiple files or regions; `--file` continues to mean a whole
-file. Overlapping ranges are merged, and the bridge reports any omitted lines:
-
-    npm run qa:zuck -- --prompt "Review TTS retry handling" --range "src/index.ts:2480-2650" --range "src/staff.ts:120-180" --file src/tts.ts
-
-The older `--file path:start-end` form is also accepted. Optional context can
-be supplied with `--diff "..."` and `--tests "..."`.
-The bridge bounds and redacts submitted context and excludes environment files,
-secrets, `.wrangler`, dependencies, and build artifacts. It prints a structured
-PASS or NEEDS CHANGES report with affected files, recommendations, and missing
-tests; it marks incomplete context and will not return an unqualified PASS when
-context was omitted. It never prints the API key or modifies repository files.
-Ranges are limited to 4,000 lines each, 12,000 merged lines total, and 40
-range requests; whole-file context is limited to 12,000 characters and total
-submitted context to 36,000 characters. Empty diff/test values are ignored;
-empty prompt, file, or range values fail with a diagnostic. Truncation and
-omission markers are included in the bounded context. If the selected context
-would exceed the global limit, the bridge automatically splits it into separate
-bounded review packets, then asks Zuck for a final bounded synthesis of those
-structured reports. A multipart PASS is emitted only when synthesis finds no
-unresolved critical/high or confirmed packet-local defect. Provisional notes
-about a packet not seeing another packet do not by themselves block the final
-decision. Incomplete or truncated packets, or an incomplete synthesis summary,
-remain conservative and cannot be treated as a complete review.
-
 The reusable handoff for writing and reviewing development-blog posts is in
 [`docs/development-blog-workflow.md`](docs/development-blog-workflow.md). It
 covers API-first drafting, topics, featured images, narration, BIG AI review,
-Zuck QA, and explicit human approval before publication.
+and explicit human approval before publication.
 
 ## Two databases
 
@@ -163,60 +133,29 @@ blognice uses two D1 databases from the start:
   domains. Small, and always queried per account/blog. An **account** is a login;
   a **tenant** is a blog; **memberships** connect them (an account can own many
   blogs, and the `role` column leaves room for collaborators later).
-- **`POSTS`** (`blognice-posts`) — every post body, and nothing else. This is the
-  only data that grows without bound, so it gets its own database and can later
-  be split across several without migrating any metadata or changing URLs.
+- **`POSTS`** (`blognice-posts`) — tenant-scoped posts and pages, including
+  authorship, media references, narration, and content-delivery state. This is
+  the content data that grows without bound, so it gets its own database and can
+  later be split across several without migrating account metadata or changing
+  URLs.
 
 `src/db.ts` is the single place that routes a tenant to its posts database.
 
 ## Migrating an existing deployment
 
-If you deployed the earlier single-blog-per-login version, run the migration
-once to move to accounts + memberships (it preserves every login and links it to
-the blog it owns; existing sessions are cleared, so everyone signs in again):
+Fresh installations load `schema.sql` and `schema-posts.sql`; they do not replay
+historical migrations. Existing installations must apply every unapplied
+migration, in filename order, to the database named in
+[`docs/production-operations.md`](docs/production-operations.md). Some files are
+Blognice-instance content migrations rather than portable schema changes, so do
+not run the directory blindly.
 
-    wrangler d1 execute blognice --remote --file=./migrations/001-accounts-multiblog.sql
-
-Existing deployments created before featured images also need this one-time
-POSTS database migration:
-
-    wrangler d1 execute blognice-posts --remote --file=./migrations/002-post-featured-image.sql
-
-Existing deployments also need the narration column before deploying the
-text-to-speech feature:
-
-    npx wrangler d1 execute blognice-posts --remote --file=./migrations/003-post-audio.sql --config wrangler.production.jsonc
-
-Existing deployments also need the tenant slug-alias table before deploying
-editable blog addresses:
-
-    npx wrangler d1 execute blognice --remote --file=./migrations/008-tenant-slug-aliases.sql --config wrangler.production.jsonc
-
-Owners can change a blog address from its settings. blognice keeps the former
-address as a permanent alias and sends visitors to the new address with a
-301 redirect; the old address remains reserved so it cannot be claimed by a
-different blog.
-
-Existing deployments also need the blog topics column before using topic
-grouping in Settings:
-
-    npx wrangler d1 execute blognice --remote --file=./migrations/009-tenant-topics.sql --config wrangler.production.jsonc
-
-Existing posts databases also need the post-tags column:
-
-    npx wrangler d1 execute blognice-posts --remote --file=./migrations/010-post-tags.sql --config wrangler.production.jsonc
-
-Existing posts databases also need the public author-name column:
-
-    npx wrangler d1 execute blognice-posts --remote --file=./migrations/011-post-author-name.sql --config wrangler.production.jsonc
-
-The index database also needs blog-specific collaborator display names:
-
-    npx wrangler d1 execute blognice --remote --file=./migrations/012-membership-display-name.sql --config wrangler.production.jsonc
-
-Existing posts databases also need the author-visibility column:
-
-    npx wrangler d1 execute blognice-posts --remote --file=./migrations/013-post-author-visibility.sql --config wrangler.production.jsonc
+Before deploying code, back up both databases, record the last applied file,
+apply the outstanding entries with `--remote --config
+wrangler.production.jsonc`, and verify the resulting schema. The normal deploy
+workflow does not apply general migrations automatically. Affiliate migrations
+053–055 have a dedicated manually dispatched workflow, but still require the
+same backup and verification discipline.
 
 ## Local development
 
@@ -237,36 +176,47 @@ without any Host-header juggling. Remove that var before deploying to production
 
 ## Deploying
 
-To keep production resource IDs out of Git, copy
-`wrangler.production.example.jsonc` to the ignored
-`wrangler.production.jsonc`, fill in the real domain, zone, D1, and R2 values,
-then run `npm run deploy:production:check` followed by
-`npm run deploy:production`. Worker secret values still belong in Cloudflare
-via `wrangler secret put`, not in either configuration file.
+Production requires Node.js 22, Wrangler authentication for the target
+Cloudflare account, and the Cloudflare products represented by the bindings in
+the production templates. Keep production resource IDs and secrets out of Git:
+copy `wrangler.production.example.jsonc` and
+`wrangler.staff.production.example.jsonc` to their ignored non-example names,
+then fill in the real routes, identifiers, and Access settings. The complete
+bootstrap, migration, secret, verification, and rollback runbook is
+[`docs/production-operations.md`](docs/production-operations.md).
 
 1. **Create both databases** and paste each returned `database_id` into
-   `wrangler.jsonc` (the `DB` and `POSTS` bindings):
+   `wrangler.production.jsonc` (the `DB` and `POSTS` bindings):
 
        npx wrangler d1 create blognice
        npx wrangler d1 create blognice-posts
 
-2. **Load the schemas** (and demo data, if you want it):
+2. **Load the schemas into the remote production databases.** Do not load demo
+   seeds into production:
 
-       npm run db:init
-       npm run db:init:posts
-       npm run db:seed         # optional
-       npm run db:seed:posts   # optional
+       npx wrangler d1 execute blognice --remote --file=./schema.sql --config wrangler.production.jsonc
+       npx wrangler d1 execute blognice-posts --remote --file=./schema-posts.sql --config wrangler.production.jsonc
 
 3. **Create the image and metrics archive buckets:**
 
        npx wrangler r2 bucket create blognice-media
        npx wrangler r2 bucket create blognice-metrics
 
-4. **Set the application API token** (a long random string):
+4. **Create all queues referenced by the production configurations:**
 
-       npx wrangler secret put API_TOKEN
+       npx wrangler queues create blognice-audio
+       npx wrangler queues create blognice-email
+       npx wrangler queues create blognice-email-dlq
+       npx wrangler queues create blognice-push
+       npx wrangler queues create blognice-push-dlq
+       npx wrangler queues create blognice-indexnow
 
-5. **Enable metrics reporting.** Put your Cloudflare account ID in the
+5. **Set the application API token** (a long random string) on the public
+   Worker. Always name the production config explicitly when setting secrets:
+
+       npx wrangler secret put API_TOKEN --config wrangler.production.jsonc
+
+6. **Enable metrics reporting.** Put your Cloudflare account ID in the
    `CF_ACCOUNT_ID` production var. Create a separate Cloudflare API token with
    `Account > Account Analytics > Read`, then enter it interactively:
 
@@ -275,24 +225,24 @@ via `wrangler secret put`, not in either configuration file.
    The `blognice_pageviews` Analytics Engine dataset is created automatically
    on the first page view; it does not have a database ID.
 
-6. **Deploy:**
+7. **Validate and deploy both Workers:**
 
-       npm run deploy
+       npm run deploy:production:check
+       npm run deploy:staff:production:check
+       npm run deploy:production
+       npm run deploy:staff:production
 
-7. **Point your platform domain at the Worker.** Add a route for
+8. **Point your platform domain at the public Worker.** Add a route for
    `*.blognice.com` (a wildcard) so every tenant subdomain hits this Worker, and
-   set `ROOT_DOMAIN` in `wrangler.jsonc` to match your domain.
+   set `ROOT_DOMAIN` in `wrangler.production.jsonc` to match your domain. Route
+   the staff hostname to the staff Worker and keep it behind Cloudflare Access.
 
-## Staff administration (phase 1)
+## Staff administration
 
 Staff administration is a separate Worker at `staff.blognice.com`; it does not
 reuse customer sessions or `API_TOKEN`. Put the hostname behind a Cloudflare
 Access application with an email allowlist and mandatory MFA. The Worker also
 validates the Access JWT and maps its immutable subject to `staff_users`.
-
-Apply the index migration before deploying it:
-
-    npx wrangler d1 execute blognice --remote --file=./migrations/014-staff-administration.sql --config wrangler.production.jsonc
 
 Copy `wrangler.staff.production.example.jsonc` to the ignored local file
 `wrangler.staff.production.jsonc`, then set the Access team domain, Access
@@ -301,12 +251,13 @@ application audience tag, index database ID, and an initial
 
     npm run deploy:staff:production
 
-Phase 1 provides account/blog search, read-only account details, account
-suspension/reactivation, session revocation, API-key revocation, and an indexed
-application audit trail. Mutations require a `support` or `admin` staff role,
-a same-origin request, and a reason. Passwords, subscriber contents, drafts,
-media, billing, impersonation, and permanent deletion are intentionally out of
-scope.
+The staff Worker provides account and blog search, support context, activity,
+notes, locks, rate-limit controls, impersonation, export and deletion actions,
+affiliate support, payout operations, and experiment reporting. Access varies
+by `support` and `admin` role. Mutations require authorization, a same-origin
+request, a reason where applicable, and an audit record. Financial, identity,
+impersonation, export, and deletion actions should be treated as privileged
+operations and exercised through the documented UI controls.
 
 Support and admin staff can use an account detail page's **Send test email**
 button to verify transactional email delivery. The action sends a fixed test
@@ -515,7 +466,7 @@ This is handled end to end via **Cloudflare for SaaS** (custom hostnames). The
 domain only routes traffic once its `status` is `active`. First 100 hostnames
 are free, then ~$0.10/hostname/month.
 
-**Authors do this themselves** from `/admin/domains`: they enter a domain, the
+**Authors do this themselves** from `/admin/b/<public-id>/domains`: they enter a domain, the
 page shows the DNS records to add, and a "Check status" button flips it live
 once verified — all scoped to their own tenant. The JSON API below is the same
 flow for operator/automation use. Either way, you do the one-time platform
@@ -587,9 +538,11 @@ Anyone can create a blog at `/signup`: they choose a blog address (which becomes
 add more blogs later from the blog list. The slug is validated and checked
 against a reserved-name list so it can't collide with your own hostnames.
 
-Before promoting this publicly, add the two things the code marks as TODO:
-**email verification** (send a confirm link and gate the blog until confirmed —
-needs an email provider) and **rate limiting** on the endpoint.
+Signup is rate-limited by IP and email. With MailNice configured, new accounts
+must follow the expiring verification link before activation and can request a
+bounded resend. Without email configuration, the deployment deliberately marks
+the address verified immediately so self-hosted instances remain usable. Login
+rate limiting remains a separate hardening item.
 
 ### Provisioning access yourself (operator)
 
@@ -725,13 +678,37 @@ status endpoint until `complete` or `failed`; ordinary post creation never
 triggers paid AI work. Every request is checked against the account's
 `memberships`, so a key can only touch blogs its owner controls.
 
+## Affiliate program and offer experiment
+
+Eligible account holders enter the affiliate program from `/admin/affiliate`.
+The system records immutable referral attribution, qualifying revenue,
+commission adjustments, maturity, and Stripe Connect payouts without exposing
+referred-customer identity to affiliates. Stripe Connect onboarding is limited
+by `AFFILIATE_STRIPE_CONNECT_COUNTRIES`; the production template currently
+shows the approved `US,CA,GB,TH` corridor.
+
+Before enabling the program, publish `AFFILIATE_TERMS.md`, set its version, URL,
+and digest together with the affiliate policy version, configure and verify the
+Stripe coupon and webhook secrets, and apply index migrations 053–055. Staff
+operate support and payout journeys through the Access-protected Worker. See
+[`docs/affiliate-program-design.md`](docs/affiliate-program-design.md) for the
+domain rules and [`docs/production-operations.md`](docs/production-operations.md)
+for production bindings and secrets.
+
+The sales-funnel experiment is configured with
+`AFFILIATE_OFFER_EXPERIMENT`. Keep it `off` until the experiment record,
+baseline, minimum detectable uplift, sample target, start time, monitoring, and
+rollback decision are frozen. Exact operational totals live in D1; sampled
+42-day trends use the `AFFILIATE_EVENTS` Analytics Engine dataset. Staff can
+inspect and control the experiment from the staff Worker. Design and decision
+rules are in
+[`docs/affiliate-offer-experiment-design.md`](docs/affiliate-offer-experiment-design.md).
+
 ## Notes for going further
 
-- **Harden before a public launch.** Add rate limiting on `/admin/login` and
-  `/signup`, email verification on signup (send a confirm link, gate the blog
-  until confirmed), and CSRF tokens on the forms (the `SameSite=Lax` cookie
-  already blocks the common cross-site case). The signup handler marks where
-  verification goes.
+- **Harden authentication further.** Add rate limiting on `/admin/login` and
+  continue reviewing state-changing forms for explicit same-origin/CSRF
+  controls. Signup rate limiting and email verification are already present.
 - **Scaling capacity (the sharding seam).** Each D1 database maxes out at 10 GB.
   Post bodies already live in their own database (`POSTS`), separate from the
   index, so the growing data is isolated from day one. When that database fills,
@@ -747,8 +724,9 @@ triggers paid AI work. Every request is checked against the account's
   call `deleteTenantPosts()` (`src/db.ts`) alongside removing the tenant row.
   SQLite's `ON DELETE CASCADE` handles users/sessions/domains (same database as
   the tenant) but cannot reach across into the posts database.
-- **Billing and customer onboarding** are the remaining pieces to turn this into
-  a full product.
+- **Operational maturity** still needs regular restore exercises, documented
+  incident response, and automated checks that commands and routes in the
+  documentation continue to match the repository.
 
 Built to run on Cloudflare Workers, D1, and Cloudflare for SaaS.
 
@@ -763,17 +741,12 @@ seven days and are bound to the invited email address. Roles are:
 - **Contributor** — create and edit their own drafts; cannot publish.
 
 Owners retain control of members, settings, domains, subscribers, and API
-credentials. Apply the collaborator migrations to both D1 databases before
-deploying the new code:
-
-```sh
-npx wrangler d1 execute blognice --remote --file=./migrations/006-collaborators.sql
-npx wrangler d1 execute blognice-posts --remote --file=./migrations/006-post-authorship.sql
-```
+credentials. Existing installations apply `006-collaborators.sql` to INDEX and
+`006-post-authorship.sql` to POSTS through the canonical
+[migration runbook](docs/production-operations.md#existing-installation-migrations).
 
 ## License
 
 Copyright (C) 2026 Pragmatic Online Co., Ltd.
 
 blognice is free software licensed under the **GNU Affero General Public License, version 3 or later** (`AGPL-3.0-or-later`). See [`LICENSE`](LICENSE) for the complete license terms.
-

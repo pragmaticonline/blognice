@@ -11,7 +11,7 @@ behind the release decisions.
 - [ ] Decide which features are public-launch ready: browser push, narration,
       AI image generation, subscriptions, custom domains, and analytics.
 - [ ] Keep unfinished features disabled or clearly marked as experimental.
-- [ ] Record final BIG, Zuck, and Tackleberry review outcomes in the relevant
+- [ ] Record final BIG and Tackleberry review outcomes in the relevant
       working documents.
 
 ## Engineering and operations
@@ -39,30 +39,6 @@ behind the release decisions.
 - [ ] Verify narration generation completes, serves valid audio, handles model
       failures, and records useful staff audit details.
 - [ ] Generate and listen to narration for the launch content.
-
-## Zuck bridge follow-up
-
-- [ ] Start each review by checking for completed agent threads from earlier
-      work; close them before spawning new reviewers.
-- [ ] Close every completed BIG, Zuck, Tackleberry, or other review agent after
-      its report has been copied into the relevant working document.
-- [ ] Record capacity, spawn, timeout, and transport failures as incomplete
-      reviews; never label them PASS, NEEDS CHANGES, or “reviewed.”
-- [ ] Keep a review ledger with reviewer, scope, report status, timestamp, and
-      whether the result is complete or provisional.
-- [ ] Fix the remaining review-packet limitation: multiple complete ranges can
-      still exceed the bridge's global context budget.
-- [ ] Prefer automatic packet splitting by logical concern (for example:
-      ingress, storage, queue processing, replay, client behavior, and tests).
-- [ ] Require every packet to carry an explicit manifest of included and
-      omitted files/ranges.
-- [ ] Combine packet results only when every required packet is complete; keep
-      incomplete reviews as `NEEDS CHANGES` or provisional.
-- [ ] Preserve secret redaction, path canonicalization, symlink protection,
-      malformed-response handling, and read-only guarantees.
-- [ ] Have Zuck review the bridge change, then obtain an independent BIG review
-      and a security review from Tackleberry.
-- [ ] Do not treat a Zuck PASS as the sole merge or release authority.
 
 ## Legal, privacy, and trust
 
@@ -119,8 +95,7 @@ behind the release decisions.
       description, founder/project quote, open-source positioning, and contact
       details.
 - [ ] Include the practical story behind Blognice: documented design choices,
-      the read-only Zuck QA bridge, independent review, and the lessons from
-      operating the project.
+      independent review, and the lessons from operating the project.
 - [ ] Fact-check every claim, metric, model name, cost figure, customer quote,
       and feature description against the released product.
 - [ ] Obtain final human approval for the release text, quoted names, links,
@@ -144,8 +119,7 @@ The release is ready only when:
 2. Production deployment and migrations are verified.
 3. Critical user journeys work on a clean browser session.
 4. No unresolved critical or high security/legal blocker remains.
-5. The Zuck bridge review is complete-context or explicitly marked provisional,
-   with BIG and Tackleberry review where appropriate.
+5. BIG and Tackleberry reviews are complete where appropriate.
 6. Rollback, support, and incident contacts are known.
 7. Product Hunt materials and launch claims match the released product.
 

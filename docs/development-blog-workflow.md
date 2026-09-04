@@ -22,12 +22,11 @@ topics/hashtags. Generate a 16:9 featured image through the Blognice image API,
 with no visible text, logos, or watermarks. Generate narration through the
 audio API and check technical pronunciations before accepting it.
 
-Ask BIG AI to review the technical accuracy and ask Zuck to perform an
-independent QA review. Resolve disagreements explicitly. Publish only after
-both reviews pass and a human gives final approval.
+Ask BIG AI to review the technical accuracy. Resolve its findings explicitly.
+Publish only after the review passes and a human gives final approval.
 
 Use `The Dev Team` as the public author unless a specific contributor is being
-credited. Mention AI, BIG AI, Zuck, Steve, Saul, or Tackleberry only when their
+credited. Mention AI, BIG AI, Steve, Saul, or Tackleberry only when their
 contribution is relevant to the post.
 ```
 
@@ -56,8 +55,7 @@ Do not silently rewrite the draft. Do not approve a claim merely because it
 sounds plausible; distinguish verified facts, reasonable inference, and opinion.
 ```
 
-BIG AI reviews technical truth first. Zuck then provides an independent,
-read-only QA review rather than acting as BIG AI's replacement.
+BIG AI reviews technical truth before the human publication decision.
 
 ## Reviewer lifecycle and evidence rules
 
@@ -85,22 +83,16 @@ Treat orchestration failures separately from review findings:
 4. Add topics/tags and generate a 16:9 featured image.
 5. Request narration and check the resulting audio job until it completes.
 6. Ask BIG AI for a technical review.
-7. Ask Zuck through the read-only QA bridge, for example:
-
-   ```powershell
-   npm run qa:zuck -- --prompt "Review this development-blog draft for factual accuracy, unsupported claims, security disclosures, and missing tests." --file src/index.ts --file src/metrics.ts
-   ```
-
-8. Save the returned reports in the working notes, then close each completed
+7. Save the returned report in the working notes, then close each completed
    reviewer thread before starting another review or huddle.
-9. If an agent cannot be spawned or does not return a report, record the review
+8. If an agent cannot be spawned or does not return a report, record the review
    as incomplete; close stale completed threads and retry rather than inferring
    approval.
-10. Apply or reject findings based on evidence. Record any rejected finding in
+9. Apply or reject findings based on evidence. Record any rejected finding in
    the working notes.
-11. Confirm the title appears only in the title field, the image exists, audio
+10. Confirm the title appears only in the title field, the image exists, audio
    completed, topics are present, and the post is still a draft.
-12. Obtain explicit human approval, then publish once.
+11. Obtain explicit human approval, then publish once.
 
 ## Publication checklist
 
@@ -112,7 +104,6 @@ Treat orchestration failures separately from review findings:
 - [ ] Audio is complete and technical terms have been pronunciation-tested.
 - [ ] Topics/tags are relevant and within the platform limit.
 - [ ] BIG AI review is complete.
-- [ ] Zuck QA report is `PASS` or all findings are resolved.
 - [ ] Human approval was received before publishing.
 
 ## Reusable UI patterns (learned 2026-08-18)

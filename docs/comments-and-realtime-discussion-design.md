@@ -36,9 +36,9 @@ Tests should cover tenant isolation, verification and cookie recovery, XSS/HTML 
 
 ## Review record
 
-### Zuck — final targeted QA review
+### Final targeted QA review
 
-Zuck found no critical or high-severity issue in the supplied implementation ranges after fixes for SQL placeholder count, base64url validation, DELETE CSRF/size/topic handling, topic-aware storage, and campaign-progress deduplication. The report remained provisional because the read-only bridge bounded context and did not include unrelated source ranges. Remaining non-blocking follow-ups are broader integration tests for tenant isolation, missing-Origin requests, browser permission states, and queue retry behavior.
+The final targeted review found no critical or high-severity issue in the supplied implementation ranges after fixes for SQL placeholder count, base64url validation, DELETE CSRF/size/topic handling, topic-aware storage, and campaign-progress deduplication. The report remained provisional because its bounded context did not include unrelated source ranges. Remaining non-blocking follow-ups are broader integration tests for tenant isolation, missing-Origin requests, browser permission states, and queue retry behavior.
 
 ### BIG — architecture/product review
 
@@ -55,4 +55,4 @@ BIG also recommends future notification events carry recipient/topic/resource id
 
 ### Follow-up security review
 
-Tackleberry, Zuck, and BIG subsequently agreed that the first release must remain disabled and undeployed until subscription ingress is bounded, push endpoints and P-256 keys are validated, outbound sends have timeouts, malformed requests count toward abuse limits, recipient failures cannot poison a whole fan-out, campaigns use publish-time snapshots, unsubscribe remains available after disablement, owner settings have Origin/CSRF protection, and retention/observability are defined. The implementation now contains the first hardening pass for these items: transient provider failures remain retryable, permanent failures are isolated per recipient, the production queue declares a DLQ, and an owner-only replay route resets unfinished delivery claims. Behavioral integration tests and final security sign-off remain before production enablement; the DLQ queue itself must also be created in the target Cloudflare account as an operational step.
+The subsequent security and technical reviews agreed that the first release must remain disabled and undeployed until subscription ingress is bounded, push endpoints and P-256 keys are validated, outbound sends have timeouts, malformed requests count toward abuse limits, recipient failures cannot poison a whole fan-out, campaigns use publish-time snapshots, unsubscribe remains available after disablement, owner settings have Origin/CSRF protection, and retention/observability are defined. The implementation now contains the first hardening pass for these items: transient provider failures remain retryable, permanent failures are isolated per recipient, the production queue declares a DLQ, and an owner-only replay route resets unfinished delivery claims. Behavioral integration tests and final security sign-off remain before production enablement; the DLQ queue itself must also be created in the target Cloudflare account as an operational step.

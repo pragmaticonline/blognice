@@ -30,7 +30,7 @@ The sequence was a reminder that grid and flex interact. A fixed `2.5rem` column
 
 **Prompt (16:9, no text/logos/watermarks):** calm editorial photograph of a narrow mobile viewport beside a wide desktop viewport on a soft neutral background — left side shows a vertical column of four circular share icons next to a full-width landscape image, right side shows the same image stacked above a compact horizontal row of four circles plus a "more" ellipsis, thin rules, muted palette, quiet studio lighting, no text.
 
-**Generation:** via `POST /api/v1/blogs/:blogId/images/generations` with the above prompt. Requires `API_TOKEN`. Not yet generated in this sandbox; to be added before BIG/Zuck reviews.
+**Generation:** via `POST /api/v1/blogs/:blogId/images/generations` with the above prompt. Requires `API_TOKEN`. Not yet generated in this sandbox; to be added before BIG review.
 
 ## Audio (skipped — documented)
 
@@ -54,7 +54,6 @@ Cloudflare Workers AI TTS via `@cf/myshell-ai/melotts` is currently returning `5
 - [ ] Audio complete and pronunciation-tested — intentionally skipped (melotts 500/3043), documented above
 - [x] Topics relevant and ≤5
 - [ ] BIG AI review complete — pending draft publish
-- [ ] Zuck QA report PASS or findings resolved — pending
 - [ ] Human approval received before publishing — pending
 - [ ] Draft created via Blognice API and kept unpublished (`published=0`) — pending token
 
@@ -64,11 +63,10 @@ Cloudflare Workers AI TTS via `@cf/myshell-ai/melotts` is currently returning `5
 2. `POST /api/v1/blogs/:blogId/posts` with `{title:"Eight buttons, two viewports, one grid", body_md:<above>, published:1}` — keep unpublished
 3. `PATCH /api/v1/blogs/:blogId` topics if needed, `POST /images/generations` 16:9, then `POST /posts/:id/audio/generations` once melotts recovers or aura-1 adapter lands
 4. Run BIG AI handoff with `src/render.ts:469-490,673-690,906-915` + draft
-5. Run `npm run qa:zuck -- --prompt "Review..." --file src/render.ts --file src/index.ts` (12k char / file limits)
-6. Resolve findings, re-check checklist, obtain explicit human approval, then publish
+5. Resolve findings, re-check checklist, obtain explicit human approval, then publish
 
 
-**Live draft (updated):** `POST 63` `eight-buttons-two-viewports-one-grid` on `development` (`7b4d5e271c6e45e6`) — unpublished (`published:1`), featured image `8/1787074314828-925acaad-ai.jpg` (`/media/8/1787074314828-925acaad-ai.jpg`), status `complete`, audio skipped per melotts 500/3043 (Zach Lester) — BIG/Zuck reviews pending, awaiting human approval to publish.
+**Live draft (updated):** `POST 63` `eight-buttons-two-viewports-one-grid` on `development` (`7b4d5e271c6e45e6`) — unpublished (`published:1`), featured image `8/1787074314828-925acaad-ai.jpg` (`/media/8/1787074314828-925acaad-ai.jpg`), status `complete`, audio skipped per melotts 500/3043 (Zach Lester) — BIG review pending, awaiting human approval to publish.
 
 
 **Published live (2026-08-18 17:33 UTC): https://development.blognice.com/eight-buttons-two-viewports-one-grid — `published:1`, `og:image` `/media/8/1787074314828-925acaad-ai.jpg`

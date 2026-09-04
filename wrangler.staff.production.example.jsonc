@@ -3,13 +3,19 @@
   "name": "blognice-staff",
   "main": "src/staff.ts",
   "compatibility_date": "2026-06-20",
+  "compatibility_flags": ["nodejs_compat"],
   "vars": {
     "ACCESS_TEAM_DOMAIN": "https://your-team.cloudflareaccess.com",
     "ACCESS_AUD": "replace-with-access-application-audience-tag",
     "STAFF_ALLOWED_EMAILS": "staff@example.com",
     "EMAIL_FROM": "Blog Nice <support@mailer.blognice.com>",
+    "ROOT_DOMAIN": "example.com",
+    "STRIPE_MONTHLY_PRICE_ID": "replace-with-monthly-price-id",
+    "STRIPE_YEARLY_PRICE_ID": "replace-with-yearly-price-id",
     "AFFILIATE_PAYOUT_DUAL_CONTROL_THRESHOLD_MINOR": "100000",
-    "AFFILIATE_STRIPE_CONNECT_COUNTRIES": "US,CA,GB,TH"
+    "AFFILIATE_STRIPE_CONNECT_COUNTRIES": "US,CA,GB,TH",
+    "AFFILIATE_OFFER_EXPERIMENT": "off",
+    "CF_ACCOUNT_ID": "replace-with-account-id"
   },
   "routes": [
     { "pattern": "staff.blognice.com/*", "zone_name": "blognice.com" }
