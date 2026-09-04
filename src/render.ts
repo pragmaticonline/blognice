@@ -219,6 +219,13 @@ function subscribeBox(tenant: Tenant): string {
         if (!email) return;
         msg.textContent = "Subscribing…";
         var fd = new FormData(); fd.append("email", email);
+        try {
+          fd.append("source", location.pathname.slice(0, 300));
+          var usp = new URLSearchParams(location.search);
+          var s = usp.get("utm_source"); if (s) fd.append("utm_source", s.slice(0, 100));
+          var m = usp.get("utm_medium"); if (m) fd.append("utm_medium", m.slice(0, 100));
+          var c = usp.get("utm_campaign"); if (c) fd.append("utm_campaign", c.slice(0, 100));
+        } catch (err) {}
         fetch("/subscribe", { method: "POST", body: fd })
           .then(function (r) { return r.json().catch(function () { return { ok: r.ok }; }); })
           .then(function (d) {

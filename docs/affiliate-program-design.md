@@ -1,6 +1,6 @@
 # Affiliate program technical design
 
-Status: accepted for pre-implementation planning; BIG review corrections incorporated.
+Status: accepted for pre-implementation planning; Bob review corrections incorporated.
 
 ## Objective
 
@@ -144,7 +144,7 @@ Required cases include concurrent attribution, attempted replacement, close-with
 
 ## Review gates
 
-- BIG corrections in this document must remain satisfied during implementation.
+- Bob corrections in this document must remain satisfied during implementation.
 - Tackleberry reviews cookie signing, webhook replay, financial authorization, fraud signals, payout concurrency, and privacy before release.
 - Saul approves Affiliate Terms and referral-storage disclosures before activation.
 - Enrollment is fail-closed until production supplies the four Saul-approved settings

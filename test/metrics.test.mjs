@@ -131,7 +131,23 @@ test("recorded page views follow the documented Analytics Engine schema", () => 
   });
   assert.deepEqual(point, {
     indexes: ["7"],
-    blobs: ["/hello", "example.com", "TH", "8da6baef-62fa-426f-9fb4-fbd8c390fe50", "Mobile", "Safari"],
+    blobs: ["/hello", "example.com", "TH", "8da6baef-62fa-426f-9fb4-fbd8c390fe50", "Mobile", "Safari", "", "", ""],
+    doubles: [1],
+  });
+  recordPageView(env, 7, {
+    path: "/hello",
+    referrer: "",
+    country: "TH",
+    visitor: "8da6baef-62fa-426f-9fb4-fbd8c390fe50",
+    device: "Mobile",
+    browser: "Safari",
+    utm_source: "newsletter",
+    utm_medium: "email",
+    utm_campaign: "launch_2026",
+  });
+  assert.deepEqual(point, {
+    indexes: ["7"],
+    blobs: ["/hello", "", "TH", "8da6baef-62fa-426f-9fb4-fbd8c390fe50", "Mobile", "Safari", "newsletter", "email", "launch_2026"],
     doubles: [1],
   });
 });
@@ -209,7 +225,11 @@ test("public beacon avoids query strings and raw referrer storage", () => {
   const script = metricsBeacon();
   assert.match(script, /path:location\.pathname/);
   assert.match(script, /referrer:referrerHost\(\)/);
-  assert.doesNotMatch(script, /location\.search/);
+  assert.match(script, /utm_source/);
+  assert.match(script, /utm_medium/);
+  assert.match(script, /utm_campaign/);
+  assert.match(script, /location\.search/);
+  assert.doesNotMatch(script, /path:location\.search/);
   assert.match(script, /x-blognice-consent/);
   assert.match(script, /blognice-analytics-consent-v1/);
   assert.match(script, /_blognice\/events/);

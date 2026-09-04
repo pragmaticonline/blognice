@@ -1050,6 +1050,24 @@ export function metricsPage(
       return `${visible}${hidden ? `<tbody class="metrics-more-panel" hidden data-metrics-panel>${hidden}</tbody>` : ""}`;
     })();
     const countriesMore = countryRows.length > 10 ? `<button class="btn ghost metrics-more" type="button" data-metrics-more aria-expanded="false">Show ${countryRows.length - 10} more</button>` : "";
+    const utmSourceRows = (report.utmSources || []).map((item) => `<tr><td>${esc(item.name)}</td><td class="num">${item.views.toLocaleString()}</td></tr>`);
+    const utmMediumRows = (report.utmMediums || []).map((item) => `<tr><td>${esc(item.name)}</td><td class="num">${item.views.toLocaleString()}</td></tr>`);
+    const utmCampaignRows = (report.utmCampaigns || []).map((item) => `<tr><td>${esc(item.name)}</td><td class="num">${item.views.toLocaleString()}</td></tr>`);
+    const utmSourcePart = (() => {
+      if (!utmSourceRows.length) return `<tr><td colspan="2" style="color:var(--muted)">No UTM sources yet.</td></tr>`;
+      const { visible, hidden } = toRows(10, utmSourceRows);
+      return `${visible}${hidden ? `<tbody class="metrics-more-panel" hidden data-metrics-panel>${hidden}</tbody>` : ""}`;
+    })();
+    const utmMediumPart = (() => {
+      if (!utmMediumRows.length) return `<tr><td colspan="2" style="color:var(--muted)">No UTM mediums yet.</td></tr>`;
+      const { visible, hidden } = toRows(10, utmMediumRows);
+      return `${visible}${hidden ? `<tbody class="metrics-more-panel" hidden data-metrics-panel>${hidden}</tbody>` : ""}`;
+    })();
+    const utmCampaignPart = (() => {
+      if (!utmCampaignRows.length) return `<tr><td colspan="2" style="color:var(--muted)">No UTM campaigns yet.</td></tr>`;
+      const { visible, hidden } = toRows(10, utmCampaignRows);
+      return `${visible}${hidden ? `<tbody class="metrics-more-panel" hidden data-metrics-panel>${hidden}</tbody>` : ""}`;
+    })();
     const audioPart = (() => {
       if (!audioRows.length) return `<tr><td colspan="3" style="color:var(--muted)">No audio plays yet.</td></tr>`;
       const { visible, hidden } = toRows(10, audioRows);
@@ -1068,6 +1086,9 @@ export function metricsPage(
     <div class="metrics-grid">
       <div class="panel-block"><h2 style="margin-top:0;font-size:1rem">Top pages</h2><table class="metrics"><thead><tr><th>Page</th><th class="num">Views</th><th class="num">Visitors</th></tr></thead><tbody>${pagesPart}</tbody></table>${pagesMore}</div>
       <div class="panel-block"><h2 style="margin-top:0;font-size:1rem">Top referrers</h2><table class="metrics"><thead><tr><th>Source</th><th class="num">Views</th></tr></thead><tbody>${referrersPart}</tbody></table>${referrersMore}</div>
+      <div class="panel-block"><h2 style="margin-top:0;font-size:1rem">UTM sources</h2><table class="metrics"><thead><tr><th>Source</th><th class="num">Views</th></tr></thead><tbody>${utmSourcePart}</tbody></table></div>
+      <div class="panel-block"><h2 style="margin-top:0;font-size:1rem">UTM mediums</h2><table class="metrics"><thead><tr><th>Medium</th><th class="num">Views</th></tr></thead><tbody>${utmMediumPart}</tbody></table></div>
+      <div class="panel-block"><h2 style="margin-top:0;font-size:1rem">UTM campaigns</h2><table class="metrics"><thead><tr><th>Campaign</th><th class="num">Views</th></tr></thead><tbody>${utmCampaignPart}</tbody></table></div>
       <div class="panel-block"><h2 style="margin-top:0;font-size:1rem">Countries</h2><table class="metrics"><thead><tr><th>Country</th><th class="num">Views</th></tr></thead><tbody>${countriesPart}</tbody></table>${countriesMore}</div>
       <div class="panel-block"><h2 style="margin-top:0;font-size:1rem">Devices</h2><table class="metrics"><thead><tr><th>Device</th><th class="num">Views</th></tr></thead><tbody>${breakdownRows(report.devices)}</tbody></table></div>
       <div class="panel-block"><h2 style="margin-top:0;font-size:1rem">Browsers</h2><table class="metrics"><thead><tr><th>Browser</th><th class="num">Views</th></tr></thead><tbody>${breakdownRows(report.browsers)}</tbody></table></div>
@@ -2227,7 +2248,7 @@ export function settingsPage(
 export function subscribersPage(
   account: Account,
   tenant: Tenant,
-  subs: Array<{ email: string; created_at: number }>,
+  subs: Array<{ email: string; created_at: number; source_path?: string | null; utm_source?: string | null; utm_medium?: string | null; utm_campaign?: string | null }>,
   emailOn: boolean,
   options?: { page?: number; hasMore?: boolean; total?: number }
 ): string {
@@ -2246,7 +2267,7 @@ export function subscribersPage(
             (s) => `<li>
               <div>
                 <div class="t">${esc(s.email)}</div>
-                <div class="sub">${formatDate(s.created_at)}</div>
+                <div class="sub">${formatDate(s.created_at)}${s.source_path ? ` · ${esc(s.source_path)}` : ""}${s.utm_source || s.utm_medium || s.utm_campaign ? ` · ${esc([s.utm_source, s.utm_medium, s.utm_campaign].filter(Boolean).join("/"))}` : ""}</div>
               </div>
               <div class="acts">
                 <form method="post" action="${base}/subscribers/remove" onsubmit="return confirm('Remove this subscriber?')">
@@ -2345,7 +2366,7 @@ curl ${base}/me \\
 # Create a published post with tags and a public author name
 curl -X POST ${base}/blogs/${exampleBlogId}/posts \\
   -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" \\
-  -d '{"title":"Hello from the API","body_md":"# Hello\\n\\nWritten via Markdown.","tags":["api","automation"],"author_name":"AI & BIG AI","author_visible":true,"published":true}'
+  -d '{"title":"Hello from the API","body_md":"# Hello\\n\\nWritten via Markdown.","tags":["api","automation"],"author_name":"AI & Bob AI","author_visible":true,"published":true}'
 
 # Create a draft
 curl -X POST ${base}/blogs/${exampleBlogId}/posts \\

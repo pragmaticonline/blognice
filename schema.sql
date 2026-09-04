@@ -654,6 +654,10 @@ CREATE TABLE subscribers (
   token      TEXT    NOT NULL UNIQUE,
   created_at INTEGER NOT NULL,
   confirmed_at INTEGER,
+  source_path TEXT,
+  utm_source TEXT,
+  utm_medium TEXT,
+  utm_campaign TEXT,
   UNIQUE (tenant_id, email),
   FOREIGN KEY (tenant_id) REFERENCES tenants (id) ON DELETE CASCADE
 );
@@ -680,6 +684,10 @@ CREATE TABLE subscriber_confirmations (
   token_hash TEXT    NOT NULL PRIMARY KEY,
   expires_at INTEGER NOT NULL,
   sent_at    INTEGER NOT NULL,
+  source_path TEXT,
+  utm_source TEXT,
+  utm_medium TEXT,
+  utm_campaign TEXT,
   UNIQUE (tenant_id, email),
   FOREIGN KEY (tenant_id) REFERENCES tenants (id) ON DELETE CASCADE
 );

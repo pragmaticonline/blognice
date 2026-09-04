@@ -1,5 +1,5 @@
 UPDATE posts
-SET author_name = 'AI & BIG AI',
+SET author_name = 'AI & Bob AI',
     author_visible = 1,
     tags_json = '["ai","blognice","behind the scenes","cloudflare"]',
     updated_at = strftime('%s','now')

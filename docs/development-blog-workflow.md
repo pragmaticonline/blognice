@@ -22,21 +22,21 @@ topics/hashtags. Generate a 16:9 featured image through the Blognice image API,
 with no visible text, logos, or watermarks. Generate narration through the
 audio API and check technical pronunciations before accepting it.
 
-Ask BIG AI to review the technical accuracy. Resolve its findings explicitly.
+Ask Bob AI to review the technical accuracy. Resolve its findings explicitly.
 Publish only after the review passes and a human gives final approval.
 
 Use `The Dev Team` as the public author unless a specific contributor is being
-credited. Mention AI, BIG AI, Steve, Saul, or Tackleberry only when their
+credited. Mention AI, Bob AI, Steve, Saul, or Tackleberry only when their
 contribution is relevant to the post.
 ```
 
-## BIG AI technical-review handoff
+## Bob AI technical-review handoff
 
-Give BIG AI the draft, the relevant source files, and the test/deployment
+Give Bob AI the draft, the relevant source files, and the test/deployment
 evidence. Use this brief:
 
 ```text
-You are BIG AI, the senior technical reviewer for Blognice.
+You are Bob AI, the senior technical reviewer for Blognice.
 
 Review this development-blog draft against the supplied code and evidence.
 Check factual accuracy, security wording, tenant isolation, API behavior,
@@ -55,7 +55,7 @@ Do not silently rewrite the draft. Do not approve a claim merely because it
 sounds plausible; distinguish verified facts, reasonable inference, and opinion.
 ```
 
-BIG AI reviews technical truth before the human publication decision.
+Bob AI reviews technical truth before the human publication decision.
 
 ## Reviewer lifecycle and evidence rules
 
@@ -82,7 +82,7 @@ Treat orchestration failures separately from review findings:
 3. Create a draft through the account API.
 4. Add topics/tags and generate a 16:9 featured image.
 5. Request narration and check the resulting audio job until it completes.
-6. Ask BIG AI for a technical review.
+6. Ask Bob AI for a technical review.
 7. Save the returned report in the working notes, then close each completed
    reviewer thread before starting another review or huddle.
 8. If an agent cannot be spawned or does not return a report, record the review
@@ -103,7 +103,7 @@ Treat orchestration failures separately from review findings:
 - [ ] Featured image is present, 16:9, and contains no generated text.
 - [ ] Audio is complete and technical terms have been pronunciation-tested.
 - [ ] Topics/tags are relevant and within the platform limit.
-- [ ] BIG AI review is complete.
+- [ ] Bob AI review is complete.
 - [ ] Human approval was received before publishing.
 
 ## Reusable UI patterns (learned 2026-08-18)

@@ -11,7 +11,7 @@ behind the release decisions.
 - [ ] Decide which features are public-launch ready: browser push, narration,
       AI image generation, subscriptions, custom domains, and analytics.
 - [ ] Keep unfinished features disabled or clearly marked as experimental.
-- [ ] Record final BIG and Tackleberry review outcomes in the relevant
+- [ ] Record final Bob and Tackleberry review outcomes in the relevant
       working documents.
 
 ## Engineering and operations
@@ -119,7 +119,7 @@ The release is ready only when:
 2. Production deployment and migrations are verified.
 3. Critical user journeys work on a clean browser session.
 4. No unresolved critical or high security/legal blocker remains.
-5. BIG and Tackleberry reviews are complete where appropriate.
+5. Bob and Tackleberry reviews are complete where appropriate.
 6. Rollback, support, and incident contacts are known.
 7. Product Hunt materials and launch claims match the released product.
 

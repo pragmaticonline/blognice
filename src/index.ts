@@ -123,6 +123,7 @@ import {
   metricsConfigured,
   metricsReport,
   auditReport,
+  normalizeUtm,
   recordPageView,
   recordCustomEvent,
   recordAffiliateFunnelEvent,
@@ -951,7 +952,7 @@ app.post("/_blognice/metrics", async (c) => {
   const origin = c.req.header("origin");
   if (!origin || new URL(c.req.url).origin !== origin) return c.body(null, 403);
 
-  let body: { path?: unknown; referrer?: unknown; visitor?: unknown; consent?: unknown };
+  let body: { path?: unknown; referrer?: unknown; visitor?: unknown; consent?: unknown; utm_source?: unknown; utm_medium?: unknown; utm_campaign?: unknown };
   try {
     body = await c.req.json();
   } catch {
@@ -977,7 +978,18 @@ app.post("/_blognice/metrics", async (c) => {
   }
   const country = String(c.req.raw.cf?.country || "").slice(0, 2).toUpperCase();
   const { device, browser } = clientCategory(c.req.raw);
-  recordPageView(c.env, tenant.id, { path, referrer, country, visitor, device, browser });
+  const { normalizeUtm } = await import("./metrics");
+  recordPageView(c.env, tenant.id, {
+    path,
+    referrer,
+    country,
+    visitor,
+    device,
+    browser,
+    utm_source: normalizeUtm(body.utm_source),
+    utm_medium: normalizeUtm(body.utm_medium),
+    utm_campaign: normalizeUtm(body.utm_campaign),
+  });
   return c.body(null, 204);
 });
 
@@ -4699,7 +4711,7 @@ app.get("/admin/b/:blogId/subscribers", async (c) => {
   const limit = 50;
   const offset = (page - 1) * limit;
   const [paged, counted] = await Promise.all([
-    c.env.DB.prepare("SELECT email, created_at FROM subscribers WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?").bind(ctx.tenant.id, limit + 1, offset).all<{ email: string; created_at: number }>(),
+    c.env.DB.prepare("SELECT email, created_at, source_path, utm_source, utm_medium, utm_campaign FROM subscribers WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?").bind(ctx.tenant.id, limit + 1, offset).all<{ email: string; created_at: number; source_path: string | null; utm_source: string | null; utm_medium: string | null; utm_campaign: string | null }>(),
     c.env.DB.prepare("SELECT COUNT(*) as count FROM subscribers WHERE tenant_id = ?").bind(ctx.tenant.id).first<{ count: number }>(),
   ]);
   const hasMore = paged.results.length > limit;
@@ -4729,12 +4741,12 @@ app.get("/admin/b/:blogId/subscribers.csv", async (c) => {
   const denied = requireBlogCapability(c, ctx, "settings.manage");
   if (denied) return denied;
   const { results } = await c.env.DB.prepare(
-    "SELECT email, created_at FROM subscribers WHERE tenant_id = ? ORDER BY created_at DESC"
+    "SELECT email, created_at, source_path, utm_source, utm_medium, utm_campaign FROM subscribers WHERE tenant_id = ? ORDER BY created_at DESC"
   )
     .bind(ctx.tenant.id)
-    .all<{ email: string; created_at: number }>();
-  const rows = ["email,subscribed_at"].concat(
-    results.map((r) => `${r.email},${new Date(r.created_at * 1000).toISOString()}`)
+    .all<{ email: string; created_at: number; source_path: string | null; utm_source: string | null; utm_medium: string | null; utm_campaign: string | null }>();
+  const rows = ["email,subscribed_at,source_path,utm_source,utm_medium,utm_campaign"].concat(
+    results.map((r) => `${r.email},${new Date(r.created_at * 1000).toISOString()},${r.source_path ?? ""},${r.utm_source ?? ""},${r.utm_medium ?? ""},${r.utm_campaign ?? ""}`)
   );
   return new Response(rows.join("\n"), {
     headers: {
@@ -5674,13 +5686,18 @@ app.post("/subscribe", async (c) => {
     ...subscriberConfirmationEmail({ blogTitle: tenant.title, confirmUrl }),
     senderName: tenant.title,
   };
+  const rawSource = String(form?.get("source") ?? form?.get("source_path") ?? "").trim();
+  const sourcePath = /^\/(?:$|[^?#]{1,300}$)/.test(rawSource) ? rawSource.slice(0, 300) : "";
+  const utmSource = normalizeUtm(String(form?.get("utm_source") ?? ""));
+  const utmMedium = normalizeUtm(String(form?.get("utm_medium") ?? ""));
+  const utmCampaign = normalizeUtm(String(form?.get("utm_campaign") ?? ""));
   const result = await requestSubscriberConfirmation({
     isConfirmed: async () => Boolean(existing),
     hasPending: async () => Boolean(pending),
     insert: async () => {
       const inserted = await c.env.DB.prepare(
-        "INSERT OR IGNORE INTO subscriber_confirmations (tenant_id, email, token_hash, expires_at, sent_at) VALUES (?, ?, ?, ?, ?)"
-      ).bind(tenant.id, email, tokenHash, now + 86400, now).run();
+        "INSERT OR IGNORE INTO subscriber_confirmations (tenant_id, email, token_hash, expires_at, sent_at, source_path, utm_source, utm_medium, utm_campaign) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ).bind(tenant.id, email, tokenHash, now + 86400, now, sourcePath || null, utmSource || null, utmMedium || null, utmCampaign || null).run();
       return inserted.meta.changes === 1;
     },
     deliver: async () => {
@@ -5761,8 +5778,8 @@ async function subscriberConfirmation(c: Context<{ Bindings: Bindings }>, rawTok
   if (!rawToken || rawToken.length > 100) return c.text("This confirmation link is invalid or has expired.", 400);
   const now = Math.floor(Date.now() / 1000);
   const row = await c.env.DB.prepare(
-    "SELECT tenant_id, email FROM subscriber_confirmations WHERE token_hash = ? AND expires_at > ?"
-  ).bind(await sha256hex(rawToken), now).first<{ tenant_id: number; email: string }>();
+    "SELECT tenant_id, email, source_path, utm_source, utm_medium, utm_campaign FROM subscriber_confirmations WHERE token_hash = ? AND expires_at > ?"
+  ).bind(await sha256hex(rawToken), now).first<{ tenant_id: number; email: string; source_path: string | null; utm_source: string | null; utm_medium: string | null; utm_campaign: string | null }>();
   if (!row) return c.text("This confirmation link is invalid or has expired.", 400);
   const tenant = await tenantById(c.env, row.tenant_id);
   if (!tenant) return c.text("This confirmation link is invalid or has expired.", 404);
@@ -5773,8 +5790,8 @@ async function subscriberConfirmation(c: Context<{ Bindings: Bindings }>, rawTok
     insert: async () => {
       unsubscribeToken = crypto.randomUUID();
       const inserted = await c.env.DB.prepare(
-        "INSERT OR IGNORE INTO subscribers (tenant_id, email, token, created_at, confirmed_at) VALUES (?, ?, ?, ?, ?)"
-      ).bind(row.tenant_id, row.email, unsubscribeToken, now, now).run();
+        "INSERT OR IGNORE INTO subscribers (tenant_id, email, token, created_at, confirmed_at, source_path, utm_source, utm_medium, utm_campaign) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ).bind(row.tenant_id, row.email, unsubscribeToken, now, now, row.source_path || null, row.utm_source || null, row.utm_medium || null, row.utm_campaign || null).run();
       return inserted.meta.changes === 1;
     },
     remove: async () => {

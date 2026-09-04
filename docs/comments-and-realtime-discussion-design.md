@@ -40,9 +40,9 @@ Tests should cover tenant isolation, verification and cookie recovery, XSS/HTML 
 
 The final targeted review found no critical or high-severity issue in the supplied implementation ranges after fixes for SQL placeholder count, base64url validation, DELETE CSRF/size/topic handling, topic-aware storage, and campaign-progress deduplication. The report remained provisional because its bounded context did not include unrelated source ranges. Remaining non-blocking follow-ups are broader integration tests for tenant isolation, missing-Origin requests, browser permission states, and queue retry behavior.
 
-### BIG — architecture/product review
+### Bob — architecture/product review
 
-BIG reviewed the implementation and returned **NEEDS CHANGES**. The direction is sound, but before production enablement BIG requires:
+Bob reviewed the implementation and returned **NEEDS CHANGES**. The direction is sound, but before production enablement Bob requires:
 
 - Fix the missing braces around the draft-to-published browser-push trigger and backfill existing published posts so editing them cannot notify readers unexpectedly.
 - Add a blog-owner enable/disable setting, defaulting off, with authenticated administration and audit coverage.
@@ -51,7 +51,7 @@ BIG reviewed the implementation and returned **NEEDS CHANGES**. The direction is
 - Add rate limits and quotas to public subscription writes and monitor endpoint abuse.
 - Harden malformed `Origin` parsing and use a `(tenant_id, topic, id)` fan-out index.
 
-BIG also recommends future notification events carry recipient/topic/resource identity, with typing and presence structurally excluded from push delivery. These findings should be addressed before production rollout; comment implementation remains parked.
+Bob also recommends future notification events carry recipient/topic/resource identity, with typing and presence structurally excluded from push delivery. These findings should be addressed before production rollout; comment implementation remains parked.
 
 ### Follow-up security review
 

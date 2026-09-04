@@ -22,6 +22,9 @@ export function analyticsConsentRequired(country: unknown): boolean {
  *   blob4: anonymous first-party visitor id
  *   blob5: broad device category (desktop/mobile/tablet)
  *   blob6: browser family (Chrome/Safari/Firefox/Edge/Other)
+ *   blob7: utm_source (lowercased, 0-100 chars, empty if absent)
+ *   blob8: utm_medium (lowercased, 0-100 chars, empty if absent)
+ *   blob9: utm_campaign (lowercased, 0-100 chars, empty if absent)
  *   double1: page-view count (always 1)
  */
 
@@ -52,6 +55,9 @@ export type MetricsReport = {
   countries: MetricBreakdown[];
   devices: MetricBreakdown[];
   browsers: MetricBreakdown[];
+  utmSources: MetricBreakdown[];
+  utmMediums: MetricBreakdown[];
+  utmCampaigns: MetricBreakdown[];
   audio: { starts: number; completions: number; pages: AudioMetric[] };
   subscribers: { emailSubscribed: number; emailUnsubscribed: number; pushSubscribed: number; pushUnsubscribed: number; emailBounced: number; emailComplained: number; emailOpened: number; emailClicked: number; pushDelivered: number; pushClicked: number; emailDelivered: number; emailDelayed: number; emailDeliveryFailed: number; emailHeld: number; domainDnsError: number; emailTotal: number; pushTotal: number; daily: Array<{ date: string; emailSubscribed: number; emailUnsubscribed: number; pushSubscribed: number; pushUnsubscribed: number; emailBounced: number; emailComplained: number; emailOpened: number; emailClicked: number; pushDelivered: number; pushClicked: number; emailDelivered: number; emailDelayed: number; emailDeliveryFailed: number; emailHeld: number; domainDnsError: number }> };
 };
@@ -131,6 +137,9 @@ export function reportQueries(tenantId: number, days: number) {
     countries: `SELECT blob3 AS name, ${views} AS views FROM ${METRICS_DATASET} WHERE ${where} AND blob3 != '' GROUP BY name ORDER BY views DESC LIMIT 25`,
     devices: `SELECT blob5 AS name, ${views} AS views FROM ${METRICS_DATASET} WHERE ${where} AND blob5 != '' GROUP BY name ORDER BY views DESC LIMIT 10`,
     browsers: `SELECT blob6 AS name, ${views} AS views FROM ${METRICS_DATASET} WHERE ${where} AND blob6 != '' GROUP BY name ORDER BY views DESC LIMIT 10`,
+    utmSources: `SELECT blob7 AS name, ${views} AS views FROM ${METRICS_DATASET} WHERE ${where} AND blob7 != '' GROUP BY name ORDER BY views DESC LIMIT 10`,
+    utmMediums: `SELECT blob8 AS name, ${views} AS views FROM ${METRICS_DATASET} WHERE ${where} AND blob8 != '' GROUP BY name ORDER BY views DESC LIMIT 10`,
+    utmCampaigns: `SELECT blob9 AS name, ${views} AS views FROM ${METRICS_DATASET} WHERE ${where} AND blob9 != '' GROUP BY name ORDER BY views DESC LIMIT 10`,
     audioSummary: `SELECT sumIf(_sample_interval, blob1 = 'audio_start') AS starts, sumIf(_sample_interval, blob1 = 'audio_complete') AS completions FROM ${EVENTS_DATASET} WHERE ${where}`,
     audioPages: `SELECT blob2 AS path, sumIf(_sample_interval, blob1 = 'audio_start') AS starts, sumIf(_sample_interval, blob1 = 'audio_complete') AS completions FROM ${EVENTS_DATASET} WHERE ${where} AND blob1 IN ('audio_start', 'audio_complete') GROUP BY path ORDER BY starts DESC LIMIT 25`,
     subscriberSummary: `SELECT sumIf(_sample_interval, blob1 = 'email_subscribed') AS email_subscribed, sumIf(_sample_interval, blob1 = 'email_unsubscribed') AS email_unsubscribed, sumIf(_sample_interval, blob1 = 'push_subscribed') AS push_subscribed, sumIf(_sample_interval, blob1 = 'push_unsubscribed') AS push_unsubscribed, sumIf(_sample_interval, blob1 = 'email_bounced') AS email_bounced, sumIf(_sample_interval, blob1 = 'email_complained') AS email_complained, sumIf(_sample_interval, blob1 = 'email_opened') AS email_opened, sumIf(_sample_interval, blob1 = 'email_clicked') AS email_clicked, sumIf(_sample_interval, blob1 = 'push_delivered') AS push_delivered, sumIf(_sample_interval, blob1 = 'push_clicked') AS push_clicked, sumIf(_sample_interval, blob1 = 'email_delivered') AS email_delivered, sumIf(_sample_interval, blob1 = 'email_delayed') AS email_delayed, sumIf(_sample_interval, blob1 = 'email_delivery_failed') AS email_delivery_failed, sumIf(_sample_interval, blob1 = 'email_held') AS email_held, sumIf(_sample_interval, blob1 = 'domain_dns_error') AS domain_dns_error FROM ${EVENTS_DATASET} WHERE ${where} AND blob1 IN ('email_subscribe_requested', 'email_subscribed', 'email_unsubscribed', 'push_subscribed', 'push_unsubscribed', 'email_bounced', 'email_complained', 'email_opened', 'email_clicked', 'email_delivered', 'email_delayed', 'email_delivery_failed', 'email_held', 'domain_dns_error', 'push_delivered', 'push_clicked')`,
@@ -157,13 +166,16 @@ export async function metricsReport(
       }));
       return [];
     });
-  const [dailyRows, pageRows, referrerRows, countryRows, deviceRows, browserRows, audioSummaryRows, audioPageRows, subscriberSummaryRows, subscriberDailyRows] = await Promise.all([
+  const [dailyRows, pageRows, referrerRows, countryRows, deviceRows, browserRows, utmSourceRows, utmMediumRows, utmCampaignRows, audioSummaryRows, audioPageRows, subscriberSummaryRows, subscriberDailyRows] = await Promise.all([
     optionalQuery("daily", queries.daily),
     optionalQuery("pages", queries.pages),
     optionalQuery("referrers", queries.referrers),
     optionalQuery("countries", queries.countries),
     optionalQuery("devices", queries.devices),
     optionalQuery("browsers", queries.browsers),
+    optionalQuery("utm sources", (queries as any).utmSources ?? ""),
+    optionalQuery("utm mediums", (queries as any).utmMediums ?? ""),
+    optionalQuery("utm campaigns", (queries as any).utmCampaigns ?? ""),
     optionalQuery("audio summary", queries.audioSummary),
     optionalQuery("audio pages", queries.audioPages),
     optionalQuery("subscriber summary", (queries as any).subscriberSummary ?? ""),
@@ -207,6 +219,9 @@ export async function metricsReport(
     countries: countryRows.map((row) => ({ name: String(row.name ?? ""), views: numberValue(row.views) })),
     devices: deviceRows.map((row) => ({ name: String(row.name ?? "Other"), views: numberValue(row.views) })),
     browsers: browserRows.map((row) => ({ name: String(row.name ?? "Other"), views: numberValue(row.views) })),
+    utmSources: utmSourceRows.map((row) => ({ name: String(row.name ?? ""), views: numberValue(row.views) })),
+    utmMediums: utmMediumRows.map((row) => ({ name: String(row.name ?? ""), views: numberValue(row.views) })),
+    utmCampaigns: utmCampaignRows.map((row) => ({ name: String(row.name ?? ""), views: numberValue(row.views) })),
     audio: {
       starts: numberValue(audioSummary.starts),
       completions: numberValue(audioSummary.completions),
@@ -294,14 +309,31 @@ export async function auditReport(
   };
 }
 
+export function normalizeUtm(value: unknown): string {
+  const raw = String(value ?? "").trim().toLowerCase().slice(0, 100);
+  if (!raw) return "";
+  if (!/^[a-z0-9._\-]+$/.test(raw)) return "";
+  return raw;
+}
+
 export function recordPageView(
   env: MetricsEnv,
   tenantId: number,
-  event: { path: string; referrer: string; country: string; visitor: string; device: string; browser: string }
+  event: { path: string; referrer: string; country: string; visitor: string; device: string; browser: string; utm_source?: string; utm_medium?: string; utm_campaign?: string }
 ): void {
   env.METRICS.writeDataPoint({
     indexes: [String(tenantId)],
-    blobs: [event.path, event.referrer, event.country, event.visitor, event.device, event.browser],
+    blobs: [
+      event.path,
+      event.referrer,
+      event.country,
+      event.visitor,
+      event.device,
+      event.browser,
+      normalizeUtm(event.utm_source),
+      normalizeUtm(event.utm_medium),
+      normalizeUtm(event.utm_campaign),
+    ],
     doubles: [1],
   });
 }
@@ -423,8 +455,9 @@ export function metricsBeacon(consentRequired = false): string {
     function removeVisitor(){try{localStorage.removeItem(visitorKey)}catch(e){}visitor="";active=false}
     function send(url,payload){if(!active)return;payload.consent="${ANALYTICS_CONSENT_VERSION}";fetch(url,{method:"POST",headers:{"content-type":"application/json","x-blognice-consent":"${ANALYTICS_CONSENT_VERSION}"},body:JSON.stringify(payload),keepalive:true,credentials:"omit"}).catch(function(){})}
     function referrerHost(){try{var ref=document.referrer;if(!ref)return "";var host=new URL(ref).hostname.toLowerCase();return host===location.hostname.toLowerCase()?"":host}catch(e){return ""}}
+    function utm(name){try{var v=new URLSearchParams(location.search).get(name);return v? v.slice(0,100): ""}catch(e){return ""}}
     function setupEngagement(){if(engagementStarted||!document.querySelector("article.post-page"))return;engagementStarted=true;var sent=false,visible=0,visibleSince=document.visibilityState==="visible"?Date.now():0,timer=0;function elapsed(){return visible+(visibleSince?Date.now()-visibleSince:0)}function cleanup(){if(timer)clearInterval(timer);window.removeEventListener("scroll",check);document.removeEventListener("visibilitychange",visibility)}function check(){if(sent||!active)return;var root=document.documentElement,progress=(window.scrollY+window.innerHeight)/Math.max(1,root.scrollHeight);if(elapsed()>=30000&&progress>=.5){sent=true;send("/_blognice/events",{event:"engaged_read",path:location.pathname,visitor:visitor});cleanup()}}function visibility(){if(document.visibilityState==="visible"){visibleSince=Date.now()}else if(visibleSince){visible+=Date.now()-visibleSince;visibleSince=0}check()}window.addEventListener("scroll",check,{passive:true});document.addEventListener("visibilitychange",visibility);timer=setInterval(check,2500);check()}
-    function start(){if(active)return;var choice=readConsent();if(required&&choice!=="granted")return;if(choice==="denied")return;try{visitor=localStorage.getItem(visitorKey)||"";if(!/^[0-9a-f-]{36}$/i.test(visitor)){visitor=crypto.randomUUID();localStorage.setItem(visitorKey,visitor)}}catch(e){return}active=true;window.__blogniceEvent=function(name,path){send("/_blognice/events",{event:name,path:path,visitor:visitor})};send("/_blognice/metrics",{path:location.pathname,referrer:referrerHost(),visitor:visitor});setupEngagement()}
+    function start(){if(active)return;var choice=readConsent();if(required&&choice!=="granted")return;if(choice==="denied")return;try{visitor=localStorage.getItem(visitorKey)||"";if(!/^[0-9a-f-]{36}$/i.test(visitor)){visitor=crypto.randomUUID();localStorage.setItem(visitorKey,visitor)}}catch(e){return}active=true;window.__blogniceEvent=function(name,path){send("/_blognice/events",{event:name,path:path,visitor:visitor})};send("/_blognice/metrics",{path:location.pathname,referrer:referrerHost(),visitor:visitor,utm_source:utm("utm_source"),utm_medium:utm("utm_medium"),utm_campaign:utm("utm_campaign")});setupEngagement()}
     function setChoice(value){writeConsent(value);if(value==="granted"){start()}else{removeVisitor();window.__blogniceEvent=function(){}};hideBanner()}
     window.__blogniceEvent=function(){};
     var banner=document.createElement("div"),lastFocus=null;banner.id="blognice-consent";banner.hidden=true;banner.setAttribute("role","dialog");banner.setAttribute("aria-modal","true");banner.setAttribute("aria-label","Analytics preferences");banner.innerHTML=${serializedBannerMarkup};document.body.appendChild(banner);function showBanner(){lastFocus=document.activeElement;banner.hidden=false;var first=banner.querySelector("[data-consent]");if(first)first.focus()}function hideBanner(){banner.hidden=true;if(lastFocus&&lastFocus.focus)lastFocus.focus()}banner.addEventListener("click",function(event){var button=event.target.closest("[data-consent]");if(button)setChoice(button.getAttribute("data-consent"))});banner.addEventListener("keydown",function(event){if(event.key==="Escape")hideBanner()});

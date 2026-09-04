@@ -90,7 +90,7 @@ Validation before rollout:
 - Legal-page suite after Affiliate Terms publication: 7/7 passing.
 - Typecheck, `git diff --check`, main dry-run, and staff dry-run passed.
 - Stickler recheck: zero P0/P1/P2 test gaps; report at `/tmp/stickler-report.md` (temporary and may not survive a new environment).
-- BIG review previously returned PASS.
+- Bob review previously returned PASS.
 
 Security follow-up:
 

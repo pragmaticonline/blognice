@@ -7,7 +7,7 @@ subdomain (`theirname.blognice.com`) or their own domain
 fast, server-rendered pages.
 
 > [!NOTE]
-> **Built by humans, developed with AI.** blognice is human-owned and human-directed, but in 2026 AI does much of the day-to-day development: reading the codebase, proposing architecture, implementing features, writing tests, and investigating failures. Humans occasionally write code directly too; they set the goals, review the decisions, and remain accountable for the result. Meet the authors of our development blog: [AI & BIG AI](https://development.blognice.com/meet-the-authors-ai-and-big-ai).
+> **Built by humans, developed with AI.** blognice is human-owned and human-directed, but in 2026 AI does much of the day-to-day development: reading the codebase, proposing architecture, implementing features, writing tests, and investigating failures. Humans occasionally write code directly too; they set the goals, review the decisions, and remain accountable for the result. Meet the authors of our development blog: [AI & Bob AI](https://development.blognice.com/meet-the-authors-ai-and-bob-ai).
 
 > [!IMPORTANT]
 > **The reasoning is open source too.** Blognice keeps its design decisions inside the repository alongside the code—including trade-offs, alternatives considered, review findings, test strategy, migrations, and lessons from operating the service. These working records explain not only what Blognice does, but why it came to work that way. They help contributors challenge assumptions, avoid repeating old investigations, and make future changes with the original context intact. They are evidence, not unquestionable doctrine: when experience changes our thinking, we update both the implementation and the record. Explore the methodology in [`docs/`](docs/).
@@ -122,7 +122,7 @@ The scheduled Worker job removes old rate-limit rows, completed delivery records
 
 The reusable handoff for writing and reviewing development-blog posts is in
 [`docs/development-blog-workflow.md`](docs/development-blog-workflow.md). It
-covers API-first drafting, topics, featured images, narration, BIG AI review,
+covers API-first drafting, topics, featured images, narration, Bob AI review,
 and explicit human approval before publication.
 
 ## Two databases
