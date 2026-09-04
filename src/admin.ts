@@ -2019,7 +2019,7 @@ export function settingsPage(
         <p style="color:var(--muted);font-size:.85rem;margin:-.5rem 0 1.2rem">Shown in the public footer. This is useful when the blog represents a company or publication; leave blank to use the blog title.</p>
         <label for="topics">Blog topics</label>
         <textarea id="topics" name="topics" rows="3" placeholder="technology, photography, travel">${esc(tenantTopics(tenant).join(", "))}</textarea>
-        <p style="color:var(--muted);font-size:.85rem;margin:-.5rem 0 1.2rem">Add up to 50 topics, separated by commas (5–10 recommended). They help group blogs with similar themes; the first six appear publicly.</p>
+        <p style="color:var(--muted);font-size:.85rem;margin:-.5rem 0 1.2rem">Add up to 50 topics, separated by commas (1–3 is plenty, 5 recommended max). They help group blogs with similar themes; the first six appear publicly.</p>
         <fieldset class="settings-card social-links-card"><legend>Social profiles</legend>
           <p class="help">These links are public and will appear on your blog when social links are enabled. Leave a field blank to hide it. Use your profile or channel URL, not an individual post.</p>
           <div class="social-grid">
