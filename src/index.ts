@@ -110,7 +110,7 @@ import {
   type ImageContextMode,
   type ImageStyle,
 } from "./ai-image";
-import { applyPronunciations, classifyTtsError, mergeWav, narrationChunks, narrationSections, pronunciationReplacements, ttsBytes, wavAssembly, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "./tts";
+import { applyPronunciations, assertEnglishText, classifyTtsError, mergeWav, narrationChunks, narrationSections, pronunciationReplacements, ttsBytes, wavAssembly, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "./tts";
 import {
   archivePreviousDay,
   archivePreviousDayAffiliateEvents,
@@ -3691,6 +3691,7 @@ async function createAudioJob(env: Bindings, tenant: Tenant, post: Pick<Post, "i
   if (!text) throw new Error("Add some post text before generating audio.");
   if (text.length > TTS_TEXT_MAX)
     throw new Error(`This post is too long for narration (${text.length.toLocaleString()} characters; maximum ${TTS_TEXT_MAX.toLocaleString()}).`);
+  assertEnglishText(text);
   const audioCost = audioCreditCost(text);
   const audioReservation = await reserveAiCredits(env, tenant.id, audioCost);
   const replacements = await preparePronunciations(env.AI, text.replaceAll(TTS_HARD_PAUSE, "\n\n").replaceAll(TTS_SOFT_PAUSE, " "));
@@ -3764,6 +3765,7 @@ app.post("/admin/b/:blogId/audio/:id", async (c) => {
   if (!text) return c.json({ error: "Add some post text before generating audio." }, 400);
   if (text.length > TTS_TEXT_MAX)
     return c.json({ error: `This post is too long for narration (${text.length.toLocaleString()} characters; maximum ${TTS_TEXT_MAX.toLocaleString()}).` }, 400);
+  try { assertEnglishText(text); } catch (error) { return c.json({ error: error instanceof Error ? error.message : String(error) }, 400); }
   const audioCost = audioCreditCost(text);
   let audioReservation: { accountId: number; period: string };
   try { audioReservation = await reserveAiCredits(c.env, ctx.tenant.id, audioCost); }

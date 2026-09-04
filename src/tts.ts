@@ -12,6 +12,14 @@ export type PronunciationReplacement = { original: string; spoken: string };
 
 export type TtsErrorInfo = { transient: boolean; category: "quota" | "upstream" | "timeout" | "empty_audio" | "unknown"; code: string | null };
 
+export function containsNonLatinScript(text: string): boolean {
+  return /[\u0E00-\u0E7F\u0400-\u04FF\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF\u0600-\u06FF\u0900-\u097F\u0B80-\u0BFF\u0C00-\u0C7F\u0D00-\u0D7F\u0E80-\u0EFF]/u.test(text);
+}
+
+export function assertEnglishText(text: string): void {
+  if (containsNonLatinScript(text)) throw new Error("Narration is English only. Please use English text — Thai concepts written in English letters like 'Tom Kha Gai' or 'Muay Thai' are fine.");
+}
+
 export function classifyTtsError(error: unknown, emptyAudio = false): TtsErrorInfo {
   if (emptyAudio) return { transient: false, category: "empty_audio", code: "EMPTY_AUDIO" };
   const value = error as { message?: unknown; code?: unknown; status?: unknown; cause?: unknown } | null;
