@@ -51,10 +51,15 @@ npx wrangler d1 execute blognice --remote --file=./migrations/FILENAME.sql --con
 npx wrangler d1 execute blognice-posts --remote --file=./migrations/FILENAME.sql --config wrangler.production.jsonc
 ```
 
-Migrations 022–033 are Blognice-instance content and pronunciation history.
-They modify specific production content or refine an earlier pronunciation
-entry; they are not a portable schema upgrade and must be reviewed individually
-before use on another installation. Migration 053 introduces the affiliate
+The following files are Blognice-instance content and pronunciation history,
+not portable schema upgrades. Review them individually before use elsewhere:
+
+| Database | Instance-specific migrations, in order |
+| --- | --- |
+| INDEX (`blognice`) | `023-development-topics.sql`, `026-technical-pronunciations.sql`, `028-ai-pronunciation.sql`, `029-ai-phonetic-pronunciation.sql`, `030-ai-letter-pause.sql`, `031-ai-tested-pronunciation.sql`, `032-calmer-pronunciation.sql`, `033-aiye-eye-pronunciation.sql` |
+| POSTS (`blognice-posts`) | `022-development-inaugural-posts.sql`, `024-development-post-attribution.sql`, `025-fix-development-post-markdown.sql`, `027-development-authors-post.sql` |
+
+Migration 053 introduces the affiliate
 program; 054 and 055 introduce and harden its offer experiment. The manually
 dispatched affiliate workflow applies only that affiliate sequence and is not a
 general migration runner.
@@ -134,3 +139,8 @@ configs. D1 migrations are forward-only: restore the pre-migration backup or
 apply a separately reviewed corrective migration rather than attempting an
 ad-hoc reversal. Pause affiliate experiments and financial dispatch before a
 rollback when their state could diverge.
+
+Use [`incident-response.md`](incident-response.md) during production incidents
+and execute [`restore-drill.md`](restore-drill.md) at least quarterly. The test
+suite checks README links/npm commands, migration-ledger coverage, and production
+queue documentation so common forms of documentation drift fail CI.

@@ -704,29 +704,23 @@ inspect and control the experiment from the staff Worker. Design and decision
 rules are in
 [`docs/affiliate-offer-experiment-design.md`](docs/affiliate-offer-experiment-design.md).
 
-## Notes for going further
+## Operational safeguards
 
-- **Harden authentication further.** Add rate limiting on `/admin/login` and
-  continue reviewing state-changing forms for explicit same-origin/CSRF
-  controls. Signup rate limiting and email verification are already present.
-- **Scaling capacity (the sharding seam).** Each D1 database maxes out at 10 GB.
-  Post bodies already live in their own database (`POSTS`), separate from the
-  index, so the growing data is isolated from day one. When that database fills,
-  shard it by tenant: create another posts database, bind it (e.g. `POSTS_2`),
-  set some tenants' `shard` to point at it, and add a `case` in `tenantDb()`
-  (`src/db.ts`) — the only code change. Because `shard` is derived from the
-  tenant (resolved from the hostname on every request), routing adds no lookup,
-  and moving a tenant to a new shard is a one-field update that changes no post
-  URLs. Shard by tenant, not by time or a fixed pool — a blog partitions
-  naturally by tenant, and per-tenant databases never need re-sharding
-  (Cloudflare allows up to 50,000 per account).
-- **Deleting a tenant** must also delete its posts from the `POSTS` database:
-  call `deleteTenantPosts()` (`src/db.ts`) alongside removing the tenant row.
-  SQLite's `ON DELETE CASCADE` handles users/sessions/domains (same database as
-  the tenant) but cannot reach across into the posts database.
-- **Operational maturity** still needs regular restore exercises, documented
-  incident response, and automated checks that commands and routes in the
-  documentation continue to match the repository.
+- **Authentication:** signup and failed login attempts are rate-limited. Every
+  unsafe cookie-authenticated `/admin/*` request must come from the canonical
+  admin origin; bearer-token APIs use their own authentication boundary.
+- **Scaling:** tenant content is isolated in `POSTS` and routed only through
+  `tenantDb()` (`src/db.ts`). Unknown shard names fail closed. When capacity
+  requires another D1 database, bind it explicitly and add its mapping before
+  moving any tenant's `shard` value.
+- **Deletion integrity:** account deletion is blocked while the account owns a
+  blog, preventing an ownerless tenant. A future tenant-deletion workflow must
+  call `deleteTenantPosts()`, which removes both posts and pages from the correct
+  content shard before the index row is removed.
+- **Recovery:** use the [incident-response runbook](docs/incident-response.md)
+  and perform the [D1 restore drill](docs/restore-drill.md) at least quarterly.
+  CI checks README links and npm commands, migration-ledger coverage, and queue
+  documentation for common forms of drift.
 
 Built to run on Cloudflare Workers, D1, and Cloudflare for SaaS.
 

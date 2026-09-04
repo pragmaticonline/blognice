@@ -109,7 +109,7 @@ test("authenticated editor auto-format consumes one credit and returns AI Markdo
       "## A rewritten article", "## First line\n\n- Second line",
       "## Completely different", "## Still different",
     ];
-    const env = { DB: db, POSTS: db, ROOT_DOMAIN: "blognice.test", EVENTS: { writeDataPoint() {} }, AI: { run: async (_model, input) => { calls.push(input); return { response: aiResponses.shift() }; } } };
+    const env = { DB: db, POSTS: db, ROOT_DOMAIN: "blognice.test", EVENTS: { writeDataPoint() {} }, AI: { run: async (_model, input) => { calls.push(input); const next = aiResponses.shift(); if (next instanceof Error) throw next; return { response: next }; } } };
     const request = (text = "First line\n\nSecond line") => blogniceApp.request(new Request("https://www.blognice.test/admin/b/blog-public/format-markdown", {
       method: "POST", headers: { cookie: "bn_session=format-session", origin: "https://www.blognice.test", "content-type": "application/json" }, body: JSON.stringify({ text }),
     }), undefined, env, { waitUntil() {}, passThroughOnException() {} });
@@ -136,5 +136,12 @@ test("authenticated editor auto-format consumes one credit and returns AI Markdo
     assert.match(fallback.warning, /safe basic formatting/);
     assert.equal(calls.length, 5);
     assert.equal(await db.prepare("SELECT credits_used FROM ai_credit_usage WHERE account_id=1").first().then((row) => row.credits_used), 2);
+
+    aiResponses.push(new Error("temporarily unavailable"), "## First line\n\nSecond line");
+    const recovered = await request();
+    assert.equal(recovered.status, 200);
+    assert.deepEqual(await recovered.json(), { markdown: "## First line\n\nSecond line" });
+    assert.equal(calls.length, 7);
+    assert.equal(await db.prepare("SELECT credits_used FROM ai_credit_usage WHERE account_id=1").first().then((row) => row.credits_used), 3);
   } finally { await mf.dispose(); }
 });

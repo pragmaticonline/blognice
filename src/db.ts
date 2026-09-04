@@ -4,10 +4,10 @@ import type { Tenant } from "./render";
 //
 // Blog Nice uses two databases from day one:
 //   env.DB     the INDEX database: tenants, users, sessions, domains.
-//   env.POSTS  the POSTS database: every post body, and nothing else.
+//   env.POSTS  the POSTS database: tenant-scoped posts, pages, and delivery state.
 //
-// Metadata is small and is always queried per tenant; post bodies are the only
-// data that grows without bound, so they get their own database. Keeping this
+// Account metadata is small and always queried per tenant; content is the data
+// that grows without bound, so it gets its own database. Keeping this
 // boundary from the start means the posts table can later be split across
 // several databases with no migration of the metadata and no change to URLs or
 // the read pattern.
@@ -36,9 +36,8 @@ export function tenantDb(env: DbEnv, tenant: Tenant): D1Database {
   switch (tenant.shard) {
     // Example future posts shard, bound in wrangler.jsonc as `POSTS_2`:
     //   case "posts-2": return env.POSTS_2 as D1Database;
-    case "primary":
-    default:
-      return env.POSTS;
+    case "primary": return env.POSTS;
+    default: throw new Error(`Unknown posts shard: ${tenant.shard}`);
   }
 }
 
@@ -48,8 +47,9 @@ export async function deleteTenantPosts(
   env: DbEnv,
   tenant: Tenant
 ): Promise<void> {
-  await tenantDb(env, tenant)
-    .prepare("DELETE FROM posts WHERE tenant_id = ?")
-    .bind(tenant.id)
-    .run();
+  const db = tenantDb(env, tenant);
+  await db.batch([
+    db.prepare("DELETE FROM posts WHERE tenant_id = ?").bind(tenant.id),
+    db.prepare("DELETE FROM pages WHERE tenant_id = ?").bind(tenant.id),
+  ]);
 }

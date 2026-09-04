@@ -83,6 +83,7 @@ import {
   type MediaItem,
 } from "./admin";
 import { tenantDb } from "./db";
+import { checkLoginRateLimit, clearFailedLoginForEmail, recordFailedLogin } from "./login-rate-limit";
 import { pushConfigured, sendBrowserPush, validBrowserPushSubscription, type BrowserPushSubscription, type PushPayload } from "./push";
 import { classifyPushDelivery } from "./push-state";
 import homepage from "../homepage.html";
@@ -215,6 +216,13 @@ app.use("*", async (c, next) => {
       url.hostname = canonical;
       if (c.req.method === "GET" || c.req.method === "HEAD") return c.redirect(url.toString(), 308);
       return c.json({ error: "canonical admin host required" }, 403);
+    }
+    if (!new Set(["GET", "HEAD", "OPTIONS"]).has(c.req.method.toUpperCase())) {
+      const origin = c.req.header("Origin");
+      const expectedOrigin = local ? url.origin : `${url.protocol}//${canonical}`;
+      if (!origin || origin !== expectedOrigin) {
+        return c.json({ error: "same-origin request required" }, 403);
+      }
     }
   }
   return next();
@@ -428,6 +436,44 @@ function slugify(s: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 80);
+}
+
+function randomSlugSuffix(): string {
+  const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+  const bytes = crypto.getRandomValues(new Uint8Array(5));
+  let out = "";
+  for (const b of bytes) out += alphabet[b % alphabet.length];
+  return out;
+}
+
+function withSlugSuffix(base: string, maxLen = 80): string {
+  const suffix = randomSlugSuffix();
+  const trimmed = base.slice(0, maxLen - 6);
+  return `${trimmed}-${suffix}`;
+}
+
+async function uniquePostSlug(pdb: any, tenantId: number, base: string, excludeId?: number, maxLen = 80): Promise<string> {
+  let slug = base.slice(0, maxLen);
+  for (let i = 0; i < 10; i++) {
+    const clash = excludeId
+      ? await pdb.prepare("SELECT 1 FROM posts WHERE tenant_id = ? AND slug = ? AND id <> ?").bind(tenantId, slug, excludeId).first()
+      : await pdb.prepare("SELECT 1 FROM posts WHERE tenant_id = ? AND slug = ?").bind(tenantId, slug).first();
+    if (!clash) return slug;
+    slug = withSlugSuffix(base, maxLen);
+  }
+  return slug;
+}
+
+async function uniquePageSlug(pdb: any, tenantId: number, base: string, excludeId?: number, maxLen = 100): Promise<string> {
+  let slug = base.slice(0, maxLen);
+  for (let i = 0; i < 10; i++) {
+    const clash = excludeId
+      ? await pdb.prepare("SELECT 1 FROM pages WHERE tenant_id = ? AND slug = ? AND id != ?").bind(tenantId, slug, excludeId).first()
+      : await pdb.prepare("SELECT 1 FROM pages WHERE tenant_id = ? AND slug = ?").bind(tenantId, slug).first();
+    if (!clash) return slug;
+    slug = withSlugSuffix(base, maxLen);
+  }
+  return slug;
 }
 
 // Subdomains we must never hand out as a tenant slug (they collide with our own
@@ -1368,7 +1414,7 @@ app.post("/api/v1/blogs/:blogId/posts", async (c) => {
   const body_md = String(body?.body_md ?? "");
   if (!title || !body_md)
     return c.json({ error: "title and body_md are required" }, 400);
-  const slug = (String(body?.slug ?? "").trim() || slugify(title)).slice(0, 80);
+  let slug = (String(body?.slug ?? "").trim() || slugify(title)).slice(0, 80);
   const published = body?.published === false ? 0 : 1;
   if (published && !can(role, "posts.publish")) return c.json({ error: "publishing is not permitted for this role" }, 403);
   let featuredImageKey: string | null;
@@ -1387,19 +1433,27 @@ app.post("/api/v1/blogs/:blogId/posts", async (c) => {
   const now = Math.floor(Date.now() / 1000);
 
   const pdb = tenantDb(c.env, tenant);
-  const exists = await pdb
-    .prepare("SELECT 1 FROM posts WHERE tenant_id = ? AND slug = ?")
-    .bind(tenant.id, slug)
-    .first();
-  if (exists)
-    return c.json({ error: `a post with slug "${slug}" already exists` }, 409);
+  slug = await uniquePostSlug(pdb, tenant.id, slug);
 
-  const res = await pdb.prepare(
-    `INSERT INTO posts (tenant_id, slug, title, featured_image_key, body_md, tags_json, published, created_at, updated_at, author_account_id, author_name, author_visible)
+  let res: any;
+  for (let attempts = 0; attempts < 6; attempts++) {
+    try {
+      res = await pdb.prepare(
+        `INSERT INTO posts (tenant_id, slug, title, featured_image_key, body_md, tags_json, published, created_at, updated_at, author_account_id, author_name, author_visible)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(tenant.id, slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, now, now, account.id, authorName, authorVisible)
-    .run();
+      )
+        .bind(tenant.id, slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, now, now, account.id, authorName, authorVisible)
+        .run();
+      break;
+    } catch (e: any) {
+      const msg = String(e?.message || "");
+      if (/UNIQUE|unique|already/i.test(msg) && attempts < 5) {
+        slug = withSlugSuffix(slug);
+        continue;
+      }
+      throw e;
+    }
+  }
   c.executionCtx.waitUntil(
     purgeTenant(c.env, tenant, ["/", "/" + slug, "/sitemap.xml"])
   );
@@ -1438,7 +1492,7 @@ app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
   }
   const title = body?.title !== undefined ? String(body.title).trim() : post.title;
   const body_md = body?.body_md !== undefined ? String(body.body_md) : post.body_md;
-  const slug = (body?.slug !== undefined ? String(body.slug).trim() : post.slug).slice(0, 80);
+  let slug = (body?.slug !== undefined ? String(body.slug).trim() : post.slug).slice(0, 80);
   const published =
     body?.published !== undefined ? (body.published ? 1 : 0) : post.published;
   if (published && !can(role, "posts.publish")) return c.json({ error: "publishing is not permitted for this role" }, 403);
@@ -1464,19 +1518,29 @@ app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
   const now = Math.floor(Date.now() / 1000);
 
   if (slug !== post.slug) {
-    const clash = await pdb
-      .prepare("SELECT 1 FROM posts WHERE tenant_id = ? AND slug = ? AND id <> ?")
-      .bind(tenant.id, slug, post.id)
-      .first();
-    if (clash) return c.json({ error: `slug "${slug}" already in use` }, 409);
+    slug = await uniquePostSlug(pdb, tenant.id, slug, post.id);
   }
 
-  await pdb.prepare(
-    `UPDATE posts SET title = ?, featured_image_key = ?, body_md = ?, tags_json = ?, slug = ?, published = ?, updated_at = ?, author_name = ?, author_visible = ?
+  let attempts = 0;
+  while (true) {
+    try {
+      await pdb.prepare(
+        `UPDATE posts SET title = ?, featured_image_key = ?, body_md = ?, tags_json = ?, slug = ?, published = ?, updated_at = ?, author_name = ?, author_visible = ?
       WHERE id = ? AND tenant_id = ?`
-  )
-    .bind(title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), slug, published, now, authorName, authorVisible, post.id, tenant.id)
-    .run();
+      )
+        .bind(title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), slug, published, now, authorName, authorVisible, post.id, tenant.id)
+        .run();
+      break;
+    } catch (e: any) {
+      const msg = String(e?.message || "");
+      if (/UNIQUE|unique|already/i.test(msg) && attempts < 5) {
+        attempts++;
+        slug = withSlugSuffix(slug);
+        continue;
+      }
+      throw e;
+    }
+  }
   c.executionCtx.waitUntil(
     purgeTenant(c.env, tenant, ["/", "/" + post.slug, "/" + slug, "/sitemap.xml"])
   );
@@ -1882,11 +1946,24 @@ app.post("/api/v1/blogs/:blogId/pages", async (c) => {
   const navigationLabel = (body?.navigation_label !== undefined ? String(body.navigation_label).trim().slice(0, 40) : null) || null;
   const navigationOrder = Math.max(0, Math.min(999, Number(body?.navigation_order ?? 0) || 0));
   const metaDescription = (body?.meta_description !== undefined ? String(body.meta_description).trim().slice(0, 300) : null) || null;
-  const clash = await tenantDb(c.env, tenant).prepare("SELECT 1 FROM pages WHERE tenant_id = ? AND slug = ?").bind(tenant.id, slug).first();
-  if (clash) return c.json({ error: `slug "${slug}" already in use` }, 409);
+  const pdbPages = tenantDb(c.env, tenant);
+  slug = await uniquePageSlug(pdbPages, tenant.id, slug);
   const now = Math.floor(Date.now() / 1000);
   const publishedAt = published ? now : null;
-  const res = await tenantDb(c.env, tenant).prepare("INSERT INTO pages (tenant_id, slug, title, body_md, published, show_in_navigation, navigation_label, navigation_order, meta_description, created_at, updated_at, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(tenant.id, slug, title, body_md, published, showInNavigation, navigationLabel, navigationOrder, metaDescription, now, now, publishedAt).run();
+  let res: any;
+  for (let attempts = 0; attempts < 6; attempts++) {
+    try {
+      res = await pdbPages.prepare("INSERT INTO pages (tenant_id, slug, title, body_md, published, show_in_navigation, navigation_label, navigation_order, meta_description, created_at, updated_at, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(tenant.id, slug, title, body_md, published, showInNavigation, navigationLabel, navigationOrder, metaDescription, now, now, publishedAt).run();
+      break;
+    } catch (e: any) {
+      const msg = String(e?.message || "");
+      if (/UNIQUE|unique|already/i.test(msg) && attempts < 5) {
+        slug = withSlugSuffix(slug, 100);
+        continue;
+      }
+      throw e;
+    }
+  }
   const id = res.meta.last_row_id as number;
   const page = await tenantDb(c.env, tenant).prepare("SELECT * FROM pages WHERE id = ?").bind(id).first<Page>();
   c.executionCtx.waitUntil(purgeTenant(c.env, tenant, ["/" + slug, "/sitemap.xml"]).catch(()=>{}));
@@ -1920,13 +1997,24 @@ app.patch("/api/v1/blogs/:blogId/pages/:id", async (c) => {
   const navigationOrder = body?.navigation_order !== undefined ? Math.max(0, Math.min(999, Number(body.navigation_order) || 0)) : (page.navigation_order ?? 0);
   const metaDescription = body?.meta_description !== undefined ? (String(body.meta_description).trim().slice(0, 300) || null) : (page.meta_description ?? null);
   if (slug !== page.slug) {
-    const clash = await pdb.prepare("SELECT 1 FROM pages WHERE tenant_id = ? AND slug = ? AND id != ?").bind(tenant.id, slug, page.id).first();
-    if (clash) return c.json({ error: `slug "${slug}" already in use` }, 409);
+    slug = await uniquePageSlug(pdb, tenant.id, slug, page.id);
   }
   const now = Math.floor(Date.now() / 1000);
   const publishedAt = published ? (page.published_at ?? now) : null;
-  await pdb.prepare("UPDATE pages SET slug = ?, title = ?, body_md = ?, published = ?, show_in_navigation = ?, navigation_label = ?, navigation_order = ?, meta_description = ?, updated_at = ?, published_at = ? WHERE id = ? AND tenant_id = ?")
-    .bind(slug, title, body_md, published, showInNavigation, navigationLabel, navigationOrder, metaDescription, now, publishedAt, page.id, tenant.id).run();
+  for (let attempts = 0; attempts < 6; attempts++) {
+    try {
+      await pdb.prepare("UPDATE pages SET slug = ?, title = ?, body_md = ?, published = ?, show_in_navigation = ?, navigation_label = ?, navigation_order = ?, meta_description = ?, updated_at = ?, published_at = ? WHERE id = ? AND tenant_id = ?")
+        .bind(slug, title, body_md, published, showInNavigation, navigationLabel, navigationOrder, metaDescription, now, publishedAt, page.id, tenant.id).run();
+      break;
+    } catch (e: any) {
+      const msg = String(e?.message || "");
+      if (/UNIQUE|unique|already/i.test(msg) && attempts < 5) {
+        slug = withSlugSuffix(slug, 100);
+        continue;
+      }
+      throw e;
+    }
+  }
   const updated = await pdb.prepare("SELECT * FROM pages WHERE id = ?").bind(page.id).first<Page>();
   c.executionCtx.waitUntil(purgeTenant(c.env, tenant, ["/" + page.slug, "/" + slug, "/sitemap.xml"]).catch(()=>{}));
   return c.json({ page: updated ? pageToJson(updated) : { id: page.id, slug, title, body_md, published: !!published, show_in_navigation: !!showInNavigation, navigation_label: navigationLabel, navigation_order: navigationOrder, meta_description: metaDescription } });
@@ -2559,6 +2647,15 @@ app.post("/admin/login", async (c) => {
   const password = String(form.get("password") ?? "");
   const inviteToken = String(form.get("invite") ?? c.req.query("invite") ?? "").trim();
 
+  const loginLimit = await checkLoginRateLimit(c, getClientIp(c), email);
+  if (!loginLimit.allowed) {
+    clearSessionCookie(c);
+    const response = c.html(loginPage("Too many failed sign-in attempts. Please try again later."), 429);
+    response.headers.set("Cache-Control", "no-store, max-age=0");
+    response.headers.set("Retry-After", String(loginLimit.retryAfter || 900));
+    return response;
+  }
+
   const account = await c.env.DB.prepare(
     "SELECT id, pw_hash FROM accounts WHERE email = ?"
   )
@@ -2567,6 +2664,7 @@ app.post("/admin/login", async (c) => {
 
   const ok = account ? await verifyPassword(password, account.pw_hash) : false;
   if (!ok) {
+    await recordFailedLogin(c, getClientIp(c), email);
     clearSessionCookie(c);
     let invite: { token: string; email: string; title: string; role: string } | undefined;
     if (inviteToken) {
@@ -2579,6 +2677,8 @@ app.post("/admin/login", async (c) => {
     response.headers.set("Cache-Control", "no-store, max-age=0");
     return response;
   }
+
+  await clearFailedLoginForEmail(c, email);
 
   const token = await createSession(c.env.DB, account!.id);
   try { const ip = getClientIp(c); const ua = String(c.req.header('User-Agent')||'').slice(0,300); await c.env.DB.prepare('UPDATE sessions SET ip=?, user_agent=?, created_via="login" WHERE token=?').bind(ip, ua, token).run(); try { await c.env.DB.prepare('INSERT INTO account_activity (id, account_id, kind, detail, ip, created_at) VALUES (?,?,?,?,?,?)').bind(crypto.randomUUID(), account!.id, 'login', 'login', ip, Math.floor(Date.now()/1000)).run(); } catch {} } catch {}
@@ -2740,9 +2840,15 @@ app.post("/admin/b/:blogId/format-markdown", async (c) => {
   catch (error) { return c.json({ error: error instanceof Error ? error.message : "AI credits unavailable" }, 402); }
   let changedWording = false;
   try {
-    const generated = await c.env.AI.run(AI_BRIEF_MODEL, {
+    const generationInput = {
       messages: markdownFormattingMessages(text), max_tokens: markdownOutputTokenBudget(text), temperature: 0.1,
-    });
+    };
+    let generated: { response?: unknown };
+    try {
+      generated = await c.env.AI.run(AI_BRIEF_MODEL, generationInput);
+    } catch {
+      generated = await c.env.AI.run(AI_BRIEF_MODEL, { ...generationInput, temperature: 0 });
+    }
     let markdown = formatObviousStructures(normalizedMarkdownResponse(generated.response));
     if (!markdown) throw new Error("The formatting model returned no text.");
     if (markdown.length > AI_MARKDOWN_TEXT_MAX * 2) throw new Error("The formatting result was unexpectedly long.");
@@ -2842,21 +2948,42 @@ app.post("/admin/b/:blogId/pages/save", async (c) => {
   if (published && !can(ctx.role, "posts.publish")) return c.text("You do not have permission to publish pages.", 403);
   if (!title || !slug) return c.html(pageEditorPage(ctx.account, ctx.tenant, { id: idParam ? Number(idParam) : undefined, title, slug, body_md, published, show_in_navigation: showInNavigation, navigation_label: navigationLabel, navigation_order: navigationOrder, meta_description: metaDescription }, "A title is required (and it must produce a valid slug)."), 400);
   const now = Math.floor(Date.now() / 1000);
-  try {
-    if (idParam) {
-      const previous = await tenantDb(c.env, ctx.tenant).prepare("SELECT slug, published_at FROM pages WHERE id = ? AND tenant_id = ?").bind(idParam, ctx.tenant.id).first<{ slug: string; published_at: number | null }>();
-      if (!previous) return c.redirect(`/admin/b/${ctx.tenant.public_id}/pages`);
-      await tenantDb(c.env, ctx.tenant).prepare("UPDATE pages SET slug = ?, title = ?, body_md = ?, published = ?, show_in_navigation = ?, navigation_label = ?, navigation_order = ?, meta_description = ?, updated_at = ?, published_at = ? WHERE id = ? AND tenant_id = ?")
-        .bind(slug, title, body_md, published, showInNavigation, navigationLabel, navigationOrder, metaDescription, now, published ? (previous.published_at || now) : null, idParam, ctx.tenant.id).run();
-      purgeTenant(c.env, ctx.tenant, ["/", `/pages/${previous.slug}`, `/pages/${slug}`, "/sitemap.xml"]);
-    } else {
-      await tenantDb(c.env, ctx.tenant).prepare("INSERT INTO pages (tenant_id, slug, title, body_md, published, show_in_navigation, navigation_label, navigation_order, meta_description, created_at, updated_at, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        .bind(ctx.tenant.id, slug, title, body_md, published, showInNavigation, navigationLabel, navigationOrder, metaDescription, now, now, published ? now : null).run();
-      purgeTenant(c.env, ctx.tenant, ["/", `/pages/${slug}`, "/sitemap.xml"]);
+  const pdbPage = tenantDb(c.env, ctx.tenant);
+  let previousSlugForPurge: string | null = null;
+  if (idParam) {
+    const prev = await pdbPage.prepare("SELECT slug, published_at FROM pages WHERE id = ? AND tenant_id = ?").bind(idParam, ctx.tenant.id).first<{ slug: string; published_at: number | null }>();
+    if (!prev) return c.redirect(`/admin/b/${ctx.tenant.public_id}/pages`);
+    previousSlugForPurge = prev.slug;
+    if (slug !== prev.slug) {
+      slug = await uniquePageSlug(pdbPage, ctx.tenant.id, slug, Number(idParam), 100);
     }
-  } catch (error) {
-    const message = String(error).includes("UNIQUE") ? "That page slug is already in use." : "Could not save this page.";
-    return c.html(pageEditorPage(ctx.account, ctx.tenant, { id: idParam ? Number(idParam) : undefined, title, slug, body_md, published, show_in_navigation: showInNavigation, navigation_label: navigationLabel, navigation_order: navigationOrder, meta_description: metaDescription }, message), 400);
+  } else {
+    slug = await uniquePageSlug(pdbPage, ctx.tenant.id, slug, undefined, 100);
+  }
+  for (let attempts = 0; attempts < 6; attempts++) {
+    try {
+      if (idParam) {
+        const previous = await pdbPage.prepare("SELECT slug, published_at FROM pages WHERE id = ? AND tenant_id = ?").bind(idParam, ctx.tenant.id).first<{ slug: string; published_at: number | null }>();
+        if (!previous) return c.redirect(`/admin/b/${ctx.tenant.public_id}/pages`);
+        await pdbPage.prepare("UPDATE pages SET slug = ?, title = ?, body_md = ?, published = ?, show_in_navigation = ?, navigation_label = ?, navigation_order = ?, meta_description = ?, updated_at = ?, published_at = ? WHERE id = ? AND tenant_id = ?")
+          .bind(slug, title, body_md, published, showInNavigation, navigationLabel, navigationOrder, metaDescription, now, published ? (previous.published_at || now) : null, idParam, ctx.tenant.id).run();
+        previousSlugForPurge = previous.slug;
+        purgeTenant(c.env, ctx.tenant, ["/", `/pages/${previous.slug}`, `/pages/${slug}`, "/sitemap.xml"]);
+      } else {
+        await pdbPage.prepare("INSERT INTO pages (tenant_id, slug, title, body_md, published, show_in_navigation, navigation_label, navigation_order, meta_description, created_at, updated_at, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+          .bind(ctx.tenant.id, slug, title, body_md, published, showInNavigation, navigationLabel, navigationOrder, metaDescription, now, now, published ? now : null).run();
+        purgeTenant(c.env, ctx.tenant, ["/", `/pages/${slug}`, "/sitemap.xml"]);
+      }
+      break;
+    } catch (error) {
+      const msg = String(error);
+      if (/UNIQUE|unique|already/i.test(msg) && attempts < 5) {
+        slug = withSlugSuffix(slug, 100);
+        continue;
+      }
+      const message = msg.includes("UNIQUE") ? "That page slug is already in use." : "Could not save this page.";
+      return c.html(pageEditorPage(ctx.account, ctx.tenant, { id: idParam ? Number(idParam) : undefined, title, slug, body_md, published, show_in_navigation: showInNavigation, navigation_label: navigationLabel, navigation_order: navigationOrder, meta_description: metaDescription }, message), 400);
+    }
   }
   return c.redirect(`/admin/b/${ctx.tenant.public_id}/pages`);
 });
@@ -3153,35 +3280,48 @@ app.post("/admin/b/:blogId/save", async (c) => {
       return c.text("You do not have permission to edit this post.", 403);
     wasPublished = prev?.published ?? 0;
     previousSlug = prev?.slug ?? "";
-  }
-  try {
-    if (idParam) {
-      const update = can(ctx.role, "posts.edit.any")
-        ? pdb.prepare(`UPDATE posts SET slug = ?, title = ?, featured_image_key = ?, body_md = ?, tags_json = ?, published = ?, updated_at = ?, author_account_id = ?, author_name = ?, author_visible = ? WHERE id = ? AND tenant_id = ?`)
-            .bind(slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, now, authorAccountId, authorName, requestedAuthorVisible ? 1 : 0, idParam, ctx.tenant.id)
-        : pdb.prepare(`UPDATE posts SET slug = ?, title = ?, featured_image_key = ?, body_md = ?, tags_json = ?, published = ?, updated_at = ? WHERE id = ? AND tenant_id = ?`)
-            .bind(slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, now, idParam, ctx.tenant.id);
-      await update.run();
-    } else {
-      const inserted = await pdb.prepare(
-        `INSERT INTO posts (tenant_id, slug, title, featured_image_key, body_md, tags_json, published, created_at, updated_at, author_account_id, author_name, author_visible)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-        .bind(ctx.tenant.id, slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, now, now, authorAccountId, authorName, requestedAuthorVisible ? 1 : 0)
-        .run();
-      savedId = Number(inserted.meta.last_row_id);
+    if (slug !== previousSlug) {
+      slug = await uniquePostSlug(pdb, ctx.tenant.id, slug, Number(idParam));
     }
-  } catch (e: any) {
-    return c.html(
-      editorPage(
-        ctx.account,
-        ctx.tenant,
-        c.env.ROOT_DOMAIN,
-        { id: idParam ? Number(idParam) : undefined, title, slug, body_md, published, featured_image_key: featuredImageKey },
-        "Couldn't save — is that slug already used by another post?"
-      ),
-      400
-    );
+  } else {
+    slug = await uniquePostSlug(pdb, ctx.tenant.id, slug);
+  }
+  for (let attempts = 0; attempts < 6; attempts++) {
+    try {
+      if (idParam) {
+        const update = can(ctx.role, "posts.edit.any")
+          ? pdb.prepare(`UPDATE posts SET slug = ?, title = ?, featured_image_key = ?, body_md = ?, tags_json = ?, published = ?, updated_at = ?, author_account_id = ?, author_name = ?, author_visible = ? WHERE id = ? AND tenant_id = ?`)
+              .bind(slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, now, authorAccountId, authorName, requestedAuthorVisible ? 1 : 0, idParam, ctx.tenant.id)
+          : pdb.prepare(`UPDATE posts SET slug = ?, title = ?, featured_image_key = ?, body_md = ?, tags_json = ?, published = ?, updated_at = ? WHERE id = ? AND tenant_id = ?`)
+              .bind(slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, now, idParam, ctx.tenant.id);
+        await update.run();
+      } else {
+        const inserted = await pdb.prepare(
+          `INSERT INTO posts (tenant_id, slug, title, featured_image_key, body_md, tags_json, published, created_at, updated_at, author_account_id, author_name, author_visible)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+          .bind(ctx.tenant.id, slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, now, now, authorAccountId, authorName, requestedAuthorVisible ? 1 : 0)
+          .run();
+        savedId = Number(inserted.meta.last_row_id);
+      }
+      break;
+    } catch (e: any) {
+      const msg = String(e?.message || "");
+      if (/UNIQUE|unique|already/i.test(msg) && attempts < 5) {
+        slug = withSlugSuffix(slug);
+        continue;
+      }
+      return c.html(
+        editorPage(
+          ctx.account,
+          ctx.tenant,
+          c.env.ROOT_DOMAIN,
+          { id: idParam ? Number(idParam) : undefined, title, slug, body_md, published, featured_image_key: featuredImageKey },
+          "Couldn't save — is that slug already used by another post?"
+        ),
+        400
+      );
+    }
   }
 
   c.executionCtx.waitUntil(

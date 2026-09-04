@@ -213,7 +213,7 @@ test("verified accounts enroll through the production HTTP and Stripe seams", as
     const experimentCheckout = new FormData();
     experimentCheckout.set("plan", "yearly");
     const experimentCheckoutResponse = await blogniceApp.request(new Request("https://www.blognice.test/admin/billing/checkout", {
-      method: "POST", body: experimentCheckout, headers: { cookie: experimentSession },
+      method: "POST", body: experimentCheckout, headers: { cookie: experimentSession, Origin: "https://www.blognice.test" },
     }), undefined, { ...env, STRIPE_YEARLY_PRICE_ID: "price_yearly" }, executionCtx);
     assert.equal(experimentCheckoutResponse.status, 303);
     assert.equal(experimentCheckoutResponse.headers.get("location"), "https://checkout.stripe.test/experiment");
@@ -456,7 +456,7 @@ test("production HTTP referral and Stripe seams flow through payout and post-pay
     checkoutForm.set("plan", "monthly");
     const checkoutResponse = await blogniceApp.request(
       new Request("https://www.blognice.test/admin/billing/checkout", {
-        method: "POST", body: checkoutForm, headers: { cookie: sessionCookie },
+        method: "POST", body: checkoutForm, headers: { cookie: sessionCookie, Origin: "https://www.blognice.test" },
       }), undefined, env, executionCtx,
     );
     assert.equal(checkoutResponse.status, 303);

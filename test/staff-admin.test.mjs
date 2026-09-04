@@ -230,3 +230,8 @@ test("staff panel exposes logout, audit history, search, and read-only account c
   assert.match(staff, /ORDER BY a\.created_at DESC, a\.id DESC/);
   assert.match(staff, /Delete this pronunciation entry/);
 });
+
+test("account deletion cannot orphan an owned blog", () => {
+  assert.match(staff, /m\.account_id=\? AND m\.role='owner' LIMIT 1/);
+  assert.match(staff, /transfer or delete owned blogs before deleting this account/);
+});

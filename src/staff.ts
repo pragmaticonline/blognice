@@ -628,6 +628,10 @@ app.post("/api/accounts/:id/delete", async (c) => {
   const id = Number(c.req.param("id")); const body = await c.req.json().catch(()=>({})) as any; const r = String(body.reason||"").trim(); if (!r) return c.json({ error: "a reason is required" }, 400);
   if (String(body.confirm) !== String(id) && String(body.confirm) !== "DELETE") return c.json({ error: "type account ID or DELETE to confirm" }, 400);
   const before: any = await accountById(c, id); if (!before) return c.json({ error: "account not found" }, 404);
+  const ownedBlog = await c.env.DB.prepare(
+    "SELECT t.public_id, t.title FROM memberships m JOIN tenants t ON t.id=m.tenant_id WHERE m.account_id=? AND m.role='owner' LIMIT 1",
+  ).bind(id).first<{ public_id: string; title: string }>();
+  if (ownedBlog) return c.json({ error: "transfer or delete owned blogs before deleting this account", blog: ownedBlog.public_id }, 409);
   const delStmts: D1PreparedStatement[] = [];
   delStmts.push(c.env.DB.prepare("DELETE FROM sessions WHERE account_id=?").bind(id));
   delStmts.push(c.env.DB.prepare("DELETE FROM memberships WHERE account_id=?").bind(id));
