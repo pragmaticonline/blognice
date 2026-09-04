@@ -17,7 +17,7 @@ export function containsNonLatinScript(text: string): boolean {
 }
 
 export function assertEnglishText(text: string): void {
-  if (containsNonLatinScript(text)) throw new Error("Narration is currently English only. Please use English text.");
+  if (containsNonLatinScript(text)) throw new Error("Audio narration is currently English only. You can still publish this post without audio — more languages are coming soon.");
 }
 
 export function classifyTtsError(error: unknown, emptyAudio = false): TtsErrorInfo {
