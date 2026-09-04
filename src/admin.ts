@@ -1241,7 +1241,7 @@ export function editorPage(
           <div class="image-lightbox-body"><button type="button" class="image-lightbox-close" id="featured-lightbox-close">Close</button><img id="featured-lightbox-image" src="${featuredKey ? `/media/${esc(featuredKey)}` : ""}" alt="Featured image enlarged"></div>
         </dialog>
 
-        <label>Audio narration <span style="color:var(--muted)">(English only — Thai concepts in English letters like \u201CTom Kha Gai\u201D or \u201CMuay Thai\u201D are fine, generated from the last saved version)</span></label>
+        <label>Audio narration <span style="color:var(--muted)">(Currently English only — generated from the last saved version)</span></label>
         <div class="audio-picker">
           <audio id="audio-preview" controls preload="none" src="${audioKey ? `/media/${esc(audioKey)}` : ""}"${audioKey ? "" : " hidden"}></audio>
           <div class="actions">
