@@ -1098,8 +1098,10 @@ app.get("/sitemap.xml", async (c) => {
       "SELECT slug, updated_at FROM pages WHERE tenant_id = ? AND published = 1 ORDER BY updated_at DESC"
     ).bind(tenant.id).all<{ slug: string; updated_at: number }>();
 
+    const lastmodCandidates = [...results.map((r) => r.updated_at), ...pages.results.map((page) => page.updated_at)];
+    const homeLastmod = lastmodCandidates.length ? Math.max(...lastmodCandidates) : Math.floor(Date.now() / 1000);
     const urls = [
-      `<url><loc>${esc(origin)}/</loc></url>`,
+      `<url><loc>${esc(origin)}/</loc><lastmod>${new Date(homeLastmod * 1000).toISOString()}</lastmod></url>`,
       ...results.map(
         (r) =>
           `<url><loc>${esc(origin)}/${esc(r.slug)}</loc>` +
@@ -1430,6 +1432,8 @@ app.post("/api/v1/blogs/:blogId/posts", async (c) => {
   if (body?.author_name !== undefined && String(body.author_name).trim().length > 120)
     return c.json({ error: "author_name must be 120 characters or fewer" }, 400);
   const authorVisible = body?.author_visible === undefined ? 1 : (body.author_visible ? 1 : 0);
+  const metaDescription = body?.meta_description !== undefined ? String(body.meta_description).trim().slice(0, 155) || null : null;
+  if (metaDescription !== null && metaDescription.length > 155) return c.json({ error: "meta_description must be 155 characters or fewer" }, 400);
   const now = Math.floor(Date.now() / 1000);
 
   const pdb = tenantDb(c.env, tenant);
@@ -1439,10 +1443,10 @@ app.post("/api/v1/blogs/:blogId/posts", async (c) => {
   for (let attempts = 0; attempts < 6; attempts++) {
     try {
       res = await pdb.prepare(
-        `INSERT INTO posts (tenant_id, slug, title, featured_image_key, body_md, tags_json, published, created_at, updated_at, author_account_id, author_name, author_visible)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO posts (tenant_id, slug, title, featured_image_key, body_md, tags_json, published, created_at, updated_at, author_account_id, author_name, author_visible, meta_description)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-        .bind(tenant.id, slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, now, now, account.id, authorName, authorVisible)
+        .bind(tenant.id, slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, now, now, account.id, authorName, authorVisible, metaDescription)
         .run();
       break;
     } catch (e: any) {
@@ -1515,6 +1519,8 @@ app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
     return c.json({ error: "author_name must be 120 characters or fewer" }, 400);
   const authorVisible = body?.author_visible !== undefined
     ? (body.author_visible ? 1 : 0) : (post.author_visible ?? 1);
+  const metaDescription = body?.meta_description !== undefined ? (String(body.meta_description).trim().slice(0, 155) || null) : (post.meta_description ?? null);
+  if (metaDescription !== null && metaDescription.length > 155) return c.json({ error: "meta_description must be 155 characters or fewer" }, 400);
   const now = Math.floor(Date.now() / 1000);
 
   if (slug !== post.slug) {
@@ -1525,10 +1531,10 @@ app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
   while (true) {
     try {
       await pdb.prepare(
-        `UPDATE posts SET title = ?, featured_image_key = ?, body_md = ?, tags_json = ?, slug = ?, published = ?, updated_at = ?, author_name = ?, author_visible = ?
+        `UPDATE posts SET title = ?, featured_image_key = ?, body_md = ?, tags_json = ?, slug = ?, published = ?, updated_at = ?, author_name = ?, author_visible = ?, meta_description = ?
       WHERE id = ? AND tenant_id = ?`
       )
-        .bind(title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), slug, published, now, authorName, authorVisible, post.id, tenant.id)
+        .bind(title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), slug, published, now, authorName, authorVisible, metaDescription, post.id, tenant.id)
         .run();
       break;
     } catch (e: any) {
@@ -1953,7 +1959,7 @@ app.post("/api/v1/blogs/:blogId/pages", async (c) => {
   let res: any;
   for (let attempts = 0; attempts < 6; attempts++) {
     try {
-      res = await pdbPages.prepare("INSERT INTO pages (tenant_id, slug, title, body_md, published, show_in_navigation, navigation_label, navigation_order, meta_description, created_at, updated_at, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(tenant.id, slug, title, body_md, published, showInNavigation, navigationLabel, navigationOrder, metaDescription, now, now, publishedAt).run();
+      res = await pdbPages.prepare("INSERT INTO pages (tenant_id, slug, title, body_md, published, show_in_navigation, navigation_label, navigation_order, meta_description, created_at, updated_at, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(tenant.id, slug, title, body_md, published, showInNavigation, navigationLabel, navigationOrder, metaDescription, now, now, publishedAt).run();
       break;
     } catch (e: any) {
       const msg = String(e?.message || "");
@@ -2978,7 +2984,7 @@ app.post("/admin/b/:blogId/pages/save", async (c) => {
         previousSlugForPurge = previous.slug;
         purgeTenant(c.env, ctx.tenant, ["/", `/pages/${previous.slug}`, `/pages/${slug}`, "/sitemap.xml"]);
       } else {
-        await pdbPage.prepare("INSERT INTO pages (tenant_id, slug, title, body_md, published, show_in_navigation, navigation_label, navigation_order, meta_description, created_at, updated_at, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        await pdbPage.prepare("INSERT INTO pages (tenant_id, slug, title, body_md, published, show_in_navigation, navigation_label, navigation_order, meta_description, created_at, updated_at, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
           .bind(ctx.tenant.id, slug, title, body_md, published, showInNavigation, navigationLabel, navigationOrder, metaDescription, now, now, published ? now : null).run();
         purgeTenant(c.env, ctx.tenant, ["/", `/pages/${slug}`, "/sitemap.xml"]);
       }
@@ -3245,6 +3251,7 @@ app.post("/admin/b/:blogId/save", async (c) => {
   let slug = slugify(String(form.get("slug") ?? ""));
   const body_md = String(form.get("body_md") ?? "");
   const normalizedTags = normalizePostTags(String(form.get("tags") ?? ""));
+  const metaDescription = String(form.get("meta_description") || "").trim().slice(0, 155) || null;
   const requestedAuthorId = Number(form.get("author_account_id") ?? ctx.account.id);
   const requestedAuthorName = String(form.get("author_name") ?? "").trim().slice(0, 120);
   const requestedAuthorVisible = String(form.get("author_visibility") ?? "author") !== "none";
@@ -3307,17 +3314,17 @@ app.post("/admin/b/:blogId/save", async (c) => {
     try {
       if (idParam) {
         const update = can(ctx.role, "posts.edit.any")
-          ? pdb.prepare(`UPDATE posts SET slug = ?, title = ?, featured_image_key = ?, body_md = ?, tags_json = ?, published = ?, updated_at = ?, author_account_id = ?, author_name = ?, author_visible = ? WHERE id = ? AND tenant_id = ?`)
-              .bind(slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, now, authorAccountId, authorName, requestedAuthorVisible ? 1 : 0, idParam, ctx.tenant.id)
-          : pdb.prepare(`UPDATE posts SET slug = ?, title = ?, featured_image_key = ?, body_md = ?, tags_json = ?, published = ?, updated_at = ? WHERE id = ? AND tenant_id = ?`)
-              .bind(slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, now, idParam, ctx.tenant.id);
+          ? pdb.prepare(`UPDATE posts SET slug = ?, title = ?, featured_image_key = ?, body_md = ?, tags_json = ?, published = ?, updated_at = ?, author_account_id = ?, author_name = ?, author_visible = ?, meta_description = ? WHERE id = ? AND tenant_id = ?`)
+              .bind(slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, now, authorAccountId, authorName, requestedAuthorVisible ? 1 : 0, metaDescription, idParam, ctx.tenant.id)
+          : pdb.prepare(`UPDATE posts SET slug = ?, title = ?, featured_image_key = ?, body_md = ?, tags_json = ?, published = ?, updated_at = ?, meta_description = ? WHERE id = ? AND tenant_id = ?`)
+              .bind(slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, now, metaDescription, idParam, ctx.tenant.id);
         await update.run();
       } else {
         const inserted = await pdb.prepare(
-          `INSERT INTO posts (tenant_id, slug, title, featured_image_key, body_md, tags_json, published, created_at, updated_at, author_account_id, author_name, author_visible)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO posts (tenant_id, slug, title, featured_image_key, body_md, tags_json, published, created_at, updated_at, author_account_id, author_name, author_visible, meta_description)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
-          .bind(ctx.tenant.id, slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, now, now, authorAccountId, authorName, requestedAuthorVisible ? 1 : 0)
+          .bind(ctx.tenant.id, slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, now, now, authorAccountId, authorName, requestedAuthorVisible ? 1 : 0, metaDescription)
           .run();
         savedId = Number(inserted.meta.last_row_id);
       }
@@ -7080,8 +7087,28 @@ app.get("/:slug", async (c) => {
       });
 
     const htmlBody = renderMarkdown(post.body_md);
-
-    return new Response(renderPost(tenant, post, htmlBody, originOf(c), adminOriginOf(c), analyticsConsentRequired(c.req.raw.cf?.country)), {
+    let relatedPosts: any[] = [];
+    try {
+      const tags = (() => { try { const v = JSON.parse(post.tags_json || "[]"); return Array.isArray(v) ? v.slice(0, 3) : []; } catch { return []; } })();
+      if (tags.length) {
+        const { results } = await tenantDb(c.env, tenant).prepare(
+          `SELECT * FROM posts WHERE tenant_id = ? AND published = 1 AND id != ? ORDER BY created_at DESC LIMIT 20`
+        ).bind(tenant.id, post.id).all<any>();
+        const scored = results
+          .map((r: any) => {
+            let other: string[] = [];
+            try { other = JSON.parse(r.tags_json || "[]"); } catch {}
+            const overlap = tags.filter((tag: string) => other.includes(tag)).length;
+            return { post: r, overlap };
+          })
+          .filter((x: any) => x.overlap > 0)
+          .sort((a: any, b: any) => b.overlap - a.overlap || b.post.created_at - a.post.created_at)
+          .slice(0, 3)
+          .map((x: any) => x.post);
+        relatedPosts = scored;
+      }
+    } catch {}
+    return new Response(renderPost(tenant, post, htmlBody, originOf(c), adminOriginOf(c), analyticsConsentRequired(c.req.raw.cf?.country), relatedPosts), {
       status: 200,
       headers: { "content-type": "text/html; charset=utf-8" },
     });

@@ -27,6 +27,7 @@ CREATE TABLE posts (
   author_account_id INTEGER,
   author_name TEXT,
   author_visible INTEGER NOT NULL DEFAULT 1,
+  meta_description TEXT,
   UNIQUE (tenant_id, slug)
 );
 

@@ -969,7 +969,7 @@ export function pageEditorPage(account: Account, tenant: Tenant, page: Partial<P
   return shell(isEdit ? `Edit page — ${tenant.title}` : `New page — ${tenant.title}`, `<div class="page"><p class="breadcrumb"><a href="${base}/pages">Pages</a> › ${isEdit ? "Edit page" : "New page"}</p><h1>${isEdit ? "Edit page" : "New page"}</h1>${error ? `<div class="error">${esc(error)}</div>` : ""}<form method="post" action="${action}">
     <label for="page-title">Title</label><input id="page-title" name="title" type="text" value="${title}" required>
     <label for="page-slug">URL slug <span style="color:var(--muted)">(the public URL will be /pages/…)</span></label><input id="page-slug" name="slug" type="text" value="${slug}" placeholder="about">
-    <label for="page-meta">Meta description <span style="color:var(--muted)">(optional)</span></label><textarea id="page-meta" name="meta_description" rows="2" maxlength="300">${esc(page?.meta_description ?? "")}</textarea>
+    <label for="page-meta">Meta description <span style="color:var(--muted)">(optional, 155 chars max — shows in Google results)</span></label><textarea id="page-meta" name="meta_description" rows="2" maxlength="155">${esc(page?.meta_description ?? "")}</textarea>
     <label for="page-body">Page content</label><textarea id="page-body" name="body_md" rows="20" placeholder="Write this page in Markdown…">${body}</textarea>
     <div class="check"><input id="page-published" name="published" type="checkbox" ${published ? "checked" : ""}><label for="page-published">Published</label></div>
     <fieldset class="page-nav-settings"><h2>Blog navigation</h2><p>Optionally add this page to the links at the top of your blog. Pages stay available at their public URL either way.</p><div class="check"><input id="page-navigation" name="show_in_navigation" type="checkbox" ${navigation ? "checked" : ""}><label for="page-navigation">Show this page in navigation</label></div><div class="nav-fields"><label for="page-nav-label">Link label <span style="color:var(--muted)">(optional)</span><input id="page-nav-label" name="navigation_label" type="text" value="${esc(page?.navigation_label ?? "")}" maxlength="40" placeholder="About"></label><label for="page-nav-order">Position <select id="page-nav-order" name="navigation_order">${[0,1,2,3,4,5].map((value) => `<option value="${value}"${(page?.navigation_order ?? 0) === value ? " selected" : ""}>${value + 1}</option>`).join("")}</select></label></div></fieldset>
@@ -1218,6 +1218,9 @@ export function editorPage(
         <label for="tags">Post tags</label>
         <input id="tags" name="tags" type="text" value="${esc(tags)}" placeholder="technology, writing, cloudflare">
         <p style="color:var(--muted);font-size:.85rem;margin:-.5rem 0 1.2rem">Add comma-separated tags to group related posts.</p>
+        <label for="meta-description">Meta description <span style="color:var(--muted)">(optional, 155 chars max — shows in Google results)</span></label>
+        <textarea id="meta-description" name="meta_description" rows="2" maxlength="155" placeholder="A concise 120–155 character summary for search results. If empty, we use the post excerpt.">${esc((post as any)?.meta_description ?? "")}</textarea>
+        <p style="color:var(--muted);font-size:.85rem;margin:-.5rem 0 1.2rem"><span id="meta-count">${String((post as any)?.meta_description ?? "").length}</span>/155 characters — aim for 120–155.</p>
 
         ${authors.length ? `<label for="author-visibility">Attribution</label>
         <select id="author-visibility" name="author_visibility"><option value="author"${authorVisible ? " selected" : ""}>Show an author</option><option value="none"${authorVisible ? "" : " selected"}>Show only the blog identity</option></select>

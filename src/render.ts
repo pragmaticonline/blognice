@@ -99,6 +99,7 @@ export type Post = {
   published: number;
   created_at: number;
   updated_at: number;
+  meta_description?: string | null;
 };
 
 export type Page = {
@@ -427,6 +428,12 @@ const STYLES = /* css */ `
   .homepage-wrap a { color:inherit; }
   .blog-section { padding:3.5rem 0; }
   .tag-page { padding-top: 3rem; }
+  .breadcrumbs { font-family:var(--sans); font-size:.84rem; color:var(--muted); margin:.9rem 0 0; display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; }
+  .breadcrumbs a { color:var(--muted); text-decoration:none; }
+  .breadcrumbs a:hover { color:var(--accent); text-decoration:underline; }
+  .related-posts { margin:3rem 0 1rem; padding-top:2rem; border-top:1px solid var(--rule); }
+  .related-posts h2 { font-family:var(--sans); font-size:1.25rem; font-weight:700; margin:0 0 1rem; }
+
   .tag-page-title { margin: 0 0 2rem; font-family: var(--sans); font-size: clamp(2rem, 4vw, 3rem); line-height: 1.1; letter-spacing: -.03em; }
   .blog-kicker { display:block; font-family:var(--sans); font-size:.76rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--accent); margin-bottom:1.2rem; }
   .blog-featured-head { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1.2rem; }
@@ -780,18 +787,34 @@ function shell(opts: {
   publishedAt?: number;
   modifiedAt?: number;
   analyticsConsentRequired?: boolean;
+  jsonLd?: unknown;
+  tags?: string[];
+  noindex?: boolean;
+  prevUrl?: string;
+  nextUrl?: string;
 }): string {
-  const { tenant, pageTitle, description, canonical, body, showMasthead = true, wide = false, showRss = false, ownerEdit, homeControl = false, image, imageAlt, ogType = "website", publishedAt, modifiedAt, analyticsConsentRequired = false } = opts;
+  const { tenant, pageTitle, description, canonical, body, showMasthead = true, wide = false, showRss = false, ownerEdit, homeControl = false, image, imageAlt, ogType = "website", publishedAt, modifiedAt, analyticsConsentRequired = false, jsonLd, tags, noindex, prevUrl, nextUrl } = opts;
   const ownerEditControl = ownerEdit ? `<a class="owner-edit" data-${ownerEdit.dataAttr} hidden href="${esc(ownerEdit.href)}" aria-label="${esc(ownerEdit.label)}" title="${esc(ownerEdit.label)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${ownerEdit.dataAttr === "blog-edit" ? "M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" : "m14.7 6.3 3 3M4 20l4.2-1 9.9-9.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Z"}"/><path d="${ownerEdit.dataAttr === "blog-edit" ? "m19.4 15 .1.1a1.8 1.8 0 0 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-3.1 1.3v.2a1.8 1.8 0 0 1-3.6 0v-.2a1.8 1.8 0 0 0-3.1-1.3l-.1.1a1.8 1.8 0 1 1-2.5-2.5l.1-.1A1.8 1.8 0 0 0 5.3 12a1.8 1.8 0 0 0-1.3-3.1h-.2a1.8 1.8 0 0 1 0-3.6H4a1.8 1.8 0 0 0 1.3-3.1l-.1-.1a1.8 1.8 0 1 1 2.5-2.5l.1.1A1.8 1.8 0 0 0 10.9 1.3v-.2a1.8 1.8 0 0 1 3.6 0v.2a1.8 1.8 0 0 0 3.1 1.3l-.1-.1a1.8 1.8 0 1 1 2.5 2.5l-.1.1A1.8 1.8 0 0 0 19.4 8h.2a1.8 1.8 0 0 1 0 3.6h-.2a1.8 1.8 0 0 0 0 3.4Z" : "m13.5 7.5 3 3"}"/></svg><span class="sr-only">${esc(ownerEdit.label)}</span></a>` : "";
   const canonicalTag = canonical ? `<link rel="canonical" href="${esc(canonical)}">` : "";
-  const imageTags = image ? `
+  const imageTags = image
+    ? `
 <meta property="og:image" content="${esc(image)}">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="${esc(imageAlt || pageTitle)}">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="${esc(image)}">` : `<meta name="twitter:card" content="summary">`;
-  const articleTags = ogType === "article" ? `
+<meta name="twitter:image" content="${esc(image)}">`
+    : `<meta name="twitter:card" content="summary">`;
+  const tagMeta = tags?.length ? tags.slice(0, 7).map((t) => `<meta property="article:tag" content="${esc(t)}">`).join("") : "";
+  const articleTags = ogType === "article"
+    ? `
 <meta property="article:published_time" content="${new Date((publishedAt || 0) * 1000).toISOString()}">
-${modifiedAt ? `<meta property="article:modified_time" content="${new Date(modifiedAt * 1000).toISOString()}">` : ""}` : "";
+${modifiedAt ? `<meta property="article:modified_time" content="${new Date(modifiedAt * 1000).toISOString()}">` : ""}${tagMeta}`
+    : "";
+  const robotsMeta = noindex ? `<meta name="robots" content="noindex,follow">` : "";
+  const prevLink = prevUrl ? `<link rel="prev" href="${esc(prevUrl)}">` : "";
+  const nextLink = nextUrl ? `<link rel="next" href="${esc(nextUrl)}">` : "";
+  const jsonLdTag = jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, "\\u003c")}</script>` : "";
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -800,7 +823,11 @@ ${modifiedAt ? `<meta property="article:modified_time" content="${new Date(modif
 <title>${esc(pageTitle)}</title>
 <meta name="description" content="${esc(description)}">
 ${canonicalTag}
+${robotsMeta}
+${prevLink}
+${nextLink}
 <meta name="theme-color" content="${normalizeAccentColor(tenant.accent_color)}">
+<meta property="og:locale" content="en_US">
 <meta property="og:site_name" content="${esc(tenant.title)}">
 <meta property="og:title" content="${esc(pageTitle)}">
 <meta property="og:description" content="${esc(description)}">
@@ -808,6 +835,7 @@ ${canonicalTag}
 ${canonical ? `<meta property="og:url" content="${esc(canonical)}">` : ""}${imageTags}${articleTags}
 <meta name="twitter:title" content="${esc(pageTitle)}">
 <meta name="twitter:description" content="${esc(description)}">
+${jsonLdTag}
 <link rel="alternate" type="application/xml" title="Sitemap" href="/sitemap.xml">
 <link rel="alternate" type="application/rss+xml" title="${esc(tenant.title)} RSS feed" href="/rss.xml">
 <link rel="icon" href="/favicon.svg">
@@ -848,11 +876,11 @@ export function renderHome(
   const topics = tenantTopics(tenant);
   const art = (post: Post, index: number, rank?: number) =>
     post.featured_image_key
-      ? `<img src="/media/${esc(post.featured_image_key)}" alt="" loading="lazy">`
+      ? `<img src="/media/${esc(post.featured_image_key)}" alt="" loading="lazy" width="800" height="450" style="aspect-ratio:16/9;object-fit:cover">`
       : rank
         ? `<span class="rank">${rank}</span>`
         : "";
-  const header = (avatar: string) => `<div class="blog-owner-actions"><a class="owner-edit" data-blog-edit hidden href="${esc(origin)}/admin/b/${esc(tenant.public_id)}/settings" aria-label="Open blog settings" title="Open blog settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/><path d="m19.4 15 .1.1a1.8 1.8 0 0 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-3.1 1.3v.2a1.8 1.8 0 0 1-3.6 0v-.2a1.8 1.8 0 0 0-3.1-1.3l-.1.1a1.8 1.8 0 1 1-2.5-2.5l.1-.1A1.8 1.8 0 0 0 5.3 12a1.8 1.8 0 0 0-1.3-3.1h-.2a1.8 1.8 0 0 1 0-3.6H4a1.8 1.8 0 0 0 1.3-3.1l-.1-.1a1.8 1.8 0 1 1 2.5-2.5l.1.1A1.8 1.8 0 0 0 10.9 1.3v-.2a1.8 1.8 0 0 1 3.6 0v.2a1.8 1.8 0 0 0 3.1 1.3l.1-.1a1.8 1.8 0 1 1 2.5 2.5l-.1.1A1.8 1.8 0 0 0 19.4 8h.2a1.8 1.8 0 0 1 0 3.6h-.2a1.8 1.8 0 0 0 0 3.4Z"/></svg><span class="sr-only">Open blog settings</span></a></div><nav class="blog-nav"><a href="${esc(headerHref(tenant))}"${headerLinkIsExternal(tenant) ? ' target="_blank" rel="noopener noreferrer"' : ''} class="blog-header-id"><div>${avatar}</div><div class="blog-header-text"><div class="site-title">${esc(tenant.title)}</div>${tenant.description ? `<div class="blog-tagline">${esc(tenant.description)}</div>` : ""}</div></a></nav>`;
+  const header = (avatar: string) => `<div class="blog-owner-actions"><a class="owner-edit" data-blog-edit hidden href="${esc(origin)}/admin/b/${esc(tenant.public_id)}/settings" aria-label="Open blog settings" title="Open blog settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/><path d="m19.4 15 .1.1a1.8 1.8 0 0 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-3.1 1.3v.2a1.8 1.8 0 0 1-3.6 0v-.2a1.8 1.8 0 0 0-3.1-1.3l-.1.1a1.8 1.8 0 1 1-2.5-2.5l.1-.1A1.8 1.8 0 0 0 5.3 12a1.8 1.8 0 0 0-1.3-3.1h-.2a1.8 1.8 0 0 1 0-3.6H4a1.8 1.8 0 0 0 1.3-3.1l-.1-.1a1.8 1.8 0 1 1 2.5-2.5l.1.1A1.8 1.8 0 0 0 10.9 1.3v-.2a1.8 1.8 0 0 1 3.6 0v.2a1.8 1.8 0 0 0 3.1 1.3l.1-.1a1.8 1.8 0 1 1 2.5 2.5l-.1.1A1.8 1.8 0 0 0 19.4 8h.2a1.8 1.8 0 0 1 0 3.6h-.2a1.8 1.8 0 0 0 0 3.4Z"/></svg><span class="sr-only">Open blog settings</span></a></div><nav class="blog-nav"><a href="${esc(headerHref(tenant))}"${headerLinkIsExternal(tenant) ? ' target="_blank" rel="noopener noreferrer"' : ''} class="blog-header-id"><div>${avatar}</div><div class="blog-header-text"><h1 class="site-title">${esc(tenant.title)}</h1>${tenant.description ? `<div class="blog-tagline">${esc(tenant.description)}</div>` : ""}</div></a></nav>`;
   const ownerScript = `<script>(function(){var link=document.querySelector("[data-blog-edit]");if(!link)return;fetch("/_blognice/blog-edit-link?tenant=${encodeURIComponent(tenant.public_id)}",{credentials:"include",headers:{accept:"application/json"}}).then(function(r){if(!r.ok)throw new Error();return r.json()}).then(function(d){if(d.url){link.href=d.url;link.hidden=false}}).catch(function(){if(location.origin!==${JSON.stringify(origin)})fetch(${JSON.stringify(origin)}+"/_blognice/blog-edit-link?tenant=${encodeURIComponent(tenant.public_id)}",{credentials:"include"}).then(function(r){return r.ok?r.json():null}).then(function(d){if(d&&d.url){link.href=d.url;link.hidden=false}}).catch(function(){})});})();</script>`;
   const withNavigation = (markup: string) => navigationPages.length
     ? markup.replace('</nav>', `</nav><div class="blog-nav-links" aria-label="Page navigation"><a href="/" aria-current="page">Home</a>${navigationPages.map((item) => item.external ? `<a href="${esc(item.href)}" target="_blank" rel="noopener noreferrer">${esc(item.label)}</a>` : `<a href="${esc(item.href)}">${esc(item.label)}</a>`).join("")}</div>`)
@@ -864,14 +892,24 @@ export function renderHome(
       : `<div class="blog-avatar">${monogram(tenant.title)}</div>`;
     return shell({
       tenant, pageTitle: tenant.title, description: tenant.description || tenant.title, analyticsConsentRequired,
-      canonical: origin + "/", ownerEdit: { href: `${origin}/admin/b/${tenant.public_id}/settings`, dataAttr: "blog-edit", label: "Open blog settings" }, body: `${withNavigation(header(noPostsAvatar))}<section class="blog-section blog-featured-section"><p class="feed-meta">No posts yet.</p></section>${topics.length ? `<div class="blog-topics blog-topics-bottom" aria-label="Blog topics">${topics.map((topic) => `<span>#${esc(topic)}</span>`).join("")}</div>` : ""}<div id="subscribe" class="blog-subscribe-wrap">${subscribeBox(tenant)}</div>${ownerScript}`,
+      canonical: origin + "/", ownerEdit: { href: `${origin}/admin/b/${tenant.public_id}/settings`, dataAttr: "blog-edit", label: "Open blog settings" }, body: `${withNavigation(header(noPostsAvatar))}<section class="blog-section blog-featured-section"><p class="feed-meta">No posts yet.</p></section>${topics.length ? `<div class="blog-topics blog-topics-bottom" aria-label="Blog topics">${topics.map((topic) => `<span>#${esc(topic)}</span>`).join("")}</div>` : ""}<div id="subscribe" class="blog-subscribe-wrap">${subscribeBox(tenant)}</div>${ownerScript}`, jsonLd: { "@context": "https://schema.org", "@type": "Blog", name: tenant.title, url: origin + "/", description: tenant.description || undefined },
     });
   }
   if (pageNumber > 1) {
     const archiveCards = posts.map(card).join("");
     const pager = `<nav class="blog-pagination" aria-label="Post pages">${pageNumber > 2 ? `<a href="/?page=${pageNumber - 1}">Previous</a>` : `<a href="/">Previous</a>`}${hasMorePosts ? `<a href="/?page=${pageNumber + 1}">Next</a>` : ""}</nav>`;
     const archiveBody = `${withNavigation(header(tenant.avatar_key ? `<img class="blog-avatar" src="/media/${esc(tenant.avatar_key)}" alt="">` : `<div class="blog-avatar">${monogram(tenant.title)}</div>`))}<section class="blog-section blog-archive-section"><div class="blog-grid-head"><h1>More posts</h1><p class="feed-meta">Page ${pageNumber}</p></div><div class="blog-cards">${archiveCards}</div>${pager}</section><div id="subscribe" class="blog-subscribe-wrap">${subscribeBox(tenant)}</div>${ownerScript}`;
-    return shell({ tenant, pageTitle: `${tenant.title} — More posts`, description: tenant.description || tenant.title, canonical: `${origin}/?page=${pageNumber}`, analyticsConsentRequired, ownerEdit: { href: `${origin}/admin/b/${tenant.public_id}/settings`, dataAttr: "blog-edit", label: "Open blog settings" }, body: archiveBody, showMasthead: false, wide: true, showRss: true });
+    const archivePrev = pageNumber > 2 ? `${origin}/?page=${pageNumber - 1}` : `${origin}/`;
+    const archiveNext = hasMorePosts ? `${origin}/?page=${pageNumber + 1}` : undefined;
+    const archiveNoindex = !posts.length;
+    const archiveJsonLd = {
+      "@context": "https://schema.org",
+      "@type": "CollectionPage",
+      name: `${tenant.title} — More posts`,
+      url: `${origin}/?page=${pageNumber}`,
+      isPartOf: { "@type": "Blog", name: tenant.title, url: origin + "/" },
+    };
+    return shell({ tenant, pageTitle: `${tenant.title} — More posts`, description: tenant.description || tenant.title, canonical: `${origin}/?page=${pageNumber}`, analyticsConsentRequired, ownerEdit: { href: `${origin}/admin/b/${tenant.public_id}/settings`, dataAttr: "blog-edit", label: "Open blog settings" }, body: archiveBody, showMasthead: false, wide: true, showRss: true, noindex: archiveNoindex, prevUrl: archivePrev, nextUrl: archiveNext, jsonLd: archiveJsonLd });
   }
   const featured = posts[0];
   const more = posts.slice(1, 7);
@@ -883,12 +921,31 @@ export function renderHome(
     : `<div class="blog-avatar">${monogram(tenant.title)}</div>`;
   const popularCard = (p: Post, index: number) => `<article class="blog-popular-card"><a class="blog-art" href="/${esc(p.slug)}">${art(p, index)}</a><h3><a href="/${esc(p.slug)}">${esc(p.title)}</a></h3><div class="blog-meta">${readingTime(p.body_md)} min read</div></article>`;
   const body = `${withNavigation(header(avatar))}
-    <section class="blog-section blog-featured-section"><div class="blog-featured-head"><div class="blog-kicker">Featured post</div><a class="blog-featured-subscribe" href="#subscribe">Subscribe</a></div><article class="blog-featured"><a class="blog-art" href="/${esc(featured.slug)}">${art(featured, 0)}</a><div><h2><a href="/${esc(featured.slug)}">${esc(featured.title)}</a></h2><p class="blog-excerpt">${esc(excerpt(featured.body_md))}</p><div class="blog-meta">${formatDate(featured.created_at)} · ${readingTime(featured.body_md)} min read</div></div></article></section>
+    <section class="blog-section blog-featured-section"><div class="blog-featured-head"><div class="blog-kicker">Featured post</div><a class="blog-featured-subscribe" href="#subscribe">Subscribe</a></div><article class="blog-featured"><a class="blog-art" href="/${esc(featured.slug)}">${art(featured, 0)}</a><div><h2><a href="/${esc(featured.slug)}">${esc(featured.title)}</a></h2><p class="blog-excerpt">${esc(excerpt(featured.body_md, 155))}</p><div class="blog-meta">${formatDate(featured.created_at)} · ${readingTime(featured.body_md)} min read</div></div></article></section>
     ${more.length ? `<section class="blog-section blog-more-section" style="padding-top:0"><div class="blog-grid-head"><h2>More posts</h2>${hasMorePosts ? `<a class="blog-see-all" href="/?page=2">See all <span aria-hidden="true">→</span></a>` : ""}</div><div class="blog-cards">${more.map(card).join("")}</div></section>` : ""}
     ${popular.length ? `<section class="blog-popular-section blog-section"><div class="blog-grid-head"><h2>Popular posts</h2></div><div class="blog-popular-cards">${popular.map(popularCard).join("")}</div></section>` : ""}
     ${topics.length ? `<div class="blog-topics blog-topics-bottom" aria-label="Blog topics">${topics.map((topic) => `<span>#${esc(topic)}</span>`).join("")}</div>` : ""}
     <div id="subscribe" class="blog-subscribe-wrap">${subscribeBox(tenant)}</div>`;
 
+  const homeImage = featured.featured_image_key ? `${origin}/media/${featured.featured_image_key}` : (tenant.avatar_key ? `${origin}/media/${tenant.avatar_key}` : undefined);
+  const homeNext = hasMorePosts ? `${origin}/?page=2` : undefined;
+  const homeJsonLd: any[] = [
+    {
+      "@context": "https://schema.org",
+      "@type": "Blog",
+      name: tenant.title,
+      description: tenant.description || tenant.title,
+      url: origin + "/",
+      publisher: { "@type": "Organization", name: tenant.title, logo: homeImage ? { "@type": "ImageObject", url: homeImage } : undefined },
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      name: tenant.title,
+      url: origin + "/",
+      description: tenant.description || undefined,
+    },
+  ];
   return shell({
     tenant,
     pageTitle: tenant.title,
@@ -899,8 +956,10 @@ export function renderHome(
     showMasthead: false,
     wide: true,
     showRss: true,
-    image: featured.featured_image_key ? `${origin}/media/${featured.featured_image_key}` : (tenant.avatar_key ? `${origin}/media/${tenant.avatar_key}` : undefined),
+    image: homeImage,
     imageAlt: featured.featured_image_key ? featured.title : tenant.title,
+    nextUrl: homeNext,
+    jsonLd: homeJsonLd,
   });
 }
 
@@ -915,8 +974,26 @@ export function renderTagPage(
     ? `<img class="blog-avatar" src="/media/${esc(tenant.avatar_key)}" alt="">`
     : `<div class="blog-avatar">${monogram(tenant.title)}</div>`;
   const header = `<nav class="blog-nav"><a href="${esc(headerHref(tenant))}"${headerLinkIsExternal(tenant) ? ' target="_blank" rel="noopener noreferrer"' : ''} class="blog-header-id"><div>${avatar}</div><div class="blog-header-text"><div class="site-title">${esc(tenant.title)}</div>${tenant.description ? `<div class="blog-tagline">${esc(tenant.description)}</div>` : ""}</div></a></nav>`;
-  const cards = posts.map((post) => `<article class="blog-card"><a class="blog-art" href="/${esc(post.slug)}">${post.featured_image_key ? `<img src="/media/${esc(post.featured_image_key)}" alt="" loading="lazy">` : ""}</a><h3><a href="/${esc(post.slug)}">${esc(post.title)}</a></h3><p class="blog-excerpt">${esc(excerpt(post.body_md, 125))}</p><div class="blog-meta">${formatDate(post.created_at)} · ${readingTime(post.body_md)} min read</div></article>`).join("");
+  const cards = posts.map((post) => `<article class="blog-card"><a class="blog-art" href="/${esc(post.slug)}">${post.featured_image_key ? `<img src="/media/${esc(post.featured_image_key)}" alt="" loading="lazy" width="800" height="450" style="aspect-ratio:16/9;object-fit:cover">` : ""}</a><h3><a href="/${esc(post.slug)}">${esc(post.title)}</a></h3><p class="blog-excerpt">${esc(excerpt(post.body_md, 125))}</p><div class="blog-meta">${formatDate(post.created_at)} · ${readingTime(post.body_md)} min read</div></article>`).join("");
   const body = `${header}<section class="blog-section tag-page"><div class="blog-kicker">Posts tagged</div><h1 class="tag-page-title">#${esc(tag)}</h1>${posts.length ? `<div class="blog-cards">${cards}</div>` : `<p class="feed-meta">No published posts use this tag yet.</p>`}</section><div id="subscribe" class="blog-subscribe-wrap">${subscribeBox(tenant)}</div>`;
+  const tagJsonLd = [
+    {
+      "@context": "https://schema.org",
+      "@type": "CollectionPage",
+      name: `#${tag} — ${tenant.title}`,
+      description: `Posts tagged ${tag} on ${tenant.title}`,
+      url: `${origin}/tag/${encodeURIComponent(tag)}`,
+      isPartOf: { "@type": "Blog", name: tenant.title, url: origin + "/" },
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, name: "Home", item: origin + "/" },
+        { "@type": "ListItem", position: 2, name: `#${tag}`, item: `${origin}/tag/${encodeURIComponent(tag)}` },
+      ],
+    },
+  ];
   return shell({
     tenant,
     pageTitle: `#${tag} — ${tenant.title}`,
@@ -928,6 +1005,7 @@ export function renderTagPage(
     ownerEdit: { href: `${origin}/admin/b/${tenant.public_id}/settings`, dataAttr: "blog-edit", label: "Open blog settings" },
     analyticsConsentRequired,
     body,
+    jsonLd: tagJsonLd,
   });
 }
 
@@ -940,7 +1018,8 @@ export function renderPage(
   isOwner = false,
   navigationPages: NavigationItem[] = []
 ): string {
-  const description = page.meta_description?.trim() || excerpt(page.body_md, 180) || page.title;
+  const rawDesc = page.meta_description?.trim() || excerpt(page.body_md, 155) || page.title;
+  const description = rawDesc.slice(0, 155);
   const canonical = `${origin}/pages/${encodeURIComponent(page.slug)}`;
   const edit = isOwner
     ? { href: `${origin}/admin/b/${tenant.public_id}/pages/edit/${page.id}`, dataAttr: "page-edit", label: "Edit page" }
@@ -951,6 +1030,27 @@ export function renderPage(
   const owner = isOwner ? `<div class="blog-owner-actions"><a class="owner-edit" data-page-edit hidden href="${esc(origin)}/admin/b/${esc(tenant.public_id)}/pages/edit/${page.id}" aria-label="Edit page" title="Edit page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.7 6.3 3 3M4 20l4.2-1 9.9-9.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Z"/></svg><span class="sr-only">Edit page</span></a></div>` : "";
   const pageLinks = `<div class="blog-nav-links" aria-label="Page navigation"><a href="/">Home</a>${navigationPages.map((item) => item.href === `/pages/${page.slug}` ? `<a href="${esc(item.href)}" aria-current="page">${esc(item.label)}</a>` : item.external ? `<a href="${esc(item.href)}" target="_blank" rel="noopener noreferrer">${esc(item.label)}</a>` : `<a href="${esc(item.href)}">${esc(item.label)}</a>`).join("")}</div>`;
   const header = `${owner}<nav class="blog-nav"><a href="${esc(headerHref(tenant))}"${headerLinkIsExternal(tenant) ? ' target="_blank" rel="noopener noreferrer"' : ''} class="blog-header-id"><div>${avatar}</div><div class="blog-header-text"><div class="site-title">${esc(tenant.title)}</div>${tenant.description ? `<div class="blog-tagline">${esc(tenant.description)}</div>` : ""}</div></a></nav>${pageLinks}`;
+  const pageImage = tenant.avatar_key ? `${origin}/media/${tenant.avatar_key}` : undefined;
+  const pageJsonLd: any[] = [
+    {
+      "@context": "https://schema.org",
+      "@type": "WebPage",
+      name: page.title,
+      description,
+      url: canonical,
+      isPartOf: { "@type": "Blog", name: tenant.title, url: origin + "/" },
+      image: pageImage ? { "@type": "ImageObject", url: pageImage } : undefined,
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, name: "Home", item: origin + "/" },
+        { "@type": "ListItem", position: 2, name: page.title, item: canonical },
+      ],
+    },
+  ];
+  const breadcrumbs = `<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> <span aria-hidden="true">›</span> <span aria-current="page">${esc(page.title)}</span></nav>`;
   return shell({
     tenant,
     pageTitle: `${page.title} — ${tenant.title}`,
@@ -961,7 +1061,10 @@ export function renderPage(
     wide: true,
     showMasthead: false,
     showRss: true,
-    body: `${header}<main class="page-content"><div class="page-content-inner"><h1>${esc(page.title)}</h1><div class="page-prose">${htmlBody}</div></div></main>`,
+    image: tenant.avatar_key ? `${origin}/media/${tenant.avatar_key}` : undefined,
+    imageAlt: tenant.title,
+    jsonLd: pageJsonLd,
+    body: `${header}${breadcrumbs}<main class="page-content"><div class="page-content-inner"><h1>${esc(page.title)}</h1><div class="page-prose">${htmlBody}</div></div></main>`,
   });
 }
 
@@ -971,7 +1074,8 @@ export function renderPost(
   htmlBody: string,
   origin: string,
   adminOrigin: string,
-  analyticsConsentRequired = false
+  analyticsConsentRequired = false,
+  relatedPosts: Post[] = []
 ): string {
   const shareUrl = `${origin}/${post.slug}`;
   const shareTitle = post.title;
@@ -985,12 +1089,22 @@ export function renderPost(
   </div>`;
   const shareScript = `<script>(function(){var buttons=document.querySelectorAll("[data-share-copy]");buttons.forEach(function(button){button.addEventListener("click",function(){var value=button.getAttribute("data-share-copy")||location.href;var done=function(){button.classList.add("is-copied");button.textContent="✓";setTimeout(function(){button.classList.remove("is-copied");button.textContent="↗"},1400)};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(value).then(done).catch(function(){})}else{var input=document.createElement("input");input.value=value;document.body.appendChild(input);input.select();try{document.execCommand("copy");done()}catch(e){}input.remove()}})});var more=document.querySelector("[data-share-more]");var panel=document.querySelector("[data-share-panel]");if(more&&panel){more.addEventListener("click",function(){var expanded=more.getAttribute("aria-expanded")==="true";more.setAttribute("aria-expanded",expanded?"false":"true");if(expanded){panel.hidden=true}else{panel.hidden=false;}try{more.blur();}catch(e){}});document.addEventListener("click",function(e){if(!more.contains(e.target)&&!panel.contains(e.target)){panel.hidden=true;more.setAttribute("aria-expanded","false");}});document.addEventListener("keydown",function(e){if(e.key==="Escape"){panel.hidden=true;more.setAttribute("aria-expanded","false");}});}})();</script>`;
   const featuredBlock = post.featured_image_key
-    ? `<div class="post-featured-row"><aside>${shareRail}</aside><div><img class="featured-image" src="/media/${esc(post.featured_image_key)}" alt=""></div></div>`
+    ? `<div class="post-featured-row"><aside>${shareRail}</aside><div><img class="featured-image" src="/media/${esc(post.featured_image_key)}" alt="" width="1200" height="675" style="aspect-ratio:16/9;object-fit:cover"></div></div>`
     : `<div class="share-inline">${shareRail}</div>`;
+  const rawDescription = (post.meta_description?.trim() || excerpt(post.body_md, 155) || tenant.description || post.title).slice(0, 155);
+  const description = rawDescription;
+  const canonical = `${origin}/${post.slug}`;
+  const postImage = post.featured_image_key ? `${origin}/media/${post.featured_image_key}` : (tenant.avatar_key ? `${origin}/media/${tenant.avatar_key}` : undefined);
+  const authorNameClean = post.author_name && !post.author_name.includes("@") ? post.author_name : tenant.title;
+  const breadcrumbs = `<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> <span aria-hidden="true">›</span> <span aria-current="page">${esc(post.title)}</span></nav>`;
+  const relatedBlock = relatedPosts.length
+    ? `<section class="related-posts" aria-label="Related posts"><h2>Related posts</h2><div class="blog-cards">${relatedPosts.map((rp) => `<article class="blog-card"><a class="blog-art" href="/${esc(rp.slug)}">${rp.featured_image_key ? `<img src="/media/${esc(rp.featured_image_key)}" alt="" loading="lazy" width="800" height="450" style="aspect-ratio:16/9;object-fit:cover">` : ""}</a><h3><a href="/${esc(rp.slug)}">${esc(rp.title)}</a></h3><p class="blog-excerpt">${esc(excerpt(rp.body_md, 100))}</p></article>`).join("")}</div></section>`
+    : "";
   const proseClass = openingParagraphHasDropCap(htmlBody) ? "prose lead-dropcap" : "prose";
   const header = `<hr style="border:none;border-top:1px solid var(--rule);margin:.85rem 0 0">`;
   const article = `<article class="post-page">
     <div class="post-owner-actions"><a class="owner-edit" data-owner-edit hidden href="${esc(adminOrigin)}/admin/b/${esc(tenant.public_id)}/edit/${post.id}" aria-label="Edit post" title="Edit post"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.7 6.3 3 3M4 20l4.2-1 9.9-9.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Z"/><path d="m13.5 7.5 3 3"/></svg><span class="sr-only">Edit post</span></a></div>
+    ${breadcrumbs}
     <h1>${esc(post.title)}</h1>
     <div class="byline">
       <a class="byline-identity" href="/">
@@ -1010,22 +1124,52 @@ export function renderPost(
     ${tags.length ? `<div class="post-tags" aria-label="Post tags">${tags.map((tag) => `<a href="/tag/${encodeURIComponent(tag)}">#${esc(tag)}</a>`).join("")}</div>` : ""}
     <div class="${proseClass}">${htmlBody}</div>
     ${subscribeBox(tenant)}
+    ${relatedBlock}
     <a class="backlink" href="/">&larr; All posts</a>
   </article>`;
 
+  const breadcrumbJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Home", item: origin + "/" },
+      { "@type": "ListItem", position: 2, name: post.title, item: canonical },
+    ],
+  };
+  const blogPostingJsonLd: any = {
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    headline: post.title,
+    description,
+    url: canonical,
+    mainEntityOfPage: canonical,
+    datePublished: new Date(post.created_at * 1000).toISOString(),
+    dateModified: new Date((post.updated_at || post.created_at) * 1000).toISOString(),
+    author: { "@type": "Person", name: authorNameClean, url: origin + "/" },
+    publisher: {
+      "@type": "Organization",
+      name: tenant.title,
+      logo: tenant.avatar_key ? { "@type": "ImageObject", url: `${origin}/media/${tenant.avatar_key}` } : undefined,
+    },
+    image: postImage ? { "@type": "ImageObject", url: postImage } : undefined,
+    keywords: tags.length ? tags.join(", ") : undefined,
+    articleSection: tags[0] || undefined,
+  };
   return shell({
     tenant,
     pageTitle: `${post.title} — ${tenant.title}`,
-    description: excerpt(post.body_md, 155) || tenant.description,
-    canonical: `${origin}/${post.slug}`,
+    description,
+    canonical,
     ownerEdit: { href: `${adminOrigin}/admin/b/${tenant.public_id}/edit/${post.id}`, dataAttr: "owner-edit", label: "Edit post" },
     homeControl: true,
     ogType: "article",
     analyticsConsentRequired,
-    image: post.featured_image_key ? `${origin}/media/${post.featured_image_key}` : (tenant.avatar_key ? `${origin}/media/${tenant.avatar_key}` : undefined),
+    image: postImage,
     imageAlt: post.featured_image_key ? post.title : tenant.title,
     publishedAt: post.created_at,
     modifiedAt: post.updated_at,
+    tags,
+    jsonLd: [blogPostingJsonLd, breadcrumbJsonLd],
     body: header + article + shareScript + `<script>(function(){var link=document.querySelector("[data-owner-edit]");if(!link)return;var path="/_blognice/edit-link?tenant=${encodeURIComponent(tenant.public_id)}&post=${post.id}";function check(url){return fetch(url,{credentials:"include",headers:{accept:"application/json"}}).then(function(response){if(!response.ok)throw new Error();return response.json()}).then(function(data){if(data.url){link.href=data.url;link.hidden=false;return true}})}check(path).catch(function(){if(location.origin!==${JSON.stringify(adminOrigin)})check(${JSON.stringify(adminOrigin)}+path).catch(function(){})})})();</script>` + (post.audio_key ? `<script>(function(){var audio=document.querySelector("audio[data-narration]");if(!audio)return;audio.preservesPitch=true;audio.defaultPlaybackRate=.88;audio.playbackRate=.88;var started=false,completed=false;audio.addEventListener("play",function(){if(started)return;started=true;if(window.__blogniceEvent)window.__blogniceEvent("audio_start",location.pathname)});audio.addEventListener("ended",function(){if(completed)return;completed=true;if(window.__blogniceEvent)window.__blogniceEvent("audio_complete",location.pathname)});var btn=document.querySelector("[data-narration-mobile]");if(btn){var label=btn.querySelector(".post-audio-mobile-label");var iconPlay=btn.querySelector(".icon-play");var iconPause=btn.querySelector(".icon-pause");function sync(){var paused=audio.paused||audio.ended;if(label)label.textContent=paused?"Play":"Pause";if(iconPlay)iconPlay.hidden=!paused;if(iconPause)iconPause.hidden=paused;btn.setAttribute("aria-label",paused?"Play narration":"Pause narration");}btn.addEventListener("click",function(){if(audio.paused){audio.play().catch(function(){});}else{audio.pause();}});audio.addEventListener("play",sync);audio.addEventListener("pause",sync);audio.addEventListener("ended",sync);sync();}})();</script>` : ""),
     showMasthead: false,
   });
