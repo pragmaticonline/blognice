@@ -1748,16 +1748,109 @@ export function editorPage(
           }
         });
 
-        // Paste an image from the clipboard.
+        function htmlToMarkdown(html) {
+          var container = document.createElement("div");
+          container.innerHTML = html;
+          function convert(node) {
+            if (node.nodeType === 3) return node.nodeValue || "";
+            if (node.nodeType !== 1) return "";
+            var tag = (node.tagName || "").toLowerCase();
+            var inner = "";
+            for (var c = node.firstChild; c; c = c.nextSibling) inner += convert(c);
+            if (tag === "h1") return "# " + inner.trim() + "\\n\\n";
+            if (tag === "h2") return "## " + inner.trim() + "\\n\\n";
+            if (tag === "h3") return "### " + inner.trim() + "\\n\\n";
+            if (tag === "h4") return "#### " + inner.trim() + "\\n\\n";
+            if (tag === "h5") return "##### " + inner.trim() + "\\n\\n";
+            if (tag === "h6") return "###### " + inner.trim() + "\\n\\n";
+            if (tag === "p") { var t = inner.trim(); return t ? t + "\\n\\n" : "\\n"; }
+            if (tag === "br") return "\\n";
+            if (tag === "hr") return "\\n---\\n\\n";
+            if (tag === "blockquote") { var b = inner.trim(); return b ? b.split("\\n").map(function(l){return "> " + l;}).join("\\n") + "\\n\\n" : ""; }
+            if (tag === "strong" || tag === "b") { var s = inner.trim(); return s ? "**" + s + "**" : inner; }
+            if (tag === "em" || tag === "i") { var em = inner.trim(); return em ? "*" + em + "*" : inner; }
+            if (tag === "code") {
+              if (node.parentElement && node.parentElement.tagName.toLowerCase() === "pre") return inner;
+              var code = (node.textContent || "").trim();
+              return code ? "\`" + code + "\`" : "";
+            }
+            if (tag === "pre") { var pre = (node.textContent || "").trim(); return pre ? "\`\`\`\\n" + pre + "\\n\`\`\`\\n\\n" : ""; }
+            if (tag === "a") { var href = node.getAttribute("href") || ""; var aText = inner.trim() || href; if (!href || href === aText) return aText; return "[" + aText + "](" + href + ")"; }
+            if (tag === "img") { var alt = node.getAttribute("alt") || ""; var src = node.getAttribute("src") || ""; return src ? "![" + alt + "](" + src + ")" : ""; }
+            if (tag === "ul") {
+              var lis = [];
+              for (var li = node.firstChild; li; li = li.nextSibling) {
+                if (li.nodeType === 1 && li.tagName.toLowerCase() === "li") {
+                  var liInner = "";
+                  for (var cc = li.firstChild; cc; cc = cc.nextSibling) liInner += convert(cc);
+                  lis.push("- " + liInner.trim());
+                }
+              }
+              return lis.length ? lis.join("\\n") + "\\n\\n" : "";
+            }
+            if (tag === "ol") {
+              var olis = [];
+              var idx = 1;
+              for (var oli = node.firstChild; oli; oli = oli.nextSibling) {
+                if (oli.nodeType === 1 && oli.tagName.toLowerCase() === "li") {
+                  var oliInner = "";
+                  for (var occ = oli.firstChild; occ; occ = occ.nextSibling) oliInner += convert(occ);
+                  olis.push(idx + ". " + oliInner.trim());
+                  idx++;
+                }
+              }
+              return olis.length ? olis.join("\\n") + "\\n\\n" : "";
+            }
+            if (tag === "li") return "- " + inner.trim() + "\\n";
+            if (tag === "table" || tag === "thead" || tag === "tbody" || tag === "tr") return inner + "\\n";
+            if (tag === "th" || tag === "td") return inner + " | ";
+            if (tag === "div" || tag === "section" || tag === "article") { var d = inner.trim(); return d ? d + "\\n\\n" : ""; }
+            if (tag === "span") return inner;
+            return inner;
+          }
+          var md = "";
+          for (var n = container.firstChild; n; n = n.nextSibling) md += convert(n);
+          md = md.replace(/\\n{3,}/g, "\\n\\n").trim();
+          if (md) md += "\\n";
+          return md;
+        }
         body.addEventListener("paste", function (e) {
-          var items = e.clipboardData && e.clipboardData.items;
-          if (!items) return;
-          for (var i = 0; i < items.length; i++) {
-            if (items[i].type.indexOf("image/") === 0) {
-              var f = items[i].getAsFile();
-              if (f) { e.preventDefault(); uploadImage(f, "body"); }
+          var cd = e.clipboardData;
+          if (!cd) return;
+          var items = cd.items;
+          if (items) {
+            for (var i = 0; i < items.length; i++) {
+              if (items[i].type.indexOf("image/") === 0) {
+                var f = items[i].getAsFile();
+                if (f) { e.preventDefault(); uploadImage(f, "body"); return; }
+              }
             }
           }
+          var html = "";
+          var plain = "";
+          try { html = cd.getData("text/html") || ""; } catch (_) {}
+          try { plain = cd.getData("text/plain") || ""; } catch (_) {}
+          if (!html || !html.trim()) return;
+          if (!/<(h[1-6]|strong|b\\b|em|i\\b|ul|ol|li|a\\b|blockquote|pre|code|p\\b|h1|h2|h3)/i.test(html)) return;
+          var md = htmlToMarkdown(html);
+          if (!md || !md.trim()) return;
+          if (md.trim() === plain.trim()) return;
+          e.preventDefault();
+          var start = body.selectionStart;
+          var end = body.selectionEnd;
+          var before = body.value.slice(0, start);
+          var after = body.value.slice(end);
+          var needsNewlineBefore = before && !before.endsWith("\\n") && !md.startsWith("\\n");
+          var insert = (needsNewlineBefore ? "\\n" : "") + md;
+          if (typeof body.setRangeText === "function") {
+            body.setRangeText(insert, start, end, "end");
+          } else {
+            body.value = before + insert + after;
+            var pos = start + insert.length;
+            body.selectionStart = body.selectionEnd = pos;
+          }
+          body.focus();
+          body.dispatchEvent(new Event("input", { bubbles: true }));
         });
       })();
     </script>`,
