@@ -846,7 +846,7 @@ function clientCategory(request: Request): { device: string; browser: string } {
 function normalizeTopics(input: string): { topics: string[]; error?: string } {
   const topics = input.split(/[\n,]+/).map((topic) => topic.trim().replace(/^#+/, "").toLowerCase()).filter(Boolean);
   const unique = [...new Set(topics)];
-  if (unique.length > 50) return { topics: [], error: "Use 50 topics or fewer." };
+  if (unique.length > 10) return { topics: [], error: "Use 10 topics or fewer." };
   if (unique.some((topic) => topic.length > 40 || !/^[\p{L}\p{N}][\p{L}\p{N} _-]*$/u.test(topic)))
     return { topics: [], error: "Topics must be 40 characters or fewer and contain only letters, numbers, spaces, hyphens, or underscores." };
   return { topics: unique };
