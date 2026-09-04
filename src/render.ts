@@ -428,7 +428,7 @@ const STYLES = /* css */ `
   .homepage-wrap a { color:inherit; }
   .blog-section { padding:3.5rem 0; }
   .tag-page { padding-top: 3rem; }
-  .breadcrumbs { font-family:var(--sans); font-size:.84rem; color:var(--muted); margin:.9rem 0 0; display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; }
+  .breadcrumbs { font-family:var(--sans); font-size:.84rem; color:var(--muted); margin:.5rem 0 0; display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; }
   .breadcrumbs a { color:var(--muted); text-decoration:none; }
   .breadcrumbs a:hover { color:var(--accent); text-decoration:underline; }
   .related-posts { margin:3rem 0 1rem; padding-top:2rem; border-top:1px solid var(--rule); }
@@ -1101,7 +1101,7 @@ export function renderPost(
     ? `<section class="related-posts" aria-label="Related posts"><h2>Related posts</h2><div class="blog-cards">${relatedPosts.map((rp) => `<article class="blog-card"><a class="blog-art" href="/${esc(rp.slug)}">${rp.featured_image_key ? `<img src="/media/${esc(rp.featured_image_key)}" alt="" loading="lazy" width="800" height="450" style="aspect-ratio:16/9;object-fit:cover">` : ""}</a><h3><a href="/${esc(rp.slug)}">${esc(rp.title)}</a></h3><p class="blog-excerpt">${esc(excerpt(rp.body_md, 100))}</p></article>`).join("")}</div></section>`
     : "";
   const proseClass = openingParagraphHasDropCap(htmlBody) ? "prose lead-dropcap" : "prose";
-  const header = `<hr style="border:none;border-top:1px solid var(--rule);margin:.85rem 0 0">`;
+  const header = `<hr style="border:none;border-top:1px solid var(--rule);margin:.45rem 0 0">`;
   const article = `<article class="post-page">
     <div class="post-owner-actions"><a class="owner-edit" data-owner-edit hidden href="${esc(adminOrigin)}/admin/b/${esc(tenant.public_id)}/edit/${post.id}" aria-label="Edit post" title="Edit post"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.7 6.3 3 3M4 20l4.2-1 9.9-9.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Z"/><path d="m13.5 7.5 3 3"/></svg><span class="sr-only">Edit post</span></a></div>
     ${breadcrumbs}
