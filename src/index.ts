@@ -2037,7 +2037,6 @@ app.delete("/api/v1/blogs/:blogId/pages/:id", async (c) => {
     const filtered = navLinks.filter((l) => l.href !== href);
     if (filtered.length !== navLinks.length) {
       await c.env.DB.prepare("UPDATE tenants SET navigation_links_json = ? WHERE id = ?").bind(JSON.stringify(filtered), tenant.id).run();
-      tenant = { ...tenant, navigation_links_json: JSON.stringify(filtered) } as any;
     }
   } catch {}
   c.executionCtx.waitUntil(purgeTenant(c.env, tenant, ["/", "/" + page.slug, `/pages/${page.slug}`, "/sitemap.xml"]).catch(()=>{}));
