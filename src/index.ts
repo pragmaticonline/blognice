@@ -56,6 +56,7 @@ import {
   sha256hex,
   accountFromApiKey,
   accountHasPaidPlan,
+  maxBlogsForAccount,
   isSuspended,
   isEmailVerified,
   type Account,
@@ -1866,8 +1867,8 @@ app.post("/api/v1/blogs", async (c) => {
   if (!account) return c.json({ error: "unauthorized" }, 401);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const ownedCount = await c.env.DB.prepare("SELECT COUNT(*) AS count FROM memberships WHERE account_id = ? AND role = 'owner'").bind(account.id).first<{ count: number }>();
-  const maxBlogs = accountHasPaidPlan(account) ? 5 : 1;
-  if ((ownedCount?.count ?? 0) >= maxBlogs) return c.json({ error: maxBlogs > 1 ? "Your account can own up to five blogs. Collaborations do not count toward this limit." : "Free accounts can own one blog. Upgrade to add more blogs." }, 409);
+  const maxBlogs = maxBlogsForAccount(account as any);
+  if ((ownedCount?.count ?? 0) >= maxBlogs) return c.json({ error: maxBlogs > 1 ? `Your account can own up to ${maxBlogs} blogs. Collaborations do not count toward this limit.` : "Free accounts can own one blog. Upgrade to add more blogs." }, 409);
   let body: any;
   try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON body" }, 400); }
   const slug = String(body?.slug ?? "").trim().toLowerCase();
@@ -2790,10 +2791,10 @@ app.post("/admin/new-blog", async (c) => {
   const ownedCount = await c.env.DB.prepare(
     "SELECT COUNT(*) AS count FROM memberships WHERE account_id = ? AND role = 'owner'"
   ).bind(account.id).first<{ count: number }>();
-  const maxBlogs = accountHasPaidPlan(account) ? 5 : 1;
+  const maxBlogs = maxBlogsForAccount(account as any);
   if ((ownedCount?.count ?? 0) >= maxBlogs)
-    return fail(accountHasPaidPlan(account)
-      ? "Your account can own up to five blogs. Collaborations do not count toward this limit."
+    return fail(maxBlogs > 1
+      ? `Your account can own up to ${maxBlogs} blogs. Collaborations do not count toward this limit.`
       : "Free accounts can own one blog. Upgrade to add more blogs.", 409);
 
   const slugError = validateSlug(slug);
@@ -5955,7 +5956,9 @@ function billingPage(
   const status = String(billing.billing_status || "inactive");
   const stripeActive = ["active", "trialing", "past_due"].includes(status);
   const cryptoActive = Number(billing.crypto_paid_through || 0) > Math.floor(Date.now() / 1000);
-  const active = stripeActive || cryptoActive;
+  const vipActive = Number(billing.vip_granted_at || 0) > 0 && (billing.vip_expires_at == null || Number(billing.vip_expires_at) > Math.floor(Date.now() / 1000));
+  const active = stripeActive || cryptoActive || vipActive;
+  const vipExpiryLabel = vipActive ? (billing.vip_expires_at ? ` · valid through ${new Date(Number(billing.vip_expires_at) * 1000).toLocaleDateString()}` : ` · lifetime`) : "";
   const cryptoPriceMinor = affiliateAnnualPriceMinor(attributed, NOWPAYMENTS_ANNUAL_USD * 100);
   const allowance = Math.max(0, Number(credits?.allowance || AI_MONTHLY_CREDITS));
   const used = Math.min(allowance, Math.max(0, Number(credits?.used || 0)));
@@ -5976,15 +5979,16 @@ function billingPage(
   const features = (items: string[]) => `<ul class="billing-features">${items.map((item) => `<li>${check}${esc(item)}</li>`).join("")}</ul>`;
   const checkout = (plan: "monthly" | "yearly", label: string, cls = "") => `<form method="post" action="/admin/billing/checkout"><input type="hidden" name="plan" value="${plan}"><button class="billing-btn ${cls}" type="submit">${label}</button></form>`;
   const portal = `<form method="post" action="/admin/billing/portal"><button class="billing-btn billing-btn-solid" type="submit">Manage billing in Stripe</button></form>`;
-  const statusNotice = status === "past_due"
+  const vipNotice = vipActive ? `<div class="billing-notice" style="background:#fef9e7;border-color:#f5e6a3"><strong>VIP access</strong> — gifted membership, equivalent to Pro${esc(vipExpiryLabel)}.${billing.vip_reason ? ` <span class="muted">${esc(billing.vip_reason)}</span>` : ""}</div>` : "";
+  const statusNotice = vipNotice || (status === "past_due"
     ? `<div class="billing-alert"><strong>Payment needs attention.</strong> Your Pro features remain available temporarily, but update your payment method in Stripe to avoid interruption.${billing.stripe_customer_id ? `<div class="billing-alert-action">${portal.replace("Manage billing in Stripe", "Fix payment in Stripe")}</div>` : ""}</div>`
-    : message ? `<div class="billing-notice">${esc(message)}</div>` : "";
+    : message ? `<div class="billing-notice">${esc(message)}</div>` : "");
   const cryptoExpiry = cryptoActive ? new Date(Number(billing.crypto_paid_through) * 1000).toLocaleDateString() : "";
-  const billingAction = stripeActive ? portal : "";
+  const billingAction = vipActive ? "" : stripeActive ? portal : "";
   const usage = active ? `<section class="billing-section billing-usage"><div class="billing-section-head"><h2>AI usage</h2><span>Resets ${esc(resetDate)}</span></div><div class="billing-usage-stat"><div class="billing-usage-icon">✦</div><div><strong>${remaining.toLocaleString()} of ${allowance.toLocaleString()}</strong><span>credits remaining this month</span></div></div><div class="billing-track"><div style="width:${allowance ? Math.round(used / allowance * 100) : 0}%"></div></div><div class="billing-bar-labels"><span>${used.toLocaleString()} used</span><span>${remaining.toLocaleString()} remaining</span></div><p class="billing-muted">Images use 3 credits. Audio narration uses credits based on word count.</p></section>` : "";
-  const freeCard = `<article class="billing-plan ${!active ? "billing-current" : ""}"><div class="billing-plan-name">Free</div><div class="billing-price">$0</div>${!active ? `<span class="billing-current-badge">${check} Current plan</span>` : ""}<div class="billing-includes">What's included</div>${features(freeFeatures)}${!active ? `<span class="billing-plan-foot">This is your plan today</span>` : ""}</article>`;
-  const monthlyCard = `<article class="billing-plan ${stripeActive && term === "monthly" ? "billing-current" : ""}"><div class="billing-plan-name">blognice pro monthly</div><div class="billing-price">$5 <small>/ month</small></div><p class="billing-sub">Founding member price · billed monthly, cancel any time</p><div class="billing-includes">Everything in Free, plus</div>${features(proFeatures)}${stripeActive && term === "monthly" ? `<span class="billing-plan-foot">${check} Current plan${renewal ? ` · ${esc(renewal)}` : ""}</span>` : stripeActive ? `<span class="billing-plan-foot">Plan changes are managed in Stripe</span>` : cryptoActive ? `<span class="billing-plan-foot">Available with your crypto plan</span>` : checkout("monthly", "Choose $5/month", "billing-btn-dark")}</article>`;
-  const yearlyCard = `<article class="billing-plan billing-featured ${stripeActive && term === "yearly" ? "billing-current" : ""}"><span class="billing-ribbon">Founding price</span><div class="billing-plan-name">blognice pro yearly</div><div class="billing-price">$36 <small>/ year</small></div><p class="billing-sub">Founding member price · just <b>$3/month</b>, billed annually</p><div class="billing-includes">Everything in Free, plus</div>${features(proFeatures)}${stripeActive && term === "yearly" ? `<span class="billing-plan-foot">${check} Current plan${renewal ? ` · ${esc(renewal)}` : ""}</span>` : stripeActive ? `<span class="billing-plan-foot">Plan changes are managed in Stripe</span>` : cryptoActive ? `<span class="billing-plan-foot">Available with your crypto plan</span>` : checkout("yearly", "Lock in $36/year", "billing-btn-green")}</article>`;
+  const freeCard = `<article class="billing-plan ${!active ? "billing-current" : ""}"><div class="billing-plan-name">Free</div><div class="billing-price">$0</div>${!active ? `<span class="billing-current-badge">${check} Current plan</span>` : ""}<div class="billing-includes">What's included</div>${features(freeFeatures)}${!active ? `<span class="billing-plan-foot">This is your plan today</span>` : vipActive ? `<span class="billing-plan-foot">${check} Included with VIP</span>` : ""}</article>`;
+  const monthlyCard = `<article class="billing-plan ${vipActive ? "billing-current" : stripeActive && term === "monthly" ? "billing-current" : ""}"><div class="billing-plan-name">${vipActive ? "VIP" : "blognice pro monthly"}</div><div class="billing-price">${vipActive ? "VIP" : "$5 <small>/ month</small>"}</div><p class="billing-sub">${vipActive ? "Gifted membership · equivalent to Pro" : "Founding member price · billed monthly, cancel any time"}</p><div class="billing-includes">Everything in Free, plus</div>${features(proFeatures)}${vipActive ? `<span class="billing-current-badge">${check} VIP active${esc(vipExpiryLabel)}</span><span class="billing-plan-foot">Your VIP includes all Pro features</span>` : stripeActive && term === "monthly" ? `<span class="billing-plan-foot">${check} Current plan${renewal ? ` · ${esc(renewal)}` : ""}</span>` : stripeActive ? `<span class="billing-plan-foot">Plan changes are managed in Stripe</span>` : cryptoActive ? `<span class="billing-plan-foot">Available with your crypto plan</span>` : checkout("monthly", "Choose $5/month", "billing-btn-dark")}</article>`;
+  const yearlyCard = `<article class="billing-plan billing-featured ${vipActive ? "" : stripeActive && term === "yearly" ? "billing-current" : ""}"><span class="billing-ribbon">${vipActive ? "VIP" : "Founding price"}</span><div class="billing-plan-name">${vipActive ? "VIP" : "blognice pro yearly"}</div><div class="billing-price">${vipActive ? "VIP" : "$36 <small>/ year</small>"}</div><p class="billing-sub">${vipActive ? "Gifted membership · equivalent to Pro" : "Founding member price · just <b>$3/month</b>, billed annually"}</p><div class="billing-includes">Everything in Free, plus</div>${features(proFeatures)}${vipActive ? `<span class="billing-plan-foot">Covered by VIP — no payment needed</span>` : stripeActive && term === "yearly" ? `<span class="billing-plan-foot">${check} Current plan${renewal ? ` · ${esc(renewal)}` : ""}</span>` : stripeActive ? `<span class="billing-plan-foot">Plan changes are managed in Stripe</span>` : cryptoActive ? `<span class="billing-plan-foot">Available with your crypto plan</span>` : checkout("yearly", "Lock in $36/year", "billing-btn-green")}</article>`;
   const cryptoOption = cryptoActive
     ? `<div class="crypto-option crypto-option-active">${check} Crypto plan active · valid through ${esc(cryptoExpiry)}</div>`
     : stripeActive
@@ -6257,7 +6261,7 @@ app.get("/admin/billing", async (c) => {
   const account = await currentAccount(c);
   if (!account) return c.redirect("/admin/login");
   if (isSuspended(account)) return suspendedResponse(c, account);
-  const billing = await c.env.DB.prepare("SELECT stripe_customer_id, stripe_subscription_id, billing_status, billing_price_id, billing_period_end, billing_cancel_at_period_end, crypto_paid_through FROM accounts WHERE id = ?").bind(account.id).first() || {};
+  const billing = await c.env.DB.prepare("SELECT stripe_customer_id, stripe_subscription_id, billing_status, billing_price_id, billing_period_end, billing_cancel_at_period_end, crypto_paid_through, vip_granted_at, vip_expires_at, vip_reason FROM accounts WHERE id = ?").bind(account.id).first() || {};
   const usage = await c.env.DB.prepare("SELECT credits_used AS used, allowance FROM ai_credit_usage WHERE account_id = ? AND period = ?")
     .bind(account.id, aiCreditPeriod()).first<{ used: number; allowance: number }>();
   const attribution = await c.env.DB.prepare("SELECT 1 FROM affiliate_attributions WHERE referred_account_id = ?").bind(account.id).first();
@@ -6291,8 +6295,8 @@ app.post("/admin/billing/checkout", async (c) => {
   const plan = String(form.get("plan") || "monthly");
   const priceId = plan === "yearly" ? (c.env.STRIPE_YEARLY_PRICE_ID || "") : (c.env.STRIPE_MONTHLY_PRICE_ID || c.env.STRIPE_PRICE_ID || "");
   if (!priceId) return c.redirect("/admin/billing?message=The selected Stripe plan is not configured yet.");
-  const billing = await c.env.DB.prepare("SELECT stripe_customer_id, billing_status FROM accounts WHERE id = ?").bind(account.id).first<{ stripe_customer_id?: string | null; billing_status: string }>();
-  if (billing && ["active", "trialing", "past_due"].includes(billing.billing_status)) return c.redirect("/admin/billing?message=This account already has a subscription.");
+  const billing = await c.env.DB.prepare("SELECT stripe_customer_id, billing_status, vip_granted_at, vip_expires_at FROM accounts WHERE id = ?").bind(account.id).first<{ stripe_customer_id?: string | null; billing_status: string; vip_granted_at?: number | null; vip_expires_at?: number | null }>();
+  if (billing && (["active", "trialing", "past_due"].includes(billing.billing_status) || (Number(billing.vip_granted_at || 0) > 0 && (billing.vip_expires_at == null || Number(billing.vip_expires_at) > Math.floor(Date.now()/1000))))) return c.redirect("/admin/billing?message=This account already has a subscription.");
   try {
     const origin = new URL(c.req.url).origin;
     const now = Math.floor(Date.now() / 1000);
@@ -6360,7 +6364,7 @@ app.post("/admin/billing/crypto/checkout", async (c) => {
   if (!account) return c.redirect("/admin/login");
   if (isSuspended(account)) return suspendedResponse(c, account);
   if (!nowPaymentsConfigured(c.env)) return c.redirect("/admin/billing?message=Crypto payments are not configured yet.");
-  const billing = await c.env.DB.prepare("SELECT billing_status, crypto_paid_through FROM accounts WHERE id = ?").bind(account.id).first<{ billing_status: string; crypto_paid_through?: number | null }>();
+  const billing = await c.env.DB.prepare("SELECT billing_status, crypto_paid_through, vip_granted_at, vip_expires_at FROM accounts WHERE id = ?").bind(account.id).first<{ billing_status: string; crypto_paid_through?: number | null; vip_granted_at?: number | null; vip_expires_at?: number | null }>();
   if (accountHasPaidPlan(billing || {})) return c.redirect("/admin/billing?message=This account already has paid access.");
   try {
     const origin = new URL(c.req.url).origin;

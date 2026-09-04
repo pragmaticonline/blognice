@@ -133,6 +133,11 @@ CREATE TABLE accounts (
   billing_invoice_event_created_at INTEGER,
   crypto_paid_through INTEGER,
   affiliate_eligibility_closed_at INTEGER,
+  vip_granted_at INTEGER,
+  vip_expires_at INTEGER,
+  vip_granted_by INTEGER REFERENCES accounts(id),
+  vip_reason TEXT,
+  max_blogs_override INTEGER,
   email_verified INTEGER NOT NULL DEFAULT 0,
   email_verified_at INTEGER,
   created_at INTEGER NOT NULL
@@ -142,6 +147,7 @@ CREATE INDEX idx_accounts_api_key ON accounts (api_key_hash);
 CREATE INDEX idx_accounts_status ON accounts (status, created_at DESC);
 CREATE UNIQUE INDEX idx_accounts_stripe_customer ON accounts (stripe_customer_id);
 CREATE UNIQUE INDEX idx_accounts_stripe_subscription ON accounts (stripe_subscription_id);
+CREATE INDEX idx_accounts_vip_expires_at ON accounts(vip_expires_at);
 
 CREATE TABLE affiliate_attributions (
   id                  INTEGER PRIMARY KEY,
