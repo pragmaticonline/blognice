@@ -29,6 +29,7 @@ type EmailMessage = {
   headers?: Record<string, string>;
   emailKind?: string;
   senderName?: string;
+  tag?: string;
 };
 
 const PLATFORM_SUPPORT = "support@blognice.com";
@@ -218,6 +219,7 @@ export async function sendEmailDetailed(
       plainBody: outgoing.plainText || "",
       html: outgoing.html,
       headers: outgoing.headers,
+      tag: (outgoing as any).tag,
     });
     return { ...result, provider: "mailnice" };
   }

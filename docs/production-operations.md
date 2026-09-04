@@ -81,6 +81,7 @@ Public Worker secrets, set with `--config wrangler.production.jsonc`:
 | `CF_API_TOKEN` | Cloudflare for SaaS custom hostnames |
 | `CF_ANALYTICS_TOKEN` | Analytics Engine reporting queries |
 | `MAILNICE_API_KEY` or `RESEND_API_KEY` | Verification and transactional email |
+| `MAILNICE_WEBHOOK_SECRET` | MailNice/Postal bounce/complaint/open/click webhook verification (optional, enables `email_bounced`/`email_complained` Analytics) |
 | `STRIPE_SECRET_KEY` | Stripe Checkout, Portal, and Connect API calls |
 | `STRIPE_WEBHOOK_SECRET` | Platform Stripe webhook verification |
 | `STRIPE_CONNECT_WEBHOOK_SECRET` | Connected-account webhook verification |

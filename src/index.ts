@@ -751,7 +751,7 @@ app.use("*", async (c, next) => {
   return next();
 });
 
-app.get("/sw.js", () => new Response(`self.addEventListener("push",function(event){var data={};try{data=event.data?event.data.json():{}}catch(_){}event.waitUntil(self.registration.showNotification(data.title||"New post",{body:data.body||"",icon:"/favicon.svg",badge:"/favicon.svg",tag:data.tag||"blognice-post",data:{url:data.url||"/"}}));});self.addEventListener("notificationclick",function(event){event.notification.close();var url=event.notification.data&&event.notification.data.url||"/";event.waitUntil(clients.matchAll({type:"window",includeUncontrolled:true}).then(function(list){for(var i=0;i<list.length;i++){if("focus" in list[i]){list[i].navigate(url);return list[i].focus();}}return clients.openWindow(url);}));});`, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "no-cache" } }));
+app.get("/sw.js", () => new Response(`self.addEventListener("push",function(event){var data={};try{data=event.data?event.data.json():{}}catch(_){}event.waitUntil(self.registration.showNotification(data.title||"New post",{body:data.body||"",icon:"/favicon.svg",badge:"/favicon.svg",tag:data.tag||"blognice-post",data:{url:data.url||"/"}}));});self.addEventListener("notificationclick",function(event){event.notification.close();var url=event.notification.data&&event.notification.data.url||"/";event.waitUntil(Promise.all([fetch("/_blognice/push/click",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({path:url}),keepalive:true}).catch(function(){}),clients.matchAll({type:"window",includeUncontrolled:true}).then(function(list){for(var i=0;i<list.length;i++){if("focus" in list[i]){list[i].navigate(url);return list[i].focus();}}return clients.openWindow(url);})]));});`, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "no-cache" } }));
 
 app.get("/push/public-key", async (c) => {
   const tenant = await resolveTenant(c.env, new URL(c.req.url).hostname);
@@ -777,6 +777,7 @@ app.post("/push/subscribe", async (c) => {
     ON CONFLICT (tenant_id, endpoint_hash, topic) DO UPDATE SET endpoint = excluded.endpoint, p256dh = excluded.p256dh, auth = excluded.auth, updated_at = excluded.updated_at`)
     .bind(tenant.id, subscription.endpoint, endpointHash, subscription.keys.p256dh, subscription.keys.auth, now, now, tenant.id, endpointHash, tenant.id).run();
   if (saved.meta.changes !== 1) return c.json({ error: "This blog has reached its notification subscription limit." }, 429);
+  try { recordCustomEvent(c.env, tenant.id, { name: "push_subscribed", path: "/", visitor: "", country: "", device: "", browser: "" }); } catch {}
   return c.json({ ok: true });
 });
 
@@ -790,6 +791,7 @@ app.delete("/push/subscribe", async (c) => {
   if (!value || !await validBrowserPushSubscription(value)) return c.json({ error: "Invalid subscription." }, 400);
   const endpointHash = await pushEndpointHash((value as BrowserPushSubscription).endpoint);
   await c.env.DB.prepare("DELETE FROM push_subscriptions WHERE tenant_id = ? AND endpoint_hash = ? AND topic = 'new-post'").bind(tenant.id, endpointHash).run();
+  try { recordCustomEvent(c.env, tenant.id, { name: "push_unsubscribed", path: "/", visitor: "", country: "", device: "", browser: "" }); } catch {}
   return c.json({ ok: true });
 });
 
@@ -979,6 +981,16 @@ app.post("/_blognice/metrics", async (c) => {
   return c.body(null, 204);
 });
 
+app.post("/_blognice/push/click", async (c) => {
+  let body: { path?: unknown } = {};
+  try { body = await c.req.json(); } catch { body = {}; }
+  const path = typeof body.path === "string" && /^\/(?:$|[^?#]{1,300}$)/.test(body.path) ? body.path : "/";
+  const tenant = await resolveTenant(c.env, c.req.header("host") || "");
+  if (!tenant) return c.body(null, 404);
+  try { recordCustomEvent(c.env as any, tenant.id, { name: "push_clicked", path, visitor: "", country: "", device: "", browser: "" }); } catch {}
+  return c.body(null, 204);
+});
+
 app.post("/_blognice/events", async (c) => {
   const length = Number(c.req.header("content-length") || "0");
   if (length > 2048) return c.body(null, 413);
@@ -994,7 +1006,7 @@ app.post("/_blognice/events", async (c) => {
   const name = body.event;
   const path = typeof body.path === "string" ? body.path : "";
   const visitor = typeof body.visitor === "string" ? body.visitor : "";
-  if ((name !== "audio_start" && name !== "audio_complete" && name !== "engaged_read") ||
+  if ((name !== "audio_start" && name !== "audio_complete" && name !== "engaged_read" && name !== "push_clicked" && name !== "push_delivered" && name !== "email_opened" && name !== "email_clicked") ||
       !/^\/(?:$|[^?#]{1,300}$)/.test(path) ||
       !/^[0-9a-f-]{36}$/i.test(visitor)) return c.body(null, 400);
   const tenant = await resolveTenant(c.env, c.req.header("host") || "");
@@ -4038,6 +4050,7 @@ type EmailJobMessage = {
   emailKind?: "post-notification" | "subscription-welcome" | "subscription-active" | "password-reset" | "subscriber-confirmation" | "affiliate-enrolled" | "affiliate-terms-required" | "affiliate-connect-ready" | "affiliate-connect-restricted" | "affiliate-payout-sent" | "affiliate-payout-cancelled";
   to: string;
   subject: string;
+  tag?: string;
   plainText: string;
   html: string;
   headers?: Record<string, string>;
@@ -5694,6 +5707,7 @@ app.post("/subscribe", async (c) => {
     // delivery failures are logged and the row was removed for a later retry.
     return ok();
   }
+  try { recordCustomEvent(c.env, tenant.id, { name: "email_subscribe_requested", path: "/", visitor: "", country: "", device: "", browser: "" }); } catch {}
   return ok();
 });
 
@@ -5779,11 +5793,13 @@ async function subscriberConfirmation(c: Context<{ Bindings: Bindings }>, rawTok
       emailKind: "subscription-welcome",
       idempotencyKey: `subscriber-welcome:${tenant.id}:${row.email}`,
       to: row.email,
+      tag: String(tenant.id),
       senderName: tenant.title,
       ...subscriberWelcomeEmail({ blogTitle: tenant.title, unsubscribeUrl: unsub, manageUrl }),
     };
     if (emailEnabled(c.env) && c.env.EMAIL_QUEUE) c.executionCtx.waitUntil(c.env.EMAIL_QUEUE.send(welcome));
     else if (emailEnabled(c.env)) c.executionCtx.waitUntil(sendEmail(c.env, welcome).then(() => {}));
+    try { recordCustomEvent(c.env, tenant.id, { name: "email_subscribed", path: "/", visitor: "", country: "", device: "", browser: "" }); } catch {}
   }
   return c.html(renderSimplePage(tenant, "Subscription confirmed", `<p>You're now subscribed to ${esc(tenant.title)}. New posts will arrive in your inbox.</p>`));
 }
@@ -5819,6 +5835,7 @@ async function processEmailFanout(env: Bindings, job: EmailFanoutMessage): Promi
   const publishedLabel = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date(post.created_at * 1000));
   const deliveries: EmailJobMessage[] = [];
   for (const subscriber of subscribers.results) {
+    try { const sup = await env.DB.prepare("SELECT 1 FROM email_suppressions WHERE email = ? LIMIT 1").bind(subscriber.email.toLowerCase()).first(); if (sup) continue; } catch {}
     const unsub = `${origin}/unsubscribe/${subscriber.token}`;
     const manageUrl = subscriptionManageUrl(env, await subscriptionManageToken(env, subscriber.email));
     deliveries.push({
@@ -5826,6 +5843,7 @@ async function processEmailFanout(env: Bindings, job: EmailFanoutMessage): Promi
       idempotencyKey: `post:${job.campaignId}:${subscriber.id}`,
       subscriberId: subscriber.id,
       to: subscriber.email,
+      tag: String(job.tenantId),
       senderName: tenant.title,
       ...postNotificationEmail({ blogTitle: tenant.title, postTitle: job.postTitle, postUrl, imageUrl, authorLabel: author || undefined, publishedLabel, readingMinutes: Math.max(1, Math.ceil(post.body_md.split(/\s+/).filter(Boolean).length / 200)), excerpt, unsubscribeUrl: unsub, manageUrl }),
     });
@@ -5865,6 +5883,7 @@ async function processPushFanout(env: Bindings, job: PushFanoutMessage): Promise
       if (disposition === "sent") {
         await env.DB.prepare("UPDATE push_deliveries SET status = 'sent', sent_at = ? WHERE campaign_id = ? AND subscription_id = ?").bind(Math.floor(Date.now() / 1000), job.campaignId, subscription.id).run();
         await env.DB.prepare("UPDATE push_subscriptions SET last_success_at = ?, updated_at = ? WHERE id = ? AND tenant_id = ?").bind(Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000), subscription.id, tenant.id).run();
+        try { recordCustomEvent(env as any, tenant.id, { name: "push_delivered", path: "/" + job.postSlug, visitor: "", country: "", device: "", browser: "" }); } catch {}
       } else if (disposition === "expired") await env.DB.prepare("DELETE FROM push_subscriptions WHERE id = ? AND tenant_id = ?").bind(subscription.id, tenant.id).run();
     } catch (error) {
       const status = Number((error as { statusCode?: number }).statusCode || 0);
@@ -5898,6 +5917,9 @@ async function cleanupPushState(env: Bindings): Promise<void> {
 }
 
 async function processEmailJob(env: Bindings, job: EmailJobMessage): Promise<void> {
+  if (job.to) {
+    try { const suppressed = await env.DB.prepare("SELECT 1 FROM email_suppressions WHERE email = ? LIMIT 1").bind(job.to.toLowerCase()).first(); if (suppressed) return; } catch {}
+  }
   if (job.subscriberId != null) {
     const active = await env.DB.prepare("SELECT id FROM subscribers WHERE id = ? AND confirmed_at IS NOT NULL").bind(job.subscriberId).first();
     if (!active) return;
@@ -5911,7 +5933,7 @@ async function processEmailJob(env: Bindings, job: EmailJobMessage): Promise<voi
      VALUES (?, 'pending', ?, ?, ?)
      ON CONFLICT(idempotency_key) DO UPDATE SET status = 'pending'`
   ).bind(job.idempotencyKey, job.to, job.emailKind || "post-notification", now).run();
-  if (!await sendEmail(env, job)) throw new Error("transactional email provider rejected the message");
+  if (!await sendEmail(env, { ...job, tag: (job as any).tag } as any)) throw new Error("transactional email provider rejected the message");
   await env.DB.prepare("UPDATE email_delivery_log SET status = 'sent', sent_at = ? WHERE idempotency_key = ?")
     .bind(Math.floor(Date.now() / 1000), job.idempotencyKey).run();
 }
@@ -6484,6 +6506,50 @@ app.post("/nowpayments/webhook", async (c) => {
   }
 });
 
+app.post("/mailnice/webhook", async (c) => {
+  const secret = (c.env as any).MAILNICE_WEBHOOK_SECRET as string | undefined;
+  if (secret) {
+    const header = c.req.header("x-mailnice-secret") || c.req.header("x-mailnice-webhook-secret") || c.req.header("authorization") || "";
+    const provided = header.replace(/^Bearer\s+/i, "").trim();
+    const urlSecret = new URL(c.req.url).searchParams.get("secret") || "";
+    if (provided !== secret && urlSecret !== secret && header !== secret) return c.json({ error: "invalid webhook secret" }, 401);
+  }
+  let payload: any;
+  try { payload = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+  const rawEvent = String(payload.event || payload.type || payload.action || payload.message?.event || "").toLowerCase();
+  const tag = String(payload.tag || payload.tenant_id || payload.tenantId || payload.message?.tag || payload.message?.tenant_id || payload.data?.tag || "").trim();
+  const toEmail = String(payload.email || payload.recipient || payload.to || payload.message?.to || payload.data?.email || "").trim();
+  let tenantId: number | null = null;
+  if (/^\d+$/.test(tag)) tenantId = Number(tag);
+  else if (tag) {
+    const row = await c.env.DB.prepare("SELECT id FROM tenants WHERE public_id = ?").bind(tag).first<{ id: number }>();
+    tenantId = row?.id ?? null;
+  }
+  if (!tenantId && toEmail) {
+    const sub = await c.env.DB.prepare("SELECT tenant_id FROM subscribers WHERE email = ? LIMIT 1").bind(toEmail.toLowerCase()).first<{ tenant_id: number }>();
+    tenantId = sub?.tenant_id ?? null;
+  }
+  const map: Record<string, string> = {
+    bounced: "email_bounced", bounce: "email_bounced", held: "email_bounced", failed: "email_bounced",
+    complaint: "email_complained", spam: "email_complained", complained: "email_complained",
+    opened: "email_opened", open: "email_opened", loaded: "email_opened",
+    clicked: "email_clicked", click: "email_clicked",
+    delivered: "email_delivered", sent: "email_delivered",
+  };
+  let eventName: string | null = null;
+  for (const [key, val] of Object.entries(map)) if (rawEvent.includes(key)) { eventName = val; break; }
+  if (!eventName) return c.json({ ok: true, ignored: true });
+  if (!tenantId) return c.json({ ok: true, ignored: true, reason: "tenant not resolved" });
+  try { recordCustomEvent(c.env as any, tenantId, { name: eventName as any, path: "/", visitor: "", country: "", device: "", browser: "" }); } catch {}
+  if (eventName === "email_bounced" || eventName === "email_complained") {
+    try {
+      const email = toEmail.toLowerCase();
+      if (email) await c.env.DB.prepare("INSERT OR IGNORE INTO email_suppressions (email, tenant_id, reason, created_at) VALUES (?, ?, ?, ?)").bind(email, tenantId, eventName, Math.floor(Date.now()/1000)).run().catch(()=>undefined);
+    } catch {}
+  }
+  return c.json({ ok: true });
+});
+
 app.post("/stripe/webhook", async (c) => {
   const raw = await c.req.text();
   const signature = c.req.header("Stripe-Signature");
@@ -6899,9 +6965,10 @@ app.post("/unsubscribe/:token", async (c) => {
   )
     .bind(c.req.param("token"))
     .first<{ tenant_id: number }>();
-  await c.env.DB.prepare("DELETE FROM subscribers WHERE token = ?")
+  const deleted = await c.env.DB.prepare("DELETE FROM subscribers WHERE token = ?")
     .bind(c.req.param("token"))
     .run();
+  if (row && deleted.meta.changes) try { recordCustomEvent(c.env, row.tenant_id, { name: "email_unsubscribed", path: "/", visitor: "", country: "", device: "", browser: "" }); } catch {}
   const tenant = row ? await tenantById(c.env, row.tenant_id) : null;
   if (!tenant) return c.text("You've been unsubscribed.", 200);
   return c.html(

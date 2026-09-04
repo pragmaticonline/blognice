@@ -9,7 +9,7 @@ export function mailNiceEnabled(env: MailNiceEnv): boolean {
 
 export async function sendMailNice(
   env: MailNiceEnv,
-  message: { to: string; subject: string; plainBody: string; html?: string; headers?: Record<string, string> },
+  message: { to: string; subject: string; plainBody: string; html?: string; headers?: Record<string, string>; tag?: string },
 ): Promise<{ ok: boolean; detail?: string }> {
   if (!mailNiceEnabled(env)) return { ok: false, detail: "Email integration is not configured on the staff Worker." };
   try {
@@ -26,6 +26,7 @@ export async function sendMailNice(
         plain_body: message.plainBody,
         ...(message.html ? { html_body: message.html } : {}),
         ...(message.headers ? { headers: message.headers } : {}),
+        ...(message.tag ? { tag: message.tag } : {}),
       }),
     });
     const payload = await response.json().catch(() => null) as { status?: string; error?: string; message?: string } | null;

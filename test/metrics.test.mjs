@@ -151,6 +151,40 @@ test("audio engagement uses a separate Analytics Engine dataset", () => {
   assert.deepEqual(point.blobs, ["audio_start", "/hello", "8da6baef-62fa-426f-9fb4-fbd8c390fe50", "TH", "Mobile", "Safari"]);
 });
 
+test("subscriber lifecycle uses the shared Analytics Engine dataset and contains no PII", () => {
+  const cases = [
+    "email_subscribe_requested",
+    "email_subscribed",
+    "email_unsubscribed",
+    "push_subscribed",
+    "push_unsubscribed",
+    "email_bounced",
+    "email_complained",
+    "email_opened",
+    "email_clicked",
+    "push_delivered",
+    "push_clicked",
+  ];
+  for (const name of cases) {
+    let point;
+    const env = { EVENTS: { writeDataPoint(value) { point = value; } } };
+    recordCustomEvent(env, 7, {
+      name,
+      path: "/",
+      visitor: "8da6baef-62fa-426f-9fb4-fbd8c390fe50",
+      country: "TH",
+      device: "Mobile",
+      browser: "Safari",
+    });
+    assert.deepEqual(point.indexes, ["7"]);
+    assert.equal(point.blobs[0], name);
+    assert.equal(point.blobs[1], "/");
+    assert.deepEqual(point.doubles, [1]);
+    assert.doesNotMatch(JSON.stringify(point), /@example|endpoint=/i);
+    assert.doesNotMatch(point.blobs.join('|'), /@/);
+  }
+});
+
 test("audit events use the shared Analytics Engine dataset and a 90-day query", async () => {
   let point;
   recordAuditEvent({ EVENTS: { writeDataPoint(value) { point = value; } } }, 7, {
@@ -208,6 +242,16 @@ test("report queries include aggregate audience and audio breakdowns", () => {
   assert.match(queries.audioPages, /blob1 IN \('audio_start', 'audio_complete'\)/);
 });
 
+test("report queries include subscriber lifecycle breakdowns", () => {
+  const queries = reportQueries(7, 30);
+  assert.match(queries.subscriberSummary, /FROM blognice_events/);
+  assert.match(queries.subscriberSummary, /email_subscribed/);
+  assert.match(queries.subscriberSummary, /push_subscribed/);
+  assert.match(queries.subscriberDaily, /GROUP BY date/);
+  assert.match(queries.subscriberSummary, /index1 = '7'/);
+  assert.match(queries.subscriberSummary, /SUM\(_sample_interval\)|sumIf/);
+});
+
 test("daily archive stores aggregate rows under a date-partitioned R2 key", async () => {
   const originalFetch = globalThis.fetch;
   let put;
@@ -262,6 +306,33 @@ test("affiliate daily archive is aggregate-only and deletes data beyond 730 days
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("metrics report aggregates subscriber lifecycle daily and summary", async () => {
+  const originalFetch = globalThis.fetch;
+  const queries = [];
+  globalThis.fetch = async (_url, init) => {
+    const q = String(init?.body || "");
+    queries.push(q);
+    if (q.includes("email_subscribed") && q.includes("GROUP BY date")) {
+      return new Response(JSON.stringify({ data: [{ date: "2026-09-01", email_subscribed: 2, email_unsubscribed: 1, push_subscribed: 3, push_unsubscribed: 0 }] }), { status: 200 });
+    }
+    if (q.includes("email_subscribed") && !q.includes("GROUP BY date")) {
+      return new Response(JSON.stringify({ data: [{ email_subscribed: 5, email_unsubscribed: 2, push_subscribed: 7, push_unsubscribed: 1 }] }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ data: [] }), { status: 200 });
+  };
+  try {
+    const { metricsReport } = await import("../src/metrics.ts");
+    const report = await metricsReport({ CF_ACCOUNT_ID: "a", CF_ANALYTICS_TOKEN: "t" }, 7, 30);
+    assert.equal(report.subscribers.emailSubscribed, 5);
+    assert.equal(report.subscribers.emailUnsubscribed, 2);
+    assert.equal(report.subscribers.pushSubscribed, 7);
+    assert.equal(report.subscribers.pushUnsubscribed, 1);
+    assert.equal(report.subscribers.emailBounced, 0);
+    assert.deepEqual(report.subscribers.daily[0], { date: "2026-09-01", emailSubscribed: 2, emailUnsubscribed: 1, pushSubscribed: 3, pushUnsubscribed: 0, emailBounced: 0, emailComplained: 0, emailOpened: 0, emailClicked: 0, pushDelivered: 0, pushClicked: 0 });
+    assert.ok(queries.some((q) => q.includes("email_subscribed") && q.includes("index1 = '7'")));
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test("a dataset awaiting its first write is reported as empty", async () => {

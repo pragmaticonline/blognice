@@ -53,6 +53,7 @@ export type MetricsReport = {
   devices: MetricBreakdown[];
   browsers: MetricBreakdown[];
   audio: { starts: number; completions: number; pages: AudioMetric[] };
+  subscribers: { emailSubscribed: number; emailUnsubscribed: number; pushSubscribed: number; pushUnsubscribed: number; emailBounced: number; emailComplained: number; emailOpened: number; emailClicked: number; pushDelivered: number; pushClicked: number; daily: Array<{ date: string; emailSubscribed: number; emailUnsubscribed: number; pushSubscribed: number; pushUnsubscribed: number; emailBounced: number; emailComplained: number; emailOpened: number; emailClicked: number; pushDelivered: number; pushClicked: number }> };
 };
 
 type SqlResponse = { data?: Record<string, unknown>[]; errors?: unknown[] };
@@ -132,6 +133,8 @@ export function reportQueries(tenantId: number, days: number) {
     browsers: `SELECT blob6 AS name, ${views} AS views FROM ${METRICS_DATASET} WHERE ${where} AND blob6 != '' GROUP BY name ORDER BY views DESC LIMIT 10`,
     audioSummary: `SELECT sumIf(_sample_interval, blob1 = 'audio_start') AS starts, sumIf(_sample_interval, blob1 = 'audio_complete') AS completions FROM ${EVENTS_DATASET} WHERE ${where}`,
     audioPages: `SELECT blob2 AS path, sumIf(_sample_interval, blob1 = 'audio_start') AS starts, sumIf(_sample_interval, blob1 = 'audio_complete') AS completions FROM ${EVENTS_DATASET} WHERE ${where} AND blob1 IN ('audio_start', 'audio_complete') GROUP BY path ORDER BY starts DESC LIMIT 25`,
+    subscriberSummary: `SELECT sumIf(_sample_interval, blob1 = 'email_subscribed') AS email_subscribed, sumIf(_sample_interval, blob1 = 'email_unsubscribed') AS email_unsubscribed, sumIf(_sample_interval, blob1 = 'push_subscribed') AS push_subscribed, sumIf(_sample_interval, blob1 = 'push_unsubscribed') AS push_unsubscribed, sumIf(_sample_interval, blob1 = 'email_bounced') AS email_bounced, sumIf(_sample_interval, blob1 = 'email_complained') AS email_complained, sumIf(_sample_interval, blob1 = 'email_opened') AS email_opened, sumIf(_sample_interval, blob1 = 'email_clicked') AS email_clicked, sumIf(_sample_interval, blob1 = 'push_delivered') AS push_delivered, sumIf(_sample_interval, blob1 = 'push_clicked') AS push_clicked FROM ${EVENTS_DATASET} WHERE ${where} AND blob1 IN ('email_subscribe_requested', 'email_subscribed', 'email_unsubscribed', 'push_subscribed', 'push_unsubscribed', 'email_bounced', 'email_complained', 'email_opened', 'email_clicked', 'email_delivered', 'push_delivered', 'push_clicked')`,
+    subscriberDaily: `SELECT formatDateTime(timestamp, '%Y-%m-%d') AS date, sumIf(_sample_interval, blob1 = 'email_subscribed') AS email_subscribed, sumIf(_sample_interval, blob1 = 'email_unsubscribed') AS email_unsubscribed, sumIf(_sample_interval, blob1 = 'push_subscribed') AS push_subscribed, sumIf(_sample_interval, blob1 = 'push_unsubscribed') AS push_unsubscribed, sumIf(_sample_interval, blob1 = 'email_bounced') AS email_bounced, sumIf(_sample_interval, blob1 = 'email_complained') AS email_complained, sumIf(_sample_interval, blob1 = 'email_opened') AS email_opened, sumIf(_sample_interval, blob1 = 'email_clicked') AS email_clicked, sumIf(_sample_interval, blob1 = 'push_delivered') AS push_delivered, sumIf(_sample_interval, blob1 = 'push_clicked') AS push_clicked FROM ${EVENTS_DATASET} WHERE ${where} AND blob1 IN ('email_subscribe_requested', 'email_subscribed', 'email_unsubscribed', 'push_subscribed', 'push_unsubscribed', 'email_bounced', 'email_complained', 'email_opened', 'email_clicked', 'email_delivered', 'push_delivered', 'push_clicked') GROUP BY date ORDER BY date`,
   };
 }
 
@@ -154,7 +157,7 @@ export async function metricsReport(
       }));
       return [];
     });
-  const [dailyRows, pageRows, referrerRows, countryRows, deviceRows, browserRows, audioSummaryRows, audioPageRows] = await Promise.all([
+  const [dailyRows, pageRows, referrerRows, countryRows, deviceRows, browserRows, audioSummaryRows, audioPageRows, subscriberSummaryRows, subscriberDailyRows] = await Promise.all([
     optionalQuery("daily", queries.daily),
     optionalQuery("pages", queries.pages),
     optionalQuery("referrers", queries.referrers),
@@ -163,9 +166,12 @@ export async function metricsReport(
     optionalQuery("browsers", queries.browsers),
     optionalQuery("audio summary", queries.audioSummary),
     optionalQuery("audio pages", queries.audioPages),
+    optionalQuery("subscriber summary", (queries as any).subscriberSummary ?? ""),
+    optionalQuery("subscriber daily", (queries as any).subscriberDaily ?? ""),
   ]);
   const summary = summaryRows[0] ?? {};
   const audioSummary = audioSummaryRows[0] ?? {};
+  const subscriberSummary = subscriberSummaryRows[0] ?? {};
   return {
     days: safeDays,
     summary: {
@@ -196,6 +202,31 @@ export async function metricsReport(
         path: String(row.path ?? "/"),
         starts: numberValue(row.starts),
         completions: numberValue(row.completions),
+      })),
+    },
+    subscribers: {
+      emailSubscribed: numberValue((subscriberSummary as any).email_subscribed),
+      emailUnsubscribed: numberValue((subscriberSummary as any).email_unsubscribed),
+      pushSubscribed: numberValue((subscriberSummary as any).push_subscribed),
+      pushUnsubscribed: numberValue((subscriberSummary as any).push_unsubscribed),
+      emailBounced: numberValue((subscriberSummary as any).email_bounced),
+      emailComplained: numberValue((subscriberSummary as any).email_complained),
+      emailOpened: numberValue((subscriberSummary as any).email_opened),
+      emailClicked: numberValue((subscriberSummary as any).email_clicked),
+      pushDelivered: numberValue((subscriberSummary as any).push_delivered),
+      pushClicked: numberValue((subscriberSummary as any).push_clicked),
+      daily: subscriberDailyRows.map((row: any) => ({
+        date: String(row.date ?? ""),
+        emailSubscribed: numberValue(row.email_subscribed),
+        emailUnsubscribed: numberValue(row.email_unsubscribed),
+        pushSubscribed: numberValue(row.push_subscribed),
+        pushUnsubscribed: numberValue(row.push_unsubscribed),
+        emailBounced: numberValue(row.email_bounced),
+        emailComplained: numberValue(row.email_complained),
+        emailOpened: numberValue(row.email_opened),
+        emailClicked: numberValue(row.email_clicked),
+        pushDelivered: numberValue(row.push_delivered),
+        pushClicked: numberValue(row.push_clicked),
       })),
     },
   };
@@ -254,7 +285,7 @@ export function recordPageView(
 export function recordCustomEvent(
   env: MetricsEnv,
   tenantId: number,
-  event: { name: "audio_start" | "audio_complete" | "engaged_read"; path: string; visitor: string; country: string; device: string; browser: string }
+  event: { name: "audio_start" | "audio_complete" | "engaged_read" | "email_subscribe_requested" | "email_subscribed" | "email_unsubscribed" | "push_subscribed" | "push_unsubscribed" | "email_bounced" | "email_complained" | "email_opened" | "email_clicked" | "email_delivered" | "push_delivered" | "push_clicked"; path: string; visitor: string; country: string; device: string; browser: string }
 ): void {
   env.EVENTS.writeDataPoint({
     indexes: [String(tenantId)],
