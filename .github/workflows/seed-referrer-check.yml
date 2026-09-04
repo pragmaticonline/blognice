@@ -28,15 +28,20 @@ jobs:
       - name: Seed fake pageview with referrer t.co and x.com
         run: |
           set -e
-          HOST=$(npx wrangler d1 execute blognice --remote --config wrangler.production.jsonc --json --command "SELECT coalesce(custom_domain, slug || '.blognice.com') as host FROM tenants WHERE public_id='${{ inputs.public_id }}';" | python3 -c "import sys,json; d=json.load(sys.stdin); rows=d[0]['results'] if isinstance(d,list) else []; print(rows[0]['host'] if rows else '')")
+          # hardcode host for known tenant id 1 (blognice), otherwise derive
+          TENANT_JSON=$(npx wrangler d1 execute blognice --remote --config wrangler.production.jsonc --json --command "SELECT id, slug, custom_domain FROM tenants WHERE public_id='${{ inputs.public_id }}';" 2>&1 | grep -o '\[.*\]' | head -n 1)
+          echo "Raw: $TENANT_JSON"
+          SLUG=$(echo "$TENANT_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['results'][0]['slug'] if d[0]['results'] else '')")
+          CUSTOM=$(echo "$TENANT_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); v=d[0]['results'][0].get('custom_domain'); print(v if v else '')")
+          echo "Slug: $SLUG Custom: $CUSTOM"
+          if [ -n "$CUSTOM" ]; then HOST="$CUSTOM"; else HOST="${SLUG}.blognice.com"; fi
+          # special: the blognice blog is served on blognice.blognice.com, keep as is
           echo "Host: $HOST"
-          if [ -z "$HOST" ]; then echo "no host"; exit 1; fi
-          # need visitor UUID and consent headers
+          if [ -z "$HOST" ] || [ "$HOST" = ".blognice.com" ]; then echo "no host"; exit 1; fi
           VISITOR=$(python3 -c "import uuid; print(uuid.uuid4())")
           echo "Visitor: $VISITOR"
           for REF in "https://t.co/test123" "https://x.com/test123"; do
             echo "Posting referrer $REF to https://$HOST/_blognice/metrics"
-            # try with consent header; origin must equal target origin
             curl -s -i -X POST "https://$HOST/_blognice/metrics" \
               -H "content-type: application/json" \
               -H "origin: https://$HOST" \
@@ -44,27 +49,31 @@ jobs:
               -d "{\"path\":\"/\",\"referrer\":\"$REF\",\"visitor\":\"$VISITOR\",\"consent\":\"v1\"}" || true
             echo "---"
           done
-          # second hit as google.com for variety
           curl -s -i -X POST "https://$HOST/_blognice/metrics" \
             -H "content-type: application/json" \
             -H "origin: https://$HOST" \
             -H "x-blognice-consent: v1" \
             -d "{\"path\":\"/\",\"referrer\":\"https://www.google.com/search?q=blognice\",\"visitor\":\"$VISITOR\",\"consent\":\"v1\"}" || true
+          echo "Seed done, waiting 5s for AE"
+          sleep 5
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Query metrics report via AE (last 30d referrers)
         run: |
-          # use node to call metricsReport helper via tsx if needed, but just query AE directly
           ACCOUNT_ID="${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
           TOKEN="${{ secrets.CLOUDFLARE_D1_API_TOKEN }}"
-          # get tenant id
-          TENANT_ID=$(npx wrangler d1 execute blognice --remote --config wrangler.production.jsonc --json --command "SELECT id FROM tenants WHERE public_id='${{ inputs.public_id }}';" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['results'][0]['id'])")
+          TENANT_JSON=$(npx wrangler d1 execute blognice --remote --config wrangler.production.jsonc --json --command "SELECT id FROM tenants WHERE public_id='${{ inputs.public_id }}';" 2>&1 | grep -o '\[.*\]' | head -n 1)
+          TENANT_ID=$(echo "$TENANT_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['results'][0]['id'])")
           echo "Tenant id: $TENANT_ID"
-          # query AE SQL
           QUERY="SELECT blob2 AS referrer, SUM(_sample_interval) AS views FROM blognice_pageviews WHERE index1 = '$TENANT_ID' AND timestamp >= NOW() - INTERVAL '30' DAY AND blob2 != '' GROUP BY referrer ORDER BY views DESC LIMIT 25"
           echo "Query: $QUERY"
           curl -s -X POST "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/analytics_engine/sql" \
             -H "authorization: Bearer $TOKEN" \
             -H "content-type: text/plain" \
             --data "$QUERY" | python3 -m json.tool || true
+          echo "--- also check via worker API if available ---"
+          # also try fetching /admin/b/$public_id/metrics authenticated? skip
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
