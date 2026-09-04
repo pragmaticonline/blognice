@@ -330,7 +330,7 @@ test("metrics report aggregates subscriber lifecycle daily and summary", async (
     assert.equal(report.subscribers.pushSubscribed, 7);
     assert.equal(report.subscribers.pushUnsubscribed, 1);
     assert.equal(report.subscribers.emailBounced, 0);
-    assert.deepEqual(report.subscribers.daily[0], { date: "2026-09-01", emailSubscribed: 2, emailUnsubscribed: 1, pushSubscribed: 3, pushUnsubscribed: 0, emailBounced: 0, emailComplained: 0, emailOpened: 0, emailClicked: 0, pushDelivered: 0, pushClicked: 0 });
+    assert.deepEqual(report.subscribers.daily[0], { date: "2026-09-01", emailSubscribed: 2, emailUnsubscribed: 1, pushSubscribed: 3, pushUnsubscribed: 0, emailBounced: 0, emailComplained: 0, emailOpened: 0, emailClicked: 0, pushDelivered: 0, pushClicked: 0, emailDelivered: 0, emailDelayed: 0, emailDeliveryFailed: 0, emailHeld: 0, domainDnsError: 0 });
     assert.ok(queries.some((q) => q.includes("email_subscribed") && q.includes("index1 = '7'")));
   } finally { globalThis.fetch = originalFetch; }
 });

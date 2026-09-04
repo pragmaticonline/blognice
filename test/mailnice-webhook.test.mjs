@@ -24,7 +24,8 @@ test("push click and delivered events are ledger-complete", () => {
   assert.match(index, /push_clicked/);
   assert.match(index, /push_delivered/);
   assert.match(index, /recordCustomEvent\(env as any, tenant\.id, \{ name: "push_delivered"/);
-  assert.match(fs.readFileSync("src/admin.ts","utf8"), /Subscribers/);
+  assert.match(fs.readFileSync("src/admin.ts","utf8"), /Audience/);
+  assert.match(fs.readFileSync("src/admin.ts","utf8"), /Notifications/);
   assert.match(fs.readFileSync("src/admin.ts","utf8"), /report\.subscribers\.emailSubscribed/);
   assert.match(index, /\/sw\.js.*notificationclick.*\/_blognice\/push\/click/s);
 });

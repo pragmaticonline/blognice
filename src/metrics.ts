@@ -53,7 +53,7 @@ export type MetricsReport = {
   devices: MetricBreakdown[];
   browsers: MetricBreakdown[];
   audio: { starts: number; completions: number; pages: AudioMetric[] };
-  subscribers: { emailSubscribed: number; emailUnsubscribed: number; pushSubscribed: number; pushUnsubscribed: number; emailBounced: number; emailComplained: number; emailOpened: number; emailClicked: number; pushDelivered: number; pushClicked: number; daily: Array<{ date: string; emailSubscribed: number; emailUnsubscribed: number; pushSubscribed: number; pushUnsubscribed: number; emailBounced: number; emailComplained: number; emailOpened: number; emailClicked: number; pushDelivered: number; pushClicked: number }> };
+  subscribers: { emailSubscribed: number; emailUnsubscribed: number; pushSubscribed: number; pushUnsubscribed: number; emailBounced: number; emailComplained: number; emailOpened: number; emailClicked: number; pushDelivered: number; pushClicked: number; emailDelivered: number; emailDelayed: number; emailDeliveryFailed: number; emailHeld: number; domainDnsError: number; emailTotal: number; pushTotal: number; daily: Array<{ date: string; emailSubscribed: number; emailUnsubscribed: number; pushSubscribed: number; pushUnsubscribed: number; emailBounced: number; emailComplained: number; emailOpened: number; emailClicked: number; pushDelivered: number; pushClicked: number; emailDelivered: number; emailDelayed: number; emailDeliveryFailed: number; emailHeld: number; domainDnsError: number }> };
 };
 
 type SqlResponse = { data?: Record<string, unknown>[]; errors?: unknown[] };
@@ -133,8 +133,8 @@ export function reportQueries(tenantId: number, days: number) {
     browsers: `SELECT blob6 AS name, ${views} AS views FROM ${METRICS_DATASET} WHERE ${where} AND blob6 != '' GROUP BY name ORDER BY views DESC LIMIT 10`,
     audioSummary: `SELECT sumIf(_sample_interval, blob1 = 'audio_start') AS starts, sumIf(_sample_interval, blob1 = 'audio_complete') AS completions FROM ${EVENTS_DATASET} WHERE ${where}`,
     audioPages: `SELECT blob2 AS path, sumIf(_sample_interval, blob1 = 'audio_start') AS starts, sumIf(_sample_interval, blob1 = 'audio_complete') AS completions FROM ${EVENTS_DATASET} WHERE ${where} AND blob1 IN ('audio_start', 'audio_complete') GROUP BY path ORDER BY starts DESC LIMIT 25`,
-    subscriberSummary: `SELECT sumIf(_sample_interval, blob1 = 'email_subscribed') AS email_subscribed, sumIf(_sample_interval, blob1 = 'email_unsubscribed') AS email_unsubscribed, sumIf(_sample_interval, blob1 = 'push_subscribed') AS push_subscribed, sumIf(_sample_interval, blob1 = 'push_unsubscribed') AS push_unsubscribed, sumIf(_sample_interval, blob1 = 'email_bounced') AS email_bounced, sumIf(_sample_interval, blob1 = 'email_complained') AS email_complained, sumIf(_sample_interval, blob1 = 'email_opened') AS email_opened, sumIf(_sample_interval, blob1 = 'email_clicked') AS email_clicked, sumIf(_sample_interval, blob1 = 'push_delivered') AS push_delivered, sumIf(_sample_interval, blob1 = 'push_clicked') AS push_clicked FROM ${EVENTS_DATASET} WHERE ${where} AND blob1 IN ('email_subscribe_requested', 'email_subscribed', 'email_unsubscribed', 'push_subscribed', 'push_unsubscribed', 'email_bounced', 'email_complained', 'email_opened', 'email_clicked', 'email_delivered', 'push_delivered', 'push_clicked')`,
-    subscriberDaily: `SELECT formatDateTime(timestamp, '%Y-%m-%d') AS date, sumIf(_sample_interval, blob1 = 'email_subscribed') AS email_subscribed, sumIf(_sample_interval, blob1 = 'email_unsubscribed') AS email_unsubscribed, sumIf(_sample_interval, blob1 = 'push_subscribed') AS push_subscribed, sumIf(_sample_interval, blob1 = 'push_unsubscribed') AS push_unsubscribed, sumIf(_sample_interval, blob1 = 'email_bounced') AS email_bounced, sumIf(_sample_interval, blob1 = 'email_complained') AS email_complained, sumIf(_sample_interval, blob1 = 'email_opened') AS email_opened, sumIf(_sample_interval, blob1 = 'email_clicked') AS email_clicked, sumIf(_sample_interval, blob1 = 'push_delivered') AS push_delivered, sumIf(_sample_interval, blob1 = 'push_clicked') AS push_clicked FROM ${EVENTS_DATASET} WHERE ${where} AND blob1 IN ('email_subscribe_requested', 'email_subscribed', 'email_unsubscribed', 'push_subscribed', 'push_unsubscribed', 'email_bounced', 'email_complained', 'email_opened', 'email_clicked', 'email_delivered', 'push_delivered', 'push_clicked') GROUP BY date ORDER BY date`,
+    subscriberSummary: `SELECT sumIf(_sample_interval, blob1 = 'email_subscribed') AS email_subscribed, sumIf(_sample_interval, blob1 = 'email_unsubscribed') AS email_unsubscribed, sumIf(_sample_interval, blob1 = 'push_subscribed') AS push_subscribed, sumIf(_sample_interval, blob1 = 'push_unsubscribed') AS push_unsubscribed, sumIf(_sample_interval, blob1 = 'email_bounced') AS email_bounced, sumIf(_sample_interval, blob1 = 'email_complained') AS email_complained, sumIf(_sample_interval, blob1 = 'email_opened') AS email_opened, sumIf(_sample_interval, blob1 = 'email_clicked') AS email_clicked, sumIf(_sample_interval, blob1 = 'push_delivered') AS push_delivered, sumIf(_sample_interval, blob1 = 'push_clicked') AS push_clicked, sumIf(_sample_interval, blob1 = 'email_delivered') AS email_delivered, sumIf(_sample_interval, blob1 = 'email_delayed') AS email_delayed, sumIf(_sample_interval, blob1 = 'email_delivery_failed') AS email_delivery_failed, sumIf(_sample_interval, blob1 = 'email_held') AS email_held, sumIf(_sample_interval, blob1 = 'domain_dns_error') AS domain_dns_error FROM ${EVENTS_DATASET} WHERE ${where} AND blob1 IN ('email_subscribe_requested', 'email_subscribed', 'email_unsubscribed', 'push_subscribed', 'push_unsubscribed', 'email_bounced', 'email_complained', 'email_opened', 'email_clicked', 'email_delivered', 'email_delayed', 'email_delivery_failed', 'email_held', 'domain_dns_error', 'push_delivered', 'push_clicked')`,
+    subscriberDaily: `SELECT formatDateTime(timestamp, '%Y-%m-%d') AS date, sumIf(_sample_interval, blob1 = 'email_subscribed') AS email_subscribed, sumIf(_sample_interval, blob1 = 'email_unsubscribed') AS email_unsubscribed, sumIf(_sample_interval, blob1 = 'push_subscribed') AS push_subscribed, sumIf(_sample_interval, blob1 = 'push_unsubscribed') AS push_unsubscribed, sumIf(_sample_interval, blob1 = 'email_bounced') AS email_bounced, sumIf(_sample_interval, blob1 = 'email_complained') AS email_complained, sumIf(_sample_interval, blob1 = 'email_opened') AS email_opened, sumIf(_sample_interval, blob1 = 'email_clicked') AS email_clicked, sumIf(_sample_interval, blob1 = 'push_delivered') AS push_delivered, sumIf(_sample_interval, blob1 = 'push_clicked') AS push_clicked, sumIf(_sample_interval, blob1 = 'email_delivered') AS email_delivered, sumIf(_sample_interval, blob1 = 'email_delayed') AS email_delayed, sumIf(_sample_interval, blob1 = 'email_delivery_failed') AS email_delivery_failed, sumIf(_sample_interval, blob1 = 'email_held') AS email_held, sumIf(_sample_interval, blob1 = 'domain_dns_error') AS domain_dns_error FROM ${EVENTS_DATASET} WHERE ${where} AND blob1 IN ('email_subscribe_requested', 'email_subscribed', 'email_unsubscribed', 'push_subscribed', 'push_unsubscribed', 'email_bounced', 'email_complained', 'email_opened', 'email_clicked', 'email_delivered', 'email_delayed', 'email_delivery_failed', 'email_held', 'domain_dns_error', 'push_delivered', 'push_clicked') GROUP BY date ORDER BY date`,
   };
 }
 
@@ -172,6 +172,18 @@ export async function metricsReport(
   const summary = summaryRows[0] ?? {};
   const audioSummary = audioSummaryRows[0] ?? {};
   const subscriberSummary = subscriberSummaryRows[0] ?? {};
+  let emailTotal = 0;
+  let pushTotal = 0;
+  if (env.DB) {
+    try {
+      const e = await env.DB.prepare("SELECT COUNT(*) as cnt FROM subscribers WHERE tenant_id = ? AND confirmed_at IS NOT NULL").bind(tenantId).first<{ cnt: number }>();
+      if (e && typeof e.cnt === "number") emailTotal = e.cnt;
+    } catch {}
+    try {
+      const r = await env.DB.prepare("SELECT COUNT(*) as cnt FROM push_subscriptions WHERE tenant_id = ?").bind(tenantId).first<{ cnt: number }>();
+      if (r && typeof r.cnt === "number") pushTotal = r.cnt;
+    } catch {}
+  }
   return {
     days: safeDays,
     summary: {
@@ -215,6 +227,13 @@ export async function metricsReport(
       emailClicked: numberValue((subscriberSummary as any).email_clicked),
       pushDelivered: numberValue((subscriberSummary as any).push_delivered),
       pushClicked: numberValue((subscriberSummary as any).push_clicked),
+      emailDelivered: numberValue((subscriberSummary as any).email_delivered),
+      emailDelayed: numberValue((subscriberSummary as any).email_delayed),
+      emailDeliveryFailed: numberValue((subscriberSummary as any).email_delivery_failed),
+      emailHeld: numberValue((subscriberSummary as any).email_held),
+      domainDnsError: numberValue((subscriberSummary as any).domain_dns_error),
+      emailTotal: emailTotal,
+      pushTotal: pushTotal,
       daily: subscriberDailyRows.map((row: any) => ({
         date: String(row.date ?? ""),
         emailSubscribed: numberValue(row.email_subscribed),
@@ -227,6 +246,11 @@ export async function metricsReport(
         emailClicked: numberValue(row.email_clicked),
         pushDelivered: numberValue(row.push_delivered),
         pushClicked: numberValue(row.push_clicked),
+        emailDelivered: numberValue(row.email_delivered),
+        emailDelayed: numberValue(row.email_delayed),
+        emailDeliveryFailed: numberValue(row.email_delivery_failed),
+        emailHeld: numberValue(row.email_held),
+        domainDnsError: numberValue(row.domain_dns_error),
       })),
     },
   };
