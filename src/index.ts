@@ -141,7 +141,7 @@ import { assignAndExposeFunnelExperimentInDb, associateFunnelExperimentSignupInD
 import { getAffiliateDashboardInDb, type AffiliateDashboard } from "./affiliate-dashboard";
 import { enqueueAffiliateEnrollmentEmailInDb, relayAffiliateEmailOutboxInDb } from "./affiliate-notifications";
 import { renderMarkdown as renderMarkdownSafe } from "./markdown";
-import { buildSitemapIndexXml, cacheVariants, CACHE_VERSION, customDomainRedirectUrl, indexNowKey } from "./indexing";
+import { buildSitemapIndexXml, buildShardSitemapIndexXml, buildMasterSitemapIndexXml, MASTER_SITEMAP_PAGE_SIZE, cacheVariants, CACHE_VERSION, customDomainRedirectUrl, indexNowKey } from "./indexing";
 import { AI_MARKDOWN_TEXT_MAX, confidentLocalMarkdownFormat, conservativeMarkdownFallback, formatObviousStructures, markdownFormattingMessages, markdownFormattingRetryMessages, markdownOutputTokenBudget, normalizedMarkdownResponse, preservesAuthorTokens } from "./ai-markdown";
 import { applySubscriberConfirmation, requestSubscriberConfirmation } from "./subscriber-optin";
 import { refreshPostPopularity } from "./popularity";
@@ -568,6 +568,18 @@ async function purgeTenantEverywhere(
     .all<{ slug: string }>();
   const paths = ["/", "/sitemap.xml", "/rss.xml", ...results.map((r) => "/" + r.slug)];
   await purgeTenant(env, tenant, paths);
+}
+
+async function purgeMasterSitemap(env: Bindings): Promise<void> {
+  const wwwHost = `www.${env.ROOT_DOMAIN}`;
+  const basePaths = ["/sitemap-index.xml"];
+  try {
+    const countRow = await env.DB.prepare("SELECT COUNT(*) as count FROM tenants WHERE slug <> 'www'").first<{ count: number }>();
+    const total = countRow?.count ?? 0;
+    const shardCount = Math.max(1, Math.ceil(total / MASTER_SITEMAP_PAGE_SIZE));
+    for (let i = 1; i <= Math.min(shardCount, 100); i++) basePaths.push(`/sitemaps/blogs/${i}.xml`);
+  } catch {}
+  await purgeHost(wwwHost, basePaths);
 }
 
 // A blog's canonical public origin (its custom domain if set, else subdomain).
@@ -1104,10 +1116,41 @@ app.get("/sitemap-index.xml", async (c) => {
   const host = new URL(c.req.url).hostname.toLowerCase();
   if (host !== `www.${c.env.ROOT_DOMAIN}`.toLowerCase()) return c.text("Not found", 404);
   return serveCached(c, async () => {
+    const countRow = await c.env.DB.prepare(
+      "SELECT COUNT(*) as count FROM tenants WHERE slug <> 'www'"
+    ).first<{ count: number }>();
+    const total = countRow?.count ?? 0;
+    const shardCount = Math.max(1, Math.ceil(total / MASTER_SITEMAP_PAGE_SIZE));
+    if (total <= MASTER_SITEMAP_PAGE_SIZE) {
+      const { results } = await c.env.DB.prepare(
+        "SELECT slug, custom_domain FROM tenants WHERE slug <> 'www' ORDER BY created_at LIMIT ?"
+      ).bind(MASTER_SITEMAP_PAGE_SIZE).all<{ slug: string; custom_domain: string | null }>();
+      const xml = buildShardSitemapIndexXml(results, c.env.ROOT_DOMAIN);
+      return new Response(xml, { headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=300" } });
+    }
+    const xml = buildMasterSitemapIndexXml(shardCount, c.env.ROOT_DOMAIN);
+    return new Response(xml, { headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=300" } });
+  });
+});
+
+app.get("/sitemaps/blogs/:page", async (c) => {
+  const host = new URL(c.req.url).hostname.toLowerCase();
+  if (host !== `www.${c.env.ROOT_DOMAIN}`.toLowerCase()) return c.text("Not found", 404);
+  const pageParam = String(c.req.param("page") || "").replace(/\.xml$/i, "");
+  const page = Number(pageParam);
+  if (!Number.isInteger(page) || page < 1) return c.text("Not found", 404);
+  return serveCached(c, async () => {
+    const countRow = await c.env.DB.prepare(
+      "SELECT COUNT(*) as count FROM tenants WHERE slug <> 'www'"
+    ).first<{ count: number }>();
+    const total = countRow?.count ?? 0;
+    const shardCount = Math.max(1, Math.ceil(total / MASTER_SITEMAP_PAGE_SIZE));
+    if (page > shardCount) return new Response("Not found", { status: 404 });
+    const offset = (page - 1) * MASTER_SITEMAP_PAGE_SIZE;
     const { results } = await c.env.DB.prepare(
-      "SELECT slug FROM tenants WHERE custom_domain IS NULL AND slug <> 'www' ORDER BY created_at"
-    ).all<{ slug: string }>();
-    const xml = buildSitemapIndexXml(results.map((tenant) => tenant.slug), c.env.ROOT_DOMAIN);
+      "SELECT slug, custom_domain FROM tenants WHERE slug <> 'www' ORDER BY created_at LIMIT ? OFFSET ?"
+    ).bind(MASTER_SITEMAP_PAGE_SIZE, offset).all<{ slug: string; custom_domain: string | null }>();
+    const xml = buildShardSitemapIndexXml(results, c.env.ROOT_DOMAIN);
     return new Response(xml, { headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=300" } });
   });
 });
@@ -1914,6 +1957,7 @@ app.post("/api/v1/blogs", async (c) => {
   await c.env.DB.prepare("INSERT INTO memberships (account_id, tenant_id, role, created_at) VALUES (?, ?, 'owner', ?)").bind(account.id, blogId, now).run();
   const tenant = await c.env.DB.prepare("SELECT * FROM tenants WHERE id = ?").bind(blogId).first<Tenant>();
   queueBlogAudit(c, blogId, account.id, "blog_created", slug);
+  c.executionCtx.waitUntil(purgeMasterSitemap(c.env).catch(() => {}));
   return c.json({ blog: { public_id: publicId, slug: tenant?.slug ?? slug, title: tenant?.title ?? title, description: "", accent_color: DEFAULT_ACCENT_COLOR, topics: [], social_links: {}, browser_push_enabled: true, header_link_url: "/", created_at: now } }, 201);
 });
 
@@ -2845,6 +2889,7 @@ app.post("/admin/new-blog", async (c) => {
   )
     .bind(account.id, blogId, now)
     .run();
+  c.executionCtx.waitUntil(purgeMasterSitemap(c.env).catch(() => {}));
 
   return c.redirect(`/admin/b/${publicId}`);
 });
@@ -5039,6 +5084,7 @@ app.post("/signup", async (c) => {
   )
     .bind(accountId, blogId, now)
     .run();
+  c.executionCtx.waitUntil(purgeMasterSitemap(c.env).catch(() => {}));
   const affiliateCookieSecrets = String(c.env.AFFILIATE_REFERRAL_COOKIE_SECRETS || "").split(",").map((secret) => secret.trim()).filter(Boolean);
   if (affiliateCookieSecrets.length) {
     const capturedReferral = await captureSignupReferral(c.req.raw, c.env.DB, accountId, affiliateCookieSecrets, now);
