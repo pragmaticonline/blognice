@@ -5951,6 +5951,14 @@ app.get("/press-kit.zip", async (c) => {
     { name: "boilerplate.txt", data: new TextEncoder().encode(boilerplate) },
     { name: "README.txt", data: placeholder },
   ];
+  const crc32 = (data: Uint8Array): number => {
+    let crc = 0xffffffff;
+    for (let i = 0; i < data.length; i++) {
+      crc ^= data[i]!;
+      for (let j = 0; j < 8; j++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+    }
+    return (crc ^ 0xffffffff) >>> 0;
+  };
   // Minimal ZIP generation
   const enc = new TextEncoder();
   let fileData = new Uint8Array(0);
@@ -5961,12 +5969,13 @@ app.get("/press-kit.zip", async (c) => {
     const nameBytes = enc.encode(f.name);
     const header = new Uint8Array(30 + nameBytes.length);
     const view = new DataView(header.buffer);
-    view.setUint32(0, 0x04034b50, true); view.setUint16(4, 20, true); view.setUint16(6, 0, true); view.setUint16(8, 0, true); view.setUint16(10, 0, true); view.setUint16(12, 0, true); view.setUint32(14, 0, true); view.setUint32(18, f.data.length, true); view.setUint32(22, f.data.length, true); view.setUint16(26, nameBytes.length, true); view.setUint16(28, 0, true);
+    view.setUint32(0, 0x04034b50, true); view.setUint16(4, 20, true); view.setUint16(6, 0, true); view.setUint16(8, 0, true); view.setUint16(10, 0, true); view.setUint16(12, 0, true); const crc = crc32(f.data);
+    view.setUint32(14, crc, true); view.setUint32(18, f.data.length, true); view.setUint32(22, f.data.length, true); view.setUint16(26, nameBytes.length, true); view.setUint16(28, 0, true);
     header.set(nameBytes, 30);
     const local = concat2(header as Uint8Array, f.data);
     const centralHeader = new Uint8Array(46 + nameBytes.length);
     const cv = new DataView(centralHeader.buffer);
-    cv.setUint32(0, 0x02014b50, true); cv.setUint16(4, 20, true); cv.setUint16(6, 20, true); cv.setUint16(8, 0, true); cv.setUint16(10, 0, true); cv.setUint16(12, 0, true); cv.setUint32(14, 0, true); cv.setUint32(18, f.data.length, true); cv.setUint32(22, f.data.length, true); cv.setUint16(26, nameBytes.length, true); cv.setUint16(28, 0, true); cv.setUint16(30, 0, true); cv.setUint16(32, 0, true); cv.setUint16(34, 0, true); cv.setUint32(38, 0, true); cv.setUint32(42, offset, true);
+    cv.setUint32(0, 0x02014b50, true); cv.setUint16(4, 20, true); cv.setUint16(6, 20, true); cv.setUint16(8, 0, true); cv.setUint16(10, 0, true); cv.setUint16(12, 0, true); cv.setUint32(14, crc, true); cv.setUint32(18, f.data.length, true); cv.setUint32(22, f.data.length, true); cv.setUint16(26, nameBytes.length, true); cv.setUint16(28, 0, true); cv.setUint16(30, 0, true); cv.setUint16(32, 0, true); cv.setUint16(34, 0, true); cv.setUint32(38, 0, true); cv.setUint32(42, offset, true);
     centralHeader.set(nameBytes, 46);
     // @ts-ignore
     fileData = concat2(fileData, local);
