@@ -5954,7 +5954,7 @@ app.get("/press/2026-09-blognice-launch.pdf", (c) => {
     "portability, custom domain support, and optional AI-assisted tools for image generation and audio narration.",
     "",
     "The launch addresses a growing demand among online creators seeking simplicity without sacrificing data control.",
-    "While WordPress is used by 40.7% of all websites (58.9% of sites with a known CMS) according to W3Techs (w3techs.com/technologies/details/cm-wordpress, Sept 7, 2026), many creators",
+    "While WordPress is used by 40.7% of all websites according to W3Techs (w3techs.com/technologies/details/cm-wordpress, Sept 7, 2026), many creators",
     "struggle with security updates, plugin fatigue, and rising hosting costs.",
     "",
     "\"Independent publishing should be straightforward without requiring creators to hand over data control or",
