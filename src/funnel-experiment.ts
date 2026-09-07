@@ -209,16 +209,16 @@ export function renderAffiliateOfferPage(
 ): string {
   const canonical = `https://www.${rootDomain}/affiliate-offer`;
   const control = homepage
-    .replace("<title>blognice — A nicer way to blog</title>", "<title>10% off Blognice for 12 months</title>")
+    .replace("<title>Blognice: Open-Source, Privacy-First Blogging Platform for Managing Multiple Blogs</title>", "<title>10% off Blognice for 12 months</title>")
     .replace(
       '<meta name="description" content="Create beautiful, fast blogs without hosting, plugins, updates, or technical maintenance.">',
       '<meta name="description" content="Start a beautiful Blognice blog and save 10% on your first 12 paid months.">\n<meta name="robots" content="noindex,follow">',
     )
     .replace('<link rel="canonical" href="https://www.blognice.com/">', `<link rel="canonical" href="${canonical}">`)
-    .replace('<meta property="og:title" content="blognice — A nicer way to blog">', '<meta property="og:title" content="Save 10% on Blognice for 12 months">')
+    .replace('<meta property="og:title" content="Blognice: Open-Source, Privacy-First Blogging Platform for Managing Multiple Blogs">', '<meta property="og:title" content="Save 10% on Blognice for 12 months">')
     .replace('<meta property="og:description" content="Create beautiful, fast blogs without hosting, plugins, updates, or technical maintenance.">', '<meta property="og:description" content="Start writing on Blognice and receive 10% off your first 12 paid months.">')
     .replace('<meta property="og:url" content="https://www.blognice.com/">', `<meta property="og:url" content="${canonical}">`)
-    .replace('<meta name="twitter:title" content="blognice — A nicer way to blog">', '<meta name="twitter:title" content="Save 10% on Blognice for 12 months">')
+    .replace('<meta name="twitter:title" content="Blognice: Open-Source, Privacy-First Blogging Platform for Managing Multiple Blogs">', '<meta name="twitter:title" content="Save 10% on Blognice for 12 months">')
     .replace('<meta name="twitter:description" content="Create beautiful, fast blogs without hosting, plugins, updates, or technical maintenance.">', '<meta name="twitter:description" content="Start writing on Blognice and receive 10% off your first 12 paid months.">')
     .replaceAll("https://www.blognice.com/signup", "/signup")
     .replaceAll("https://www.blognice.com/admin/login", "/admin/login")
