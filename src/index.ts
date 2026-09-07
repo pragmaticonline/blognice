@@ -5946,7 +5946,7 @@ app.get("/press-kit", (c) => c.redirect("/press", 301));
 app.get("/newsroom", (c) => c.redirect("/press", 301));
 app.get("/press-kit.zip", async (c) => {
   const boilerplate = "Blognice is a deliberately simple, affordable blogging platform — no hosting, plugins, updates, or control panels to assemble, just choose an address and start writing — for independent writers, creators, and small businesses. Users manage up to 5 blogs from one account, publish unlimited posts with custom domains, invite collaborators per blog, and use optional AI assistance for editorial images and audio narration. Available as hosted service at founding member $36/year ($3/mo) or $5/mo for first 1,000 members — planned standard $119/year — and free open-source self-host. Privacy by design, creator ownership and editorial independence — no ads/tracking, you own your content and subscribers with export/API.";
-  const placeholder = new TextEncoder().encode("Press kit placeholder - logos PNG/SVG dark+light, 3 screenshots, Ray headshot available at https://blognice.com/press\n" + boilerplate);
+  const placeholder = new TextEncoder().encode("Press kit placeholder - logos PNG/SVG dark+light, 3 screenshots, Founder Ray Vahey headshot available at https://blognice.com/press\n" + boilerplate);
   const files: Array<{ name: string; data: Uint8Array }> = [
     { name: "boilerplate.txt", data: new TextEncoder().encode(boilerplate) },
     { name: "README.txt", data: placeholder },
