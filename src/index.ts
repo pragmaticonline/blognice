@@ -97,6 +97,8 @@ import termsPageSource from "../terms.html";
 import affiliateTermsPage from "../affiliate-terms.html";
 import cookiesPage from "../cookies.html";
 import securityPage from "../security.html";
+import pressPage from "../press.html";
+import pressLaunchPage from "../press-launch.html";
 
 // Keep the published legal text aligned with the maintained policy sources.
 // Resend is no longer an email provider, and the Terms avoid subjective
@@ -751,6 +753,10 @@ app.use("*", async (c, next) => {
   const requestUrl = new URL(c.req.url);
   const host = requestUrl.hostname.toLowerCase();
   if (host === c.env.ROOT_DOMAIN.toLowerCase()) {
+    const pathname = requestUrl.pathname;
+    if (pathname === "/press" || pathname.startsWith("/press/") || pathname === "/press-kit" || pathname === "/press-kit.zip" || pathname === "/newsroom") {
+      return next();
+    }
     return c.redirect(
       `https://www.${c.env.ROOT_DOMAIN}${requestUrl.pathname}${requestUrl.search}`,
       301
@@ -823,6 +829,110 @@ app.get("/robots.txt", (c) => {
   const sitemap = host === `www.${c.env.ROOT_DOMAIN}`.toLowerCase() ? "/sitemap-index.xml" : "/sitemap.xml";
   const body = `User-agent: *\nAllow: /\nSitemap: ${originOf(c)}${sitemap}\n`;
   return c.text(body);
+});
+
+function llmsEscape(s: string): string {
+  return String(s || "").replace(/\r?\n/g, " ").trim().slice(0, 300);
+}
+
+app.get("/llms.txt", async (c) => {
+  return serveCached(c, async () => {
+    const host = new URL(c.req.url).hostname.toLowerCase();
+    const isWww = host === `www.${c.env.ROOT_DOMAIN}`.toLowerCase();
+    if (isWww) {
+      const { results } = await c.env.DB.prepare(
+        "SELECT slug, custom_domain, title, description FROM tenants WHERE slug <> 'www' ORDER BY created_at DESC LIMIT 50"
+      ).all<{ slug: string; custom_domain: string | null; title: string; description: string }>();
+      const origin = originOf(c);
+      const lines = [
+        "# BlogNice",
+        "> BlogNice is a multi-tenant blogging platform. Each blog lives at its own subdomain or custom domain.",
+        "",
+        `> Site: ${origin}/`,
+        `> Sitemap: ${origin}/sitemap-index.xml`,
+        "",
+        "## Blogs",
+        ...results.map((t) => {
+          const url = t.custom_domain ? `https://${t.custom_domain.trim().toLowerCase()}` : `https://${t.slug}.${c.env.ROOT_DOMAIN}`;
+          const desc = llmsEscape(t.description) || llmsEscape(t.title);
+          return `- [${llmsEscape(t.title)}](${url}/): ${desc}`;
+        }),
+        "",
+        "## Resources",
+        `- [Create a blog](${origin}/signup)`,
+        `- [Sitemap index](${origin}/sitemap-index.xml)`,
+        `- [Full content](${origin}/llms-full.txt)`,
+      ];
+      return new Response(lines.join("\n") + "\n", { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300" } });
+    }
+    const tenant = await resolveTenant(c.env, c.req.header("host") || "");
+    if (!tenant) return new Response("Not found", { status: 404 });
+    const origin = `https://${tenant.custom_domain || `${tenant.slug}.${c.env.ROOT_DOMAIN}`}`;
+    const { results } = await tenantDb(c.env, tenant).prepare(
+      "SELECT slug, title, body_md FROM posts WHERE tenant_id = ? AND published = 1 ORDER BY created_at DESC LIMIT 50"
+    ).bind(tenant.id).all<{ slug: string; title: string; body_md: string }>();
+    const lines = [
+      `# ${llmsEscape(tenant.title) || tenant.slug}`,
+      tenant.description ? `> ${llmsEscape(tenant.description)}` : "",
+      "",
+      `> Site: ${origin}/`,
+      `> Sitemap: ${origin}/sitemap.xml`,
+      `> RSS: ${origin}/rss.xml`,
+      "",
+      "## Posts",
+      ...(results.length ? results.map((post) => `- [${llmsEscape(post.title)}](${origin}/${post.slug}): ${llmsEscape(post.body_md.slice(0, 200))}`) : ["- No published posts yet."]),
+      "",
+      "## Resources",
+      `- [Full content](${origin}/llms-full.txt)`,
+    ].filter((line) => line !== "");
+    return new Response(lines.join("\n") + "\n", { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300" } });
+  });
+});
+
+app.get("/llms-full.txt", async (c) => {
+  return serveCached(c, async () => {
+    const host = new URL(c.req.url).hostname.toLowerCase();
+    const isWww = host === `www.${c.env.ROOT_DOMAIN}`.toLowerCase();
+    if (isWww) {
+      const { results } = await c.env.DB.prepare(
+        "SELECT slug, custom_domain, title, description FROM tenants WHERE slug <> 'www' ORDER BY created_at DESC LIMIT 50"
+      ).all<{ slug: string; custom_domain: string | null; title: string; description: string }>();
+      const origin = originOf(c);
+      const lines = [
+        "# BlogNice - Full",
+        "> Complete content directory for AI discovery.",
+        "",
+        ...results.map((t) => {
+          const url = t.custom_domain ? `https://${t.custom_domain.trim().toLowerCase()}` : `https://${t.slug}.${c.env.ROOT_DOMAIN}`;
+          return `## ${llmsEscape(t.title)}\n> ${llmsEscape(t.description)}\n- URL: ${url}/\n- Sitemap: ${url}/sitemap.xml\n- LLMs: ${url}/llms.txt`;
+        }),
+        "",
+        `Sitemap: ${origin}/sitemap-index.xml`,
+      ];
+      return new Response(lines.join("\n") + "\n", { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300" } });
+    }
+    const tenant = await resolveTenant(c.env, c.req.header("host") || "");
+    if (!tenant) return new Response("Not found", { status: 404 });
+    const origin = `https://${tenant.custom_domain || `${tenant.slug}.${c.env.ROOT_DOMAIN}`}`;
+    const { results } = await tenantDb(c.env, tenant).prepare(
+      "SELECT slug, title, body_md FROM posts WHERE tenant_id = ? AND published = 1 ORDER BY created_at DESC LIMIT 100"
+    ).bind(tenant.id).all<{ slug: string; title: string; body_md: string }>();
+    const lines = [
+      `# ${llmsEscape(tenant.title) || tenant.slug} - Full`,
+      tenant.description ? `> ${llmsEscape(tenant.description)}` : "",
+      "",
+      `Site: ${origin}/`,
+      "",
+      ...results.flatMap((post) => [
+        `## ${llmsEscape(post.title)}`,
+        `URL: ${origin}/${post.slug}`,
+        "",
+        llmsEscape(post.body_md.slice(0, 8000)),
+        "",
+      ]),
+    ].filter((line) => line !== "");
+    return new Response(lines.join("\n") + "\n", { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300" } });
+  });
 });
 
 app.get("/favicon.svg", async (c) => {
@@ -5813,6 +5923,125 @@ app.get("/affiliate-terms", (c) => legalPage(c, affiliateTermsPage));
 app.get("/cookies", (c) => legalPage(c, cookiesPage));
 app.get("/security", (c) => legalPage(c, securityPage));
 app.get("/policies", (c) => legalPage(c, policiesPage));
+
+app.get("/press", (c) => {
+  return new Response(pressPage, {
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60, s-maxage=300" },
+  });
+});
+
+app.get("/press/2026-09-blognice-launch", (c) => {
+  return new Response(pressLaunchPage, {
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60, s-maxage=300" },
+  });
+});
+
+app.get("/press/2026-09-blognice-launch.pdf", (c) => {
+  const lines = [
+    "FOR IMMEDIATE RELEASE",
+    "",
+    "Blognice Launches Open-Source, Privacy-First Blogging Platform Focused on Content Ownership",
+    "",
+    "CHIANG MAI, Thailand - September 8, 2026 - Blognice (https://blognice.com) today announced the public launch",
+    "of its open-source blogging platform designed for independent writers, creators, and small businesses.",
+    "Available both as a free self-hosted open-source platform and as a fully managed hosted service, Blognice",
+    "offers a simple, privacy-focused alternative to complex web publishing tools.",
+    "",
+    "The platform eliminates maintenance overhead such as server management, plugin compatibility issues, and complex",
+    "control panels. From a single account, users can launch and manage up to five independent blogs using custom",
+    "domains, publish unlimited posts, invite collaborators per blog with role-based access, and retain full",
+    "ownership of their content and subscriber lists. Key features include integrated Markdown editing, full data",
+    "portability, custom domain support, and optional AI-assisted tools for image generation and audio narration.",
+    "",
+    "The launch addresses a growing demand among online creators seeking simplicity without sacrificing data control.",
+    "While traditional platforms like WordPress power over 43% of the web according to W3Techs, many creators",
+    "struggle with security updates, plugin fatigue, and rising hosting costs.",
+    "",
+    "\"Independent publishing should be straightforward without requiring creators to hand over data control or",
+    "manage complicated software,\" said Ray Vahey, founder of Blognice. \"We designed Blognice to provide the",
+    "ownership of self-hosted software with the convenience of a modern, distraction-free publishing workflow.\"",
+    "",
+    "The Blognice managed platform is available today at https://blognice.com. The open-source edition is freely",
+    "available for self-hosting on GitHub at github.com/pragmaticonline/blognice. Additional information and",
+    "press assets are available at https://blognice.com/press.",
+    "",
+    "About Blognice",
+    "Blognice is a privacy-first blogging platform built for independent writers, creators, and small businesses.",
+    "Founded in 2026 by Ray Vahey, Blognice combines lightweight web publishing, multi-blog account management",
+    "with per-blog collaborators, and native privacy compliance without tracking or advertisements. Learn more at https://blognice.com/press",
+    "",
+    "Media Contact:",
+    "Ray Vahey",
+    "press@blognice.com",
+    "https://blognice.com/press",
+  ];
+  let stream = "BT\n/F1 9 Tf\n";
+  let y = 750;
+  for (const line of lines) {
+    const esc = line.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)").slice(0, 110);
+    stream += `1 0 0 1 40 ${y} Tm (${esc}) Tj\n`;
+    y -= 12;
+    if (y < 30) { stream += "ET\nBT\n/F1 9 Tf\n"; y = 750; }
+  }
+  stream += "ET\n";
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> /Contents 4 0 R >>",
+    `<< /Length ${new TextEncoder().encode(stream).length} >>\nstream\n${stream}\nendstream`,
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets: number[] = [0];
+  for (let i = 0; i < objects.length; i++) {
+    offsets.push(new TextEncoder().encode(pdf).length);
+    pdf += `${i + 1} 0 obj\n${objects[i]}\nendobj\n`;
+  }
+  const xref = new TextEncoder().encode(pdf).length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (let i = 1; i < offsets.length; i++) pdf += `${String(offsets[i]).padStart(10, "0")} 00000 n \n`;
+  pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  return new Response(pdf, { headers: { "content-type": "application/pdf", "content-disposition": 'inline; filename="2026-09-blognice-launch.pdf"', "cache-control": "public, max-age=86400" } });
+});
+
+app.get("/press-kit", (c) => c.redirect("/press", 301));
+app.get("/newsroom", (c) => c.redirect("/press", 301));
+app.get("/press-kit.zip", async (c) => {
+  const boilerplate = "Blognice is a deliberately simple, affordable blogging platform — no hosting, plugins, updates, or control panels to assemble, just choose an address and start writing — for independent writers, creators, and small businesses. Users manage up to 5 blogs from one account, publish unlimited posts with custom domains, invite collaborators per blog, and use optional AI assistance for editorial images and audio narration. Available as hosted service at founding member $36/year ($3/mo) or $5/mo for first 1,000 members — planned standard $119/year — and free open-source self-host. Privacy by design, editorial independence — no ads/tracking, your content via export/API.";
+  const placeholder = new TextEncoder().encode("Press kit placeholder - logos PNG/SVG dark+light, 3 screenshots, Ray headshot, PDF + boilerplate.txt available at https://blognice.com/press\n" + boilerplate);
+  const files: Array<{ name: string; data: Uint8Array }> = [
+    { name: "boilerplate.txt", data: new TextEncoder().encode(boilerplate) },
+    { name: "README.txt", data: placeholder },
+  ];
+  // Minimal ZIP generation
+  const enc = new TextEncoder();
+  let fileData = new Uint8Array(0);
+  let central = new Uint8Array(0);
+  let offset = 0;
+  const concat2 = (a: Uint8Array, b: Uint8Array): Uint8Array => { const r = new Uint8Array(a.length + b.length); r.set(a); r.set(b, a.length); return r; };
+  for (const f of files) {
+    const nameBytes = enc.encode(f.name);
+    const header = new Uint8Array(30 + nameBytes.length);
+    const view = new DataView(header.buffer);
+    view.setUint32(0, 0x04034b50, true); view.setUint16(4, 20, true); view.setUint16(6, 0, true); view.setUint16(8, 0, true); view.setUint16(10, 0, true); view.setUint16(12, 0, true); view.setUint32(14, 0, true); view.setUint32(18, f.data.length, true); view.setUint32(22, f.data.length, true); view.setUint16(26, nameBytes.length, true); view.setUint16(28, 0, true);
+    header.set(nameBytes, 30);
+    const local = concat2(header as Uint8Array, f.data);
+    const centralHeader = new Uint8Array(46 + nameBytes.length);
+    const cv = new DataView(centralHeader.buffer);
+    cv.setUint32(0, 0x02014b50, true); cv.setUint16(4, 20, true); cv.setUint16(6, 20, true); cv.setUint16(8, 0, true); cv.setUint16(10, 0, true); cv.setUint16(12, 0, true); cv.setUint32(14, 0, true); cv.setUint32(18, f.data.length, true); cv.setUint32(22, f.data.length, true); cv.setUint16(26, nameBytes.length, true); cv.setUint16(28, 0, true); cv.setUint16(30, 0, true); cv.setUint16(32, 0, true); cv.setUint16(34, 0, true); cv.setUint32(38, 0, true); cv.setUint32(42, offset, true);
+    centralHeader.set(nameBytes, 46);
+    // @ts-ignore
+    fileData = concat2(fileData, local);
+    // @ts-ignore
+    central = concat2(central, centralHeader);
+    offset += local.length;
+  }
+  const eocd = new Uint8Array(22);
+  const ev = new DataView(eocd.buffer);
+  ev.setUint32(0, 0x06054b50, true); ev.setUint16(4, 0, true); ev.setUint16(6, 0, true); ev.setUint16(8, files.length, true); ev.setUint16(10, files.length, true); ev.setUint32(12, central.length, true); ev.setUint32(16, fileData.length, true); ev.setUint16(20, 0, true);
+  // @ts-ignore
+  const zip = concat2(concat2(fileData, central), eocd);
+  return new Response(zip, { headers: { "content-type": "application/zip", "content-disposition": 'attachment; filename="press-kit.zip"', "cache-control": "public, max-age=3600" } });
+});
 
 app.get("/.well-known/security.txt", (c) => {
   const host = new URL(c.req.url).hostname.toLowerCase();

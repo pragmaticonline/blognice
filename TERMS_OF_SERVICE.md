@@ -2,7 +2,7 @@
 
 **blognice** is operated by Pragmatic Online Co., Ltd., a company registered in Thailand.
 
-**Last updated: August 2026**
+**Last updated: September 2026**
 
 By creating or using a blognice account, you agree to these terms.
 
@@ -16,7 +16,7 @@ You must be at least 13 years old to create an account. Keep your password and A
 
 ## 3. Plans, credits, and payment
 
-The free plan currently includes one blognice subdomain blog and does not include AI generation, collaborators, custom domains, or API access. Pro currently costs $5 per month or $36 per year, subject to the price shown at checkout. Pro includes the additional features shown in the account billing page and a monthly allowance of 1,000 AI credits. Image and audio operations consume credits as displayed in the product; unused credits do not roll over.
+The free plan currently includes one blognice subdomain blog and does not include AI generation, collaborators, custom domains, or API access. We may display promotions for BlogNice and related Pragmatic Online products on free blogs. Blogs on a paid plan do not display these promotions. Pro currently costs $5 per month or $36 per year, subject to the price shown at checkout. Pro includes the additional features shown in the account billing page and a monthly allowance of 1,000 AI credits. Image and audio operations consume credits as displayed in the product; unused credits do not roll over.
 
 Monthly and card payments are processed through Stripe and renew until cancelled. Annual cryptocurrency payments are prepaid through NOWPayments and do not automatically renew. Taxes, currency conversion, network fees, and provider charges may apply where stated at checkout.
 
