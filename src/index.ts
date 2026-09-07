@@ -5936,76 +5936,9 @@ app.get("/press/2026-09-blognice-launch", (c) => {
   });
 });
 
-app.get("/press/2026-09-blognice-launch.pdf", (c) => {
-  const lines = [
-    "FOR IMMEDIATE RELEASE",
-    "",
-    "Blognice Launches Open-Source, Privacy-First Blogging Platform Focused on Content Ownership",
-    "",
-    "CHIANG MAI, Thailand - September 8, 2026 - Pragmatic Online Co., Ltd. today announced the public launch of",
-    "Blognice (https://blognice.com), its open-source blogging platform designed for independent writers,",
-    "creators, and small businesses.",
-    "Available both as a free self-hosted open-source platform and as a fully managed hosted service, Blognice",
-    "offers a simple, privacy-focused alternative to complex web publishing tools.",
-    "",
-    "The platform eliminates maintenance overhead such as server management, plugin compatibility issues, and complex",
-    "control panels. From a single account, users can launch and manage up to five independent blogs using custom",
-    "domains, publish unlimited posts, invite collaborators per blog with role-based access, and retain full",
-    "ownership of their content and subscriber lists. Key features include integrated Markdown editing, full data",
-    "portability, custom domain support, and optional AI-assisted tools for image generation and audio narration.",
-    "",
-    "The launch addresses a growing demand among online creators seeking simplicity without sacrificing data control.",
-    "While WordPress is used by 40.7% of all websites according to W3Techs (w3techs.com/technologies/details/cm-wordpress, Sept 7, 2026), many creators",
-    "struggle with security updates, plugin fatigue, and rising hosting costs.",
-    "",
-    "\"Independent publishing should be straightforward without requiring creators to hand over data control or",
-    "manage complicated software,\" said Ray Vahey, founder of Blognice. \"We designed Blognice to provide the",
-    "ownership of self-hosted software with the convenience of a modern, distraction-free publishing workflow.\"",
-    "",
-    "The Blognice managed platform is available today at https://blognice.com. The open-source edition is freely",
-    "available for self-hosting on GitHub at github.com/pragmaticonline/blognice. Additional information and",
-    "press assets are available at https://blognice.com/press.",
-    "",
-    "About Blognice",
-    "Blognice is a product of Pragmatic Online Co., Ltd. (Chiang Mai, Thailand) - a privacy-first blogging",
-    "platform built for independent writers, creators, and small businesses. Founded in 2026 by Ray Vahey,",
-    "Blognice combines lightweight web publishing, multi-blog account management with per-blog collaborators,",
-    "and native privacy compliance without tracking or advertisements. Learn more at https://blognice.com/press",
-    "",
-    "Media Contact:",
-    "Ray Vahey",
-    "press@blognice.com",
-    "https://blognice.com/press",
-  ];
-  let stream = "BT\n/F1 9 Tf\n";
-  let y = 750;
-  for (const line of lines) {
-    const esc = line.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)").slice(0, 110);
-    stream += `1 0 0 1 40 ${y} Tm (${esc}) Tj\n`;
-    y -= 12;
-    if (y < 30) { stream += "ET\nBT\n/F1 9 Tf\n"; y = 750; }
-  }
-  stream += "ET\n";
-  const objects = [
-    "<< /Type /Catalog /Pages 2 0 R >>",
-    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> /Contents 4 0 R >>",
-    `<< /Length ${new TextEncoder().encode(stream).length} >>\nstream\n${stream}\nendstream`,
-  ];
-  let pdf = "%PDF-1.4\n";
-  const offsets: number[] = [0];
-  for (let i = 0; i < objects.length; i++) {
-    offsets.push(new TextEncoder().encode(pdf).length);
-    pdf += `${i + 1} 0 obj\n${objects[i]}\nendobj\n`;
-  }
-  const xref = new TextEncoder().encode(pdf).length;
-  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  for (let i = 1; i < offsets.length; i++) pdf += `${String(offsets[i]).padStart(10, "0")} 00000 n \n`;
-  pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
-  return new Response(pdf, { headers: { "content-type": "application/pdf", "content-disposition": 'inline; filename="2026-09-blognice-launch.pdf"', "cache-control": "public, max-age=86400" } });
-});
-app.get("/blognice-press-release-2026-09-08.pdf", (c) => c.redirect("/press/2026-09-blognice-launch.pdf", 301));
-app.get("/press/blognice-press-release-2026-09-08.pdf", (c) => c.redirect("/press/2026-09-blognice-launch.pdf", 301));
+app.get("/press/2026-09-blognice-launch.pdf", (c) => c.redirect("/press/2026-09-blognice-launch", 301));
+app.get("/blognice-press-release-2026-09-08.pdf", (c) => c.redirect("/press/2026-09-blognice-launch", 301));
+app.get("/press/blognice-press-release-2026-09-08.pdf", (c) => c.redirect("/press/2026-09-blognice-launch", 301));
 app.get("/blognice-press-kit.zip", (c) => c.redirect("/press-kit.zip", 301));
 app.get("/press/blognice-press-kit.zip", (c) => c.redirect("/press-kit.zip", 301));
 
@@ -6013,7 +5946,7 @@ app.get("/press-kit", (c) => c.redirect("/press", 301));
 app.get("/newsroom", (c) => c.redirect("/press", 301));
 app.get("/press-kit.zip", async (c) => {
   const boilerplate = "Blognice is a deliberately simple, affordable blogging platform — no hosting, plugins, updates, or control panels to assemble, just choose an address and start writing — for independent writers, creators, and small businesses. Users manage up to 5 blogs from one account, publish unlimited posts with custom domains, invite collaborators per blog, and use optional AI assistance for editorial images and audio narration. Available as hosted service at founding member $36/year ($3/mo) or $5/mo for first 1,000 members — planned standard $119/year — and free open-source self-host. Privacy by design, editorial independence — no ads/tracking, your content via export/API.";
-  const placeholder = new TextEncoder().encode("Press kit placeholder - logos PNG/SVG dark+light, 3 screenshots, Ray headshot, PDF + boilerplate.txt available at https://blognice.com/press\n" + boilerplate);
+  const placeholder = new TextEncoder().encode("Press kit placeholder - logos PNG/SVG dark+light, 3 screenshots, Ray headshot available at https://blognice.com/press\n" + boilerplate);
   const files: Array<{ name: string; data: Uint8Array }> = [
     { name: "boilerplate.txt", data: new TextEncoder().encode(boilerplate) },
     { name: "README.txt", data: placeholder },
