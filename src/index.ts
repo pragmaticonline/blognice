@@ -5964,7 +5964,9 @@ app.get("/press/blognice-press-kit-v2.zip", (c) => serveAssetFromR2(c, "blognice
 app.get("/press-kit.zip", (c) => serveAssetFromR2(c, "press-kit.zip", "press-kit.zip", "application/zip"));
 app.get("/assets/*", async (c) => {
   const raw = c.req.path;
-  const key = raw.replace(/^\/assets\//, "");
+  let key: string = "";
+  try { key = (c.req.param("*") as string) || ""; } catch {}
+  if (!key) key = raw.replace(/^\/assets\//, "");
   if (!key || key.includes("..") || key.startsWith("/")) return c.notFound();
   const filename = key.split("/").pop() || key;
   return serveAssetFromR2(c, key, filename);
