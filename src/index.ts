@@ -5945,50 +5945,12 @@ app.get("/press/blognice-press-kit.zip", (c) => c.redirect("/press-kit.zip", 301
 app.get("/press-kit", (c) => c.redirect("/press", 301));
 app.get("/newsroom", (c) => c.redirect("/press", 301));
 app.get("/press-kit.zip", async (c) => {
-  const boilerplate = "Blognice is a deliberately simple, affordable blogging platform — no hosting, plugins, updates, or control panels to assemble, just choose an address and start writing — for independent writers, creators, and small businesses. Users manage up to 5 blogs from one account, publish unlimited posts with custom domains, invite collaborators per blog, and use optional AI assistance for editorial images and audio narration. Available as hosted service at founding member $36/year ($3/mo) or $5/mo for first 1,000 members — planned standard $119/year — and free open-source self-host. Privacy by design, creator ownership and editorial independence — no ads/tracking, you own your content and subscribers with export/API.";
-  const placeholder = new TextEncoder().encode("Press kit placeholder - logos PNG/SVG dark+light, 3 screenshots, Founder Ray Vahey headshot available at https://blognice.com/press\n" + boilerplate);
-  const files: Array<{ name: string; data: Uint8Array }> = [
-    { name: "boilerplate.txt", data: new TextEncoder().encode(boilerplate) },
-    { name: "README.txt", data: placeholder },
-  ];
-  const crc32 = (data: Uint8Array): number => {
-    let crc = 0xffffffff;
-    for (let i = 0; i < data.length; i++) {
-      crc ^= data[i]!;
-      for (let j = 0; j < 8; j++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
-    }
-    return (crc ^ 0xffffffff) >>> 0;
-  };
-  // Minimal ZIP generation
-  const enc = new TextEncoder();
-  let fileData = new Uint8Array(0);
-  let central = new Uint8Array(0);
-  let offset = 0;
-  const concat2 = (a: Uint8Array, b: Uint8Array): Uint8Array => { const r = new Uint8Array(a.length + b.length); r.set(a); r.set(b, a.length); return r; };
-  for (const f of files) {
-    const nameBytes = enc.encode(f.name);
-    const header = new Uint8Array(30 + nameBytes.length);
-    const view = new DataView(header.buffer);
-    view.setUint32(0, 0x04034b50, true); view.setUint16(4, 20, true); view.setUint16(6, 0, true); view.setUint16(8, 0, true); view.setUint16(10, 0, true); view.setUint16(12, 0, true); const crc = crc32(f.data);
-    view.setUint32(14, crc, true); view.setUint32(18, f.data.length, true); view.setUint32(22, f.data.length, true); view.setUint16(26, nameBytes.length, true); view.setUint16(28, 0, true);
-    header.set(nameBytes, 30);
-    const local = concat2(header as Uint8Array, f.data);
-    const centralHeader = new Uint8Array(46 + nameBytes.length);
-    const cv = new DataView(centralHeader.buffer);
-    cv.setUint32(0, 0x02014b50, true); cv.setUint16(4, 20, true); cv.setUint16(6, 20, true); cv.setUint16(8, 0, true); cv.setUint16(10, 0, true); cv.setUint16(12, 0, true); cv.setUint32(14, crc, true); cv.setUint32(18, f.data.length, true); cv.setUint32(22, f.data.length, true); cv.setUint16(26, nameBytes.length, true); cv.setUint16(28, 0, true); cv.setUint16(30, 0, true); cv.setUint16(32, 0, true); cv.setUint16(34, 0, true); cv.setUint32(38, 0, true); cv.setUint32(42, offset, true);
-    centralHeader.set(nameBytes, 46);
-    // @ts-ignore
-    fileData = concat2(fileData, local);
-    // @ts-ignore
-    central = concat2(central, centralHeader);
-    offset += local.length;
-  }
-  const eocd = new Uint8Array(22);
-  const ev = new DataView(eocd.buffer);
-  ev.setUint32(0, 0x06054b50, true); ev.setUint16(4, 0, true); ev.setUint16(6, 0, true); ev.setUint16(8, files.length, true); ev.setUint16(10, files.length, true); ev.setUint32(12, central.length, true); ev.setUint32(16, fileData.length, true); ev.setUint16(20, 0, true);
-  // @ts-ignore
-  const zip = concat2(concat2(fileData, central), eocd);
-  return new Response(zip, { headers: { "content-type": "application/zip", "content-disposition": 'attachment; filename="press-kit.zip"', "cache-control": "public, max-age=3600" } });
+  const b64 = "UEsDBBQAAAAAAHJbJ12BC5ws1wIAANcCAAAPAAAAYm9pbGVycGxhdGUudHh0QmxvZ25pY2UgaXMgYSBkZWxpYmVyYXRlbHkgc2ltcGxlLCBhZmZvcmRhYmxlIGJsb2dnaW5nIHBsYXRmb3JtIOKAlCBubyBob3N0aW5nLCBwbHVnaW5zLCB1cGRhdGVzLCBvciBjb250cm9sIHBhbmVscyB0byBhc3NlbWJsZSwganVzdCBjaG9vc2UgYW4gYWRkcmVzcyBhbmQgc3RhcnQgd3JpdGluZyDigJQgZm9yIGluZGVwZW5kZW50IHdyaXRlcnMsIGNyZWF0b3JzLCBhbmQgc21hbGwgYnVzaW5lc3Nlcy4gVXNlcnMgbWFuYWdlIHVwIHRvIDUgYmxvZ3MgZnJvbSBvbmUgYWNjb3VudCwgcHVibGlzaCB1bmxpbWl0ZWQgcG9zdHMgd2l0aCBjdXN0b20gZG9tYWlucywgaW52aXRlIGNvbGxhYm9yYXRvcnMgcGVyIGJsb2csIGFuZCB1c2Ugb3B0aW9uYWwgQUkgYXNzaXN0YW5jZSBmb3IgZWRpdG9yaWFsIGltYWdlcyBhbmQgYXVkaW8gbmFycmF0aW9uLiBBdmFpbGFibGUgYXMgaG9zdGVkIHNlcnZpY2UgYXQgZm91bmRpbmcgbWVtYmVyICQzNi95ZWFyICgkMy9tbykgb3IgJDUvbW8gZm9yIGZpcnN0IDEsMDAwIG1lbWJlcnMg4oCUIHBsYW5uZWQgc3RhbmRhcmQgJDExOS95ZWFyIOKAlCBhbmQgZnJlZSBvcGVuLXNvdXJjZSBzZWxmLWhvc3QuIFByaXZhY3kgYnkgZGVzaWduLCBjcmVhdG9yIG93bmVyc2hpcCBhbmQgZWRpdG9yaWFsIGluZGVwZW5kZW5jZSDigJQgbm8gYWRzL3RyYWNraW5nLCB5b3Ugb3duIHlvdXIgY29udGVudCBhbmQgc3Vic2NyaWJlcnMgd2l0aCBleHBvcnQvQVBJLlBLAwQUAAAAAAByWyddLEIIQ1sDAABbAwAACgAAAFJFQURNRS50eHRQcmVzcyBraXQgcGxhY2Vob2xkZXIgLSBsb2dvcyBQTkcvU1ZHIGRhcmsrbGlnaHQsIDMgc2NyZWVuc2hvdHMsIEZvdW5kZXIgUmF5IFZhaGV5IGhlYWRzaG90IGF2YWlsYWJsZSBhdCBodHRwczovL2Jsb2duaWNlLmNvbS9wcmVzcwpCbG9nbmljZSBpcyBhIGRlbGliZXJhdGVseSBzaW1wbGUsIGFmZm9yZGFibGUgYmxvZ2dpbmcgcGxhdGZvcm0g4oCUIG5vIGhvc3RpbmcsIHBsdWdpbnMsIHVwZGF0ZXMsIG9yIGNvbnRyb2wgcGFuZWxzIHRvIGFzc2VtYmxlLCBqdXN0IGNob29zZSBhbiBhZGRyZXNzIGFuZCBzdGFydCB3cml0aW5nIOKAlCBmb3IgaW5kZXBlbmRlbnQgd3JpdGVycywgY3JlYXRvcnMsIGFuZCBzbWFsbCBidXNpbmVzc2VzLiBVc2VycyBtYW5hZ2UgdXAgdG8gNSBibG9ncyBmcm9tIG9uZSBhY2NvdW50LCBwdWJsaXNoIHVubGltaXRlZCBwb3N0cyB3aXRoIGN1c3RvbSBkb21haW5zLCBpbnZpdGUgY29sbGFib3JhdG9ycyBwZXIgYmxvZywgYW5kIHVzZSBvcHRpb25hbCBBSSBhc3Npc3RhbmNlIGZvciBlZGl0b3JpYWwgaW1hZ2VzIGFuZCBhdWRpbyBuYXJyYXRpb24uIEF2YWlsYWJsZSBhcyBob3N0ZWQgc2VydmljZSBhdCBmb3VuZGluZyBtZW1iZXIgJDM2L3llYXIgKCQzL21vKSBvciAkNS9tbyBmb3IgZmlyc3QgMSwwMDAgbWVtYmVycyDigJQgcGxhbm5lZCBzdGFuZGFyZCAkMTE5L3llYXIg4oCUIGFuZCBmcmVlIG9wZW4tc291cmNlIHNlbGYtaG9zdC4gUHJpdmFjeSBieSBkZXNpZ24sIGNyZWF0b3Igb3duZXJzaGlwIGFuZCBlZGl0b3JpYWwgaW5kZXBlbmRlbmNlIOKAlCBubyBhZHMvdHJhY2tpbmcsIHlvdSBvd24geW91ciBjb250ZW50IGFuZCBzdWJzY3JpYmVycyB3aXRoIGV4cG9ydC9BUEkuUEsBAhQDFAAAAAAAclsnXYELnCzXAgAA1wIAAA8AAAAAAAAAAAAAAIABAAAAAGJvaWxlcnBsYXRlLnR4dFBLAQIUAxQAAAAAAHJbJ10sQghDWwMAAFsDAAAKAAAAAAAAAAAAAACAAQQDAABSRUFETUUudHh0UEsFBgAAAAACAAIAdQAAAIcGAAAAAA==";
+  let bin: string;
+  try { bin = atob(b64); } catch { bin = ""; }
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Response(bytes as unknown as BodyInit, { headers: { "content-type": "application/zip", "content-disposition": 'attachment; filename="press-kit.zip"', "cache-control": "public, max-age=3600" } });
 });
 
 app.get("/.well-known/security.txt", (c) => {
