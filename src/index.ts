@@ -5942,8 +5942,9 @@ app.get("/press/2026-09-blognice-launch.pdf", (c) => {
     "",
     "Blognice Launches Open-Source, Privacy-First Blogging Platform Focused on Content Ownership",
     "",
-    "CHIANG MAI, Thailand - September 8, 2026 - Blognice (https://blognice.com) today announced the public launch",
-    "of its open-source blogging platform designed for independent writers, creators, and small businesses.",
+    "CHIANG MAI, Thailand - September 8, 2026 - Pragmatic Online Co., Ltd. today announced the public launch of",
+    "Blognice (https://blognice.com), its open-source blogging platform designed for independent writers,",
+    "creators, and small businesses.",
     "Available both as a free self-hosted open-source platform and as a fully managed hosted service, Blognice",
     "offers a simple, privacy-focused alternative to complex web publishing tools.",
     "",
@@ -5966,9 +5967,10 @@ app.get("/press/2026-09-blognice-launch.pdf", (c) => {
     "press assets are available at https://blognice.com/press.",
     "",
     "About Blognice",
-    "Blognice is a privacy-first blogging platform built for independent writers, creators, and small businesses.",
-    "Founded in 2026 by Ray Vahey, Blognice combines lightweight web publishing, multi-blog account management",
-    "with per-blog collaborators, and native privacy compliance without tracking or advertisements. Learn more at https://blognice.com/press",
+    "Blognice is a product of Pragmatic Online Co., Ltd. (Chiang Mai, Thailand) - a privacy-first blogging",
+    "platform built for independent writers, creators, and small businesses. Founded in 2026 by Ray Vahey,",
+    "Blognice combines lightweight web publishing, multi-blog account management with per-blog collaborators,",
+    "and native privacy compliance without tracking or advertisements. Learn more at https://blognice.com/press",
     "",
     "Media Contact:",
     "Ray Vahey",
@@ -6002,6 +6004,10 @@ app.get("/press/2026-09-blognice-launch.pdf", (c) => {
   pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
   return new Response(pdf, { headers: { "content-type": "application/pdf", "content-disposition": 'inline; filename="2026-09-blognice-launch.pdf"', "cache-control": "public, max-age=86400" } });
 });
+app.get("/blognice-press-release-2026-09-08.pdf", (c) => c.redirect("/press/2026-09-blognice-launch.pdf", 301));
+app.get("/press/blognice-press-release-2026-09-08.pdf", (c) => c.redirect("/press/2026-09-blognice-launch.pdf", 301));
+app.get("/blognice-press-kit.zip", (c) => c.redirect("/press-kit.zip", 301));
+app.get("/press/blognice-press-kit.zip", (c) => c.redirect("/press-kit.zip", 301));
 
 app.get("/press-kit", (c) => c.redirect("/press", 301));
 app.get("/newsroom", (c) => c.redirect("/press", 301));
