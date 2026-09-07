@@ -54,6 +54,10 @@
 		{
 			"binding": "METRICS_ARCHIVE",
 			"bucket_name": "blognice-metrics"
+		},
+		{
+			"binding": "ASSETS",
+			"bucket_name": "blognice-assets"
 		}
 	],
 	"analytics_engine_datasets": [
