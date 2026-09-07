@@ -755,7 +755,7 @@ app.use("*", async (c, next) => {
   const host = requestUrl.hostname.toLowerCase();
   if (host === c.env.ROOT_DOMAIN.toLowerCase()) {
     const pathname = requestUrl.pathname;
-    if (pathname === "/press" || pathname.startsWith("/press/") || pathname === "/press-kit" || pathname === "/press-kit.zip" || pathname === "/newsroom") {
+    if (pathname === "/press" || pathname.startsWith("/press/") || pathname === "/press-kit" || pathname === "/press-kit.zip" || pathname === "/newsroom" || pathname === "/llms.txt") {
       return next();
     }
     return c.redirect(
@@ -840,19 +840,27 @@ app.get("/llms.txt", async (c) => {
   return serveCached(c, async () => {
     const host = new URL(c.req.url).hostname.toLowerCase();
     const isWww = host === `www.${c.env.ROOT_DOMAIN}`.toLowerCase();
-    if (isWww) {
+    const isApex = host === c.env.ROOT_DOMAIN.toLowerCase();
+    if (isWww || isApex) {
       const { results } = await c.env.DB.prepare(
         "SELECT slug, custom_domain, title, description FROM tenants WHERE slug <> 'www' ORDER BY created_at DESC LIMIT 50"
       ).all<{ slug: string; custom_domain: string | null; title: string; description: string }>();
       const origin = originOf(c);
       const lines = [
-        "# BlogNice",
-        "> BlogNice is a multi-tenant blogging platform. Each blog lives at its own subdomain or custom domain.",
+        "# Blognice",
+        "> Simple, affordable, privacy-first blogging platform. 5 blogs, custom domains, markdown editor, AI editorial images + narration, $5/mo hosted or free open-source. Self-ownership — your content, your data, no tracking.",
         "",
+        "- Press Kit: https://blognice.com/press",
+        "- Launch Release: https://blognice.com/press/2026-09-blognice-launch",
+        "- About: https://blognice.com/about",
+        "- Pricing: Founding member $5/mo or $36/year (first 1,000 members, price locked while active) — planned standard $12.99/mo or $119/year. Up to 5 blogs, unlimited posts, first blog free to try. Self-hosted: github.com/pragmaticonline/blognice",
+        "- Values: privacy by design, no ads/tracking, full export & open API, self-ownership",
+        "- Contact: press@blognice.com",
+        "",
+        "# Blogs",
         `> Site: ${origin}/`,
         `> Sitemap: ${origin}/sitemap-index.xml`,
         "",
-        "## Blogs",
         ...results.map((t) => {
           const url = t.custom_domain ? `https://${t.custom_domain.trim().toLowerCase()}` : `https://${t.slug}.${c.env.ROOT_DOMAIN}`;
           const desc = llmsEscape(t.description) || llmsEscape(t.title);
@@ -864,7 +872,7 @@ app.get("/llms.txt", async (c) => {
         `- [Sitemap index](${origin}/sitemap-index.xml)`,
         `- [Full content](${origin}/llms-full.txt)`,
       ];
-      return new Response(lines.join("\n") + "\n", { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300" } });
+      return new Response(lines.join("\n") + "\n", { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=300" } });
     }
     const tenant = await resolveTenant(c.env, c.req.header("host") || "");
     if (!tenant) return new Response("Not found", { status: 404 });
@@ -886,7 +894,7 @@ app.get("/llms.txt", async (c) => {
       "## Resources",
       `- [Full content](${origin}/llms-full.txt)`,
     ].filter((line) => line !== "");
-    return new Response(lines.join("\n") + "\n", { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300" } });
+    return new Response(lines.join("\n") + "\n", { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=300" } });
   });
 });
 
