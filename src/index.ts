@@ -1243,7 +1243,7 @@ app.get("/sitemap-index.xml", async (c) => {
   });
 });
 
-app.get("/sitemaps/blogs/:page", async (c) => {
+app.get("/sitemaps/blogs/:page.xml", async (c) => {
   const host = new URL(c.req.url).hostname.toLowerCase();
   if (host !== `www.${c.env.ROOT_DOMAIN}`.toLowerCase()) return c.text("Not found", 404);
   const pageParam = String(c.req.param("page") || "").replace(/\.xml$/i, "");
