@@ -11,12 +11,12 @@ Portable skill so ChatGPT, Claude, Gemini, Codex, Cursor, etc. become proficient
 
 ## What's inside
 
-- `SKILL.md` — when/how to use Blognice API (5 blogs/account, `public_id`, `header_link_url`, `navigation_links`, custom domains)
-- `references/api.md` — endpoints (posts/pages/media/AI/metrics/domains)
+- `SKILL.md` — when/how to use Blognice API (5 blogs/account, `public_id`, `header_link_url`, `navigation_links`, custom domains via UI)
+- `references/api.md` — endpoints (posts/pages/media/AI/metrics)
 - `references/content.md` — Markdown → posts/pages/media workflow
-- `references/domains.md` — Cloudflare for SaaS CNAME verification
+- `references/domains.md` — custom domains via Blog Settings → Domains UI
 - `scripts/blognice_api.py` — deterministic helper (`METHOD PATH TOKEN [JSON]`)
-- Source: `github.com/pragmaticonline/blognice` — `docs/API.md` (13 sections, human) · `docs/openapi.yaml` (OpenAPI 3.1, machine)
+- Source: `github.com/pragmaticonline/blognice` — `docs/API.md` (human) · `docs/openapi.yaml` (OpenAPI 3.1, machine)
 
 ## Quick test
 

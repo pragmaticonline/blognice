@@ -30,8 +30,8 @@ Blognice is a privacy-first, open-source blogging platform (hosted $5/mo or self
 
 - Respect roles: `posts.create/publish/edit/delete`, `settings.manage`. Free accounts own 1 blog, paid 5 — `409` if exceeded.
 - Validate: `slug` 3–40 `a-z0-9-`, `accent_color` `#rrggbb`, `topics` ≤10, `social_links` https ≤500, `header_link_url` `/` or `https://` ≤500.
-- Purge is automatic; queue IndexNow via `POST .../indexnow` only when re-pinging. Don't brute-force domains — poll `GET /api/domains/:hostname`.
-- Use `references/api.md` for endpoints, `references/content.md` for Markdown/media/AI workflow, `references/domains.md` for CNAME verification. Run `scripts/blognice_api.py` for deterministic calls when repeating logic.
+- Purge is automatic; queue IndexNow via `POST .../indexnow` only when re-pinging.
+- Use `references/api.md` for endpoints, `references/content.md` for Markdown/media/AI workflow, `references/domains.md` for custom domain UI. Run `scripts/blognice_api.py` for deterministic calls when repeating logic.
 
 ## After
 

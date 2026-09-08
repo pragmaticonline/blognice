@@ -2,7 +2,7 @@
 
 > Base URL: `https://www.blognice.com/api/v1` · Live reference also at `https://www.blognice.com/admin/api-key` (when logged in on a paid plan). All `/api/v1/*` routes are scoped to blogs you own.
 
-GitHub source: [`src/index.ts`](../src/index.ts) · [`src/admin.ts`](../src/admin.ts) · [`src/cloudflare.ts`](../src/cloudflare.ts) · OpenAPI: [`./openapi.yaml`](./openapi.yaml)
+GitHub source: [`src/index.ts`](../src/index.ts) · [`src/admin.ts`](../src/admin.ts) · OpenAPI: [`./openapi.yaml`](./openapi.yaml)
 
 ---
 
@@ -16,7 +16,6 @@ Authorization: Bearer YOUR_KEY
 
 - Generate/revoke at `GET /admin/api-key` (paid plan required — free plan `402`).
 - Keys are stored hashed, shown once. `POST /admin/api-key/regenerate`, `POST /admin/api-key/revoke`.
-- Platform (multi-tenant) routes `POST/GET/DELETE /api/domains` and `POST /api/users` use a separate `API_TOKEN` bearer (server-to-server, not per-account).
 - Suspended accounts return `403`.
 
 `BLOG_ID` in every example is the **opaque `public_id`** returned by `GET /me` (e.g. `ggh6gvgsgj4h`), not the internal numeric `tenant.id`. Post/page IDs are numeric.
@@ -227,7 +226,7 @@ Free plan includes only the `blognice.com` address. Paid plan allows custom doma
 - `404` — unknown tenant/blog/post/page/domain.
 - `409` — slug/hostname taken or blog limit.
 - `402` — custom domains/media generation on free plan.
-- `502/503` — Cloudflare/Dynadot/IndexNow not configured.
+- `502/503` — IndexNow not configured (or platform domain provider unavailable).
 
 No cursor pagination yet; list endpoints return full arrays.
 

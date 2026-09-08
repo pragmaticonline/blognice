@@ -7,6 +7,4 @@ Blognice blogs work immediately at `yourname.blognice.com`. To use your own doma
 3. Add the `CNAME` in your DNS provider and click **Check** — verification and SSL are automatic.
 4. Remove/replace anytime from the same page.
 
-No API keys, no Cloudflare dashboard, no manual certificates — everything is managed in the UI. Free plan is `blognice.com` only.
-
-For platform self-hosters, the underlying implementation is Cloudflare for SaaS (`src/cloudflare.ts`), but hosted users never need it.
+No API keys or manual certificates — everything is managed in the UI. Free plan is `blognice.com` only.
