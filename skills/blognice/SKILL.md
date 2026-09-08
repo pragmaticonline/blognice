@@ -24,7 +24,7 @@ Blognice is a privacy-first, open-source blogging platform (hosted $5/mo or self
 1. **Discover:** `GET /api/v1/me` → pick `public_id`. `GET /api/v1/blogs/:blogId` to read `slug, title, accent_color, navigation_links, header_link_url, footer_name`.
 2. **Edit blog:** `PATCH /api/v1/blogs/:blogId` — see `header_link_url` (icon target: `/` or `https://www.domain.com` when blog is `blog.domain.com`) and `navigation_links` (`{label, href, order}` where `href` is `https://` or `/path`, max 20). Empty `navigation_links: []` disables custom menu.
 3. **Content:** Posts `POST/GET/PATCH/DELETE /api/v1/blogs/:blogId/posts` (`title + body_md` required, `tags, author_name, featured_image_key, published`). Pages `.../pages` (`show_in_navigation, navigation_label, navigation_order` merge with `navigation_links` in header). For AI content see references.
-4. **Custom domains:** Users add `blog.yourcompany.com` in **Blog Settings → Domains** (`/admin/b/:blogId/domains`) — no API keys or Cloudflare setup needed. SSL automatic.
+4. **Custom domains:** Users add `blog.yourcompany.com` in **Blog Settings → Domains** (`/admin/b/:blogId/domains`) — no API keys or separate setup needed. SSL automatic.
 
 ## Rules
 

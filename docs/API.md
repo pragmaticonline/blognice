@@ -214,7 +214,7 @@ Your blog works immediately at `yourname.blognice.com`. To use `blog.yourcompany
 3. Add the `CNAME` in your DNS provider and click **Check** — Blognice verifies and activates the domain (SSL is automatic).
 4. Remove or replace it anytime from the same page.
 
-Free plan includes only the `blognice.com` address. Paid plan allows custom domains. No API keys or separate Cloudflare setup needed — everything is managed for you in the UI.
+Free plan includes only the `blognice.com` address. Paid plan allows custom domains. No API keys or separate infrastructure setup needed — everything is managed for you in the UI.
 
 ---
 
