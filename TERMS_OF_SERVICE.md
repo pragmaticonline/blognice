@@ -28,6 +28,8 @@ New paid subscriptions may be refunded within 14 days of the first charge if you
 
 You retain ownership of your posts, images, audio, and subscriber list. You grant blognice a limited, non-exclusive licence to store, cache, process, reproduce, transmit, display, and email that content only as needed to operate the service and deliver features you request. This includes processing prompts, post text, and selected image context through Cloudflare Workers AI when you request AI generation. You are responsible for having the rights and permissions required for everything you upload or publish, including subscriber consent.
 
+You also grant us permission to showcase your public blog (for example title, excerpt, cover image, and link) in a member showcase, directory, or marketing materials. You may opt out at any time in Blog Settings or by contacting support@blognice.com, and we will remove your blog from the showcase promptly. Opting out does not affect the licence needed to operate your blog.
+
 After account deletion, content is scheduled for deletion within 90 days, subject to backups, caches, legal records, and legitimate security or dispute-retention needs described in the Privacy Policy.
 
 ## 5. Acceptable use
