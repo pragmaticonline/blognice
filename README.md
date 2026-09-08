@@ -74,11 +74,11 @@ fast, server-rendered pages.
   Audio starts and completions go to a separate Analytics Engine dataset. A
   nightly cron stores aggregate daily JSON rollups in R2 for retention beyond
   Analytics Engine's 90-day window.
-- **A token-protected API** to create/update posts, so you can write from a
-  script, a form, or a future editor.
+- **A token-protected API** to create/update posts, pages, media, and domains, so you can write from a
+  script, a form, or a future editor. Full reference in [`docs/API.md`](docs/API.md) with machine-readable [`docs/openapi.yaml`](docs/openapi.yaml).
 - **Per-account API keys** — every account holder generates their own key at
   `/admin/api-key` and manages their blogs and posts via `/api/v1/*`, scoped to
-  blogs they own. Keys are stored hashed and shown only once.
+  blogs they own. Keys are stored hashed and shown only once. See also `/api/domains` for custom-domain linking.
 
 ## Project layout
 
