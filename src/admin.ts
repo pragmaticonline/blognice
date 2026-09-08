@@ -2411,7 +2411,7 @@ curl -X DELETE ${base}/blogs/${exampleBlogId}/posts/POST_ID \\
 
 # Blog details and settings
 curl ${base}/blogs/${exampleBlogId} -H "Authorization: Bearer YOUR_KEY"
-curl -X PATCH ${base}/blogs/${exampleBlogId} -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" -d '{"title":"New title","description":"A calmer blog.","accent_color":"#2563eb","topics":["travel","photography"],"navigation_links":[{"label":"Shop","href":"https://www.domain.com/shop","order":0}],"browser_push_enabled":true}'
+curl -X PATCH ${base}/blogs/${exampleBlogId} -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" -d '{"title":"New title","description":"A calmer blog.","footer_name":"Acme Co.","accent_color":"#2563eb","topics":["travel","photography"],"navigation_links":[{"label":"Shop","href":"https://www.domain.com/shop","order":0}],"header_link_url":"https://www.domain.com","browser_push_enabled":true}'
 curl -X POST ${base}/blogs -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" -d '{"slug":"my-new-blog","title":"My New Blog"}'
 
 # Pages (create, list, fetch, update, delete)
@@ -2445,7 +2445,7 @@ curl ${base}/blogs/${exampleBlogId}/tags -H "Authorization: Bearer YOUR_KEY"</pr
         homepage, sitemap, and RSS feed. Post creation and updates accept <code>tags</code>,
         <code>author_name</code>, <code>author_visible</code>, and a validated
         <code>featured_image_key</code>; image generation accepts <code>prompt</code> or
-        <code>post_id</code> with <code>style</code> (see above); pages accept <code>title</code>, <code>slug</code>, <code>body_md</code>, <code>published</code>, <code>show_in_navigation</code>, <code>navigation_label</code>, <code>navigation_order</code>, <code>meta_description</code>; blogs accept <code>slug</code>, <code>title</code>, <code>description</code>, <code>accent_color</code>, <code>topics</code>, <code>social_links</code>, <code>navigation_links</code> (<code>{label, href, order}</code> with https or / paths), <code>browser_push_enabled</code>; use the returned job URLs to poll AI work.
+        <code>post_id</code> with <code>style</code> (see above); pages accept <code>title</code>, <code>slug</code>, <code>body_md</code>, <code>published</code>, <code>show_in_navigation</code>, <code>navigation_label</code>, <code>navigation_order</code>, <code>meta_description</code>; blogs accept <code>slug</code>, <code>title</code>, <code>description</code>, <code>footer_name</code>, <code>accent_color</code>, <code>topics</code>, <code>social_links</code>, <code>navigation_links</code> (<code>{label, href, order}</code> with https or / paths), <code>header_link_url</code> (<code>/</code> or <code>https://</code> — where the header logo/title links), <code>browser_push_enabled</code>; use the returned job URLs to poll AI work.
         Everything is scoped to blogs you own.
       </p>
     </div>`,
