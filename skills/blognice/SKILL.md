@@ -1,6 +1,6 @@
 ---
 name: blognice
-description: "Manage Blognice blogs via its token-protected API — create/update blogs, posts, pages, media, custom domains, navigation and header links. Use when automating publishing, migrating Markdown, managing 5 blogs per account, or configuring privacy-first blogs with custom domains."
+description: "Manage Blognice blogs via its token-protected API — create/update blogs, posts, pages, media, navigation and header links. Use when automating publishing, migrating Markdown, or managing 5 blogs per account on the privacy-first platform."
 ---
 
 # Blognice
@@ -14,17 +14,17 @@ Blognice is a privacy-first, open-source blogging platform (hosted $5/mo or self
 
 ## Essentials
 
-- **Base URL:** `https://www.blognice.com/api/v1` · Platform domains: `https://www.blognice.com/api/domains` (requires `API_TOKEN` not per-user key). Details in [References: API](references/api.md).
-- **Auth:** `Authorization: Bearer YOUR_KEY` — per-account key from `GET /admin/api-key` (paid plan). Platform routes use `Bearer $API_TOKEN`. `BLOG_ID` = opaque `public_id` from `GET /me`, not numeric `tenant.id`.
-- **Source of truth:** `docs/API.md` (human, 13 sections) + `docs/openapi.yaml` (OpenAPI 3.1, machine-readable) in repo, and `GET /admin/api-key` live. Prefer those over hallucinating fields.
-- **AI entry points:** `https://www.blognice.com/llms.txt` (press block + blog list) and `https://raw.githubusercontent.com/pragmaticonline/blognice/main/docs/API.md`.
+- **Base URL:** `https://www.blognice.com/api/v1` — see [References: API](references/api.md).
+- **Auth:** `Authorization: Bearer YOUR_KEY` — per-account key from `GET /admin/api-key` (paid plan). `BLOG_ID` = opaque `public_id` from `GET /me`, not numeric `tenant.id`.
+- **Source of truth:** `docs/API.md` (human) + `docs/openapi.yaml` (OpenAPI 3.1, machine-readable) in repo, and `GET /admin/api-key` live. Prefer those over hallucinating fields.
+- **AI entry points:** `https://www.blognice.com/llms.txt` and `https://raw.githubusercontent.com/pragmaticonline/blognice/main/docs/API.md`.
 
 ## Workflow
 
-1. **Discover:** `GET /api/v1/me` → pick `public_id`. `GET /api/v1/blogs/:blogId` to read `slug, title, accent_color, navigation_links, header_link_url, footer_name, custom_domain`.
+1. **Discover:** `GET /api/v1/me` → pick `public_id`. `GET /api/v1/blogs/:blogId` to read `slug, title, accent_color, navigation_links, header_link_url, footer_name`.
 2. **Edit blog:** `PATCH /api/v1/blogs/:blogId` — see `header_link_url` (icon target: `/` or `https://www.domain.com` when blog is `blog.domain.com`) and `navigation_links` (`{label, href, order}` where `href` is `https://` or `/path`, max 20). Empty `navigation_links: []` disables custom menu.
-3. **Content:** Posts `POST/GET/PATCH/DELETE /api/v1/blogs/:blogId/posts` (`title + body_md` required, `tags, author_name, featured_image_key, published, meta_description`). Pages `.../pages` (`show_in_navigation, navigation_label, navigation_order` merge with `navigation_links` in header). For AI content see references.
-4. **Domains:** `POST /api/domains {tenant_slug, hostname}` → `GET /api/domains/:hostname` poll `active:true`, `DELETE ...` — `hostname` must be external (`blog.company.com`, not `*.blognice.com`), requires Cloudflare for SaaS `CNAME → $CNAME_TARGET`. Detailed in [References: Domains](references/domains.md).
+3. **Content:** Posts `POST/GET/PATCH/DELETE /api/v1/blogs/:blogId/posts` (`title + body_md` required, `tags, author_name, featured_image_key, published`). Pages `.../pages` (`show_in_navigation, navigation_label, navigation_order` merge with `navigation_links` in header). For AI content see references.
+4. **Custom domains:** Users add `blog.yourcompany.com` in **Blog Settings → Domains** (`/admin/b/:blogId/domains`) — no API keys or Cloudflare setup needed. SSL automatic.
 
 ## Rules
 

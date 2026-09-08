@@ -4,7 +4,7 @@ Base: `https://www.blognice.com/api/v1` · Live docs at `https://www.blognice.co
 Full human: `github.com/pragmaticonline/blognice/blob/main/docs/API.md` · Machine: `docs/openapi.yaml`.
 
 ## Auth
-`Authorization: Bearer YOUR_KEY` (per-account, `GET /admin/api-key`). Platform: `Authorization: Bearer $API_TOKEN` for `/api/domains` + `/api/users`.
+`Authorization: Bearer YOUR_KEY` (per-account, `GET /admin/api-key`, paid plan required).
 
 ## Endpoints
 
@@ -21,7 +21,7 @@ Full human: `github.com/pragmaticonline/blognice/blob/main/docs/API.md` · Machi
 - `POST .../posts` — `posts.create` (`posts.publish` to publish) `{title, body_md, slug?, published?, tags?, author_name?, author_visible?, featured_image_key?, meta_description?}`
 - `PATCH .../posts/:id` — `posts.edit.*`
 - `DELETE .../posts/:id` — `posts.delete`
-- `POST .../indexnow` `{post_ids?, paths?}` ≤1000 each, `503` if not configured
+- `POST .../indexnow` `{post_ids?, paths?}` ≤1000 each
 
 ### Pages
 - `GET .../pages` · `GET .../pages/:id`
@@ -34,18 +34,13 @@ Full human: `github.com/pragmaticonline/blognice/blob/main/docs/API.md` · Machi
 ### AI
 - `POST .../images/generations {prompt|post_id, style}` → `202 {job_id}` · `GET .../images/generations/:jobId`
 - `POST .../posts/:id/audio/generations` → `202` · `GET .../audio/generations/:jobId` · `DELETE .../posts/:id/audio`
-  Styles: editorial-photo, editorial-illustration, cinematic, child-crayon, arcade-action, risograph, paper-collage, watercolor, minimal, auto. Credit-gated (paid, 1k/mo).
+  Styles: editorial-photo, editorial-illustration, cinematic, child-crayon, arcade-action, risograph, paper-collage, watercolor, minimal, auto. Paid, 1k credits/mo.
 
 ### Metrics
 - `GET .../metrics?days=7|30|90` · `GET .../tags`
 
-### Domains (platform token)
-- `POST /api/domains {tenant_slug, hostname}` → `instructions {active, dns:{CNAME→CNAME_TARGET}}`
-- `GET /api/domains/:hostname` — poll active
-- `DELETE /api/domains/:hostname`
-
-### Users (platform)
-- `POST /api/users {tenant_slug, email, password}`
-
 ## Errors
-401 unauthorized, 403 forbidden/suspended/role, 400 validation, 404 not found, 409 taken/limit, 402 paid-only, 502/503 CF/IndexNow.
+401 unauthorized, 403 forbidden/suspended/role, 400 validation, 404 not found, 409 taken/limit, 402 paid-only.
+
+## Custom domains
+Not an API — use **Blog Settings → Domains** (`/admin/b/:blogId/domains`). Add `blog.yourcompany.com`, create the shown CNAME, click Check. See `references/domains.md`.

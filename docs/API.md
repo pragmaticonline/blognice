@@ -206,55 +206,20 @@ curl -X DELETE https://www.blognice.com/api/v1/blogs/ggh6gvgsgj4h/posts/123/audi
 
 ---
 
-## 10. Custom domains — bring your own domain (Cloudflare for SaaS)
+## 10. Custom domains — bring your own domain
 
-> These are **platform-token** routes (`API_TOKEN`), not per-account `/api/v1`. UI at `/admin/b/:blogId/domains`.
+Your blog works immediately at `yourname.blognice.com`. To use `blog.yourcompany.com` (or any domain you own):
 
-Sub-tenant domains are `slug.blognice.com` automatically. This API is for `blog.theircompany.com` (must not be `blognice.com` or `*.blognice.com` — validated by `validHostname`).
+1. Open **Blog Settings → Domains** at `https://www.blognice.com/admin/b/:blogId/domains` (requires paid plan).
+2. Enter the hostname (e.g. `blog.yourcompany.com`). Blognice shows the exact DNS record to create.
+3. Add the `CNAME` in your DNS provider and click **Check** — Blognice verifies and activates the domain (SSL is automatic).
+4. Remove or replace it anytime from the same page.
 
-### `POST /api/domains`
-
-```bash
-curl -X POST https://www.blognice.com/api/domains \
-  -H "Authorization: Bearer $API_TOKEN" -H "Content-Type: application/json" \
-  -d '{"tenant_slug":"myblog","hostname":"blog.theircompany.com"}'
-```
-
-`409` if hostname claimed by another tenant. Calls Cloudflare `POST /zones/:id/custom_hostnames` (`ssl: http/dv, min_tls 1.2`), stores `domains(hostname PK, tenant_id, cf_hostname_id, status pending|active)`. Returns `instructions`:
-
-```json
-{ "hostname":"blog.theircompany.com","active":false,"status":"pending","ssl_status":"pending",
-  "dns":{"type":"CNAME","name":"blog.theircompany.com","value":"$CNAME_TARGET"},
-  "ssl_validation":[], "ownership_verification": null, "errors":[] }
-```
-
-Create the `CNAME → CNAME_TARGET` record, then poll:
-
-### `GET /api/domains/:hostname` — poll until `active:true`
-
-Flips `domains.status='active'` + mirrors `tenants.custom_domain`, purges `https://hostname/` + `/sitemap.xml`.
-
-### `DELETE /api/domains/:hostname` — disconnect
-
-Requires `CF_API_TOKEN` scoped to `SSL and Certificates: Edit` + Cloudflare for SaaS enabled on the zone.
-
-Admin UI equivalents: `POST /admin/b/:blogId/domains`, `POST /admin/b/:blogId/domains/check`, `POST /admin/b/:blogId/domains/remove`, plus Dynadot search/buy `POST /admin/b/:blogId/domains/search|buy`.
+Free plan includes only the `blognice.com` address. Paid plan allows custom domains. No API keys or separate Cloudflare setup needed — everything is managed for you in the UI.
 
 ---
 
-## 11. Platform — users
-
-### `POST /api/users` — create/reset login and grant blog access (platform token)
-
-```json
-{ "tenant_slug":"myblog","email":"owner@example.com","password":"..."}
-```
-
-If email exists, resets password and grants access (doubles as "add owner to blog").
-
----
-
-## 12. Errors & pagination
+## 11. Errors & pagination
 
 - `401 unauthorized` — missing/invalid bearer.
 - `403 forbidden` — not a member, wrong role (`posts.create`, `posts.publish`, `posts.edit.*`, `posts.delete`, `settings.manage`), or suspended.
@@ -268,7 +233,7 @@ No cursor pagination yet; list endpoints return full arrays.
 
 ---
 
-## 13. Changelog
+## 12. Changelog
 
 - 2026-09-08: Added `header_link_url` + `footer_name` to `PATCH /blogs/:id` on `/admin/api-key` docs. Icon link controls where the header logo/title points.
 - 2026-09-07: Queued `docs/SEO-CHECK-*.md`, `docs/CHECKLIST-*.md`.

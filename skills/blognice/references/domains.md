@@ -1,17 +1,12 @@
-# Custom Domains — Cloudflare for SaaS
+# Custom Domains — user perspective
 
-## Flow
-1. `POST /api/domains {tenant_slug, hostname}` with `Authorization: Bearer $API_TOKEN` (platform).
-2. Create DNS: `CNAME hostname → $CNAME_TARGET` (from `instructions.dns.value` or env `CNAME_TARGET`). Add any `ssl_validation` records if present.
-3. Poll `GET /api/domains/:hostname` until `{active:true, status:"active", ssl_status:"active"}`. On active, code flips `domains.status` + `tenants.custom_domain` and purges `https://hostname/` + sitemap.
+Blognice blogs work immediately at `yourname.blognice.com`. To use your own domain:
 
-## Validation
-- `validHostname`: must contain `.`, not `blognice.com` nor `*.blognice.com` (those are `slug.blognice.com`), `^[a-z0-9.-]+$`, not `.<root>`.
-- `409` if claimed by other tenant.
-- Handle `isActive(result)` = `result.status==="active" && result.ssl.status==="active"`.
+1. Open **Blog Settings → Domains** at `https://www.blognice.com/admin/b/:blogId/domains` (paid plan).
+2. Enter hostname (e.g. `blog.yourcompany.com`). Blognice shows the exact `CNAME` to create.
+3. Add the `CNAME` in your DNS provider and click **Check** — verification and SSL are automatic.
+4. Remove/replace anytime from the same page.
 
-## Secrets
-Requires `CF_API_TOKEN` (`SSL and Certificates: Edit`) + `CF_ZONE_ID` + Cloudflare for SaaS enabled. `findCustomHostname` fallback if `create` 409s. See `src/cloudflare.ts`.
+No API keys, no Cloudflare dashboard, no manual certificates — everything is managed in the UI. Free plan is `blognice.com` only.
 
-## UI
-`/admin/b/:blogId/domains` — connect, check, remove. Dynadot search/buy also available `POST /admin/b/:id/domains/search|buy`.
+For platform self-hosters, the underlying implementation is Cloudflare for SaaS (`src/cloudflare.ts`), but hosted users never need it.

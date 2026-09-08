@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Blognice API
   version: 1.0.0
-  description: Token-protected API for managing blogs, posts, pages, media, and custom domains on Blognice (Cloudflare Workers + Hono). Base URL https://www.blognice.com — see docs/API.md for human reference.
+  description: Token-protected API for managing blogs, posts, pages, and media on Blognice. Custom domains are managed in Blog Settings → Domains (no API keys). Base URL https://www.blognice.com — see docs/API.md for human reference.
   contact:
     name: Blognice
     url: https://blognice.com
@@ -78,17 +78,6 @@ components:
         author_visible: { type: boolean }
         published: { type: boolean }
         meta_description: { type: string, nullable: true }
-    DomainInstructions:
-      type: object
-      properties:
-        hostname: { type: string }
-        active: { type: boolean }
-        status: { type: string }
-        ssl_status: { type: string }
-        dns: { type: object, properties: { type: { type: string }, name: { type: string }, value: { type: string } } }
-        ssl_validation: { type: array, items: { type: object } }
-        ownership_verification: { type: object, nullable: true }
-        errors: { type: array, items: { type: string } }
     Error:
       type: object
       properties:
@@ -268,21 +257,6 @@ paths:
     get:
       summary: Tag cloud
       parameters: [{ name: blogId, in: path, required: true, schema: { type: string } }]
-      responses: { '200': { description: OK } }
-  /api/domains:
-    post:
-      summary: Link custom domain (platform token)
-      security: [{ bearerAuth: [] }]
-      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [tenant_slug, hostname], properties: { tenant_slug: { type: string }, hostname: { type: string, example: blog.theircompany.com } } } } } }
-      responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/DomainInstructions' } } } } }
-  /api/domains/{hostname}:
-    get:
-      summary: Check domain verification
-      parameters: [{ name: hostname, in: path, required: true, schema: { type: string } }]
-      responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/DomainInstructions' } } } } }
-    delete:
-      summary: Disconnect domain
-      parameters: [{ name: hostname, in: path, required: true, schema: { type: string } }]
       responses: { '200': { description: OK } }
 components:
   responses:
