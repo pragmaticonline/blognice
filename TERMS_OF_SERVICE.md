@@ -32,7 +32,7 @@ After account deletion, content is scheduled for deletion within 90 days, subjec
 
 ## 5. Acceptable use
 
-Do not use blognice to publish or distribute illegal, infringing, fraudulent, deceptive, harassing, threatening, sexually exploitative, or malware-related content. Do not phish, impersonate, compromise accounts, abuse payment systems, evade plan or rate limits, reverse-engineer infrastructure, scrape or bulk-harvest other blogs, or send requests that degrade service for others. We may investigate, rate-limit, remove content, suspend, or terminate accounts where reasonably necessary. Copyright or abuse reports may be sent to support@blognice.com.
+Do not use blognice to publish or distribute illegal, infringing, fraudulent, deceptive, harassing, threatening, pornographic or explicit adult sexual content, sexual services, sexually exploitative material (including any sexual content involving minors), or malware-related content. Do not phish, impersonate, compromise accounts, abuse payment systems, evade plan or rate limits, reverse-engineer infrastructure, scrape or bulk-harvest other blogs, or send requests that degrade service for others. We may investigate, rate-limit, remove content, suspend, or terminate accounts where reasonably necessary. Copyright or abuse reports may be sent to support@blognice.com.
 
 ## 6. Subscriber email and domains
 
