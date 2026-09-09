@@ -16,6 +16,12 @@ fast, server-rendered pages.
 > <p align="center"><a href="https://www.blognice.com"><img src="./favicon.svg" alt="blognice" width="96"></a></p>
 > **See blognice in action.** [Visit the live service](https://www.blognice.com) and create your own free blog in minutes. Write your first post, preview it, and publish it on a fast blognice address.
 
+## Pricing
+
+**Founding member — $36/year ($3/mo) or $5/mo** — first 1,000 members, price locked while active. **Planned standard: $119/year or $12.99/mo.** Up to 5 blogs, unlimited posts, first blog free to try. Self-hosted: free open-source ([github.com/pragmaticonline/blognice](https://github.com/pragmaticonline/blognice)).
+
+Hosted at [www.blognice.com](https://www.blognice.com) — privacy-first, no ads/tracking, full export & open API.
+
 ## What's in the box
 
 - **Two Workers** built with [Hono](https://hono.dev): the public Worker routes
