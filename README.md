@@ -18,9 +18,27 @@ fast, server-rendered pages.
 
 ## Pricing
 
-**Founding member — $36/year ($3/mo) or $5/mo** — first 1,000 members, price locked while active. **Planned standard: $119/year or $12.99/mo.** Up to 5 blogs, unlimited posts, first blog free to try. Self-hosted: free open-source ([github.com/pragmaticonline/blognice](https://github.com/pragmaticonline/blognice)).
+<p align="center"><strong>Five blogs. One simple price.</strong><br><em>Your first blog is free to try — upgrade whenever you're ready.</em></p>
 
-Hosted at [www.blognice.com](https://www.blognice.com) — privacy-first, no ads/tracking, full export & open API.
+> [!TIP]
+> **Founding members — first 1,000 only · price locked while active**
+> **$36/year ($3/mo)** or **$5/mo**. After 1,000: **$119/year** or **$12.99/mo**.
+
+| | 🌟 Founding Annual<br>**Recommended** | Founding Monthly | Self-Hosted |
+|---|:---:|:---:|:---:|
+| **Price** | **$36 / year**<br><sub>$3/mo billed annually</sub> | **$5 / month** | **Free**<br><sub>AGPL-3.0</sub> |
+| **vs standard** | ~~$119/yr~~ → **save 70%** | ~~$12.99/mo~~ → **save 62%** | — |
+| **Lock** | 🔒 Never increases while active | 🔒 Never increases while active | — |
+
+**Everything included on hosted plans:** Up to **5 blogs**, **unlimited posts & images**, custom domains, Markdown editor, AI editorial images + narration, privacy-first (no ads/tracking), full export & open API.
+
+<p align="center">
+  <a href="https://www.blognice.com/signup"><strong>→ Lock in founding price</strong></a> &nbsp;·&nbsp;
+  <a href="https://www.blognice.com/signup">Try your first blog free</a> &nbsp;·&nbsp;
+  <a href="https://github.com/pragmaticonline/blognice">Self-host free</a>
+</p>
+
+<p align="center"><sub>Hosted at <a href="https://www.blognice.com">blognice.com</a> · Up to five blogs for less than the price of hosting one.</sub></p>
 
 <p align="center">
   <a href="https://www.blognice.com">
