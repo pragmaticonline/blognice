@@ -2572,12 +2572,21 @@ async function membershipRoleFor(
 }
 
 async function tenantHasPaidPlan(env: Bindings, tenantId: number): Promise<boolean> {
-  const owner = await env.DB.prepare(
-    `SELECT COALESCE(a.billing_status, 'inactive') AS billing_status, a.crypto_paid_through
-       FROM memberships m JOIN accounts a ON a.id = m.account_id
-      WHERE m.tenant_id = ? AND m.role = 'owner' LIMIT 1`
-  ).bind(tenantId).first<{ billing_status: string; crypto_paid_through?: number | null }>();
-  return accountHasPaidPlan(owner || {});
+  try {
+    const owner = await env.DB.prepare(
+      `SELECT COALESCE(a.billing_status, 'inactive') AS billing_status, a.crypto_paid_through, a.vip_granted_at, a.vip_expires_at
+         FROM memberships m JOIN accounts a ON a.id = m.account_id
+        WHERE m.tenant_id = ? AND m.role = 'owner' LIMIT 1`
+    ).bind(tenantId).first<{ billing_status: string; crypto_paid_through?: number | null; vip_granted_at?: number | null; vip_expires_at?: number | null }>();
+    return accountHasPaidPlan(owner || {});
+  } catch {
+    const owner = await env.DB.prepare(
+      `SELECT COALESCE(a.billing_status, 'inactive') AS billing_status, a.crypto_paid_through
+         FROM memberships m JOIN accounts a ON a.id = m.account_id
+        WHERE m.tenant_id = ? AND m.role = 'owner' LIMIT 1`
+    ).bind(tenantId).first<{ billing_status: string; crypto_paid_through?: number | null }>();
+    return accountHasPaidPlan(owner || {});
+  }
 }
 
 function queueBlogAudit(c: any, tenantId: number, actorId: number, action: string, target = ""): void {
