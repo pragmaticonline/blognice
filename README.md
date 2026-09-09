@@ -22,6 +22,16 @@ fast, server-rendered pages.
 
 Hosted at [www.blognice.com](https://www.blognice.com) — privacy-first, no ads/tracking, full export & open API.
 
+<p align="center">
+  <a href="https://www.blognice.com">
+    <picture>
+      <source srcset="assets/screenshots/homepage-hero.webp" type="image/webp">
+      <img src="assets/screenshots/homepage-hero.png" alt="Blognice homepage — A nicer way to blog" width="1200" loading="lazy">
+    </picture>
+  </a>
+</p>
+<p align="center"><em>A nicer way to blog — <a href="https://www.blognice.com">blognice.com</a> — click to visit. <a href="assets/screenshots/homepage.png">Full-page view</a> (1280×9167).</em></p>
+
 ## What's in the box
 
 - **Two Workers** built with [Hono](https://hono.dev): the public Worker routes
