@@ -99,6 +99,7 @@ import cookiesPage from "../cookies.html";
 import securityPage from "../security.html";
 import pressPage from "../press.html";
 import pressLaunchPage from "../press-launch.html";
+import affiliatePage from "../affiliate.html";
 
 // Keep the published legal text aligned with the maintained policy sources.
 // Resend is no longer an email provider, and the Terms avoid subjective
@@ -5944,6 +5945,13 @@ app.get("/press/2026-09-blognice-launch", (c) => {
     headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60, s-maxage=300" },
   });
 });
+
+app.get("/affiliate", (c) => {
+  return new Response(affiliatePage, {
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60, s-maxage=300" },
+  });
+});
+app.get("/affiliates", (c) => c.redirect("/affiliate", 301));
 
 app.get("/press/2026-09-blognice-launch.pdf", (c) => c.redirect("/press/2026-09-blognice-launch", 301));
 app.get("/blognice-press-release-2026-09-08.pdf", (c) => c.redirect("/press/2026-09-blognice-launch", 301));
