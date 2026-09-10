@@ -7771,24 +7771,29 @@ async function runAutopilotScheduled(env: Bindings, now: number) {
       const tone = String(criteria.tone || "neutral");
       const audience = String(criteria.audience || "").trim();
       const currentDate = new Date(now * 1000).toISOString().slice(0,10);
-      let title = String(criteria.title_override || sourceTitle || topic).replace(/^#+\s*/, "").trim().slice(0, 120) || String(sourceTitle || topic).slice(0,120);
+      const stripTopicPrefix = (t: string) => {
+        const esc = topic.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        return t.replace(new RegExp("^" + esc + "\\s*[:\\-–—]\\s*", "i"), "").replace(/^Autopilot\\s*[:\\-–—]\\s*/i, "").trim();
+      };
+      let title = stripTopicPrefix(String(criteria.title_override || sourceTitle || topic).replace(/^#+\s*/, "").trim().slice(0, 120) || String(sourceTitle || topic).slice(0,120));
       let body_md = "";
       try {
-        const prompt = `Date: ${currentDate}\nTopic: ${topic}\nSource: ${sourceTitle} ${sourceUrl}\nExcerpt: ${sourceExcerpt.slice(0, 4000) || sourceDescription || ""}\nTone: ${tone}${audience ? ` Audience: ${audience}` : ""}\nLength: ~${max_length} words, markdown with H2/H3, no preamble. Cite source URL at end. Also suggest a concise 8-12 word title as first line starting with "# ".`;
-        const aiRes: any = await (env as any).AI.run(AI_BRIEF_MODEL, { messages: [{ role: "system", content: `You are a concise, factual blog writer for ${currentDate}. Write a well-structured markdown post (~${max_length} words) for the given topic using the source excerpt when relevant. Use neutral, helpful tone (${tone}). No hallucinations; if excerpt lacks detail, write general but useful overview. Include H2 sections, bullet points where helpful, and end with Source link. Start with a single "# <title>" line.` }, { role: "user", content: prompt }], max_tokens: Math.min(2000, Math.max(600, Math.ceil(max_length * 1.4))), temperature: 0.6 });
+        const prompt = `Date: ${currentDate}\nTopic: ${topic}\nSource: ${sourceTitle} ${sourceUrl}\nExcerpt: ${sourceExcerpt.slice(0, 4000) || sourceDescription || ""}\nTone: ${tone}${audience ? ` Audience: ${audience}` : ""}\nLength: ~${max_length} words, markdown with H2/H3, no preamble. Cite source URL at end. Also suggest a concise 8-12 word headline as first line starting with "# " — headline must NOT include the topic prefix, just the article headline itself.`;
+        const aiRes: any = await (env as any).AI.run(AI_BRIEF_MODEL, { messages: [{ role: "system", content: `You are a concise, factual blog writer for ${currentDate}. Write a well-structured markdown post (~${max_length} words) for the given topic using the source excerpt when relevant. Use neutral, helpful tone (${tone}). No hallucinations; if excerpt lacks detail, write general but useful overview. Include H2 sections, bullet points where helpful, and end with Source link. Start with a single "# <title>" line. The title must be the headline only — do not prefix with topic like "${topic}:"` }, { role: "user", content: prompt }], max_tokens: Math.min(2000, Math.max(600, Math.ceil(max_length * 1.4))), temperature: 0.6 });
         let gen = String(aiRes.response || aiRes.text || "").trim();
         if (gen.length > 200) {
           const firstLine = gen.split("\n")[0] || "";
           if (firstLine.startsWith("# ")) {
-            const aiTitle = firstLine.replace(/^#\s*/, "").trim().slice(0,120);
+            let aiTitle = firstLine.replace(/^#\s*/, "").trim().slice(0,120);
+            aiTitle = stripTopicPrefix(aiTitle);
             if (aiTitle.length >= 10) title = aiTitle;
             gen = gen.replace(/^#\s*.*\n+/, "").trim();
           }
-          body_md = `# ${title}\n\n${gen}`.slice(0, max_length * 6);
+          body_md = gen.slice(0, max_length * 6);
           if (!body_md.includes(sourceUrl)) body_md += `\n\nSource: [${sourceTitle}](${sourceUrl})`;
         }
       } catch {}
-      if (!body_md) body_md = `# ${title}\n\nGenerated content for **${topic}**. This is an autopilot draft at ${new Date(now * 1000).toISOString()}.\n\n${sourceExcerpt ? sourceExcerpt.slice(0, 800) + "\n\n" : ""}Source: [${sourceTitle}](${sourceUrl})`.slice(0, max_length * 6);
+      if (!body_md) body_md = `Generated content for **${topic}** at ${new Date(now * 1000).toISOString()}.\n\n${sourceExcerpt ? sourceExcerpt.slice(0, 800) + "\n\n" : ""}Source: [${sourceTitle}](${sourceUrl})`.slice(0, max_length * 6);
       const interval_days = Number((row as any).interval_days || 1);
       const run_hour_utc = Number((row as any).run_hour_utc || 9);
       try {
