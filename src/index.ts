@@ -4414,8 +4414,18 @@ async function runFlux2Klein(ai: Ai, prompt: string) {
 
 async function generateImageAsset(env: Bindings, tenant: Tenant, source: string, style: ImageStyle) {
   const visualBrief = await createVisualBrief(env, source, tenant.id);
-  const prompt = buildImagePrompt(visualBrief.brief, style);
-  const generated = await runFlux2Klein(env.AI, prompt);
+  let prompt = buildImagePrompt(visualBrief.brief, style);
+  let generated: any;
+  try {
+    generated = await runFlux2Klein(env.AI, prompt);
+  } catch (e: any) {
+    const msg = String(e?.message || e);
+    if (/3030|flagged|content policy/i.test(msg)) {
+      const safeBrief = visualBrief.brief.replace(/crash|gore|violence|dead|killed|blood/gi, "incident").slice(0, 800);
+      prompt = buildImagePrompt(safeBrief || "editorial illustration of news topic, calm professional scene", style);
+      generated = await runFlux2Klein(env.AI, prompt);
+    } else throw e;
+  }
   if (!generated.image) throw new Error("The model returned no image.");
   const bytes = Uint8Array.from(atob(generated.image), (char) => char.charCodeAt(0));
   const key = `${tenant.id}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}-ai.jpg`;
@@ -4469,6 +4479,14 @@ async function processImageJob(env: Bindings, jobKey: string): Promise<void> {
     job.status = "failed";
     job.error = error instanceof Error ? error.message : String(error);
     await writeImageJob(env, jobKey, job);
+    if (/3030|flagged|content policy/i.test(job.error)) {
+      if (job.creditAccountId && job.creditPeriod && job.creditCost) {
+        await refundAiCredits(env as any, job.creditAccountId, job.creditPeriod, job.creditCost).catch(()=>{});
+        job.creditsRefunded = true;
+        await writeImageJob(env, jobKey, job).catch(()=>{});
+      }
+      return;
+    }
     throw error;
   }
 }
@@ -7782,8 +7800,8 @@ async function runAutopilotScheduled(env: Bindings, now: number) {
       let title = stripTopicPrefix(String(criteria.title_override || sourceTitle || topic).replace(/^#+\s*/, "").trim().slice(0, 120) || String(sourceTitle || topic).slice(0,120));
       let body_md = "";
       try {
-        const prompt = `Date: ${currentDate}\nTopic: ${topic}\nSource: ${sourceTitle} ${sourceUrl}\nExcerpt: ${sourceExcerpt.slice(0, 4000) || sourceDescription || ""}\nTone: ${tone}${audience ? ` Audience: ${audience}` : ""}\nLength: ~${max_length} words, markdown with H2/H3, no preamble. Cite source URL at end. Also suggest a concise 8-12 word title as first line starting with "# ".`;
-        const aiRes: any = await (env as any).AI.run(AI_BRIEF_MODEL, { messages: [{ role: "system", content: `You are a concise, factual blog writer for ${currentDate}. Write a well-structured markdown post (~${max_length} words) for the given topic using the source excerpt when relevant. Use neutral, helpful tone (${tone}). No hallucinations; if excerpt lacks detail, write general but useful overview. Include H2 sections, bullet points where helpful, and end with Source link. Start with a single "# <title>" line.` }, { role: "user", content: prompt }], max_tokens: Math.min(2000, Math.max(600, Math.ceil(max_length * 1.4))), temperature: 0.6 });
+        const prompt = `Date: ${currentDate}\nTopic: ${topic}\nSource: ${sourceTitle} ${sourceUrl}\nExcerpt: ${sourceExcerpt.slice(0, 4000) || sourceDescription || ""}\nTone: ${tone}${audience ? ` Audience: ${audience}` : ""}\nLength: ~${max_length} words, no preamble. Start with a brief 2-3 sentence intro paragraph (no heading), then H2/H3 for substantive sections. Do NOT use 'Overview' or 'Introduction' as a heading. End with a small italic source citation as '*Via [${sourceTitle}](${sourceUrl})*' on its own line (not a heading). Also suggest a concise 8-12 word title as first line starting with "# ".`;
+        const aiRes: any = await (env as any).AI.run(AI_BRIEF_MODEL, { messages: [{ role: "system", content: `You are a concise, factual blog writer for ${currentDate}. Write a well-structured markdown post (~${max_length} words) for the given topic using the source excerpt when relevant. Use neutral, helpful tone (${tone}). No hallucinations; if excerpt lacks detail, write general but useful content. Do NOT use 'Overview' or 'Introduction' as a heading \u2014 start with a 2-3 sentence intro paragraph (no heading), then H2/H3 for real sections, bullets where helpful. End with a single italic line '*Via [title](url)*' using the provided source (not a heading). Start with a single "# <title>" line.` }, { role: "user", content: prompt }], max_tokens: Math.min(2000, Math.max(600, Math.ceil(max_length * 1.4))), temperature: 0.6 });
         let gen = String((aiRes as any).response || (aiRes as any).text || ((aiRes as any).choices && (aiRes as any).choices[0] && ((aiRes as any).choices[0].message?.content || (aiRes as any).choices[0].text)) || "").trim();
         if (gen.length > 200) {
           const firstLine = gen.split("\n")[0] || "";
@@ -7794,10 +7812,12 @@ async function runAutopilotScheduled(env: Bindings, now: number) {
             gen = gen.replace(/^#\s*.*\n+/, "").trim();
           }
           body_md = gen.slice(0, max_length * 6);
-          if (!body_md.includes(sourceUrl)) body_md += `\n\nSource: [${sourceTitle}](${sourceUrl})`;
+          body_md = body_md.replace(/\n##\s*(Overview|Introduction)\s*\n/gi, "\n");
+          body_md = body_md.replace(/^##\s*(Overview|Introduction)\s*\n/gim, "");
+          if (!body_md.includes(sourceUrl)) body_md += `\n\n*Via [${sourceTitle}](${sourceUrl})*`;
         }
       } catch {}
-      if (!body_md) body_md = `Generated content for **${topic}** at ${new Date(now * 1000).toISOString()}.\n\n${sourceExcerpt ? sourceExcerpt.slice(0, 800) + "\n\n" : ""}Source: [${sourceTitle}](${sourceUrl})`.slice(0, max_length * 6);
+      if (!body_md) body_md = `${sourceExcerpt ? sourceExcerpt.slice(0, 800) + "\n\n" : ""}*Via [${sourceTitle}](${sourceUrl})*`.slice(0, max_length * 6);
       const interval_days = Number((row as any).interval_days || 1);
       const run_hour_utc = Number((row as any).run_hour_utc || 9);
       try {
