@@ -438,8 +438,9 @@ const STYLES = /* css */ `
   .breadcrumbs { font-family:var(--sans); font-size:.84rem; color:var(--muted); margin:.5rem 0 0; display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; }
   .breadcrumbs a { color:var(--muted); text-decoration:none; }
   .breadcrumbs a:hover { color:var(--accent); text-decoration:underline; }
-  .related-posts { margin:3rem 0 1rem; padding-top:2rem; border-top:1px solid var(--rule); }
+  .related-posts { margin:3rem 0 1rem; padding-top:2rem; border-top:1px solid var(--rule); font-family:var(--sans); font-size:1rem; line-height:1.6; }
   .related-posts h2 { font-family:var(--sans); font-size:1.25rem; font-weight:700; margin:0 0 1rem; }
+  .related-posts .blog-excerpt { font-family:var(--sans); font-size:1rem; }
 
   .tag-page-title { margin: 0 0 2rem; font-family: var(--sans); font-size: clamp(2rem, 4vw, 3rem); line-height: 1.1; letter-spacing: -.03em; }
   .blog-kicker { display:block; font-family:var(--sans); font-size:.76rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--accent); margin-bottom:1.2rem; }
