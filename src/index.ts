@@ -7773,7 +7773,11 @@ async function runAutopilotScheduled(env: Bindings, now: number) {
       const currentDate = new Date(now * 1000).toISOString().slice(0,10);
       const stripTopicPrefix = (t: string) => {
         const esc = topic.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        return t.replace(new RegExp("^" + esc + "\\s*[:\\-–—]\\s*", "i"), "").replace(/^Autopilot\\s*[:\\-–—]\\s*/i, "").trim();
+        let out = t;
+        for (let i = 0; i < 2; i++) {
+          out = out.replace(new RegExp("^" + esc + "\\s*[:\\-–—]\\s*", "i"), "").replace(/^Autopilot\\s*[:\\-–—]\\s*/i, "").trim();
+        }
+        return out;
       };
       let title = stripTopicPrefix(String(criteria.title_override || sourceTitle || topic).replace(/^#+\s*/, "").trim().slice(0, 120) || String(sourceTitle || topic).slice(0,120));
       let body_md = "";
