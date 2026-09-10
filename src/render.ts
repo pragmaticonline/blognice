@@ -617,10 +617,13 @@ const STYLES = /* css */ `
   }
   .prose del { color: var(--muted); }
   .prose mark { background: color-mix(in srgb, gold 55%, transparent); color: inherit; padding: 0 0.15em; border-radius: 2px; }
-  .prose .tweet-card { border:1px solid var(--rule); border-radius:12px; padding:0.9rem 1.1rem; margin:1.6rem 0; background:var(--card); display:flex; align-items:center; gap:0.75rem; }
+  .prose .tweet-card { border:1px solid var(--rule); border-radius:12px; padding:1rem 1.1rem; margin:1.6rem 0; background:var(--card); }
   .prose .tweet-card a { font-weight:600; text-decoration:none; color:var(--ink); word-break:break-all; }
   .prose .tweet-card a:hover { color:var(--accent); }
-  .prose .tweet-card::before { content:"𝕏"; font-size:1.25rem; line-height:1; flex-shrink:0; }
+  .prose .tweet-card__head { font-size:0.88rem; color:var(--muted); margin-bottom:0.6rem; display:flex; align-items:center; gap:0.5rem; }
+  .prose .tweet-card__head a { color:var(--ink); font-weight:600; }
+  .prose .tweet-card__text { font-size:1rem; line-height:1.6; color:var(--ink); }
+  .prose .tweet-card__text a { font-weight:500; color:var(--accent); text-decoration:underline; }
   .prose blockquote.twitter-tweet { border:1px solid var(--rule); border-left:1px solid var(--rule); border-radius:12px; padding:0.9rem 1.1rem; margin:1.6rem 0; background:var(--card); font-style:normal; font-size:1rem; color:var(--ink); }
   .prose blockquote.twitter-tweet a { font-weight:600; word-break:break-all; }
 

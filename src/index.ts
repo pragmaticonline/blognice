@@ -630,7 +630,7 @@ function renderMarkdown(md: string): string {
   return renderMarkdownSafe(md);
 }
 
-async function fetchTweetOembed(url: string): Promise<string | null> {
+async function fetchTweetOembed(url: string): Promise<any | null> {
   try {
     const clean = url.split("?")[0].split("#")[0];
     const normalized = clean.replace(/^https:\/\/x\.com\//i, "https://twitter.com/").replace(/^https:\/\/www\.x\.com\//i, "https://twitter.com/");
@@ -640,7 +640,7 @@ async function fetchTweetOembed(url: string): Promise<string | null> {
     if (cache) {
       const hit = await cache.match(key);
       if (hit) {
-        try { const j: any = await hit.json(); if (j?.html) return String(j.html); } catch {}
+        try { const j: any = await hit.json(); if (j?.html) return j; } catch {}
       }
     }
     const ctrl = new AbortController();
@@ -649,14 +649,17 @@ async function fetchTweetOembed(url: string): Promise<string | null> {
     clearTimeout(to);
     if (!res.ok) return null;
     const data: any = await res.json();
-    const html = String(data.html || "");
-    if (!html) return null;
+    if (!data.html) return null;
     if (cache) {
-      const toCache = new Response(JSON.stringify({ html }), { headers: { "content-type": "application/json", "cache-control": "public, max-age=86400" } });
+      const toCache = new Response(JSON.stringify(data), { headers: { "content-type": "application/json", "cache-control": "public, max-age=86400" } });
       try { await cache.put(key, toCache.clone()); } catch {}
     }
-    return html;
+    return data;
   } catch { return null; }
+}
+
+function escHtml(s: string): string {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 async function expandTweetEmbeds(html: string): Promise<string> {
@@ -667,9 +670,18 @@ async function expandTweetEmbeds(html: string): Promise<string> {
   for (const m of matches) {
     const full = m[0];
     const url = m[1];
-    const embed = await fetchTweetOembed(url);
-    if (embed && embed.includes("<blockquote")) {
-      out = out.replace(full, embed);
+    const data = await fetchTweetOembed(url);
+    if (data && data.html) {
+      const author = escHtml(String(data.author_name || "X"));
+      const authorUrl = String(data.author_url || url);
+      const pMatch = String(data.html).match(/<p[^>]*>([\s\S]*?)<\/p>/);
+      let textHtml = pMatch ? pMatch[1] : escHtml(String(data.html).replace(/<[^>]+>/g, " ").slice(0, 400));
+      textHtml = textHtml.replace(/<br\s*\/?>/gi, "\n");
+      textHtml = textHtml.replace(/<a [^>]*href="([^"]*)"[^>]*>([^<]*)<\/a>/gi, (_: string, href: string, txt: string) => `<a href="${escHtml(href)}" target="_blank" rel="noopener">${escHtml(txt)}</a>`);
+      textHtml = textHtml.replace(/<[^>]+>/g, (tag: string) => tag.startsWith("<a ") || tag === "</a>" ? tag : "");
+      const finalBody = textHtml.replace(/\n/g, "<br>");
+      const nice = `<div class="tweet-card"><div class="tweet-card__head">𝕏 <a href="${escHtml(authorUrl)}" target="_blank" rel="noopener">${author}</a> · <a href="${escHtml(url)}" target="_blank" rel="noopener">View on X</a></div><div class="tweet-card__text">${finalBody}</div></div>`;
+      out = out.replace(full, nice);
     }
   }
   return out;
