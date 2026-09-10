@@ -7713,11 +7713,38 @@ async function runAutopilotScheduled(env: Bindings, now: number) {
       }
       const max_length = Math.min(2000, Math.max(400, Number((row as any).max_length || 900)));
       const auto_publish = Number((row as any).auto_publish ?? 1) ? 1 : 0;
-      const title = `Autopilot: ${topic}`.slice(0, 120);
+      const title = String(criteria.title_override || `Autopilot: ${topic}`).slice(0, 120) || `Autopilot: ${topic}`.slice(0, 120);
       const slugBase = topic.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "autopilot";
       let slug = `${slugBase}-${now.toString(36)}`;
       slug = slug.slice(0, 80);
-      const body_md = `# ${title}\n\nGenerated content for **${topic}**. This is an autopilot draft at ${new Date(now * 1000).toISOString()}.\n\nLorem ipsum dolor sit amet, consectetur adipiscing elit.`.slice(0, max_length * 6);
+      let sourceExcerpt = "";
+      if (sourceUrl && !sourceUrl.includes("example.com/autopilot")) {
+        try {
+          const ctrl = new AbortController();
+          const to = setTimeout(() => ctrl.abort(), 6000);
+          const sres = await fetch(sourceUrl, { headers: { "user-agent": "blognice-autopilot/1.0", accept: "text/html,application/xhtml+xml" }, signal: ctrl.signal as any });
+          clearTimeout(to);
+          if (sres.ok) {
+            const html = await sres.text();
+            const text = html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+            sourceExcerpt = text.slice(0, 6000);
+            if (!sourceDescription && sourceExcerpt) sourceDescription = sourceExcerpt.slice(0, 300);
+          }
+        } catch {}
+      }
+      const tone = String(criteria.tone || "neutral");
+      const audience = String(criteria.audience || "").trim();
+      let body_md = "";
+      try {
+        const prompt = `Topic: ${topic}\nSource: ${sourceTitle} ${sourceUrl}\nExcerpt: ${sourceExcerpt.slice(0, 4000) || sourceDescription || ""}\nTone: ${tone}${audience ? ` Audience: ${audience}` : ""}\nLength: ~${max_length} words, markdown with H2/H3, no preamble. Cite source URL at end.`;
+        const aiRes: any = await (env as any).AI.run(AI_BRIEF_MODEL, { messages: [{ role: "system", content: `You are a concise, factual blog writer. Write a well-structured markdown post (~${max_length} words) for the given topic using the source excerpt when relevant. Use neutral, helpful tone (${tone}). No hallucinations; if excerpt lacks detail, write general but useful overview. Include H2 sections, bullet points where helpful, and end with Source link.` }, { role: "user", content: prompt }], max_tokens: Math.min(2000, Math.max(600, Math.ceil(max_length * 1.4))), temperature: 0.6 });
+        const gen = String(aiRes.response || aiRes.text || "").trim();
+        if (gen.length > 200) {
+          body_md = `# ${title}\n\n${gen}`.slice(0, max_length * 6);
+          if (!body_md.includes(sourceUrl)) body_md += `\n\nSource: [${sourceTitle}](${sourceUrl})`;
+        }
+      } catch {}
+      if (!body_md) body_md = `# ${title}\n\nGenerated content for **${topic}**. This is an autopilot draft at ${new Date(now * 1000).toISOString()}.\n\n${sourceExcerpt ? sourceExcerpt.slice(0, 800) + "\n\n" : ""}Source: [${sourceTitle}](${sourceUrl})`.slice(0, max_length * 6);
       const interval_days = Number((row as any).interval_days || 1);
       const run_hour_utc = Number((row as any).run_hour_utc || 9);
       try {
