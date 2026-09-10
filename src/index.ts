@@ -831,7 +831,7 @@ app.get("/.well-known/indexnow/:key", async (c) => {
 
 app.get("/_debug/autopilot-run", async (c) => {
   const key = c.req.header("x-debug-key") || new URL(c.req.url).searchParams.get("key") || "";
-  if (key !== (c.env.API_TOKEN || c.env.CF_API_TOKEN || "") && key !== "blognice-force-2026") return c.text("forbidden", 403);
+  if (key !== (c.env.API_TOKEN || c.env.CF_API_TOKEN || "")) return c.text("forbidden", 403);
   const now = Math.floor(Date.now()/1000);
   await runAutopilotScheduled(c.env as any, now);
   return c.json({ ok: true, now });
