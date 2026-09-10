@@ -7705,7 +7705,12 @@ async function runAutopilotScheduled(env: Bindings, now: number) {
               break;
             }
             if (!sourceUrl && rawResults.length) {
-              const skippedUrl = String(rawResults[0].url || "").trim();
+              let skippedUrl = "";
+              for (const { r } of ranked) {
+                const u = String(r.url||"").trim();
+                try { const pu=new URL(u); if (pu.pathname === "/" || ["/us","/us/","/news","/news/","/world","/world/","/world/us","/world/us/","/us-news","/us-news/"].includes(pu.pathname)) continue; const segs=pu.pathname.split("/").filter(Boolean); if (segs.length===1 && segs[0].length<=4 && !pu.pathname.includes("-")) continue; if (segs.length===1 && !pu.pathname.includes("-") && !/\d/.test(pu.pathname)) continue; } catch { continue; }
+                skippedUrl = u; break;
+              }
               if (skippedUrl) {
                 const runId = crypto.randomUUID();
                 await env.DB.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error) VALUES (?, ?, ?, ?, 'skipped', ?, ?, NULL, 'dedup')").bind(runId, tenantId, now, now, skippedUrl, String(rawResults[0].title || topic).slice(0,300)).run();
