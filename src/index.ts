@@ -7680,8 +7680,10 @@ async function runAutopilotScheduled(env: Bindings, now: number) {
                 if (u.pathname.includes("-")) score += 2;
                 if (String(r.title||"").toLowerCase().includes(topic.toLowerCase().split(" ")[0])) score += 2;
               } catch {}
-              const desc = String(r.description||"").length;
+              const descStr = String(r.description||"");
+              const desc = descStr.length;
               if (desc > 120) score += 1;
+              if (/values your feedback|ad relevance/i.test(descStr)) score -= 10;
               return { r, score, url: String(r.url||"") };
             }).sort((a:any,b:any)=>b.score-a.score);
             for (const { r } of ranked) {
@@ -7689,7 +7691,10 @@ async function runAutopilotScheduled(env: Bindings, now: number) {
               if (!candUrl) continue;
               try {
                 const u = new URL(candUrl);
-                if (u.pathname === "/" || u.pathname === "/world/us/" || u.pathname === "/us-news" || u.pathname === "/world/us") continue;
+                if (u.pathname === "/" || ["/us","/us/","/news","/news/","/world","/world/","/world/us","/world/us/","/us-news","/us-news/"].includes(u.pathname)) continue;
+                const _segs = u.pathname.split("/").filter(Boolean);
+                if (_segs.length === 1 && _segs[0].length <= 4 && !u.pathname.includes("-")) continue;
+                if (_segs.length === 1 && !u.pathname.includes("-") && !/\d/.test(u.pathname)) continue;
                 new URL(candUrl);
               } catch { continue; }
               const dupCheck = await env.DB.prepare("SELECT 1 FROM autopilot_runs WHERE tenant_id=? AND source_url=? AND started_at > ?").bind(tenantId, candUrl, dedupCutoff).first();
@@ -7785,6 +7790,7 @@ async function runAutopilotScheduled(env: Bindings, now: number) {
           sourceExcerpt = String(sourceDescription || "").slice(0, 3000);
         }
         if (!sourceExcerpt) sourceExcerpt = String(sourceDescription || "").slice(0, 3000);
+        if (/values your feedback|ad relevance|slow loading.*video/i.test(sourceExcerpt)) sourceExcerpt = "";
       }
       const tone = String(criteria.tone || "neutral");
       const audience = String(criteria.audience || "").trim();
