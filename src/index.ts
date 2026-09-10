@@ -7686,6 +7686,29 @@ async function runAutopilotScheduled(env: Bindings, now: number) {
         }
         const postRes = await pdb.prepare("INSERT INTO posts (tenant_id, slug, title, body_md, tags_json, published, created_at, updated_at, author_account_id, meta_description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)").bind(tenantId, finalSlug, title, body_md, JSON.stringify([]), auto_publish, now, now, `Autopilot: ${topic}`.slice(0, 160)).run();
         const postId = Number((postRes as any).meta?.last_row_id || 0) || Math.floor(Math.random() * 1000000);
+        try {
+          const style = (String((row as any).image_style || "editorial-photo") as ImageStyle);
+          const imageSource = `${title} — ${sourceDescription || sourceTitle}`.slice(0, 2000);
+          let imageReservation: any = null;
+          try { imageReservation = await reserveAiCredits(env as any, tenantId, AI_IMAGE_CREDITS); } catch {}
+          if (imageReservation) {
+            const jobKey = `${tenantId}/.autopilot-image/${postId}-${now}.json`;
+            const job: ImageJobManifest = { tenantId: tenantId, postId, source: imageSource, style, status: "queued", creditCost: AI_IMAGE_CREDITS, creditAccountId: imageReservation.accountId, creditPeriod: imageReservation.period } as any;
+            try {
+              await writeImageJob(env as any, jobKey, job as any);
+              await (env as any).AUDIO_QUEUE?.send({ kind: "image", jobKey, tenantId });
+            } catch (e) {
+              await refundAiCredits(env as any, imageReservation.accountId, imageReservation.period, AI_IMAGE_CREDITS).catch(()=>{});
+              console.warn(JSON.stringify({ message: "autopilot image enqueue failed", tenantId, postId, error: e instanceof Error ? e.message : String(e) }));
+            }
+          }
+        } catch {}
+        try {
+          const postForAudio = { id: postId, slug: finalSlug, title, body_md } as any;
+          await createAudioJob(env as any, tenant as any, postForAudio).catch((e: any) => {
+            console.warn(JSON.stringify({ message: "autopilot audio enqueue failed", tenantId, postId, error: e instanceof Error ? e.message : String(e) }));
+          });
+        } catch {}
         const next = now + interval_days * 86400;
         const aligned = Math.floor(next / 86400) * 86400 + run_hour_utc * 3600;
         const finalNext = aligned <= now ? aligned + 86400 : aligned;
