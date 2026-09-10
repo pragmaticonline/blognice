@@ -1139,4 +1139,94 @@ app.get("/accounts/:id", async (c) => {
 });
 
 
+async function ensureAutopilotTables(db: D1Database) {
+  await db.prepare("CREATE TABLE IF NOT EXISTS autopilot_configs (tenant_id INTEGER PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, staff_enabled INTEGER NOT NULL DEFAULT 0, interval_days INTEGER NOT NULL DEFAULT 1, run_hour_utc INTEGER NOT NULL DEFAULT 9, criteria_json TEXT NOT NULL DEFAULT '{}', image_style TEXT NOT NULL DEFAULT 'editorial-photo', voice TEXT, auto_publish INTEGER NOT NULL DEFAULT 1, max_length INTEGER NOT NULL DEFAULT 900, next_run_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE)").run();
+  await db.prepare("CREATE TABLE IF NOT EXISTS autopilot_runs (id TEXT PRIMARY KEY, tenant_id INTEGER NOT NULL, started_at INTEGER NOT NULL, finished_at INTEGER, status TEXT NOT NULL, source_url TEXT, source_title TEXT, post_id INTEGER, error TEXT, FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE)").run();
+  await db.prepare("CREATE INDEX IF NOT EXISTS idx_autopilot_runs_tenant ON autopilot_runs(tenant_id, started_at DESC)").run();
+  await db.prepare("CREATE INDEX IF NOT EXISTS idx_autopilot_configs_next ON autopilot_configs(enabled, staff_enabled, next_run_at)").run();
+}
+function parseAutopilotConfig(row: any) {
+  if (!row) return null;
+  let criteria = {};
+  try { criteria = JSON.parse(row.criteria_json || "{}"); } catch { criteria = {}; }
+  return { tenant_id: row.tenant_id, enabled: Number(row.enabled) || 0, staff_enabled: Number(row.staff_enabled) || 0, interval_days: Number(row.interval_days) || 1, run_hour_utc: Number(row.run_hour_utc) || 9, criteria, criteria_json: row.criteria_json, image_style: row.image_style, voice: row.voice || null, auto_publish: Number(row.auto_publish) ? 1 : 0, max_length: Number(row.max_length) || 900, next_run_at: row.next_run_at ?? null, created_at: row.created_at, updated_at: row.updated_at };
+}
+app.get("/api/autopilot/:tenantId", async (c) => {
+  const staff = c.get("staff");
+  if (!staff) return c.json({ error: "staff authorization required" }, 403);
+  const tenantId = Number(c.req.param("tenantId"));
+  if (!Number.isSafeInteger(tenantId) || tenantId < 1) return c.json({ error: "invalid tenant" }, 400);
+  await ensureAutopilotTables(c.env.DB);
+  const row = await c.env.DB.prepare("SELECT * FROM autopilot_configs WHERE tenant_id=?").bind(tenantId).first();
+  const config = parseAutopilotConfig(row) || { tenant_id: tenantId, enabled: 0, staff_enabled: 0, interval_days: 1, run_hour_utc: 9, criteria: {}, criteria_json: "{}", image_style: "editorial-photo", voice: null, auto_publish: 1, max_length: 900, next_run_at: null };
+  return c.json({ config });
+});
+app.post("/api/autopilot/:tenantId/toggle", async (c) => {
+  const staff = c.get("staff");
+  if (!staff) return c.json({ error: "staff authorization required" }, 403);
+  if (!canAdmin(staff)) return c.json({ error: "admin role required for autopilot" }, 403);
+  if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
+  const tenantId = Number(c.req.param("tenantId"));
+  if (!Number.isSafeInteger(tenantId) || tenantId < 1) return c.json({ error: "invalid tenant" }, 400);
+  let body; try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON body" }, 400); }
+  const reason = String(body?.reason || "").trim();
+  if (!reason) return c.json({ error: "a reason is required" }, 400);
+  await ensureAutopilotTables(c.env.DB);
+  const tenant = await c.env.DB.prepare("SELECT id FROM tenants WHERE id=?").bind(tenantId).first();
+  if (!tenant) return c.json({ error: "blog not found" }, 404);
+  const enabled = body.enabled ? 1 : 0;
+  let topic = String(body.topic ?? "").trim();
+  let interval_days = body.interval_days != null ? Number(body.interval_days) : 1;
+  let run_hour_utc = body.run_hour_utc != null ? Number(body.run_hour_utc) : 9;
+  if (enabled) {
+    if (!topic) {
+      const existing = await c.env.DB.prepare("SELECT criteria_json FROM autopilot_configs WHERE tenant_id=?").bind(tenantId).first();
+      try { topic = (JSON.parse((existing as any)?.criteria_json || "{}") as any).topic || ""; } catch { topic = ""; }
+      if (!topic) return c.json({ error: "topic is required when enabling" }, 400);
+    }
+    if (topic.length < 3 || topic.length > 120) return c.json({ error: "topic must be 3-120 characters" }, 400);
+  }
+  if (!Number.isInteger(interval_days) || interval_days < 1 || interval_days > 7) interval_days = 1;
+  if (!Number.isInteger(run_hour_utc) || run_hour_utc < 0 || run_hour_utc > 23) run_hour_utc = 9;
+  let max_length = body.max_length != null ? Number(body.max_length) : 900;
+  if (!Number.isInteger(max_length) || max_length < 400 || max_length > 2000) max_length = 900;
+  const now = Math.floor(Date.now() / 1000);
+  const next_run_at = enabled ? now : null;
+  const criteria = enabled ? { topic } : {};
+  const criteria_json = JSON.stringify(criteria);
+  const before = await c.env.DB.prepare("SELECT * FROM autopilot_configs WHERE tenant_id=?").bind(tenantId).first();
+  await c.env.DB.prepare("INSERT INTO autopilot_configs (tenant_id, enabled, staff_enabled, interval_days, run_hour_utc, criteria_json, image_style, voice, auto_publish, max_length, next_run_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'editorial-photo', NULL, 1, ?, ?, ?, ?) ON CONFLICT(tenant_id) DO UPDATE SET enabled=excluded.enabled, staff_enabled=excluded.staff_enabled, interval_days=excluded.interval_days, run_hour_utc=excluded.run_hour_utc, criteria_json=excluded.criteria_json, max_length=excluded.max_length, next_run_at=excluded.next_run_at, updated_at=excluded.updated_at").bind(tenantId, enabled, enabled, interval_days, run_hour_utc, criteria_json, max_length, next_run_at, now, now).run();
+  const afterRow = await c.env.DB.prepare("SELECT * FROM autopilot_configs WHERE tenant_id=?").bind(tenantId).first();
+  const config = parseAutopilotConfig(afterRow);
+  await audit(c, staff, { action: "autopilot-toggle", targetType: "tenant", targetId: String(tenantId), reason: reason.slice(0,500), result: "success", before: before ? parseAutopilotConfig(before) : null, after: config });
+  return c.json({ config });
+});
+
+
+app.get("/api/autopilot-runs", async (c) => {
+  const staff = c.get("staff") as StaffIdentity;
+  if (!staff) return c.json({ error: "staff authorization required" }, 403);
+  await ensureAutopilotTables(c.env.DB);
+  const url = new URL(c.req.url);
+  const tenantParam = url.searchParams.get("tenant");
+  const statusParam = url.searchParams.get("status");
+  const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 20)));
+  let query = "SELECT * FROM autopilot_runs WHERE 1=1";
+  const binds: any[] = [];
+  if (tenantParam && Number.isSafeInteger(Number(tenantParam))) { query += " AND tenant_id=?"; binds.push(Number(tenantParam)); }
+  if (statusParam && ["success","skipped","failed","pending"].includes(statusParam)) { query += " AND status=?"; binds.push(statusParam); }
+  query += " ORDER BY started_at DESC LIMIT ?";
+  binds.push(limit);
+  const { results } = await c.env.DB.prepare(query).bind(...binds).all();
+  return c.json({ runs: results || [] });
+});
+app.get("/autopilot-runs", async (c) => {
+  const staff = c.get("staff") as StaffIdentity;
+  if (!staff) return c.text("Unauthorized", 403);
+  await ensureAutopilotTables(c.env.DB);
+  const { results } = await c.env.DB.prepare("SELECT * FROM autopilot_runs ORDER BY started_at DESC LIMIT 50").all();
+  const rows = (results || []).map((r: any) => `<tr><td>${r.tenant_id}</td><td>${r.status}</td><td>${r.source_url || ""}</td><td>${r.post_id || ""}</td><td>${new Date(r.started_at*1000).toISOString()}</td></tr>`).join("") || '<tr><td colspan="5" class="empty">No runs</td></tr>';
+  return c.html(staffPage("Autopilot runs", `${staffHeader(staff)}<h2>Autopilot runs</h2><div class="card"><table><thead><tr><th>Tenant</th><th>Status</th><th>Source</th><th>Post</th><th>Started</th></tr></thead><tbody>${rows}</tbody></table></div>`));
+});
+
 export default app;

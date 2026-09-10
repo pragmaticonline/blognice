@@ -72,6 +72,10 @@
 		{
 			"binding": "AFFILIATE_EVENTS",
 			"dataset": "blognice_affiliate_events"
+		},
+		{
+			"binding": "AUTOPILOT_EVENTS",
+			"dataset": "blognice_autopilot_events"
 		}
 	],
 	"triggers": {

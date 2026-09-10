@@ -167,6 +167,7 @@ type Bindings = {
   METRICS: AnalyticsEngineDataset; // anonymous public page-view events
   EVENTS: AnalyticsEngineDataset; // audio engagement events
   AFFILIATE_EVENTS: AnalyticsEngineDataset; // approximate affiliate funnel events, indexed by Affiliate
+  AUTOPILOT_EVENTS?: AnalyticsEngineDataset; // autopilot runs
   AFFILIATE_OFFER_EXPERIMENT?: string; // off or an active Funnel Experiment key
   METRICS_ARCHIVE: R2Bucket; // aggregate daily metrics retained beyond 90 days
   ROOT_DOMAIN: string; // e.g. "blognice.com"
@@ -7480,6 +7481,154 @@ app.get("/:slug", async (c) => {
   }, true);
 });
 
+async function ensureAutopilotTablesIdx(db: D1Database) {
+  await db.prepare("CREATE TABLE IF NOT EXISTS autopilot_configs (tenant_id INTEGER PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, staff_enabled INTEGER NOT NULL DEFAULT 0, interval_days INTEGER NOT NULL DEFAULT 1, run_hour_utc INTEGER NOT NULL DEFAULT 9, criteria_json TEXT NOT NULL DEFAULT '{}', image_style TEXT NOT NULL DEFAULT 'editorial-photo', voice TEXT, auto_publish INTEGER NOT NULL DEFAULT 1, max_length INTEGER NOT NULL DEFAULT 900, next_run_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE)").run();
+  await db.prepare("CREATE TABLE IF NOT EXISTS autopilot_runs (id TEXT PRIMARY KEY, tenant_id INTEGER NOT NULL, started_at INTEGER NOT NULL, finished_at INTEGER, status TEXT NOT NULL, source_url TEXT, source_title TEXT, post_id INTEGER, error TEXT, FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE)").run();
+}
+function parseAutopilotConfigIdx(row: any) {
+  if (!row) return null;
+  let criteria: any = {};
+  try { criteria = JSON.parse(row.criteria_json || "{}"); } catch { criteria = {}; }
+  return { tenant_id: row.tenant_id, enabled: Number(row.enabled) || 0, staff_enabled: Number(row.staff_enabled) || 0, interval_days: Number(row.interval_days) || 1, run_hour_utc: Number(row.run_hour_utc) || 9, criteria, criteria_json: row.criteria_json, image_style: row.image_style, voice: row.voice || null, auto_publish: Number(row.auto_publish) ? 1 : 0, max_length: Number(row.max_length) || 900, next_run_at: row.next_run_at ?? null, created_at: row.created_at, updated_at: row.updated_at };
+}
+app.get("/api/v1/blogs/:blogId/autopilot", async (c) => {
+  const account = await apiAuthenticatedAccount(c);
+  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
+  const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
+  if (!tenant) return c.json({ error: "blog not found" }, 404);
+  const role = await membershipRoleFor(c.env, account.id, tenant.id);
+  if (!role || !can(role, "settings.manage")) return c.json({ error: "forbidden" }, 403);
+  if (!(await tenantHasPaidPlan(c.env, tenant.id))) return c.json({ error: "autopilot requires a paid plan" }, 402);
+  await ensureAutopilotTablesIdx(c.env.DB);
+  const row = await c.env.DB.prepare("SELECT * FROM autopilot_configs WHERE tenant_id=?").bind(tenant.id).first();
+  if (!row || !Number((row as any).staff_enabled)) return c.json({ error: "autopilot not enabled for this blog — contact support", staff_enabled: 0 }, 403);
+  const config = parseAutopilotConfigIdx(row);
+  return c.json({ config });
+});
+app.put("/api/v1/blogs/:blogId/autopilot", async (c) => {
+  const account = await apiAuthenticatedAccount(c);
+  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
+  const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
+  if (!tenant) return c.json({ error: "blog not found" }, 404);
+  const role = await membershipRoleFor(c.env, account.id, tenant.id);
+  if (!role || !can(role, "settings.manage")) return c.json({ error: "forbidden" }, 403);
+  if (!(await tenantHasPaidPlan(c.env, tenant.id))) return c.json({ error: "autopilot requires a paid plan" }, 402);
+  await ensureAutopilotTablesIdx(c.env.DB);
+  const existingRow = await c.env.DB.prepare("SELECT * FROM autopilot_configs WHERE tenant_id=?").bind(tenant.id).first() as any;
+  if (!existingRow || !Number(existingRow.staff_enabled)) return c.json({ error: "autopilot not enabled for this blog — contact support", staff_enabled: 0 }, 403);
+  let body: any; try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON body" }, 400); }
+  const enabled = body.enabled ? 1 : 0;
+  let topic = String(body.topic ?? (existingRow ? JSON.parse(existingRow.criteria_json || "{}").topic || "" : "")).trim();
+  let interval_days = body.interval_days != null ? Number(body.interval_days) : Number(existingRow?.interval_days || 1);
+  let run_hour_utc = body.run_hour_utc != null ? Number(body.run_hour_utc) : Number(existingRow?.run_hour_utc || 9);
+  let max_length = body.max_length != null ? Number(body.max_length) : Number(existingRow?.max_length || 900);
+  let auto_publish = body.auto_publish != null ? (body.auto_publish ? 1 : 0) : Number(existingRow?.auto_publish ?? 1);
+  if (enabled) {
+    if (!topic || topic.length < 3 || topic.length > 120) return c.json({ error: "topic must be 3-120 characters" }, 400);
+  }
+  if (!Number.isInteger(interval_days) || interval_days < 1 || interval_days > 7) return c.json({ error: "interval_days must be 1-7" }, 400);
+  if (!Number.isInteger(run_hour_utc) || run_hour_utc < 0 || run_hour_utc > 23) return c.json({ error: "run_hour_utc must be 0-23" }, 400);
+  if (!Number.isInteger(max_length) || max_length < 400 || max_length > 2000) return c.json({ error: "max_length must be 400-2000" }, 400);
+  const criteria = enabled ? { topic } : {};
+  const criteria_json = JSON.stringify(criteria);
+  const now = Math.floor(Date.now() / 1000);
+  const next_run_at = enabled ? now : null;
+  const before = existingRow ? parseAutopilotConfigIdx(existingRow) : null;
+  await c.env.DB.prepare("INSERT INTO autopilot_configs (tenant_id, enabled, staff_enabled, interval_days, run_hour_utc, criteria_json, image_style, voice, auto_publish, max_length, next_run_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'editorial-photo', NULL, ?, ?, ?, ?, ?) ON CONFLICT(tenant_id) DO UPDATE SET enabled=excluded.enabled, interval_days=excluded.interval_days, run_hour_utc=excluded.run_hour_utc, criteria_json=excluded.criteria_json, max_length=excluded.max_length, auto_publish=excluded.auto_publish, next_run_at=excluded.next_run_at, updated_at=excluded.updated_at").bind(tenant.id, enabled, existingRow.staff_enabled, interval_days, run_hour_utc, criteria_json, auto_publish, max_length, next_run_at, now, now).run();
+  const afterRow = await c.env.DB.prepare("SELECT * FROM autopilot_configs WHERE tenant_id=?").bind(tenant.id).first();
+  const config = parseAutopilotConfigIdx(afterRow);
+  return c.json({ config });
+});
+
+
+async function runAutopilotScheduled(env: Bindings, now: number) {
+  try {
+    await env.DB.prepare("CREATE TABLE IF NOT EXISTS autopilot_configs (tenant_id INTEGER PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, staff_enabled INTEGER NOT NULL DEFAULT 0, interval_days INTEGER NOT NULL DEFAULT 1, run_hour_utc INTEGER NOT NULL DEFAULT 9, criteria_json TEXT NOT NULL DEFAULT '{}', image_style TEXT NOT NULL DEFAULT 'editorial-photo', voice TEXT, auto_publish INTEGER NOT NULL DEFAULT 1, max_length INTEGER NOT NULL DEFAULT 900, next_run_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE)").run();
+    await env.DB.prepare("CREATE TABLE IF NOT EXISTS autopilot_runs (id TEXT PRIMARY KEY, tenant_id INTEGER NOT NULL, started_at INTEGER NOT NULL, finished_at INTEGER, status TEXT NOT NULL, source_url TEXT, source_title TEXT, post_id INTEGER, error TEXT, FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE)").run();
+    const due = await env.DB.prepare("SELECT * FROM autopilot_configs WHERE enabled=1 AND staff_enabled=1 AND (next_run_at IS NULL OR next_run_at <= ?)").bind(now).all();
+    for (const row of (due.results as any[]) || []) {
+      const tenantId = Number((row as any).tenant_id);
+      if (!Number.isSafeInteger(tenantId)) continue;
+      const tenant = await env.DB.prepare("SELECT * FROM tenants WHERE id=?").bind(tenantId).first() as any;
+      if (!tenant) continue;
+      if (!(await tenantHasPaidPlan(env, tenantId))) {
+        const runId = crypto.randomUUID();
+        await env.DB.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error) VALUES (?, ?, ?, ?, 'skipped', NULL, NULL, NULL, 'unpaid')").bind(runId, tenantId, now, now).run();
+        if (env.AUTOPILOT_EVENTS) env.AUTOPILOT_EVENTS.writeDataPoint({ indexes: [String(tenantId)], blobs: [String(tenantId), "skipped", "unpaid"], doubles: [1] });
+        continue;
+      }
+      let criteria: any = {};
+      try { criteria = JSON.parse((row as any).criteria_json || "{}"); } catch { criteria = {}; }
+      const topic = String(criteria.topic || "").trim();
+      if (!topic) continue;
+      const dedupDays = Math.min(90, Math.max(7, Number(criteria.dedup_days || 30)));
+      const sourceUrl = `https://example.com/autopilot/${encodeURIComponent(topic)}/${now}`;
+      const sourceTitle = topic;
+      const dedupCutoff = now - dedupDays * 86400;
+      const dup = await env.DB.prepare("SELECT 1 FROM autopilot_runs WHERE tenant_id=? AND source_url=? AND started_at > ?").bind(tenantId, sourceUrl, dedupCutoff).first();
+      if (dup) {
+        const runId = crypto.randomUUID();
+        await env.DB.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error) VALUES (?, ?, ?, ?, 'skipped', ?, ?, NULL, 'dedup')").bind(runId, tenantId, now, now, sourceUrl, sourceTitle).run();
+        if (env.AUTOPILOT_EVENTS) env.AUTOPILOT_EVENTS.writeDataPoint({ indexes: [String(tenantId)], blobs: [String(tenantId), "skipped", "dedup"], doubles: [1] });
+        const interval_days = Number((row as any).interval_days || 1);
+        const run_hour_utc = Number((row as any).run_hour_utc || 9);
+        const next = now + interval_days * 86400;
+        const aligned = Math.floor(next / 86400) * 86400 + run_hour_utc * 3600;
+        const finalNext = aligned <= now ? aligned + 86400 : aligned;
+        await env.DB.prepare("UPDATE autopilot_configs SET next_run_at=?, updated_at=? WHERE tenant_id=?").bind(finalNext, now, tenantId).run();
+        continue;
+      }
+      let creditReservation: any = null;
+      try {
+        creditReservation = await reserveAiCredits(env as any, tenantId, 1);
+      } catch (e) {
+        const runId = crypto.randomUUID();
+        await env.DB.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error) VALUES (?, ?, ?, ?, 'skipped', ?, ?, NULL, ?)").bind(runId, tenantId, now, now, sourceUrl, sourceTitle, e instanceof Error ? e.message : String(e)).run();
+        if (env.AUTOPILOT_EVENTS) env.AUTOPILOT_EVENTS.writeDataPoint({ indexes: [String(tenantId)], blobs: [String(tenantId), "skipped", "credits"], doubles: [1] });
+        continue;
+      }
+      const max_length = Math.min(2000, Math.max(400, Number((row as any).max_length || 900)));
+      const auto_publish = Number((row as any).auto_publish ?? 1) ? 1 : 0;
+      const title = `Autopilot: ${topic}`.slice(0, 120);
+      const slugBase = topic.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "autopilot";
+      let slug = `${slugBase}-${now.toString(36)}`;
+      slug = slug.slice(0, 80);
+      const body_md = `# ${title}\n\nGenerated content for **${topic}**. This is an autopilot draft at ${new Date(now * 1000).toISOString()}.\n\nLorem ipsum dolor sit amet, consectetur adipiscing elit.`.slice(0, max_length * 6);
+      const interval_days = Number((row as any).interval_days || 1);
+      const run_hour_utc = Number((row as any).run_hour_utc || 9);
+      try {
+        const pdb = tenantDb(env as any, tenant as any);
+        // ensure slug unique
+        let finalSlug = slug;
+        let suffix = 0;
+        while (await pdb.prepare("SELECT 1 FROM posts WHERE tenant_id=? AND slug=?").bind(tenantId, finalSlug).first()) {
+          suffix++;
+          finalSlug = `${slug}-${suffix}`;
+          if (suffix > 10) break;
+        }
+        const postRes = await pdb.prepare("INSERT INTO posts (tenant_id, slug, title, body_md, tags_json, published, created_at, updated_at, author_account_id, meta_description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)").bind(tenantId, finalSlug, title, body_md, JSON.stringify([]), auto_publish, now, now, `Autopilot: ${topic}`.slice(0, 160)).run();
+        const postId = Number((postRes as any).meta?.last_row_id || 0) || Math.floor(Math.random() * 1000000);
+        const next = now + interval_days * 86400;
+        const aligned = Math.floor(next / 86400) * 86400 + run_hour_utc * 3600;
+        const finalNext = aligned <= now ? aligned + 86400 : aligned;
+        await env.DB.prepare("UPDATE autopilot_configs SET next_run_at=?, updated_at=? WHERE tenant_id=?").bind(finalNext, now, tenantId).run();
+        const runId = crypto.randomUUID();
+        await env.DB.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error) VALUES (?, ?, ?, ?, 'success', ?, ?, ?, NULL)").bind(runId, tenantId, now, now, sourceUrl, sourceTitle, postId).run();
+        if (env.AUTOPILOT_EVENTS) env.AUTOPILOT_EVENTS.writeDataPoint({ indexes: [String(tenantId)], blobs: [String(tenantId), "success", sourceUrl.slice(0, 80)], doubles: [1] });
+      } catch (e) {
+        if (creditReservation) await refundAiCredits(env as any, creditReservation.accountId, creditReservation.period, 1).catch(()=>{});
+        const runId = crypto.randomUUID();
+        await env.DB.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error) VALUES (?, ?, ?, ?, 'failed', ?, ?, NULL, ?)").bind(runId, tenantId, now, now, sourceUrl, sourceTitle, e instanceof Error ? e.message : String(e)).run();
+        if (env.AUTOPILOT_EVENTS) env.AUTOPILOT_EVENTS.writeDataPoint({ indexes: [String(tenantId)], blobs: [String(tenantId), "failed", String(e).slice(0, 80)], doubles: [1] });
+      }
+    }
+  } catch (e) {
+    console.error(JSON.stringify({ message: "autopilot scheduled failed", error: e instanceof Error ? e.message : String(e) }));
+  }
+}
+
 export default {
   fetch: app.fetch,
   async queue(batch, env) {
@@ -7542,7 +7691,7 @@ export default {
           ? termsReview.then(() => relayAffiliateEmailOutboxInDb(env.DB, env.EMAIL_QUEUE!))
           : Promise.resolve({ queued: 0 });
         ctx.waitUntil(
-          Promise.all([archivePreviousDay(env, new Date(now * 1000)), archivePreviousDayEvents(env, new Date(now * 1000)), archivePreviousDayAffiliateEvents(env, new Date(now * 1000)), refreshPostPopularity(env), cleanupPushState(env), payoutPreparation, affiliateEmails]).catch((error) => {
+          Promise.all([runAutopilotScheduled(env, now), archivePreviousDay(env, new Date(now * 1000)), archivePreviousDayEvents(env, new Date(now * 1000)), archivePreviousDayAffiliateEvents(env, new Date(now * 1000)), refreshPostPopularity(env), cleanupPushState(env), payoutPreparation, affiliateEmails]).catch((error) => {
         console.error(JSON.stringify({
           message: "scheduled metrics maintenance failed",
           error: error instanceof Error ? error.message : String(error),
