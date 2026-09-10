@@ -1,4 +1,4 @@
-export const CACHE_VERSION = "20260910-02";
+export const CACHE_VERSION = "20260910-03";
 
 export function customDomainRedirectUrl(requestUrl: string, tenant: { slug: string; custom_domain: string | null }, rootDomain: string): string | null {
   const custom = (tenant.custom_domain || "").trim().toLowerCase();
