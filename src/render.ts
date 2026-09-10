@@ -624,8 +624,8 @@ const STYLES = /* css */ `
   .prose .tweet-card__head a { color:var(--ink); font-weight:600; }
   .prose .tweet-card__text { font-size:1rem; line-height:1.6; color:var(--ink); }
   .prose .tweet-card__text a { font-weight:500; color:var(--accent); text-decoration:underline; }
-  .prose .tweet-embed { border:1px solid var(--rule); border-radius:12px; margin:1.6rem 0; background:var(--card); min-height:220px; position:relative; overflow:hidden; }
-  .prose .tweet-embed__skeleton { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; gap:0.6rem; background:var(--card); color:var(--muted); font-family:var(--sans); font-size:0.88rem; }
+  .prose .tweet-embed { border:none; border-radius:12px; margin:1.6rem 0; background:transparent; min-height:220px; position:relative; overflow:hidden; }
+  .prose .tweet-embed__skeleton { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; gap:0.6rem; background:var(--card); color:var(--muted); font-family:var(--sans); font-size:0.88rem; border:1px solid var(--rule); border-radius:12px; }
   .prose .tweet-embed__shimmer { width:22px; height:22px; border-radius:50%; border:2px solid var(--rule); border-top-color:var(--muted); animation:tweet-spin .8s linear infinite; }
   @keyframes tweet-spin { to { transform:rotate(360deg); } }
   .prose .tweet-embed__content { position:relative; padding:0.2rem 0; }
