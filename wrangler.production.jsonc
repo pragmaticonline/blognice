@@ -1,149 +1,148 @@
 {
-	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "blognice",
-	"main": "src/index.ts",
-	"compatibility_date": "2026-06-20",
-	"compatibility_flags": [
-		"nodejs_compat"
-	],
-	"limits": {
-		"cpu_ms": 300000
-	},
-	"rules": [
-		{
-			"type": "Text",
-			"globs": [
-				"**/*.html",
-				"**/*.svg"
-			],
-			"fallthrough": false
-		}
-	],
-	"vars": {
-		"ROOT_DOMAIN": "blognice.com",
-		"CF_ZONE_ID": "7e77e18b4b128bd2fbd6305e7bfb916e",
-		"CF_ACCOUNT_ID": "30142eba9e53a37522d1c59b298db661",
-		"CNAME_TARGET": "fallback.blognice.com",
-		"EMAIL_FROM": "blognice <support@mailer.blognice.com>",
-		"STRIPE_MONTHLY_PRICE_ID": "price_1U7W3OAqOquRLVdtVt83qzRH",
-		"STRIPE_YEARLY_PRICE_ID": "price_1U7W3PAqOquRLVdtJFW7uSqT",
-		"STRIPE_AFFILIATE_COUPON_ID": "blognice-affiliate-10-12m",
-		"AFFILIATE_TERMS_VERSION": "affiliate-1",
-		"AFFILIATE_TERMS_DOCUMENT_DIGEST": "sha256:1014af2de33b2d73d9b7f27b93ab3ee7d68479e2bacc9999ac2d4b71788d0e61",
-		"AFFILIATE_POLICY_VERSION": "affiliate-1",
-		"AFFILIATE_TERMS_URL": "https://www.blognice.com/affiliate-terms",
-		"AFFILIATE_STRIPE_CONNECT_COUNTRIES": "US,CA,GB,TH",
-		"AFFILIATE_OFFER_EXPERIMENT": "off"
-	},
-	"routes": [
-		{
-			"pattern": "*/*",
-			"zone_name": "blognice.com"
-		},
-		{
-			"pattern": "blognice.com/*",
-			"zone_name": "blognice.com"
-		}
-	],
-	"d1_databases": [
-		{
-			"binding": "DB",
-			"database_name": "blognice",
-			"database_id": "228b44b6-806a-4730-8c44-1b44d01a6536"
-		},
-		{
-			"binding": "POSTS",
-			"database_name": "blognice-posts",
-			"database_id": "ec0e85e0-03ec-41af-993d-2002cc00728c"
-		}
-	],
-	"r2_buckets": [
-		{
-			"binding": "MEDIA",
-			"bucket_name": "blognice-media"
-		},
-		{
-			"binding": "METRICS_ARCHIVE",
-			"bucket_name": "blognice-metrics"
-		},
-		{
-			"binding": "ASSETS",
-			"bucket_name": "blognice-assets"
-		}
-	],
-	"analytics_engine_datasets": [
-		{
-			"binding": "METRICS",
-			"dataset": "blognice_pageviews"
-		},
-		{
-			"binding": "EVENTS",
-			"dataset": "blognice_events"
-		},
-		{
-			"binding": "AFFILIATE_EVENTS",
-			"dataset": "blognice_affiliate_events"
-		},
-		{
-			"binding": "AUTOPILOT_EVENTS",
-			"dataset": "blognice_autopilot_events"
-		}
-	],
-	"triggers": {
-		"crons": [
-			"15 2 * * *",
-			"0 * * * *"
-		]
-	},
-	"ai": {
-		"binding": "AI"
-	},
-	"queues": {
-		"producers": [
-			{
-				"binding": "AUDIO_QUEUE",
-				"queue": "blognice-audio"
-			},
-			{
-				"binding": "EMAIL_QUEUE",
-				"queue": "blognice-email"
-			},
-			{
-				"binding": "PUSH_QUEUE",
-				"queue": "blognice-push"
-			},
-			{
-				"binding": "INDEXNOW_QUEUE",
-				"queue": "blognice-indexnow"
-			}
-		],
-		"consumers": [
-			{
-				"queue": "blognice-audio",
-				"max_batch_size": 1,
-				"max_batch_timeout": 5,
-				"max_retries": 5
-			},
-			{
-				"queue": "blognice-email",
-				"max_batch_size": 10,
-				"max_batch_timeout": 5,
-				"max_retries": 5,
-				"dead_letter_queue": "blognice-email-dlq"
-			},
-			{
-				"queue": "blognice-push",
-				"max_batch_size": 10,
-				"max_batch_timeout": 5,
-				"max_retries": 5,
-				"dead_letter_queue": "blognice-push-dlq"
-			},
-			{
-				"queue": "blognice-indexnow",
-				"max_batch_size": 10,
-				"max_batch_timeout": 5,
-				"max_retries": 5
-			}
-		]
-	}
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "blognice",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-20",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "limits": {
+    "cpu_ms": 300000
+  },
+  "rules": [
+    {
+      "type": "Text",
+      "globs": [
+        "**/*.html",
+        "**/*.svg"
+      ],
+      "fallthrough": false
+    }
+  ],
+  "vars": {
+    "ROOT_DOMAIN": "blognice.com",
+    "CF_ZONE_ID": "7e77e18b4b128bd2fbd6305e7bfb916e",
+    "CF_ACCOUNT_ID": "30142eba9e53a37522d1c59b298db661",
+    "CNAME_TARGET": "fallback.blognice.com",
+    "EMAIL_FROM": "blognice <support@mailer.blognice.com>",
+    "STRIPE_MONTHLY_PRICE_ID": "price_1U7W3OAqOquRLVdtVt83qzRH",
+    "STRIPE_YEARLY_PRICE_ID": "price_1U7W3PAqOquRLVdtJFW7uSqT",
+    "STRIPE_AFFILIATE_COUPON_ID": "blognice-affiliate-10-12m",
+    "AFFILIATE_TERMS_VERSION": "affiliate-1",
+    "AFFILIATE_TERMS_DOCUMENT_DIGEST": "sha256:1014af2de33b2d73d9b7f27b93ab3ee7d68479e2bacc9999ac2d4b71788d0e61",
+    "AFFILIATE_POLICY_VERSION": "affiliate-1",
+    "AFFILIATE_TERMS_URL": "https://www.blognice.com/affiliate-terms",
+    "AFFILIATE_STRIPE_CONNECT_COUNTRIES": "US,CA,GB,TH",
+    "AFFILIATE_OFFER_EXPERIMENT": "off"
+  },
+  "routes": [
+    {
+      "pattern": "*/*",
+      "zone_name": "blognice.com"
+    },
+    {
+      "pattern": "blognice.com/*",
+      "zone_name": "blognice.com"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "blognice",
+      "database_id": "228b44b6-806a-4730-8c44-1b44d01a6536"
+    },
+    {
+      "binding": "POSTS",
+      "database_name": "blognice-posts",
+      "database_id": "ec0e85e0-03ec-41af-993d-2002cc00728c"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "blognice-media"
+    },
+    {
+      "binding": "METRICS_ARCHIVE",
+      "bucket_name": "blognice-metrics"
+    },
+    {
+      "binding": "ASSETS",
+      "bucket_name": "blognice-assets"
+    }
+  ],
+  "analytics_engine_datasets": [
+    {
+      "binding": "METRICS",
+      "dataset": "blognice_pageviews"
+    },
+    {
+      "binding": "EVENTS",
+      "dataset": "blognice_events"
+    },
+    {
+      "binding": "AFFILIATE_EVENTS",
+      "dataset": "blognice_affiliate_events"
+    },
+    {
+      "binding": "AUTOPILOT_EVENTS",
+      "dataset": "blognice_autopilot_events"
+    }
+  ],
+  "triggers": {
+    "crons": [
+      "15 2 * * *"
+    ]
+  },
+  "ai": {
+    "binding": "AI"
+  },
+  "queues": {
+    "producers": [
+      {
+        "binding": "AUDIO_QUEUE",
+        "queue": "blognice-audio"
+      },
+      {
+        "binding": "EMAIL_QUEUE",
+        "queue": "blognice-email"
+      },
+      {
+        "binding": "PUSH_QUEUE",
+        "queue": "blognice-push"
+      },
+      {
+        "binding": "INDEXNOW_QUEUE",
+        "queue": "blognice-indexnow"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "blognice-audio",
+        "max_batch_size": 1,
+        "max_batch_timeout": 5,
+        "max_retries": 5
+      },
+      {
+        "queue": "blognice-email",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 5,
+        "dead_letter_queue": "blognice-email-dlq"
+      },
+      {
+        "queue": "blognice-push",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 5,
+        "dead_letter_queue": "blognice-push-dlq"
+      },
+      {
+        "queue": "blognice-indexnow",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 5
+      }
+    ]
+  }
 }
