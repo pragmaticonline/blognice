@@ -628,10 +628,10 @@ const STYLES = /* css */ `
   .prose .tweet-embed__skeleton { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; gap:0.6rem; background:var(--card); color:var(--muted); font-family:var(--sans); font-size:0.88rem; border:1px solid var(--rule); border-radius:12px; }
   .prose .tweet-embed__shimmer { width:22px; height:22px; border-radius:50%; border:2px solid var(--rule); border-top-color:var(--muted); animation:tweet-spin .8s linear infinite; }
   @keyframes tweet-spin { to { transform:rotate(360deg); } }
-  .prose .tweet-embed__content { position:relative; padding:0.2rem 0; }
-  .prose .tweet-embed__content blockquote.twitter-tweet { border:none; margin:0; padding:0.8rem 1.1rem; }
+  .prose .tweet-embed__content { position:relative; padding:0; }
+  .prose .tweet-embed__content blockquote.twitter-tweet { border:none; margin:0; padding:0; }
   .prose .tweet-embed.is-loaded .tweet-embed__skeleton { opacity:0; pointer-events:none; transition:opacity .3s ease; }
-  .prose .tweet-embed iframe { width:100% !important; margin:0 !important; display:block; }
+  .prose .tweet-embed iframe { width:100% !important; max-width:550px !important; margin:0 auto !important; display:block; }
   .prose .tweet-embed.is-loaded { min-height:0; }
   .prose blockquote.twitter-tweet { border:1px solid var(--rule); border-left:1px solid var(--rule); border-radius:12px; padding:0.9rem 1.1rem; margin:1.6rem 0; background:var(--card); font-style:normal; font-size:1rem; color:var(--ink); }
   .prose blockquote.twitter-tweet a { font-weight:600; word-break:break-all; }
