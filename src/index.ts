@@ -7651,15 +7651,34 @@ async function runAutopilotScheduled(env: Bindings, now: number) {
                 return true;
               } catch { return false; }
             });
-            for (const r of (filtered.length ? filtered : rawResults)) {
+            const ranked = (filtered.length ? filtered : rawResults).map((r: any) => {
+              let score = 0;
+              try {
+                const u = new URL(String(r.url||""));
+                const segs = u.pathname.split("/").filter(Boolean);
+                score += segs.length * 3;
+                if (segs.length >= 3) score += 5;
+                if (/\d{4}\/\d{2}\/\d{2}/.test(u.pathname)) score += 4;
+                if (u.pathname.includes("-")) score += 2;
+                if (String(r.title||"").toLowerCase().includes(topic.toLowerCase().split(" ")[0])) score += 2;
+              } catch {}
+              const desc = String(r.description||"").length;
+              if (desc > 120) score += 1;
+              return { r, score, url: String(r.url||"") };
+            }).sort((a:any,b:any)=>b.score-a.score);
+            for (const { r } of ranked) {
               const candUrl = String(r.url || "").trim();
               if (!candUrl) continue;
-              try { new URL(candUrl); } catch { continue; }
+              try {
+                const u = new URL(candUrl);
+                if (u.pathname === "/" || u.pathname === "/world/us/" || u.pathname === "/us-news" || u.pathname === "/world/us") continue;
+                new URL(candUrl);
+              } catch { continue; }
               const dupCheck = await env.DB.prepare("SELECT 1 FROM autopilot_runs WHERE tenant_id=? AND source_url=? AND started_at > ?").bind(tenantId, candUrl, dedupCutoff).first();
               if (dupCheck) continue;
               sourceUrl = candUrl;
               sourceTitle = String(r.title || topic).slice(0, 300);
-              sourceDescription = String(r.description || r.extra_snippets?.[0] || "").slice(0, 500);
+              sourceDescription = String(r.description || (Array.isArray(r.extra_snippets) ? r.extra_snippets.join(" ") : "") || "").slice(0, 800);
               break;
             }
             if (!sourceUrl && rawResults.length) {
@@ -7734,17 +7753,29 @@ async function runAutopilotScheduled(env: Bindings, now: number) {
           if (sres.ok) {
             const html = await sres.text();
             const text = html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-            sourceExcerpt = text.slice(0, 6000);
-            if (!sourceDescription && sourceExcerpt) sourceDescription = sourceExcerpt.slice(0, 300);
+            const fetched = text.slice(0, 6000);
+            const isJsPlaceholder = /Please enable JS|enable JavaScript|ad blocker/i.test(fetched) || fetched.length < 300;
+            if (!isJsPlaceholder) {
+              sourceExcerpt = fetched;
+              if (!sourceDescription && sourceExcerpt) sourceDescription = sourceExcerpt.slice(0, 300);
+            } else {
+              sourceExcerpt = String(sourceDescription || "").slice(0, 3000);
+            }
+          } else {
+            sourceExcerpt = String(sourceDescription || "").slice(0, 3000);
           }
-        } catch {}
+        } catch {
+          sourceExcerpt = String(sourceDescription || "").slice(0, 3000);
+        }
+        if (!sourceExcerpt) sourceExcerpt = String(sourceDescription || "").slice(0, 3000);
       }
       const tone = String(criteria.tone || "neutral");
       const audience = String(criteria.audience || "").trim();
+      const currentDate = new Date(now * 1000).toISOString().slice(0,10);
       let body_md = "";
       try {
-        const prompt = `Topic: ${topic}\nSource: ${sourceTitle} ${sourceUrl}\nExcerpt: ${sourceExcerpt.slice(0, 4000) || sourceDescription || ""}\nTone: ${tone}${audience ? ` Audience: ${audience}` : ""}\nLength: ~${max_length} words, markdown with H2/H3, no preamble. Cite source URL at end.`;
-        const aiRes: any = await (env as any).AI.run(AI_BRIEF_MODEL, { messages: [{ role: "system", content: `You are a concise, factual blog writer. Write a well-structured markdown post (~${max_length} words) for the given topic using the source excerpt when relevant. Use neutral, helpful tone (${tone}). No hallucinations; if excerpt lacks detail, write general but useful overview. Include H2 sections, bullet points where helpful, and end with Source link.` }, { role: "user", content: prompt }], max_tokens: Math.min(2000, Math.max(600, Math.ceil(max_length * 1.4))), temperature: 0.6 });
+        const prompt = `Date: ${currentDate}\nTopic: ${topic}\nSource: ${sourceTitle} ${sourceUrl}\nExcerpt: ${sourceExcerpt.slice(0, 4000) || sourceDescription || ""}\nTone: ${tone}${audience ? ` Audience: ${audience}` : ""}\nLength: ~${max_length} words, markdown with H2/H3, no preamble. Cite source URL at end.`;
+        const aiRes: any = await (env as any).AI.run(AI_BRIEF_MODEL, { messages: [{ role: "system", content: `You are a concise, factual blog writer for ${currentDate}. Write a well-structured markdown post (~${max_length} words) for the given topic using the source excerpt when relevant. Use neutral, helpful tone (${tone}). No hallucinations; if excerpt lacks detail, write general but useful overview. Include H2 sections, bullet points where helpful, and end with Source link.` }, { role: "user", content: prompt }], max_tokens: Math.min(2000, Math.max(600, Math.ceil(max_length * 1.4))), temperature: 0.6 });
         const gen = String(aiRes.response || aiRes.text || "").trim();
         if (gen.length > 200) {
           body_md = `# ${title}\n\n${gen}`.slice(0, max_length * 6);
