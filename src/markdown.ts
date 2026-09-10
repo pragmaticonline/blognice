@@ -21,10 +21,11 @@ const markdownSchema = {
   attributes: {
     p: [], br: [], hr: [["className", "rule-dash", "rule-star", "rule-line"]],
     h1: ["id"], h2: ["id"], h3: ["id"], h4: ["id"], h5: ["id"], h6: ["id"],
-    strong: [], em: [], del: [], s: [], u: [], blockquote: [], pre: [],
+    strong: [], em: [], del: [], s: [], u: [], pre: [],
     code: [], ul: [], ol: [], li: [],
     a: ["href", "title", "target", "rel"],
     div: [["className", "tweet-card"]],
+    blockquote: [["className", "twitter-tweet"]],
     img: ["src", "alt", "title"],
     table: [], thead: [], tbody: [], tr: [], th: ["colSpan", "rowSpan"], td: ["colSpan", "rowSpan"],
   },
@@ -95,9 +96,9 @@ function tweetCards() {
       const href = String(child.properties.href);
       if (!/^https?:\/\/(www\.)?(twitter\.com|x\.com)\//i.test(href)) return;
       if (typeof index !== "number") return;
-      node.tagName = "div";
-      node.properties = { className: ["tweet-card"] };
-      child.properties = { ...(child.properties || {}), target: "_blank", rel: "noopener noreferrer" };
+      node.tagName = "blockquote";
+      node.properties = { className: ["twitter-tweet"] };
+      child.properties = { ...(child.properties || {}), href };
     });
   };
 }
