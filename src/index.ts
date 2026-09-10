@@ -7533,7 +7533,53 @@ app.put("/api/v1/blogs/:blogId/autopilot", async (c) => {
   if (!Number.isInteger(interval_days) || interval_days < 1 || interval_days > 7) return c.json({ error: "interval_days must be 1-7" }, 400);
   if (!Number.isInteger(run_hour_utc) || run_hour_utc < 0 || run_hour_utc > 23) return c.json({ error: "run_hour_utc must be 0-23" }, 400);
   if (!Number.isInteger(max_length) || max_length < 400 || max_length > 2000) return c.json({ error: "max_length must be 400-2000" }, 400);
-  const criteria = enabled ? { topic } : {};
+  let include: string[] | undefined;
+  if (body.include !== undefined) {
+    if (!Array.isArray(body.include)) return c.json({ error: "include must be an array of up to 10 keywords" }, 400);
+    if (body.include.length > 10) return c.json({ error: "include must have at most 10 keywords" }, 400);
+    include = body.include.map((s: any) => String(s).trim()).filter(Boolean);
+    for (const kw of include!) if (kw.length < 1 || kw.length > 40) return c.json({ error: "each include keyword must be 1-40 characters" }, 400);
+  } else if (existingRow) { try { const ex = JSON.parse(existingRow.criteria_json || "{}"); if (Array.isArray(ex.include)) include = ex.include; } catch {} }
+  let exclude: string[] | undefined;
+  if (body.exclude !== undefined) {
+    if (!Array.isArray(body.exclude)) return c.json({ error: "exclude must be an array of up to 10 keywords" }, 400);
+    if (body.exclude.length > 10) return c.json({ error: "exclude must have at most 10 keywords" }, 400);
+    exclude = body.exclude.map((s: any) => String(s).trim()).filter(Boolean);
+    for (const kw of exclude!) if (kw.length < 1 || kw.length > 40) return c.json({ error: "each exclude keyword must be 1-40 characters" }, 400);
+  } else if (existingRow) { try { const ex = JSON.parse(existingRow.criteria_json || "{}"); if (Array.isArray(ex.exclude)) exclude = ex.exclude; } catch {} }
+  let freshness = body.freshness !== undefined ? String(body.freshness).trim() : (existingRow ? (()=>{try{return JSON.parse(existingRow.criteria_json||"{}").freshness}catch{return undefined}})() : undefined);
+  if (freshness !== undefined && freshness !== null && freshness !== "" && !["24h","7d","30d"].includes(freshness)) return c.json({ error: "freshness must be 24h, 7d, or 30d" }, 400);
+  if (!freshness) freshness = "7d";
+  let allowDomains: string[] | undefined;
+  if (body.allowDomains !== undefined) {
+    if (!Array.isArray(body.allowDomains)) return c.json({ error: "allowDomains must be an array of up to 20 domains" }, 400);
+    if (body.allowDomains.length > 20) return c.json({ error: "allowDomains must have at most 20 domains" }, 400);
+    allowDomains = body.allowDomains.map((s:any)=>String(s).trim().toLowerCase()).filter(Boolean);
+    for (const d of allowDomains!) if (d.length > 253 || !/^([a-z0-9-]+\.)+[a-z]{2,}$/.test(d)) return c.json({ error: `invalid allowDomains entry: ${d}` }, 400);
+  } else if (existingRow) { try { const ex = JSON.parse(existingRow.criteria_json || "{}"); if (Array.isArray(ex.allowDomains)) allowDomains = ex.allowDomains; } catch {} }
+  let blockDomains: string[] | undefined;
+  if (body.blockDomains !== undefined) {
+    if (!Array.isArray(body.blockDomains)) return c.json({ error: "blockDomains must be an array of up to 20 domains" }, 400);
+    if (body.blockDomains.length > 20) return c.json({ error: "blockDomains must have at most 20 domains" }, 400);
+    blockDomains = body.blockDomains.map((s:any)=>String(s).trim().toLowerCase()).filter(Boolean);
+    for (const d of blockDomains!) if (d.length > 253 || !/^([a-z0-9-]+\.)+[a-z]{2,}$/.test(d)) return c.json({ error: `invalid blockDomains entry: ${d}` }, 400);
+  } else if (existingRow) { try { const ex = JSON.parse(existingRow.criteria_json || "{}"); if (Array.isArray(ex.blockDomains)) blockDomains = ex.blockDomains; } catch {} }
+  let tone = body.tone !== undefined ? String(body.tone).trim() : (existingRow ? (()=>{try{return JSON.parse(existingRow.criteria_json||"{}").tone}catch{return undefined}})() : undefined);
+  if (tone !== undefined && tone !== null && tone !== "" && !["neutral","concise","friendly","authoritative"].includes(tone)) return c.json({ error: "tone must be neutral, concise, friendly, or authoritative" }, 400);
+  if (!tone) tone = "neutral";
+  let audience = body.audience !== undefined ? String(body.audience).trim() : (existingRow ? (()=>{try{return JSON.parse(existingRow.criteria_json||"{}").audience}catch{return undefined}})() : undefined);
+  if (audience !== undefined && audience.length > 120) return c.json({ error: "audience must be 0-120 characters" }, 400);
+  let tags: string[] | undefined;
+  if (body.tags !== undefined) {
+    if (!Array.isArray(body.tags)) return c.json({ error: "tags must be an array of up to 5 tags" }, 400);
+    if (body.tags.length > 5) return c.json({ error: "tags must have at most 5 entries" }, 400);
+    tags = body.tags.map((s:any)=>String(s).trim()).filter(Boolean);
+    for (const tg of tags!) if (tg.length < 1 || tg.length > 40) return c.json({ error: "each tag must be 1-40 characters" }, 400);
+  } else if (existingRow) { try { const ex = JSON.parse(existingRow.criteria_json || "{}"); if (Array.isArray(ex.tags)) tags = ex.tags; } catch {} }
+  let dedup_days: number | undefined = body.dedup_days !== undefined ? Number(body.dedup_days) : (existingRow ? (()=>{try{return Number(JSON.parse(existingRow.criteria_json||"{}").dedup_days)}catch{return undefined}})() : undefined);
+  if (dedup_days !== undefined && (!Number.isInteger(dedup_days) || dedup_days < 7 || dedup_days > 90)) return c.json({ error: "dedup_days must be 7-90" }, 400);
+  if (!dedup_days) dedup_days = 30;
+  const criteria: any = enabled ? { topic, ...(include ? { include } : {}), ...(exclude ? { exclude } : {}), freshness, ...(allowDomains ? { allowDomains } : {}), ...(blockDomains ? { blockDomains } : {}), tone, ...(audience ? { audience } : {}), ...(tags ? { tags } : {}), dedup_days } : {};
   const criteria_json = JSON.stringify(criteria);
   const now = Math.floor(Date.now() / 1000);
   const next_run_at = enabled ? now : null;
