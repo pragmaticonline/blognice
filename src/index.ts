@@ -168,6 +168,8 @@ type Bindings = {
   EVENTS: AnalyticsEngineDataset; // audio engagement events
   AFFILIATE_EVENTS: AnalyticsEngineDataset; // approximate affiliate funnel events, indexed by Affiliate
   AUTOPILOT_EVENTS?: AnalyticsEngineDataset; // autopilot runs
+  AUTOPILOT_SEARCH_API_KEY?: string; // Brave Search API key (BSA...)
+  BRAVE_SEARCH_API_KEY?: string; // alias for AUTOPILOT_SEARCH_API_KEY
   AFFILIATE_OFFER_EXPERIMENT?: string; // off or an active Funnel Experiment key
   METRICS_ARCHIVE: R2Bucket; // aggregate daily metrics retained beyond 90 days
   ROOT_DOMAIN: string; // e.g. "blognice.com"
@@ -7564,21 +7566,95 @@ async function runAutopilotScheduled(env: Bindings, now: number) {
       const topic = String(criteria.topic || "").trim();
       if (!topic) continue;
       const dedupDays = Math.min(90, Math.max(7, Number(criteria.dedup_days || 30)));
-      const sourceUrl = `https://example.com/autopilot/${encodeURIComponent(topic)}/${now}`;
-      const sourceTitle = topic;
       const dedupCutoff = now - dedupDays * 86400;
-      const dup = await env.DB.prepare("SELECT 1 FROM autopilot_runs WHERE tenant_id=? AND source_url=? AND started_at > ?").bind(tenantId, sourceUrl, dedupCutoff).first();
-      if (dup) {
-        const runId = crypto.randomUUID();
-        await env.DB.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error) VALUES (?, ?, ?, ?, 'skipped', ?, ?, NULL, 'dedup')").bind(runId, tenantId, now, now, sourceUrl, sourceTitle).run();
-        if (env.AUTOPILOT_EVENTS) env.AUTOPILOT_EVENTS.writeDataPoint({ indexes: [String(tenantId)], blobs: [String(tenantId), "skipped", "dedup"], doubles: [1] });
-        const interval_days = Number((row as any).interval_days || 1);
-        const run_hour_utc = Number((row as any).run_hour_utc || 9);
-        const next = now + interval_days * 86400;
-        const aligned = Math.floor(next / 86400) * 86400 + run_hour_utc * 3600;
-        const finalNext = aligned <= now ? aligned + 86400 : aligned;
-        await env.DB.prepare("UPDATE autopilot_configs SET next_run_at=?, updated_at=? WHERE tenant_id=?").bind(finalNext, now, tenantId).run();
-        continue;
+      let sourceUrl = "";
+      let sourceTitle = topic;
+      let sourceDescription = "";
+      const braveKey = (env as any).AUTOPILOT_SEARCH_API_KEY || (env as any).BRAVE_SEARCH_API_KEY || "";
+      if (braveKey) {
+        try {
+          let q = topic;
+          const include: string[] = Array.isArray(criteria.include) ? criteria.include.slice(0, 10) : [];
+          const exclude: string[] = Array.isArray(criteria.exclude) ? criteria.exclude.slice(0, 10) : [];
+          if (include.length) q += " " + include.join(" ");
+          if (exclude.length) q += " " + exclude.map((s: string) => "-" + s).join(" ");
+          let freshnessParam = "";
+          if (criteria.freshness === "24h") freshnessParam = "&freshness=pd";
+          else if (criteria.freshness === "7d") freshnessParam = "&freshness=pw";
+          else if (criteria.freshness === "30d") freshnessParam = "&freshness=pm";
+          const searchUrl = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=10${freshnessParam}`;
+          const searchRes = await fetch(searchUrl, { headers: { Accept: "application/json", "X-Subscription-Token": braveKey } });
+          if (searchRes.ok) {
+            const data: any = await searchRes.json();
+            const rawResults: any[] = (data.web && Array.isArray(data.web.results) ? data.web.results : Array.isArray(data.results) ? data.results : []);
+            const allowDomains: string[] = Array.isArray(criteria.allowDomains) ? criteria.allowDomains.map((d: string) => String(d).toLowerCase()) : [];
+            const blockDomains: string[] = Array.isArray(criteria.blockDomains) ? criteria.blockDomains.map((d: string) => String(d).toLowerCase()) : [];
+            const filtered = rawResults.filter((r: any) => {
+              try {
+                const u = new URL(String(r.url || ""));
+                const host = u.hostname.toLowerCase();
+                if (allowDomains.length && !allowDomains.some((d) => host === d || host.endsWith("." + d))) return false;
+                if (blockDomains.length && blockDomains.some((d) => host === d || host.endsWith("." + d))) return false;
+                return true;
+              } catch { return false; }
+            });
+            for (const r of (filtered.length ? filtered : rawResults)) {
+              const candUrl = String(r.url || "").trim();
+              if (!candUrl) continue;
+              try { new URL(candUrl); } catch { continue; }
+              const dupCheck = await env.DB.prepare("SELECT 1 FROM autopilot_runs WHERE tenant_id=? AND source_url=? AND started_at > ?").bind(tenantId, candUrl, dedupCutoff).first();
+              if (dupCheck) continue;
+              sourceUrl = candUrl;
+              sourceTitle = String(r.title || topic).slice(0, 300);
+              sourceDescription = String(r.description || r.extra_snippets?.[0] || "").slice(0, 500);
+              break;
+            }
+            if (!sourceUrl && rawResults.length) {
+              const skippedUrl = String(rawResults[0].url || "").trim();
+              if (skippedUrl) {
+                const runId = crypto.randomUUID();
+                await env.DB.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error) VALUES (?, ?, ?, ?, 'skipped', ?, ?, NULL, 'dedup')").bind(runId, tenantId, now, now, skippedUrl, String(rawResults[0].title || topic).slice(0,300)).run();
+                if (env.AUTOPILOT_EVENTS) env.AUTOPILOT_EVENTS.writeDataPoint({ indexes: [String(tenantId)], blobs: [String(tenantId), "skipped", "dedup"], doubles: [1] });
+                const interval_days = Number((row as any).interval_days || 1);
+                const run_hour_utc = Number((row as any).run_hour_utc || 9);
+                const next = now + interval_days * 86400;
+                const aligned = Math.floor(next / 86400) * 86400 + run_hour_utc * 3600;
+                const finalNext = aligned <= now ? aligned + 86400 : aligned;
+                await env.DB.prepare("UPDATE autopilot_configs SET next_run_at=?, updated_at=? WHERE tenant_id=?").bind(finalNext, now, tenantId).run();
+                continue;
+              }
+            }
+            if (!sourceUrl) {
+              const runId = crypto.randomUUID();
+              await env.DB.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error) VALUES (?, ?, ?, ?, 'skipped', NULL, NULL, NULL, 'no_source')").bind(runId, tenantId, now, now).run();
+              if (env.AUTOPILOT_EVENTS) env.AUTOPILOT_EVENTS.writeDataPoint({ indexes: [String(tenantId)], blobs: [String(tenantId), "skipped", "no_source"], doubles: [1] });
+              const interval_days = Number((row as any).interval_days || 1);
+              const run_hour_utc = Number((row as any).run_hour_utc || 9);
+              const next = now + interval_days * 86400;
+              const aligned = Math.floor(next / 86400) * 86400 + run_hour_utc * 3600;
+              const finalNext = aligned <= now ? aligned + 86400 : aligned;
+              await env.DB.prepare("UPDATE autopilot_configs SET next_run_at=?, updated_at=? WHERE tenant_id=?").bind(finalNext, now, tenantId).run();
+              continue;
+            }
+          }
+        } catch {}
+      }
+      if (!sourceUrl) {
+        sourceUrl = `https://example.com/autopilot/${encodeURIComponent(topic)}/${now}`;
+        sourceTitle = topic;
+        const dup = await env.DB.prepare("SELECT 1 FROM autopilot_runs WHERE tenant_id=? AND source_url=? AND started_at > ?").bind(tenantId, sourceUrl, dedupCutoff).first();
+        if (dup) {
+          const runId = crypto.randomUUID();
+          await env.DB.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error) VALUES (?, ?, ?, ?, 'skipped', ?, ?, NULL, 'dedup')").bind(runId, tenantId, now, now, sourceUrl, sourceTitle).run();
+          if (env.AUTOPILOT_EVENTS) env.AUTOPILOT_EVENTS.writeDataPoint({ indexes: [String(tenantId)], blobs: [String(tenantId), "skipped", "dedup"], doubles: [1] });
+          const interval_days = Number((row as any).interval_days || 1);
+          const run_hour_utc = Number((row as any).run_hour_utc || 9);
+          const next = now + interval_days * 86400;
+          const aligned = Math.floor(next / 86400) * 86400 + run_hour_utc * 3600;
+          const finalNext = aligned <= now ? aligned + 86400 : aligned;
+          await env.DB.prepare("UPDATE autopilot_configs SET next_run_at=?, updated_at=? WHERE tenant_id=?").bind(finalNext, now, tenantId).run();
+          continue;
+        }
       }
       let creditReservation: any = null;
       try {
