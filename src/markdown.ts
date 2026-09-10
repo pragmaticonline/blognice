@@ -9,7 +9,7 @@ import { visit } from "unist-util-visit";
 const safeTags = [
   "p", "br", "hr", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "em",
   "del", "s", "u", "blockquote", "pre", "code", "ul", "ol", "li", "a",
-  "img", "table", "thead", "tbody", "tr", "th", "td",
+  "img", "table", "thead", "tbody", "tr", "th", "td", "div",
 ];
 
 const markdownSchema = {
@@ -24,6 +24,7 @@ const markdownSchema = {
     strong: [], em: [], del: [], s: [], u: [], blockquote: [], pre: [],
     code: [], ul: [], ol: [], li: [],
     a: ["href", "title", "target", "rel"],
+    div: [["className", "tweet-card"]],
     img: ["src", "alt", "title"],
     table: [], thead: [], tbody: [], tr: [], th: ["colSpan", "rowSpan"], td: ["colSpan", "rowSpan"],
   },
@@ -85,6 +86,22 @@ function transformMarkdownTree() {
   };
 }
 
+function tweetCards() {
+  return (tree: any) => {
+    visit(tree, "element", (node: any, index: any, parent: any) => {
+      if (!parent || node.tagName !== "p" || !Array.isArray(node.children) || node.children.length !== 1) return;
+      const child = node.children[0] as any;
+      if (!child || child.tagName !== "a" || typeof child.properties?.href !== "string") return;
+      const href = String(child.properties.href);
+      if (!/^https?:\/\/(www\.)?(twitter\.com|x\.com)\//i.test(href)) return;
+      if (typeof index !== "number") return;
+      node.tagName = "div";
+      node.properties = { className: ["tweet-card"] };
+      child.properties = { ...(child.properties || {}), target: "_blank", rel: "noopener noreferrer" };
+    });
+  };
+}
+
 function dividerStyles() {
   return (tree: any, file: any) => {
     visit(tree, "thematicBreak", (node: any) => {
@@ -103,6 +120,7 @@ const processor = unified()
   .use(dividerStyles)
   .use(remarkRehype, { allowDangerousHtml: false })
   .use(transformMarkdownTree)
+  .use(tweetCards as any)
   .use(rehypeSanitize, markdownSchema as any)
   .use(rehypeStringify);
 

@@ -617,6 +617,10 @@ const STYLES = /* css */ `
   }
   .prose del { color: var(--muted); }
   .prose mark { background: color-mix(in srgb, gold 55%, transparent); color: inherit; padding: 0 0.15em; border-radius: 2px; }
+  .prose .tweet-card { border:1px solid var(--rule); border-radius:12px; padding:0.9rem 1.1rem; margin:1.6rem 0; background:var(--card); display:flex; align-items:center; gap:0.75rem; }
+  .prose .tweet-card a { font-weight:600; text-decoration:none; color:var(--ink); word-break:break-all; }
+  .prose .tweet-card a:hover { color:var(--accent); }
+  .prose .tweet-card::before { content:"𝕏"; font-size:1.25rem; line-height:1; flex-shrink:0; }
 
   /* GFM task lists: drop the bullet, line the checkbox up with the text. */
   .prose li:has(> input[type="checkbox"]) { list-style: none; margin-left: -1.4em; }
