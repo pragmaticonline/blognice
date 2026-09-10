@@ -630,6 +630,51 @@ function renderMarkdown(md: string): string {
   return renderMarkdownSafe(md);
 }
 
+async function fetchTweetOembed(url: string): Promise<string | null> {
+  try {
+    const clean = url.split("?")[0].split("#")[0];
+    const normalized = clean.replace(/^https:\/\/x\.com\//i, "https://twitter.com/").replace(/^https:\/\/www\.x\.com\//i, "https://twitter.com/");
+    const oembed = `https://publish.twitter.com/oembed?url=${encodeURIComponent(normalized)}&omit_script=true&dnt=true&hide_thread=false`;
+    const cache = (globalThis as any).caches?.default;
+    const key = new Request(oembed);
+    if (cache) {
+      const hit = await cache.match(key);
+      if (hit) {
+        try { const j: any = await hit.json(); if (j?.html) return String(j.html); } catch {}
+      }
+    }
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 5000);
+    const res = await fetch(oembed, { headers: { "user-agent": "blognice/1.0", accept: "application/json" }, signal: ctrl.signal as any });
+    clearTimeout(to);
+    if (!res.ok) return null;
+    const data: any = await res.json();
+    const html = String(data.html || "");
+    if (!html) return null;
+    if (cache) {
+      const toCache = new Response(JSON.stringify({ html }), { headers: { "content-type": "application/json", "cache-control": "public, max-age=86400" } });
+      try { await cache.put(key, toCache.clone()); } catch {}
+    }
+    return html;
+  } catch { return null; }
+}
+
+async function expandTweetEmbeds(html: string): Promise<string> {
+  const re = /<blockquote class="twitter-tweet"><a href="([^"]+)">[^<]*<\/a><\/blockquote>/g;
+  const matches = [...html.matchAll(re)];
+  if (!matches.length) return html;
+  let out = html;
+  for (const m of matches) {
+    const full = m[0];
+    const url = m[1];
+    const embed = await fetchTweetOembed(url);
+    if (embed && embed.includes("<blockquote")) {
+      out = out.replace(full, embed);
+    }
+  }
+  return out;
+}
+
 function subscriptionManageUrl(env: Bindings, token: string): string {
   return `https://www.${env.ROOT_DOMAIN}/manage-subscriptions/${encodeURIComponent(token)}`;
 }
@@ -7453,7 +7498,9 @@ app.get("/pages/:slug", async (c) => {
     const role = await membershipRoleFor(c.env, account.id, tenant.id);
     if (role) isOwner = true;
   }
-  return c.html(renderPage(tenant, page, renderMarkdown(page.body_md), originOf(c), analyticsConsentRequired(c.req.raw.cf?.country), isOwner, navigationItems));
+  let _pageHtml = renderMarkdown(page.body_md);
+  if (_pageHtml.includes("twitter-tweet")) _pageHtml = await expandTweetEmbeds(_pageHtml);
+  return c.html(renderPage(tenant, page, _pageHtml, originOf(c), analyticsConsentRequired(c.req.raw.cf?.country), isOwner, navigationItems));
 });
 
 app.get("/:slug", async (c) => {
@@ -7479,7 +7526,8 @@ app.get("/:slug", async (c) => {
         headers: { "content-type": "text/html; charset=utf-8" },
       });
 
-    const htmlBody = renderMarkdown(post.body_md);
+    let htmlBody = renderMarkdown(post.body_md);
+    if (htmlBody.includes("twitter-tweet")) htmlBody = await expandTweetEmbeds(htmlBody);
     let relatedPosts: any[] = [];
     try {
       const tags = (() => { try { const v = JSON.parse(post.tags_json || "[]"); return Array.isArray(v) ? v.slice(0, 3) : []; } catch { return []; } })();
