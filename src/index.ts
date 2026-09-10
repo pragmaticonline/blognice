@@ -7739,7 +7739,6 @@ async function runAutopilotScheduled(env: Bindings, now: number) {
       }
       const max_length = Math.min(2000, Math.max(400, Number((row as any).max_length || 900)));
       const auto_publish = Number((row as any).auto_publish ?? 1) ? 1 : 0;
-      const title = String(criteria.title_override || `Autopilot: ${topic}`).slice(0, 120) || `Autopilot: ${topic}`.slice(0, 120);
       const slugBase = topic.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "autopilot";
       let slug = `${slugBase}-${now.toString(36)}`;
       slug = slug.slice(0, 80);
@@ -7772,12 +7771,19 @@ async function runAutopilotScheduled(env: Bindings, now: number) {
       const tone = String(criteria.tone || "neutral");
       const audience = String(criteria.audience || "").trim();
       const currentDate = new Date(now * 1000).toISOString().slice(0,10);
+      let title = String(criteria.title_override || sourceTitle || topic).replace(/^#+\s*/, "").trim().slice(0, 120) || String(sourceTitle || topic).slice(0,120);
       let body_md = "";
       try {
-        const prompt = `Date: ${currentDate}\nTopic: ${topic}\nSource: ${sourceTitle} ${sourceUrl}\nExcerpt: ${sourceExcerpt.slice(0, 4000) || sourceDescription || ""}\nTone: ${tone}${audience ? ` Audience: ${audience}` : ""}\nLength: ~${max_length} words, markdown with H2/H3, no preamble. Cite source URL at end.`;
-        const aiRes: any = await (env as any).AI.run(AI_BRIEF_MODEL, { messages: [{ role: "system", content: `You are a concise, factual blog writer for ${currentDate}. Write a well-structured markdown post (~${max_length} words) for the given topic using the source excerpt when relevant. Use neutral, helpful tone (${tone}). No hallucinations; if excerpt lacks detail, write general but useful overview. Include H2 sections, bullet points where helpful, and end with Source link.` }, { role: "user", content: prompt }], max_tokens: Math.min(2000, Math.max(600, Math.ceil(max_length * 1.4))), temperature: 0.6 });
-        const gen = String(aiRes.response || aiRes.text || "").trim();
+        const prompt = `Date: ${currentDate}\nTopic: ${topic}\nSource: ${sourceTitle} ${sourceUrl}\nExcerpt: ${sourceExcerpt.slice(0, 4000) || sourceDescription || ""}\nTone: ${tone}${audience ? ` Audience: ${audience}` : ""}\nLength: ~${max_length} words, markdown with H2/H3, no preamble. Cite source URL at end. Also suggest a concise 8-12 word title as first line starting with "# ".`;
+        const aiRes: any = await (env as any).AI.run(AI_BRIEF_MODEL, { messages: [{ role: "system", content: `You are a concise, factual blog writer for ${currentDate}. Write a well-structured markdown post (~${max_length} words) for the given topic using the source excerpt when relevant. Use neutral, helpful tone (${tone}). No hallucinations; if excerpt lacks detail, write general but useful overview. Include H2 sections, bullet points where helpful, and end with Source link. Start with a single "# <title>" line.` }, { role: "user", content: prompt }], max_tokens: Math.min(2000, Math.max(600, Math.ceil(max_length * 1.4))), temperature: 0.6 });
+        let gen = String(aiRes.response || aiRes.text || "").trim();
         if (gen.length > 200) {
+          const firstLine = gen.split("\n")[0] || "";
+          if (firstLine.startsWith("# ")) {
+            const aiTitle = firstLine.replace(/^#\s*/, "").trim().slice(0,120);
+            if (aiTitle.length >= 10) title = aiTitle;
+            gen = gen.replace(/^#\s*.*\n+/, "").trim();
+          }
           body_md = `# ${title}\n\n${gen}`.slice(0, max_length * 6);
           if (!body_md.includes(sourceUrl)) body_md += `\n\nSource: [${sourceTitle}](${sourceUrl})`;
         }
