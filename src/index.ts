@@ -672,16 +672,10 @@ async function expandTweetEmbeds(html: string): Promise<string> {
     const url = m[1];
     const data = await fetchTweetOembed(url);
     if (data && data.html) {
-      const author = escHtml(String(data.author_name || "X"));
-      const authorUrl = String(data.author_url || url);
-      const pMatch = String(data.html).match(/<p[^>]*>([\s\S]*?)<\/p>/);
-      let textHtml = pMatch ? pMatch[1] : escHtml(String(data.html).replace(/<[^>]+>/g, " ").slice(0, 400));
-      textHtml = textHtml.replace(/<br\s*\/?>/gi, "\n");
-      textHtml = textHtml.replace(/<a [^>]*href="([^"]*)"[^>]*>([^<]*)<\/a>/gi, (_: string, href: string, txt: string) => `<a href="${escHtml(href)}" target="_blank" rel="noopener">${escHtml(txt)}</a>`);
-      textHtml = textHtml.replace(/<[^>]+>/g, (tag: string) => tag.startsWith("<a ") || tag === "</a>" ? tag : "");
-      const finalBody = textHtml.replace(/\n/g, "<br>");
-      const nice = `<div class="tweet-card"><div class="tweet-card__head">𝕏 <a href="${escHtml(authorUrl)}" target="_blank" rel="noopener">${author}</a> · <a href="${escHtml(url)}" target="_blank" rel="noopener">View on X</a></div><div class="tweet-card__text">${finalBody}</div></div>`;
-      out = out.replace(full, nice);
+      let raw = String(data.html).replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "").trim();
+      if (!/data-dnt/i.test(raw)) raw = raw.replace("<blockquote", '<blockquote data-dnt="true"');
+      const wrapped = `<div class="tweet-embed"><div class="tweet-embed__skeleton" aria-hidden="true"><div class="tweet-embed__shimmer"></div><span>Loading post…</span></div><div class="tweet-embed__content">${raw}</div></div>`;
+      out = out.replace(full, wrapped);
     }
   }
   return out;
