@@ -829,6 +829,13 @@ app.get("/.well-known/indexnow/:key", async (c) => {
   return c.text(expected, { headers: { "cache-control": "public, max-age=86400, immutable" } });
 });
 
+app.get("/_debug/autopilot-run", async (c) => {
+  const key = c.req.header("x-debug-key") || new URL(c.req.url).searchParams.get("key") || "";
+  if (key !== c.env.ADMIN_API_KEY) return c.text("forbidden", 403);
+  const now = Math.floor(Date.now()/1000);
+  await runAutopilotScheduled(c.env as any, now);
+  return c.json({ ok: true, now });
+});
 app.get("/robots.txt", (c) => {
   const host = new URL(c.req.url).hostname.toLowerCase();
   const sitemap = host === `www.${c.env.ROOT_DOMAIN}`.toLowerCase() ? "/sitemap-index.xml" : "/sitemap.xml";
