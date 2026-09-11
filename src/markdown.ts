@@ -24,8 +24,9 @@ const markdownSchema = {
     strong: [], em: [], del: [], s: [], u: [], pre: [],
     code: [], ul: [], ol: [], li: [],
     a: ["href", "title", "target", "rel"],
-    div: [["className", "tweet-card"]],
+    div: [["className", "tweet-card", "youtube-embed", "youtube-embed__inner"], ["dataYoutubeId"], ["data-youtube-id"]],
     blockquote: [["className", "twitter-tweet"]],
+    iframe: ["src", "title", "allow", "allowFullscreen", "frameBorder", "loading", "referrerPolicy"],
     img: ["src", "alt", "title"],
     table: [], thead: [], tbody: [], tr: [], th: ["colSpan", "rowSpan"], td: ["colSpan", "rowSpan"],
   },
@@ -87,6 +88,46 @@ function transformMarkdownTree() {
   };
 }
 
+function youtubeIdFromUrl(href: string): string | null {
+  try {
+    const u = new URL(String(href).trim());
+    const host = u.hostname.toLowerCase();
+    const path = u.pathname;
+    let id: string | null = null;
+    if (host === "youtu.be" || host === "www.youtu.be") id = path.split("/")[1] || null;
+    else if (host.endsWith("youtube.com") || host.endsWith("youtube-nocookie.com") || host.endsWith("m.youtube.com")) {
+      if (path.startsWith("/watch")) id = u.searchParams.get("v");
+      else if (path.startsWith("/embed/")) id = path.split("/")[2] || null;
+      else if (path.startsWith("/shorts/")) id = path.split("/")[2] || null;
+      else if (path.startsWith("/v/")) id = path.split("/")[2] || null;
+      else if (path.startsWith("/live/")) id = path.split("/")[2] || null;
+    }
+    if (!id) return null;
+    id = id.split("?")[0].split("&")[0].split("#")[0];
+    if (/^[A-Za-z0-9_-]{11}$/.test(id)) return id;
+    // Some shorts etc may have extra, truncate
+    if (id.length > 11) { const m = id.match(/^([A-Za-z0-9_-]{11})/); if (m) return m[1]; }
+    return null;
+  } catch { return null; }
+}
+
+function youtubeEmbeds() {
+  return (tree: any) => {
+    visit(tree, "element", (node: any, index: any, parent: any) => {
+      if (!parent || node.tagName !== "p" || !Array.isArray(node.children) || node.children.length !== 1) return;
+      const child = node.children[0] as any;
+      if (!child || child.tagName !== "a" || typeof child.properties?.href !== "string") return;
+      const href = String(child.properties.href);
+      const vid = youtubeIdFromUrl(href);
+      if (!vid) return;
+      if (typeof index !== "number") return;
+      node.tagName = "div";
+      node.properties = { className: ["youtube-embed"], "data-youtube-id": vid };
+      node.children = [];
+    });
+  };
+}
+
 function tweetCards() {
   return (tree: any) => {
     visit(tree, "element", (node: any, index: any, parent: any) => {
@@ -95,6 +136,7 @@ function tweetCards() {
       if (!child || child.tagName !== "a" || typeof child.properties?.href !== "string") return;
       const href = String(child.properties.href);
       if (!/^https?:\/\/(www\.)?(twitter\.com|x\.com)\//i.test(href)) return;
+      if (youtubeIdFromUrl(href)) return;
       if (typeof index !== "number") return;
       node.tagName = "blockquote";
       node.properties = { className: ["twitter-tweet"] };
@@ -121,6 +163,7 @@ const processor = unified()
   .use(dividerStyles)
   .use(remarkRehype, { allowDangerousHtml: false })
   .use(transformMarkdownTree)
+  .use(youtubeEmbeds as any)
   .use(tweetCards as any)
   .use(rehypeSanitize, markdownSchema as any)
   .use(rehypeStringify);

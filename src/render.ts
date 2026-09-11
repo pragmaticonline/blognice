@@ -633,6 +633,9 @@ const STYLES = /* css */ `
   .prose .tweet-embed.is-loaded .tweet-embed__skeleton { opacity:0; pointer-events:none; transition:opacity .3s ease; }
   .prose .tweet-embed iframe { width:100% !important; max-width:550px !important; margin:0 auto !important; display:block; }
   .prose .tweet-embed.is-loaded { min-height:0; }
+  .prose .youtube-embed { margin:1.6rem 0; border-radius:12px; overflow:hidden; background:#000; }
+  .prose .youtube-embed__inner { position:relative; padding-bottom:56.25%; height:0; }
+  .prose .youtube-embed__inner iframe { position:absolute; inset:0; width:100%; height:100%; border:0; }
   .prose blockquote.twitter-tweet { border:1px solid var(--rule); border-left:1px solid var(--rule); border-radius:12px; padding:0.9rem 1.1rem; margin:1.6rem 0; background:var(--card); font-style:normal; font-size:1rem; color:var(--ink); }
   .prose blockquote.twitter-tweet a { font-weight:600; word-break:break-all; }
 
