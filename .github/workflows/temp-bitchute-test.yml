@@ -1,0 +1,39 @@
+name: Temp Bitchute test post
+on: workflow_dispatch
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Insert bitchute test post
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -e
+          # Find tenant
+          echo "Checking tenant..."
+          # Use wrangler d1 execute via API token
+          npx wrangler d1 execute blognice --remote --command "SELECT id, public_id, slug FROM tenants WHERE public_id='baa4b9393599e691';" || true
+          npx wrangler d1 execute blognice --remote --command "SELECT id, tenant_id, slug FROM posts WHERE tenant_id=4 AND slug='bitchute-embed-test' LIMIT 1;" || true
+          # Delete old if exists
+          npx wrangler d1 execute blognice --remote --command "DELETE FROM posts WHERE tenant_id=4 AND slug='bitchute-embed-test';" || true
+          npx wrangler d1 execute blognice-posts --remote --command "DELETE FROM posts WHERE tenant_id=4 AND slug='bitchute-embed-test';" || true
+          # Insert new post covering video/embed/www/non-www/inline
+          npx wrangler d1 execute blognice --remote --command "INSERT INTO posts (tenant_id, slug, title, body_md, published, created_at, updated_at) VALUES (4, 'bitchute-embed-test', 'BitChute embed test', 'https://www.bitchute.com/video/Yk73jJnxdhom/
+
+https://bitchute.com/video/UGlrF9o9b-Q
+
+https://www.bitchute.com/embed/B32sKqDgGTtZ/
+
+Hello https://www.bitchute.com/video/Yk73jJnxdhom/ world', 1, strftime('%s','now'), strftime('%s','now'));" || \
+          npx wrangler d1 execute blognice-posts --remote --command "INSERT INTO posts (tenant_id, slug, title, body_md, published, created_at, updated_at) VALUES (4, 'bitchute-embed-test', 'BitChute embed test', 'https://www.bitchute.com/video/Yk73jJnxdhom/
+
+https://bitchute.com/video/UGlrF9o9b-Q
+
+https://www.bitchute.com/embed/B32sKqDgGTtZ/
+
+Hello https://www.bitchute.com/video/Yk73Jnxdhom/ world', 1, strftime('%s','now'), strftime('%s','now'));"
+          echo "Inserted"
+          npx wrangler d1 execute blognice --remote --command "SELECT slug, title FROM posts WHERE tenant_id=4 AND slug='bitchute-embed-test';" || true
+          npx wrangler d1 execute blognice-posts --remote --command "SELECT slug, title FROM posts WHERE tenant_id=4 AND slug='bitchute-embed-test';" || true
