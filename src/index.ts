@@ -672,7 +672,7 @@ function escHtml(s: string): string {
 }
 
 async function expandTweetEmbeds(html: string): Promise<string> {
-  const re = /<blockquote class="twitter-tweet"><a href="([^"]+)">[^<]*<\/a><\/blockquote>/g;
+  const re = /<blockquote class="twitter-tweet"><a href="([^"]+)"[^>]*>[^<]*<\/a><\/blockquote>/g;
   const matches = [...html.matchAll(re)];
   if (!matches.length) return html;
   let out = html;
