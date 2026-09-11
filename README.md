@@ -714,30 +714,25 @@ triggers paid AI work. Every request is checked against the account's
 
 ## ChatGPT & Claude — MCP server
 
-Blognice exposes a Streamable HTTP MCP server so ChatGPT and Claude can call the per-account API without a Custom GPT. No OAuth — the same `/admin/api-key` bearer is passed as `apiKey` in each tool call (paid plan required).
+Blognice exposes a Streamable HTTP MCP server so ChatGPT and Claude can call the per-account API without a Custom GPT. Authenticates via OAuth 2.1 Authorization Code + PKCE S256 when connected as a ChatGPT/Claude Connector (`Authorization: Bearer <oauth_access_token>` on every MCP and `/api/v1/*` request); the same bearer also works for direct `POST /mcp` and API calls. Legacy per-tool `apiKey` (from `https://www.blognice.com/admin/api-key`, paid plan required) is retained for scripts and for MCP tools when not using OAuth — `apiKey` is optional when the request bears a valid OAuth token.
 
 - **Endpoint:** `https://www.blognice.com/mcp` (also `https://blognice.com/mcp`) — `POST` JSON-RPC `initialize` / `tools/list` / `tools/call`, `GET` returns server info, `OPTIONS` for CORS. Tools proxy internally via `app.fetch` so no 522.
+- **OAuth discovery:** `https://www.blognice.com/.well-known/oauth-authorization-server` and `https://www.blognice.com/.well-known/oauth-protected-resource` — `authorization_endpoint` `https://www.blognice.com/oauth/authorize`, `token_endpoint` `https://www.blognice.com/oauth/token`, `registration_endpoint` `https://www.blognice.com/oauth/register` (any `https` `redirect_uri` accepted, `S256` required), scopes `blog:read` `blog:write`, `refresh_token` rotation, `expires_in` 3600.
 - **Discovery:** `https://www.blognice.com/.well-known/ai-plugin.json`, `https://www.blognice.com/openapi.yaml` (and `/.well-known/openapi.yaml`), `https://www.blognice.com/.well-known/mcp.json`
-- **Tools (21):** `blognice_get_me`, `blognice_create_blog` / `get_blog` / `update_blog`, `blognice_list/create/get/patch/delete_posts`, `list/create/get/patch/delete_pages`, `blognice_list_media` / `get_metrics` / `get_tags`, `blognice_generate_image` / `get_image_status`, `blognice_generate_audio` / `get_audio_status` — each requires `apiKey`; `BLOG_ID` is the opaque `public_id` from `blognice_get_me`
+- **Tools (21):** `blognice_get_me`, `blognice_create_blog` / `get_blog` / `update_blog`, `blognice_list/create/get/patch/delete_posts`, `list/create/get/patch/delete_pages`, `blognice_list_media` / `get_metrics` / `get_tags`, `blognice_generate_image` / `get_image_status`, `blognice_generate_audio` / `get_audio_status` — each accepts `apiKey` optionally when connected via OAuth; `BLOG_ID` is the opaque `public_id` from `blognice_get_me`
 
-**ChatGPT setup (per-user):**
+**ChatGPT setup (OAuth, recommended — no API key paste):**
 
-1. ChatGPT → Settings → Connectors → Add MCP server → `https://www.blognice.com/mcp` → Enable
-2. New chat:
-   ```
-   My Blognice API key is: YOUR_KEY_FROM_https://www.blognice.com/admin/api-key
-   Call blognice_get_me { apiKey } and show my blogs + public_id
-   ```
-3. Then: `Create a published post on blog ggh6gvgsgj4h: title "Hello" body_md "# Hi"` — ChatGPT calls `blognice_create_post { apiKey, blogId, title, body_md }`
+1. ChatGPT → Settings → Connectors → Add MCP server → `https://www.blognice.com/mcp` → Connect → sign in to Blognice at `https://www.blognice.com/oauth/authorize` and Approve (PKCE S256, scopes `blog:read blog:write`).
+2. New chat: `Show my Blognice blogs` — ChatGPT calls `blognice_get_me {}` with the linked OAuth token and shows `public_id` values.
+3. Then: `Create a published post on blog ggh6gvgsgj4h: title "Hello" body_md "# Hi"` — ChatGPT calls `blognice_create_post { blogId, title, body_md }` (no `apiKey` needed when OAuth is linked).
 
-**Claude setup:**
+**Alternative — direct apiKey (scripts, manual Claude):**
 
-```
-claude mcp add --transport http blognice https://www.blognice.com/mcp
-# or Claude Desktop → Settings → Connectors → Add https://www.blognice.com/mcp
-```
+- Generate at `https://www.blognice.com/admin/api-key` (paid plan) and pass as `apiKey` in every tool call: `blognice_get_me { apiKey }`, or as `Authorization: Bearer <apiKey>` on `/mcp` and `/api/v1/*`.
+- Claude Code: `claude mcp add --transport http blognice https://www.blognice.com/mcp` (or Claude Desktop → Settings → Connectors → Add `https://www.blognice.com/mcp`) — then either link OAuth if your Claude build supports it, or supply `apiKey` per call.
 
-Verify: `curl -X POST https://www.blognice.com/mcp -H "content-type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'` and `curl -X POST https://www.blognice.com/mcp -H "content-type: application/json" -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"blognice_get_me","arguments":{"apiKey":"YOUR_KEY"}}}'`
+Verify: `curl -X POST https://www.blognice.com/mcp -H "content-type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'` and OAuth `curl -X POST https://www.blognice.com/mcp -H "content-type: application/json" -H "Authorization: Bearer <oauth_access_token>" -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"blognice_get_me","arguments":{}}}'` or legacy `curl -X POST https://www.blognice.com/mcp -H "content-type: application/json" -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"blognice_get_me","arguments":{"apiKey":"YOUR_KEY"}}}'`
 
 ## Affiliate program and offer experiment
 
