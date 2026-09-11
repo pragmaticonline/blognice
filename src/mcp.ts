@@ -33,6 +33,49 @@ function getApiBase(c: any): string {
   return `https://www.${root}`;
 }
 
+function base64ToBytes(b64: string): Uint8Array {
+  let s = String(b64 || "").trim();
+  const comma = s.indexOf(",");
+  if (s.startsWith("data:") && comma !== -1) s = s.slice(comma + 1);
+  s = s.replace(/\s/g, "");
+  const bin = atob(s);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+async function proxyToBlogniceFormData(c: any, apiKey: string, method: string, path: string, form: FormData): Promise<{ ok: boolean; status: number; json: any; text: string }> {
+  const base = getApiBase(c);
+  const url = `${base}/api/v1${path}`;
+  const headers: Record<string, string> = { Authorization: `Bearer ${apiKey}`, Accept: "application/json" };
+  const tryInternal = async (): Promise<Response | null> => {
+    const app = (globalThis as any).__BLOGNICE_APP ?? (globalThis as any).blogniceApp;
+    if (app?.fetch) {
+      const req = new Request(url, { method, headers, body: form as any });
+      try { return await app.fetch(req, c.env, c.executionCtx ?? { waitUntil() {}, passThroughOnException() {} }); } catch { return null; }
+    }
+    try {
+      const mod: any = await import("./index.ts");
+      const innerApp = mod?.blogniceApp;
+      if (innerApp?.fetch) {
+        const req = new Request(url, { method, headers, body: form as any });
+        return await innerApp.fetch(req, c.env, c.executionCtx ?? { waitUntil() {}, passThroughOnException() {} });
+      }
+    } catch {}
+    return null;
+  };
+  const internalRes = await tryInternal();
+  if (internalRes) {
+    const text = await internalRes.text();
+    let json: any = null; try { json = text ? JSON.parse(text) : null; } catch { json = null; }
+    return { ok: internalRes.ok, status: internalRes.status, json, text };
+  }
+  const res = await fetch(url, { method, headers, body: form as any });
+  const text = await res.text();
+  let json: any = null; try { json = text ? JSON.parse(text) : null; } catch { json = null; }
+  return { ok: res.ok, status: res.status, json, text };
+}
+
 async function proxyToBlognice(c: any, apiKey: string, method: string, path: string, body?: unknown): Promise<{ ok: boolean; status: number; json: any; text: string }> {
   const base = getApiBase(c);
   const url = `${base}/api/v1${path}`;
@@ -159,6 +202,26 @@ export const BLOGNICE_MCP_TOOLS: McpTool[] = [
     inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" } }, required: [ "blogId"] },
   },
   {
+    name: "blognice_upload_media",
+    description: "Upload an image to the blog media library (R2). Provide filename + contentType (image/jpeg, image/png, image/gif, image/webp, image/avif) and base64-encoded file data. Returns key, url and markdown (![](url)). Max 15 MB.",
+    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string", description: "Opaque public_id from blognice_get_me" }, filename: { type: "string", description: "Original filename e.g. photo.jpg" }, contentType: { type: "string", description: "MIME type: image/jpeg, image/png, image/gif, image/webp, image/avif" }, data: { type: "string", description: "Base64-encoded image bytes (no data: prefix required, but accepted)" } }, required: ["blogId", "filename", "contentType", "data"] },
+  },
+  {
+    name: "blognice_delete_media",
+    description: "Delete a media file from the blog library by key.",
+    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, key: { type: "string", description: "Media key e.g. 123/1712345678901-abcd1234.jpg or full /media/123/..." } }, required: ["blogId", "key"] },
+  },
+  {
+    name: "blognice_upload_avatar",
+    description: "Upload and set the blog profile/avatar image. Provide filename + contentType and base64 data — replaces existing avatar (15 MB max, paid-plan avatar).",
+    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, filename: { type: "string" }, contentType: { type: "string" }, data: { type: "string", description: "Base64-encoded image bytes" } }, required: ["blogId", "filename", "contentType", "data"] },
+  },
+  {
+    name: "blognice_remove_avatar",
+    description: "Remove the blog profile/avatar image.",
+    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" } }, required: ["blogId"] },
+  },
+  {
     name: "blognice_get_metrics",
     description: "Get pageview metrics for a blog (requires owner).",
     inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" } }, required: [ "blogId"] },
@@ -282,6 +345,47 @@ async function dispatchTool(c: any, name: string, args: any): Promise<{ content:
       }
       case "blognice_list_media": {
         const r = await proxyToBlognice(c, apiKey, "GET", `/blogs/${encodeURIComponent(blogId)}/media`);
+        return { content: [{ type: "text", text: toolText(r.json ?? r.text) }], isError: !r.ok };
+      }
+      case "blognice_upload_media": {
+        if (!blogId) return { content: [{ type: "text", text: "blogId is required" }], isError: true };
+        const filename = String((args as any).filename || "upload.jpg").slice(0, 200);
+        const contentType = String((args as any).contentType || (args as any).content_type || "image/png");
+        const b64 = String((args as any).data || (args as any).base64 || (args as any).file_data || "");
+        if (!b64) return { content: [{ type: "text", text: "data (base64) is required" }], isError: true };
+        try {
+          const bytes = base64ToBytes(b64);
+          const file = new File([bytes], filename, { type: contentType });
+          const form = new FormData(); form.set("file", file);
+          const r = await proxyToBlogniceFormData(c, apiKey, "POST", `/blogs/${encodeURIComponent(blogId)}/media`, form);
+          return { content: [{ type: "text", text: toolText(r.json ?? r.text) }], isError: !r.ok };
+        } catch (e: any) { return { content: [{ type: "text", text: `upload failed: ${e?.message || String(e)}` }], isError: true }; }
+      }
+      case "blognice_delete_media": {
+        if (!blogId) return { content: [{ type: "text", text: "blogId is required" }], isError: true };
+        const key = String((args as any).key || (args as any).file || "");
+        if (!key) return { content: [{ type: "text", text: "key is required" }], isError: true };
+        const r = await proxyToBlognice(c, apiKey, "DELETE", `/blogs/${encodeURIComponent(blogId)}/media?key=${encodeURIComponent(key)}`);
+        if (r.ok && !r.text) return { content: [{ type: "text", text: JSON.stringify({ ok: true, key }) }], isError: false };
+        return { content: [{ type: "text", text: toolText(r.json ?? r.text) }], isError: !r.ok };
+      }
+      case "blognice_upload_avatar": {
+        if (!blogId) return { content: [{ type: "text", text: "blogId is required" }], isError: true };
+        const filename = String((args as any).filename || "avatar.jpg").slice(0, 200);
+        const contentType = String((args as any).contentType || (args as any).content_type || "image/png");
+        const b64 = String((args as any).data || (args as any).base64 || "");
+        if (!b64) return { content: [{ type: "text", text: "data (base64) is required" }], isError: true };
+        try {
+          const bytes = base64ToBytes(b64);
+          const file = new File([bytes], filename, { type: contentType });
+          const form = new FormData(); form.set("file", file);
+          const r = await proxyToBlogniceFormData(c, apiKey, "POST", `/blogs/${encodeURIComponent(blogId)}/avatar`, form);
+          return { content: [{ type: "text", text: toolText(r.json ?? r.text) }], isError: !r.ok };
+        } catch (e: any) { return { content: [{ type: "text", text: `avatar upload failed: ${e?.message || String(e)}` }], isError: true }; }
+      }
+      case "blognice_remove_avatar": {
+        const r = await proxyToBlognice(c, apiKey, "POST", `/blogs/${encodeURIComponent(blogId)}/avatar/remove`, {});
+        if (r.ok && !r.text) return { content: [{ type: "text", text: JSON.stringify({ ok: true }) }], isError: false };
         return { content: [{ type: "text", text: toolText(r.json ?? r.text) }], isError: !r.ok };
       }
       case "blognice_get_metrics": {

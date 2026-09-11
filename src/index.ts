@@ -2406,6 +2406,45 @@ app.delete("/api/v1/blogs/:blogId/media", async (c) => {
   return new Response(null, { status: 204 });
 });
 
+app.post("/api/v1/blogs/:blogId/avatar", async (c) => {
+  const account = await apiAccount(c);
+  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
+  const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
+  if (!tenant) return c.json({ error: "blog not found" }, 404);
+  const role = await membershipRoleFor(c.env, account.id, tenant.id);
+  if (!role || !can(role, "settings.manage")) return c.json({ error: "forbidden" }, 403);
+  let form: FormData;
+  try { form = await c.req.formData(); } catch { return c.json({ error: "expected multipart/form-data with a file field" }, 400); }
+  const file = form.get("file") as unknown as File | null;
+  if (!(file instanceof File)) return c.json({ error: "file is required" }, 400);
+  if (!ALLOWED_IMAGE.has(file.type) || (await detectedImageType(file)) !== file.type) return c.json({ error: "unsupported image type" }, 400);
+  if (file.size > MAX_UPLOAD) return c.json({ error: "image too large" }, 413);
+  const rand = crypto.randomUUID().slice(0, 8);
+  const key = `${tenant.id}/avatar-${rand}.${EXT[file.type]}`;
+  await c.env.MEDIA.put(key, await file.arrayBuffer(), { httpMetadata: { contentType: file.type, cacheControl: "public, max-age=31536000, immutable" } });
+  if ((tenant as any).avatar_key) c.executionCtx.waitUntil(c.env.MEDIA.delete((tenant as any).avatar_key));
+  await c.env.DB.prepare("UPDATE tenants SET avatar_key = ? WHERE id = ?").bind(key, tenant.id).run();
+  c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, tenant));
+  return c.json({ url: `/media/${key}`, key }, 201);
+});
+
+app.post("/api/v1/blogs/:blogId/avatar/remove", async (c) => {
+  const account = await apiAccount(c);
+  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
+  const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
+  if (!tenant) return c.json({ error: "blog not found" }, 404);
+  const role = await membershipRoleFor(c.env, account.id, tenant.id);
+  if (!role || !can(role, "settings.manage")) return c.json({ error: "forbidden" }, 403);
+  if ((tenant as any).avatar_key) {
+    c.executionCtx.waitUntil(c.env.MEDIA.delete((tenant as any).avatar_key));
+    await c.env.DB.prepare("UPDATE tenants SET avatar_key = NULL WHERE id = ?").bind(tenant.id).run();
+    c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, tenant));
+  }
+  return c.json({ ok: true });
+});
+
 // ---------------------------------------------------------------------------
 // Metrics + Tags (P1)
 // ---------------------------------------------------------------------------
