@@ -145,9 +145,10 @@ test("narration removes separators inside numbers", () => {
 
 test("hostnames are spoken with explicit dots", () => {
   const text = narrationText("Visit development.blognice.com", "Read development.blognice.com or https://www.blognice.com for more.");
-  assert.match(text, /development dot blognice dot com/);
-  assert.match(text, /www dot blognice dot com/);
+  assert.doesNotMatch(text, /development dot blognice dot com/);
+  assert.doesNotMatch(text, /www dot blognice dot com/);
   assert.doesNotMatch(text, /https:\/\//);
+  assert.doesNotMatch(text, /blognice/);
 });
 
 test("headings and spoken numbered markers receive explicit pauses", () => {

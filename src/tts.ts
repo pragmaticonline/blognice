@@ -150,11 +150,10 @@ function removeNumericSeparators(value: string): string {
 }
 
 function spokenDomains(value: string): string {
-  // MeloTTS tends to swallow dots in hostnames. Spell the protocol-free host
-  // out explicitly while leaving ordinary sentence punctuation untouched.
   return value
-    .replace(/\bhttps?:\/\/\s*/gi, "")
-    .replace(/\b((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,})(?=\b)/gi, (domain) => domain.split(".").join(" dot "));
+    .replace(/\bhttps?:\/\/[^\s]+/gi, " ")
+    .replace(/\bwww\.[^\s]+/gi, " ")
+    .replace(/\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}(?:\/[^\s]*)?/gi, " ");
 }
 
 function removeMarkdownTables(value: string): string {
@@ -200,6 +199,8 @@ export function narrationSections(title: string, markdown: string, overrides: Pr
     .replace(/`([^`]+)`/g, "$1")
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/\bhttps?:\/\/[^\s<]+/gi, " ")
+    .replace(/\bwww\.[^\s<]+/gi, " ")
     .replace(/<[^>]+>/g, " ")
     .replace(/[*_~]/g, "")
     .replace(/^\s*[-*_]{3,}\s*$/gm, " ")

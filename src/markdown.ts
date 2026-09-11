@@ -82,6 +82,10 @@ function transformMarkdownTree() {
           if (target) node.properties.href = `#${target}`;
         }
         if (!isSafeUrl(node.properties.href, "href")) delete node.properties.href;
+        if (typeof node.properties.href === "string" && /^https?:\/\//i.test(node.properties.href)) {
+          node.properties.target = "_blank";
+          node.properties.rel = "noopener noreferrer";
+        }
       }
       if (node.tagName === "img" && !isSafeUrl(node.properties?.src, "src")) delete node.properties.src;
     });
