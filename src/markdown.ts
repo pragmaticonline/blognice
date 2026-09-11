@@ -24,7 +24,7 @@ const markdownSchema = {
     strong: [], em: [], del: [], s: [], u: [], pre: [],
     code: [], ul: [], ol: [], li: [],
     a: ["href", "title", "target", "rel"],
-    div: [["className", "tweet-card", "youtube-embed", "youtube-embed__inner"], ["dataYoutubeId"], ["data-youtube-id"]],
+    div: [["className", "tweet-card", "youtube-embed", "youtube-embed__inner", "bitchute-embed", "bitchute-embed__inner"], ["dataYoutubeId"], ["data-youtube-id"], ["dataBitchuteId"], ["data-bitchute-id"]],
     blockquote: [["className", "twitter-tweet"]],
     iframe: ["src", "title", "allow", "allowFullscreen", "frameBorder", "loading", "referrerPolicy"],
     img: ["src", "alt", "title"],
@@ -111,6 +111,23 @@ function youtubeIdFromUrl(href: string): string | null {
   } catch { return null; }
 }
 
+function bitchuteIdFromUrl(href: string): string | null {
+  try {
+    const u = new URL(String(href).trim());
+    const host = u.hostname.toLowerCase();
+    if (!(host === "bitchute.com" || host.endsWith(".bitchute.com"))) return null;
+    const parts = u.pathname.split("/").filter(Boolean);
+    if (parts.length < 2) return null;
+    const kind = parts[0].toLowerCase();
+    if (kind !== "video" && kind !== "embed") return null;
+    let id = parts[1] || null;
+    if (!id) return null;
+    id = id.split("?")[0].split("&")[0].split("#")[0];
+    if (!/^[A-Za-z0-9_-]{6,}$/.test(id)) return null;
+    return id;
+  } catch { return null; }
+}
+
 function youtubeEmbeds() {
   return (tree: any) => {
     visit(tree, "element", (node: any, index: any, parent: any) => {
@@ -128,6 +145,23 @@ function youtubeEmbeds() {
   };
 }
 
+function bitchuteEmbeds() {
+  return (tree: any) => {
+    visit(tree, "element", (node: any, index: any, parent: any) => {
+      if (!parent || node.tagName !== "p" || !Array.isArray(node.children) || node.children.length !== 1) return;
+      const child = node.children[0] as any;
+      if (!child || child.tagName !== "a" || typeof child.properties?.href !== "string") return;
+      const href = String(child.properties.href);
+      const vid = bitchuteIdFromUrl(href);
+      if (!vid) return;
+      if (typeof index !== "number") return;
+      node.tagName = "div";
+      node.properties = { className: ["bitchute-embed"], "data-bitchute-id": vid };
+      node.children = [];
+    });
+  };
+}
+
 function tweetCards() {
   return (tree: any) => {
     visit(tree, "element", (node: any, index: any, parent: any) => {
@@ -137,6 +171,7 @@ function tweetCards() {
       const href = String(child.properties.href);
       if (!/^https?:\/\/(www\.)?(twitter\.com|x\.com)\//i.test(href)) return;
       if (youtubeIdFromUrl(href)) return;
+      if (bitchuteIdFromUrl(href)) return;
       if (typeof index !== "number") return;
       node.tagName = "blockquote";
       node.properties = { className: ["twitter-tweet"] };
@@ -164,6 +199,7 @@ const processor = unified()
   .use(remarkRehype, { allowDangerousHtml: false })
   .use(transformMarkdownTree)
   .use(youtubeEmbeds as any)
+  .use(bitchuteEmbeds as any)
   .use(tweetCards as any)
   .use(rehypeSanitize, markdownSchema as any)
   .use(rehypeStringify);

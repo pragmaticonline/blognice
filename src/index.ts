@@ -706,6 +706,20 @@ function expandYoutubeEmbeds(html: string): string {
   return out;
 }
 
+function expandBitchuteEmbeds(html: string): string {
+  const re = /<div class="bitchute-embed"[^>]*data-bitchute-id="([A-Za-z0-9_-]{6,})"[^>]*><\/div>/g;
+  const re2 = /<div class="bitchute-embed"[^>]*dataBitchuteId="([A-Za-z0-9_-]{6,})"[^>]*><\/div>/g;
+  let out = html;
+  const replacer = (full: string, vid: string) => {
+    const safe = vid.replace(/[^A-Za-z0-9_-]/g, "");
+    const src = `https://www.bitchute.com/embed/${safe}/`;
+    return `<div class="bitchute-embed"><div class="bitchute-embed__inner"><iframe src="${src}" title="BitChute video player" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen loading="lazy" referrerpolicy="strict-origin-when-cross-origin" frameborder="0"></iframe></div></div>`;
+  };
+  out = out.replace(re, replacer as any);
+  out = out.replace(re2, replacer as any);
+  return out;
+}
+
 function subscriptionManageUrl(env: Bindings, token: string): string {
   return `https://www.${env.ROOT_DOMAIN}/manage-subscriptions/${encodeURIComponent(token)}`;
 }
@@ -7699,6 +7713,7 @@ app.get("/pages/:slug", async (c) => {
   let _pageHtml = renderMarkdown(page.body_md);
   if (_pageHtml.includes("twitter-tweet")) _pageHtml = await expandTweetEmbeds(_pageHtml);
   if (_pageHtml.includes("youtube-embed")) _pageHtml = expandYoutubeEmbeds(_pageHtml);
+  if (_pageHtml.includes("bitchute-embed")) _pageHtml = expandBitchuteEmbeds(_pageHtml);
   return c.html(renderPage(tenant, page, _pageHtml, originOf(c), analyticsConsentRequired(c.req.raw.cf?.country), isOwner, navigationItems));
 });
 
@@ -7728,6 +7743,7 @@ app.get("/:slug", async (c) => {
     let htmlBody = renderMarkdown(post.body_md);
     if (htmlBody.includes("twitter-tweet")) htmlBody = await expandTweetEmbeds(htmlBody);
     if (htmlBody.includes("youtube-embed")) htmlBody = expandYoutubeEmbeds(htmlBody);
+    if (htmlBody.includes("bitchute-embed")) htmlBody = expandBitchuteEmbeds(htmlBody);
     let relatedPosts: any[] = [];
     try {
       const tags = (() => { try { const v = JSON.parse(post.tags_json || "[]"); return Array.isArray(v) ? v.slice(0, 3) : []; } catch { return []; } })();
