@@ -86,114 +86,119 @@ export const BLOGNICE_MCP_TOOLS: McpTool[] = [
   {
     name: "blognice_get_me",
     description: "List your Blognice account and blogs. Returns public_id for each blog (use as blogId in other tools). Requires paid plan API key from https://www.blognice.com/admin/api-key.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string", description: "Blognice API key (Bearer token) from /admin/api-key. Required for all calls." } }, required: ["apiKey"], additionalProperties: false },
+    inputSchema: { type: "object", properties: { apiKey: { type: "string", description: "Blognice API key (Bearer token) from /admin/api-key. Optional when connected via OAuth — otherwise required." } }, required: [], additionalProperties: false },
   },
   {
     name: "blognice_create_blog",
     description: "Create a new Blognice blog. One account owns up to 5 blogs (1 on free). slug 3-40 a-z0-9-.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, slug: { type: "string", description: "Desired slug e.g. myblog (3-40, a-z0-9-)" }, title: { type: "string" }, description: { type: "string" } }, required: ["apiKey"], additionalProperties: true },
+    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, slug: { type: "string", description: "Desired slug e.g. myblog (3-40, a-z0-9-)" }, title: { type: "string" }, description: { type: "string" } }, required: [], additionalProperties: true },
   },
   {
     name: "blognice_get_blog",
     description: "Get blog settings including navigation_links, header_link_url, accent_color, custom_domain, role.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string", description: "Opaque public_id from blognice_get_me" } }, required: ["apiKey", "blogId"] },
+    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string", description: "Opaque public_id from blognice_get_me" } }, required: [ "blogId"] },
   },
   {
     name: "blognice_update_blog",
     description: "Update blog settings (PATCH). Supports title, description, footer_name, accent_color (#rrggbb), topics, social_links, navigation_links [{label, href, order}], header_link_url (/ or https://), browser_push_enabled.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, title: { type: "string" }, description: { type: "string" }, footer_name: { type: "string" }, accent_color: { type: "string" }, topics: { type: "array", items: { type: "string" } }, social_links: { type: "object" }, navigation_links: { type: "array" }, header_link_url: { type: "string" }, browser_push_enabled: { type: "boolean" } }, required: ["apiKey", "blogId"], additionalProperties: true },
+    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, title: { type: "string" }, description: { type: "string" }, footer_name: { type: "string" }, accent_color: { type: "string" }, topics: { type: "array", items: { type: "string" } }, social_links: { type: "object" }, navigation_links: { type: "array" }, header_link_url: { type: "string" }, browser_push_enabled: { type: "boolean" } }, required: [ "blogId"], additionalProperties: true },
   },
   {
     name: "blognice_list_posts",
     description: "List posts for a blog (published and drafts if owner).",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" } }, required: ["apiKey", "blogId"] },
+    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" } }, required: [ "blogId"] },
   },
   {
     name: "blognice_create_post",
     description: "Create a post. Required: title, body_md (markdown). Optional: slug, published (bool, default true), tags (string[]), author_name, featured_image_key, meta_description, show_in_lists.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, title: { type: "string" }, body_md: { type: "string", description: "Markdown body" }, slug: { type: "string" }, published: { type: "boolean" }, tags: { type: "array", items: { type: "string" } }, author_name: { type: "string" }, featured_image_key: { type: "string" }, meta_description: { type: "string" } }, required: ["apiKey", "blogId", "title", "body_md"] },
+    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, title: { type: "string" }, body_md: { type: "string", description: "Markdown body" }, slug: { type: "string" }, published: { type: "boolean" }, tags: { type: "array", items: { type: "string" } }, author_name: { type: "string" }, featured_image_key: { type: "string" }, meta_description: { type: "string" } }, required: [ "blogId", "title", "body_md"] },
   },
   {
     name: "blognice_get_post",
     description: "Get a single post by numeric id.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, postId: { type: "integer" } }, required: ["apiKey", "blogId", "postId"] },
+    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, postId: { type: "integer" } }, required: [ "blogId", "postId"] },
   },
   {
     name: "blognice_update_post",
     description: "Patch a post (title, body_md, slug, published, tags, author_name, featured_image_key, meta_description).",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, postId: { type: "integer" }, title: { type: "string" }, body_md: { type: "string" }, slug: { type: "string" }, published: { type: "boolean" }, tags: { type: "array", items: { type: "string" } }, author_name: { type: "string" }, featured_image_key: { type: "string" }, meta_description: { type: "string" } }, required: ["apiKey", "blogId", "postId"] },
+    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, postId: { type: "integer" }, title: { type: "string" }, body_md: { type: "string" }, slug: { type: "string" }, published: { type: "boolean" }, tags: { type: "array", items: { type: "string" } }, author_name: { type: "string" }, featured_image_key: { type: "string" }, meta_description: { type: "string" } }, required: [ "blogId", "postId"] },
   },
   {
     name: "blognice_delete_post",
     description: "Delete a post by id.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, postId: { type: "integer" } }, required: ["apiKey", "blogId", "postId"] },
+    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, postId: { type: "integer" } }, required: [ "blogId", "postId"] },
   },
   {
     name: "blognice_list_pages",
     description: "List pages for a blog.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" } }, required: ["apiKey", "blogId"] },
+    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" } }, required: [ "blogId"] },
   },
   {
     name: "blognice_create_page",
     description: "Create a page. Required title. Optional body_md, slug, published, show_in_navigation, navigation_label, navigation_order, meta_description.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, title: { type: "string" }, body_md: { type: "string" }, slug: { type: "string" }, published: { type: "boolean" }, show_in_navigation: { type: "boolean" }, navigation_label: { type: "string" }, navigation_order: { type: "integer" }, meta_description: { type: "string" } }, required: ["apiKey", "blogId", "title"] },
+    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, title: { type: "string" }, body_md: { type: "string" }, slug: { type: "string" }, published: { type: "boolean" }, show_in_navigation: { type: "boolean" }, navigation_label: { type: "string" }, navigation_order: { type: "integer" }, meta_description: { type: "string" } }, required: [ "blogId", "title"] },
   },
   {
     name: "blognice_get_page",
     description: "Get a single page by id.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, pageId: { type: "integer" } }, required: ["apiKey", "blogId", "pageId"] },
+    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, pageId: { type: "integer" } }, required: [ "blogId", "pageId"] },
   },
   {
     name: "blognice_update_page",
     description: "Patch a page.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, pageId: { type: "integer" }, title: { type: "string" }, body_md: { type: "string" }, slug: { type: "string" }, published: { type: "boolean" }, show_in_navigation: { type: "boolean" }, navigation_label: { type: "string" }, navigation_order: { type: "integer" }, meta_description: { type: "string" } }, required: ["apiKey", "blogId", "pageId"] },
+    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, pageId: { type: "integer" }, title: { type: "string" }, body_md: { type: "string" }, slug: { type: "string" }, published: { type: "boolean" }, show_in_navigation: { type: "boolean" }, navigation_label: { type: "string" }, navigation_order: { type: "integer" }, meta_description: { type: "string" } }, required: [ "blogId", "pageId"] },
   },
   {
     name: "blognice_delete_page",
     description: "Delete a page.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, pageId: { type: "integer" } }, required: ["apiKey", "blogId", "pageId"] },
+    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, pageId: { type: "integer" } }, required: [ "blogId", "pageId"] },
   },
   {
     name: "blognice_list_media",
     description: "List R2 media library keys for a blog.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" } }, required: ["apiKey", "blogId"] },
+    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" } }, required: [ "blogId"] },
   },
   {
     name: "blognice_get_metrics",
     description: "Get pageview metrics for a blog (requires owner).",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" } }, required: ["apiKey", "blogId"] },
+    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" } }, required: [ "blogId"] },
   },
   {
     name: "blognice_get_tags",
     description: "List tags used in a blog.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" } }, required: ["apiKey", "blogId"] },
+    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" } }, required: [ "blogId"] },
   },
   {
     name: "blognice_generate_image",
     description: "Generate an editorial image via Workers AI (credit-gated, paid plan). Provide prompt+style or post_id. Styles: editorial-photo, editorial-illustration, cinematic, child-crayon, arcade-action, risograph, paper-collage, watercolor, minimal, auto.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, prompt: { type: "string" }, style: { type: "string" }, post_id: { type: "integer" } }, required: ["apiKey", "blogId"] },
+    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, prompt: { type: "string" }, style: { type: "string" }, post_id: { type: "integer" } }, required: [ "blogId"] },
   },
   {
     name: "blognice_get_image_status",
     description: "Poll image generation job status.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, jobId: { type: "string" } }, required: ["apiKey", "blogId", "jobId"] },
+    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, jobId: { type: "string" } }, required: [ "blogId", "jobId"] },
   },
   {
     name: "blognice_generate_audio",
     description: "Generate TTS narration for a post (paid, credit-gated).",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, postId: { type: "integer" } }, required: ["apiKey", "blogId", "postId"] },
+    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, postId: { type: "integer" } }, required: [ "blogId", "postId"] },
   },
   {
     name: "blognice_get_audio_status",
     description: "Poll audio generation job status.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, jobId: { type: "string" } }, required: ["apiKey", "blogId", "jobId"] },
+    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, jobId: { type: "string" } }, required: [ "blogId", "jobId"] },
   },
 ];
 
 async function dispatchTool(c: any, name: string, args: any): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
-  const apiKey = String(args?.apiKey || "").trim();
+  let apiKey = String(args?.apiKey || "").trim();
   if (!apiKey) {
-    return { content: [{ type: "text", text: "Missing apiKey. Generate one at https://www.blognice.com/admin/api-key (paid plan required). Pass it as \"apiKey\" in every tool call. Example: {\"apiKey\":\"YOUR_KEY\", \"title\":\"Hello\"}" }], isError: true };
+    const hdr = (c.req?.header?.("authorization") || c.req?.headers?.get?.("authorization") || "") as string;
+    const m = String(hdr).match(/^Bearer\s+(.+)$/i);
+    if (m) apiKey = m[1].trim();
+  }
+  if (!apiKey) {
+    return { content: [{ type: "text", text: "Missing apiKey. Generate one at https://www.blognice.com/admin/api-key (paid plan required) or connect via OAuth at https://www.blognice.com/oauth/authorize. Pass it as \"apiKey\" in every tool call when not using OAuth. Example: {\"apiKey\":\"YOUR_KEY\", \"title\":\"Hello\"}" }], isError: true };
   }
   const blogId = args?.blogId ? String(args.blogId) : "";
   const postId = args?.postId ?? args?.id ?? args?.pageId;

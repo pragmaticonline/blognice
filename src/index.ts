@@ -151,6 +151,7 @@ import { refreshPostPopularity } from "./popularity";
 
 import { handleMcpRequest, aiPluginManifest } from "./mcp";
 import { OPENAPI_YAML } from "./openapi-data";
+import { oauthAuthorizationServerMetadata, oauthProtectedResourceMetadata, handleOAuthAuthorize, handleOAuthAuthorizePost, handleOAuthToken, accountFromOAuthToken, pkceS256 } from "./oauth";
 
 
 type Bindings = {
@@ -911,6 +912,20 @@ app.get("/openapi.json", (c) => c.text(OPENAPI_YAML, 200, { "content-type": "tex
 app.get("/.well-known/openapi.yaml", (c) => c.text(OPENAPI_YAML, 200, { "content-type": "text/yaml; charset=utf-8", "access-control-allow-origin": "*", "cache-control": "public, max-age=3600" }));
 app.get("/.well-known/mcp.json", (c) => c.json({ name: "blognice", version: "1.0.0", endpoint: "/mcp", description: "Blognice MCP server — POST JSON-RPC to /mcp", protocolVersion: "2024-11-05" }, 200, { "access-control-allow-origin": "*" }));
 
+app.get("/.well-known/oauth-authorization-server", (c) => {
+  const origin = originOf(c);
+  return c.json(oauthAuthorizationServerMetadata(origin), 200, { "access-control-allow-origin": "*", "cache-control": "public, max-age=3600" });
+});
+app.get("/.well-known/oauth-protected-resource", (c) => {
+  const origin = originOf(c);
+  return c.json(oauthProtectedResourceMetadata(origin), 200, { "access-control-allow-origin": "*", "cache-control": "public, max-age=3600" });
+});
+app.get("/oauth/authorize", async (c) => handleOAuthAuthorize(c));
+app.post("/oauth/authorize", async (c) => handleOAuthAuthorizePost(c));
+app.post("/oauth/token", async (c) => handleOAuthToken(c));
+app.get("/oauth/register", (c) => c.json({ error: "dynamic registration not required — any https redirect_uri is accepted for ChatGPT" }, 200, { "access-control-allow-origin": "*" }));
+app.post("/oauth/register", (c) => c.json({ client_id: "chatgpt", client_name: "ChatGPT", redirect_uris: [], grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], token_endpoint_auth_method: "none", code_challenge_methods_supported: ["S256"] }, 201, { "access-control-allow-origin": "*" }));
+
 function llmsEscape(s: string): string {
   return String(s || "").replace(/\r?\n/g, " ").trim().slice(0, 300);
 }
@@ -1515,7 +1530,13 @@ app.post("/api/posts", async (c) => {
 async function apiAuthenticatedAccount(c: any): Promise<Account | null> {
   const m = (c.req.header("authorization") || "").match(/^Bearer\s+(.+)$/i);
   if (!m) return null;
-  return accountFromApiKey(c.env.DB, m[1].trim());
+  const token = m[1].trim();
+  const viaApiKey = await accountFromApiKey(c.env.DB, token);
+  if (viaApiKey) return viaApiKey;
+  // OAuth 2.1 Bearer for ChatGPT / Claude MCP — apiKey fallback retained for scripts
+  const viaOAuth = await accountFromOAuthToken(c.env.DB, token);
+  if (viaOAuth) return viaOAuth;
+  return null;
 }
 
 async function apiAccount(c: any): Promise<Account | null> {
