@@ -1516,6 +1516,7 @@ export function editorPage(
         audioPreview.playbackRate = 0.88;
         var generatedImage = null;
         var pickerMode = "body", nextUploadTarget = "body";
+        var currentPostId = ${post?.id ? String(post.id) : "null"};
         var isExistingPost = ${isEdit ? "true" : "false"};
         var editorForm = document.getElementById("post-editor-form");
         var saveContinue = document.getElementById("save-continue");
@@ -1550,7 +1551,16 @@ export function editorPage(
             var editUrl = "${base}/edit/" + encodeURIComponent(result.id);
             editorForm.action = "${base}/save?id=" + encodeURIComponent(result.id);
             history.replaceState(null, "", editUrl);
+            currentPostId = result.id;
             isExistingPost = true;
+            var audioActions = document.querySelector(".audio-picker .actions");
+            if (audioActions && !document.getElementById("generate-audio")) {
+              audioActions.innerHTML = '<button class="btn ghost" type="button" id="generate-audio">Generate audio</button><button class="btn danger" type="button" id="remove-audio" hidden>Remove audio</button>';
+              generateAudio = document.getElementById("generate-audio");
+              removeAudio = document.getElementById("remove-audio");
+              if (generateAudio) generateAudio.addEventListener("click", handleGenerateAudio);
+              if (removeAudio) removeAudio.addEventListener("click", handleRemoveAudio);
+            }
             showSaved();
           }).catch(function (error) {
             saveStatus.className = "save-toast error";
@@ -1716,12 +1726,13 @@ export function editorPage(
         document.getElementById("ai-insert").addEventListener("click", function () {
           if (!generatedImage) return; insertAtCursor("\\n![Generated image](" + generatedImage.url + ")\\n"); aiDialog.close();
         });
-        if (generateAudio) generateAudio.addEventListener("click", function () {
-          var button = this;
+        function handleGenerateAudio() {
+          var button = generateAudio;
+          if (!button) return;
           button.disabled = true; if (removeAudio) removeAudio.disabled = true;
           var stopTimer = startGeneration(audioStatus, "Queueing narration…");
           function poll(jobId) {
-            return fetch("${base}/audio/${post?.id ?? ""}/status?job=" + encodeURIComponent(jobId))
+            return fetch("${base}/audio/" + (currentPostId || "") + "/status?job=" + encodeURIComponent(jobId))
               .then(function(r){return r.json().then(function(data){return {ok:r.ok,data:data};});})
               .then(function(result){
                 if (!result.ok || result.data.error) throw new Error(result.data.error || "Audio job status unavailable.");
@@ -1731,7 +1742,7 @@ export function editorPage(
                 return new Promise(function(resolve){setTimeout(function(){resolve(poll(jobId));}, 2500);});
               });
           }
-          fetch("${base}/audio/${post?.id ?? ""}", { method: "POST" })
+          fetch("${base}/audio/" + (currentPostId || ""), { method: "POST" })
             .then(function(r){return r.json().then(function(data){return {ok:r.ok,data:data};});})
             .then(function(result){
               if(!result.ok || result.data.error) throw new Error(result.data.error || "Audio generation failed.");
@@ -1743,11 +1754,14 @@ export function editorPage(
               stopTimer(); audioStatus.textContent = "Narration generated and published.";
             }).catch(function(error){stopTimer(); audioStatus.className="error";audioStatus.textContent=error.message || "Audio generation failed.";})
             .finally(function(){button.disabled=false; if (removeAudio) removeAudio.disabled = false;});
-        });
-        if (removeAudio) removeAudio.addEventListener("click", function () {
+        }
+        if (generateAudio) generateAudio.addEventListener("click", handleGenerateAudio);
+        function handleRemoveAudio() {
           if (!confirm("Remove the narration from this post?")) return;
-          var button = this; button.disabled = true;
-          fetch("${base}/audio/${post?.id ?? ""}", { method: "DELETE" })
+          var button = removeAudio;
+          if (!button) return;
+          button.disabled = true;
+          fetch("${base}/audio/" + (currentPostId || ""), { method: "DELETE" })
             .then(function(r){return r.json().then(function(data){return {ok:r.ok,data:data};});})
             .then(function(result){
               if(!result.ok) throw new Error(result.data.error || "Could not remove audio.");
@@ -1756,7 +1770,8 @@ export function editorPage(
               audioStatus.className = "notice"; audioStatus.hidden = false; audioStatus.textContent = "Narration removed.";
             }).catch(function(error){audioStatus.className="error";audioStatus.hidden=false;audioStatus.textContent=error.message || "Could not remove audio.";})
             .finally(function(){button.disabled=false;});
-        });
+        }
+        if (removeAudio) removeAudio.addEventListener("click", handleRemoveAudio);
         fileInput.addEventListener("change", function () {
           handleFiles(fileInput.files, nextUploadTarget); nextUploadTarget = "body"; fileInput.value = "";
         });
