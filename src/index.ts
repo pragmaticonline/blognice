@@ -217,6 +217,7 @@ type Bindings = {
 
 export const blogniceApp = new Hono<{ Bindings: Bindings }>();
 const app = blogniceApp;
+(globalThis as any).__BLOGNICE_APP = blogniceApp;
 
 // Keep every authenticated admin page and mutation on the canonical host.
 // Tenant and custom-domain hosts remain public reader origins; they must not

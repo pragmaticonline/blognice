@@ -45,6 +45,31 @@ async function proxyToBlognice(c: any, apiKey: string, method: string, path: str
     headers["content-type"] = "application/json";
     fetchBody = JSON.stringify(body);
   }
+  const tryInternal = async (): Promise<Response | null> => {
+    const app = (globalThis as any).__BLOGNICE_APP ?? (globalThis as any).blogniceApp;
+    if (app?.fetch) {
+      const req = new Request(url, { method, headers, body: fetchBody });
+      try {
+        return await app.fetch(req, c.env, c.executionCtx ?? { waitUntil() {}, passThroughOnException() {} });
+      } catch { return null; }
+    }
+    try {
+      const mod: any = await import("./index.ts");
+      const innerApp = mod?.blogniceApp;
+      if (innerApp?.fetch) {
+        const req = new Request(url, { method, headers, body: fetchBody });
+        return await innerApp.fetch(req, c.env, c.executionCtx ?? { waitUntil() {}, passThroughOnException() {} });
+      }
+    } catch {}
+    return null;
+  };
+  const internalRes = await tryInternal();
+  if (internalRes) {
+    const text = await internalRes.text();
+    let json: any = null;
+    try { json = text ? JSON.parse(text) : null; } catch { json = null; }
+    return { ok: internalRes.ok, status: internalRes.status, json, text };
+  }
   const res = await fetch(url, { method, headers, body: fetchBody });
   const text = await res.text();
   let json: any = null;
