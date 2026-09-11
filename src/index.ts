@@ -149,6 +149,9 @@ import { AI_MARKDOWN_TEXT_MAX, confidentLocalMarkdownFormat, conservativeMarkdow
 import { applySubscriberConfirmation, requestSubscriberConfirmation } from "./subscriber-optin";
 import { refreshPostPopularity } from "./popularity";
 
+import { handleMcpRequest, aiPluginManifest } from "./mcp";
+import { OPENAPI_YAML } from "./openapi-data";
+
 
 type Bindings = {
   DB: D1Database; // index database: tenants, users, sessions, domains
@@ -893,6 +896,19 @@ app.get("/robots.txt", (c) => {
   const body = `User-agent: *\nAllow: /\nSitemap: ${originOf(c)}${sitemap}\n`;
   return c.text(body);
 });
+
+app.all("/mcp", async (c) => handleMcpRequest(c));
+app.get("/.well-known/ai-plugin.json", (c) => {
+  const manifest = aiPluginManifest(c);
+  return c.json(manifest, 200, {
+    "access-control-allow-origin": "*",
+    "cache-control": "public, max-age=3600",
+  });
+});
+app.get("/openapi.yaml", (c) => c.text(OPENAPI_YAML, 200, { "content-type": "text/yaml; charset=utf-8", "access-control-allow-origin": "*", "cache-control": "public, max-age=3600" }));
+app.get("/openapi.json", (c) => c.text(OPENAPI_YAML, 200, { "content-type": "text/yaml; charset=utf-8", "access-control-allow-origin": "*", "cache-control": "public, max-age=3600" }));
+app.get("/.well-known/openapi.yaml", (c) => c.text(OPENAPI_YAML, 200, { "content-type": "text/yaml; charset=utf-8", "access-control-allow-origin": "*", "cache-control": "public, max-age=3600" }));
+app.get("/.well-known/mcp.json", (c) => c.json({ name: "blognice", version: "1.0.0", endpoint: "/mcp", description: "Blognice MCP server — POST JSON-RPC to /mcp", protocolVersion: "2024-11-05" }, 200, { "access-control-allow-origin": "*" }));
 
 function llmsEscape(s: string): string {
   return String(s || "").replace(/\r?\n/g, " ").trim().slice(0, 300);
