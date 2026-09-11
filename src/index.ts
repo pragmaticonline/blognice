@@ -2054,6 +2054,8 @@ app.get("/api/v1/blogs/:blogId", async (c) => {
   const topics = (() => { try { return JSON.parse(tenant.topics_json || "[]"); } catch { return []; } })();
   const social = (() => { try { return JSON.parse(tenant.social_links_json || "{}"); } catch { return {}; } })();
   const navigation_links = parseNavigationLinks(tenant as any);
+  const avatarKey = (tenant as any).avatar_key || null;
+  const avatarUrl = avatarKey ? `/media/${avatarKey}` : null;
   return c.json({
     blog: {
       public_id: tenant.public_id,
@@ -2068,6 +2070,10 @@ app.get("/api/v1/blogs/:blogId", async (c) => {
       browser_push_enabled: !!tenant.browser_push_enabled,
       header_link_url: (tenant as any).header_link_url || "/",
       custom_domain: tenant.custom_domain,
+      avatar_key: avatarKey,
+      avatar_url: avatarUrl,
+      profile_image_key: avatarKey,
+      profile_image_url: avatarUrl,
       created_at: tenant.created_at,
       role,
     },
@@ -2148,20 +2154,47 @@ app.patch("/api/v1/blogs/:blogId", async (c) => {
     if (parsed.error) return c.json({ error: parsed.error }, 400);
     navigationLinks = parsed.links;
   }
+  let avatarKey: string | null | undefined = undefined;
+  const hasAvatar = has("avatar_key") || has("profile_image_key") || has("profile_image") || has("avatar_url") || has("profile_image_url");
+  if (hasAvatar) {
+    const raw = (body as any).avatar_key ?? (body as any).profile_image_key ?? (body as any).profile_image ?? (body as any).avatar_url ?? (body as any).profile_image_url ?? null;
+    if (raw === null || raw === "" ) {
+      avatarKey = null;
+    } else {
+      let key = String(raw).trim();
+      if (key.startsWith("/media/")) key = key.slice("/media/".length);
+      if (key.startsWith("http://") || key.startsWith("https://")) {
+        try { const u = new URL(key); const m = u.pathname.match(/\/media\/(.+)$/); if (m) key = decodeURIComponent(m[1]); } catch {}
+      }
+      if (!key || key.includes("..") || key.includes("\n") || key.includes("\r")) return c.json({ error: "Invalid profile image key." }, 400);
+      // Normalize to tenant-prefixed key if bare filename given
+      if (!key.includes("/")) key = `${tenant.id}/${key}`;
+      if (!key.startsWith(`${tenant.id}/`)) return c.json({ error: "Profile image must belong to this blog." }, 403);
+      // Verify media exists in R2
+      const head = await c.env.MEDIA.head(key);
+      if (!head) return c.json({ error: "Media file not found for profile image." }, 404);
+      const ct = head.httpMetadata?.contentType || "";
+      if (ct && !ct.startsWith("image/")) return c.json({ error: "Profile image must be an image." }, 400);
+      avatarKey = key;
+    }
+  }
   const now = Math.floor(Date.now() / 1000);
   if (slug !== tenant.slug) {
     await c.env.DB.prepare("INSERT INTO tenant_slug_aliases (old_slug, tenant_id, created_at) VALUES (?, ?, ?)").bind(tenant.slug, tenant.id, now).run();
   }
   await ensureTenantHeaderLinkColumn(c.env);
-  await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, footer_name = ?, accent_color = ?, topics_json = ?, social_links_json = ?, navigation_links_json = ?, browser_push_enabled = ?, header_link_url = ? WHERE id = ?")
-    .bind(slug, title, description, footerName, accentColor, JSON.stringify(topics), JSON.stringify(socialLinks), JSON.stringify(navigationLinks), browserPushEnabled, headerLinkUrl, tenant.id).run();
+  const finalAvatarKey = avatarKey === undefined ? (tenant as any).avatar_key || null : avatarKey;
+  await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, footer_name = ?, accent_color = ?, topics_json = ?, social_links_json = ?, navigation_links_json = ?, browser_push_enabled = ?, header_link_url = ?, avatar_key = ? WHERE id = ?")
+    .bind(slug, title, description, footerName, accentColor, JSON.stringify(topics), JSON.stringify(socialLinks), JSON.stringify(navigationLinks), browserPushEnabled, headerLinkUrl, finalAvatarKey, tenant.id).run();
   queueBlogAudit(c, tenant.id, account.id, "blog_settings_updated", "settings");
   const updatedTenant = { ...tenant, slug } as Tenant;
   c.executionCtx.waitUntil((async () => {
     await purgeTenantEverywhere(c.env, tenant).catch(()=>{});
     if (slug !== tenant.slug) await purgeTenantEverywhere(c.env, updatedTenant).catch(()=>{});
   })());
-  return c.json({ blog: { public_id: tenant.public_id, slug, title, description, footer_name: footerName, accent_color: accentColor, topics, social_links: socialLinks, navigation_links: navigationLinks, browser_push_enabled: !!browserPushEnabled, header_link_url: headerLinkUrl, custom_domain: tenant.custom_domain, created_at: tenant.created_at } });
+  const retAvatarKey = finalAvatarKey;
+  const retAvatarUrl = retAvatarKey ? `/media/${retAvatarKey}` : null;
+  return c.json({ blog: { public_id: tenant.public_id, slug, title, description, footer_name: footerName, accent_color: accentColor, topics, social_links: socialLinks, navigation_links: navigationLinks, browser_push_enabled: !!browserPushEnabled, header_link_url: headerLinkUrl, custom_domain: tenant.custom_domain, avatar_key: retAvatarKey, avatar_url: retAvatarUrl, profile_image_key: retAvatarKey, profile_image_url: retAvatarUrl, created_at: tenant.created_at } });
 });
 
 app.post("/api/v1/blogs", async (c) => {

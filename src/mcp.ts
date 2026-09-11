@@ -153,15 +153,15 @@ export const BLOGNICE_MCP_TOOLS: McpTool[] = [
   },
   {
     name: "blognice_get_blog",
-    description: "Get blog settings including navigation_links, header_link_url, accent_color, custom_domain, role.",
+    description: "Get blog settings including navigation_links, header_link_url, accent_color, custom_domain, role, avatar_key/profile_image_key and avatar_url.",
     inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string", description: "Opaque public_id from blognice_get_me" } }, required: [ "blogId"] },
     annotations: { title: "Get blog settings", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   
   },
   {
     name: "blognice_update_blog",
-    description: "Update blog settings (PATCH). Supports title, description, footer_name, accent_color (#rrggbb), topics, social_links, navigation_links [{label, href, order}], header_link_url (/ or https://), browser_push_enabled.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, title: { type: "string" }, description: { type: "string" }, footer_name: { type: "string" }, accent_color: { type: "string" }, topics: { type: "array", items: { type: "string" } }, social_links: { type: "object" }, navigation_links: { type: "array" }, header_link_url: { type: "string" }, browser_push_enabled: { type: "boolean" } }, required: [ "blogId"], additionalProperties: true },
+    description: "Update blog settings (PATCH). Supports title, description, footer_name, accent_color (#rrggbb), topics, social_links, navigation_links [{label, href, order}], header_link_url (/ or https://), browser_push_enabled, and profile_image_key/avatar_key — set blog profile/avatar from an existing media library key (from blognice_upload_media or blognice_get_image_status). Workflow: upload → blognice_upload_media {blogId, filename, contentType, data} → use returned key as profile_image_key.",
+    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, title: { type: "string" }, description: { type: "string" }, footer_name: { type: "string" }, accent_color: { type: "string" }, topics: { type: "array", items: { type: "string" } }, social_links: { type: "object" }, navigation_links: { type: "array" }, header_link_url: { type: "string" }, browser_push_enabled: { type: "boolean" }, profile_image_key: { type: "string", description: "Media key from blognice_upload_media or blognice_get_image_status (e.g. 123/171234-xxxx.jpg or /media/123/...), or null to clear. Alias avatar_key." }, avatar_key: { type: "string" } }, required: [ "blogId"], additionalProperties: true },
     annotations: { title: "Update blog settings", readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   
   },
@@ -368,7 +368,10 @@ async function dispatchTool(c: any, name: string, args: any): Promise<{ content:
       }
       case "blognice_update_blog": {
         const patch: any = {};
-        for (const k of ["title", "description", "footer_name", "accent_color", "topics", "social_links", "navigation_links", "header_link_url", "browser_push_enabled", "slug"]) if (k in args) patch[k] = (args as any)[k];
+        for (const k of ["title", "description", "footer_name", "accent_color", "topics", "social_links", "navigation_links", "header_link_url", "browser_push_enabled", "slug", "avatar_key", "profile_image_key", "profile_image_url", "avatar_url"]) if (k in args) patch[k] = (args as any)[k];
+        if ("profile_image_key" in patch && !("avatar_key" in patch)) patch["avatar_key"] = patch["profile_image_key"];
+        if ("profile_image_url" in patch && !("avatar_key" in patch)) patch["avatar_key"] = patch["profile_image_url"];
+        if ("avatar_url" in patch && !("avatar_key" in patch)) patch["avatar_key"] = patch["avatar_url"];
         const r = await proxyToBlognice(c, apiKey, "PATCH", `/blogs/${encodeURIComponent(blogId)}`, patch);
         return { content: [{ type: "text", text: toolText(r.json ?? r.text) }], isError: !r.ok };
       }
