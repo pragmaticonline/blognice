@@ -712,6 +712,33 @@ status endpoint until `complete` or `failed`; ordinary post creation never
 triggers paid AI work. Every request is checked against the account's
 `memberships`, so a key can only touch blogs its owner controls.
 
+## ChatGPT & Claude — MCP server
+
+Blognice exposes a Streamable HTTP MCP server so ChatGPT and Claude can call the per-account API without a Custom GPT. No OAuth — the same `/admin/api-key` bearer is passed as `apiKey` in each tool call (paid plan required).
+
+- **Endpoint:** `https://www.blognice.com/mcp` (also `https://blognice.com/mcp`) — `POST` JSON-RPC `initialize` / `tools/list` / `tools/call`, `GET` returns server info, `OPTIONS` for CORS. Tools proxy internally via `app.fetch` so no 522.
+- **Discovery:** `https://www.blognice.com/.well-known/ai-plugin.json`, `https://www.blognice.com/openapi.yaml` (and `/.well-known/openapi.yaml`), `https://www.blognice.com/.well-known/mcp.json`
+- **Tools (21):** `blognice_get_me`, `blognice_create_blog` / `get_blog` / `update_blog`, `blognice_list/create/get/patch/delete_posts`, `list/create/get/patch/delete_pages`, `blognice_list_media` / `get_metrics` / `get_tags`, `blognice_generate_image` / `get_image_status`, `blognice_generate_audio` / `get_audio_status` — each requires `apiKey`; `BLOG_ID` is the opaque `public_id` from `blognice_get_me`
+
+**ChatGPT setup (per-user):**
+
+1. ChatGPT → Settings → Connectors → Add MCP server → `https://www.blognice.com/mcp` → Enable
+2. New chat:
+   ```
+   My Blognice API key is: YOUR_KEY_FROM_https://www.blognice.com/admin/api-key
+   Call blognice_get_me { apiKey } and show my blogs + public_id
+   ```
+3. Then: `Create a published post on blog ggh6gvgsgj4h: title "Hello" body_md "# Hi"` — ChatGPT calls `blognice_create_post { apiKey, blogId, title, body_md }`
+
+**Claude setup:**
+
+```
+claude mcp add --transport http blognice https://www.blognice.com/mcp
+# or Claude Desktop → Settings → Connectors → Add https://www.blognice.com/mcp
+```
+
+Verify: `curl -X POST https://www.blognice.com/mcp -H "content-type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'` and `curl -X POST https://www.blognice.com/mcp -H "content-type: application/json" -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"blognice_get_me","arguments":{"apiKey":"YOUR_KEY"}}}'`
+
 ## Affiliate program and offer experiment
 
 Eligible account holders enter the affiliate program from `/admin/affiliate`.
