@@ -1,5 +1,9 @@
 name: Temp Bitchute test post
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/temp-bitchute-test.yml']
 jobs:
   test:
     runs-on: ubuntu-latest
