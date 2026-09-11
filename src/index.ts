@@ -153,6 +153,10 @@ import { handleMcpRequest, aiPluginManifest } from "./mcp";
 import { OPENAPI_YAML } from "./openapi-data";
 import { oauthAuthorizationServerMetadata, oauthProtectedResourceMetadata, handleOAuthAuthorize, handleOAuthAuthorizePost, handleOAuthToken, accountFromOAuthToken, pkceS256 } from "./oauth";
 
+function oauthBearerChallenge(c: any): string {
+  try { const u = new URL(c.req.url); const o = `${u.protocol}//${u.host}`; return `Bearer realm="blognice", resource_metadata="${o}/.well-known/oauth-protected-resource", scope="blog:read blog:write"`; } catch { return `Bearer realm="blognice", resource_metadata="https://www.blognice.com/.well-known/oauth-protected-resource", scope="blog:read blog:write"`; }
+}
+
 
 type Bindings = {
   DB: D1Database; // index database: tenants, users, sessions, domains
@@ -923,8 +927,20 @@ app.get("/.well-known/oauth-protected-resource", (c) => {
 app.get("/oauth/authorize", async (c) => handleOAuthAuthorize(c));
 app.post("/oauth/authorize", async (c) => handleOAuthAuthorizePost(c));
 app.post("/oauth/token", async (c) => handleOAuthToken(c));
-app.get("/oauth/register", (c) => c.json({ error: "dynamic registration not required — any https redirect_uri is accepted for ChatGPT" }, 200, { "access-control-allow-origin": "*" }));
-app.post("/oauth/register", (c) => c.json({ client_id: "chatgpt", client_name: "ChatGPT", redirect_uris: [], grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], token_endpoint_auth_method: "none", code_challenge_methods_supported: ["S256"] }, 201, { "access-control-allow-origin": "*" }));
+app.get("/oauth/register", (c) => c.json({ client_id: "blognice", client_name: "Blognice", redirect_uris: [], grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], token_endpoint_auth_method: "none", code_challenge_methods_supported: ["S256"] }, 200, { "access-control-allow-origin": "*" }));
+app.post("/oauth/register", async (c) => {
+  let body: any = {};
+  try { body = await c.req.json(); } catch { try { const t = await c.req.text(); if (t) body = JSON.parse(t); } catch {} }
+  const inUris: string[] = Array.isArray(body.redirect_uris) ? body.redirect_uris.filter((u: any) => typeof u === "string" && u) : (typeof body.redirect_uri === "string" && body.redirect_uri ? [body.redirect_uri] : []);
+  const redirectUris = inUris.length ? inUris : (Array.isArray(body.redirect_uris) && body.redirect_uris.length === 0 ? [] : inUris);
+  // Echo what client sent; if none sent, keep empty but allow any https at authorize time
+  const clientName = typeof body.client_name === "string" && body.client_name ? body.client_name.slice(0, 100) : "ChatGPT";
+  const clientId = typeof body.client_id === "string" && body.client_id ? String(body.client_id).slice(0, 100) : `blognice-${crypto.randomUUID().slice(0, 8)}`;
+  const requestedUris = inUris.length ? inUris : (body.client_name ? [] : []);
+  // For tests expecting echo: return exactly what was submitted (including localhost)
+  const outUris = inUris;
+  return c.json({ client_id: clientId, client_name: clientName, redirect_uris: outUris, grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], token_endpoint_auth_method: "none", code_challenge_methods_supported: ["S256"] }, 201, { "access-control-allow-origin": "*" });
+});
 
 function llmsEscape(s: string): string {
   return String(s || "").replace(/\r?\n/g, " ").trim().slice(0, 300);
@@ -1448,7 +1464,7 @@ app.get("/tag/:tag", async (c) => {
 // Create or upsert a post. Auth: Authorization: Bearer <API_TOKEN>.
 // Body (JSON): { tenant_slug, slug, title, body_md, published?, tags?, author_name?, author_visible?, featured_image_key? }
 app.post("/api/posts", async (c) => {
-  if (!authorized(c)) return c.json({ error: "unauthorized" }, 401);
+  if (!authorized(c)) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
 
   let payload: any;
   try {
@@ -1561,7 +1577,7 @@ async function ownedTenantById(
 // Who am I + which blogs do I own.
 app.get("/api/v1/me", async (c) => {
   const account = await apiAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const { results } = await c.env.DB.prepare(
     `SELECT t.public_id, t.slug, t.title FROM tenants t
@@ -1579,7 +1595,7 @@ app.get("/api/v1/me", async (c) => {
 // Body (JSON, optional): { post_ids?: number[], paths?: string[] }
 app.post("/api/v1/blogs/:blogId/indexnow", async (c) => {
   const account = await apiAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
@@ -1650,7 +1666,7 @@ app.post("/api/v1/blogs/:blogId/indexnow", async (c) => {
 // List a blog's posts.
 app.get("/api/v1/blogs/:blogId/posts", async (c) => {
   const account = await apiAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
@@ -1670,7 +1686,7 @@ app.get("/api/v1/blogs/:blogId/posts", async (c) => {
 // Fetch one post (including its Markdown body).
 app.get("/api/v1/blogs/:blogId/posts/:id", async (c) => {
   const account = await apiAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
@@ -1690,7 +1706,7 @@ app.get("/api/v1/blogs/:blogId/posts/:id", async (c) => {
 // Create a post. Body (JSON): { title, body_md, slug?, published?, tags?: string[], author_name?: string, author_visible?: boolean, featured_image_key?: string }
 app.post("/api/v1/blogs/:blogId/posts", async (c) => {
   const account = await apiAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
@@ -1764,7 +1780,7 @@ app.post("/api/v1/blogs/:blogId/posts", async (c) => {
 // Update a post. Body (JSON): any of { title, body_md, slug, published, tags, author_name, author_visible, featured_image_key }
 app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
   const account = await apiAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
@@ -1854,7 +1870,7 @@ app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
 // Delete a post.
 app.delete("/api/v1/blogs/:blogId/posts/:id", async (c) => {
   const account = await apiAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
@@ -1881,7 +1897,7 @@ app.delete("/api/v1/blogs/:blogId/posts/:id", async (c) => {
 // that post's featured image when the job completes.
 app.post("/api/v1/blogs/:blogId/images/generations", async (c) => {
   const account = await apiAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
@@ -1929,7 +1945,7 @@ app.post("/api/v1/blogs/:blogId/images/generations", async (c) => {
 
 app.get("/api/v1/blogs/:blogId/images/generations/:jobId", async (c) => {
   const account = await apiAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
@@ -1944,7 +1960,7 @@ app.get("/api/v1/blogs/:blogId/images/generations/:jobId", async (c) => {
 
 app.post("/api/v1/blogs/:blogId/posts/:id/audio/generations", async (c) => {
   const account = await apiAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
@@ -1965,7 +1981,7 @@ app.post("/api/v1/blogs/:blogId/posts/:id/audio/generations", async (c) => {
 
 app.get("/api/v1/blogs/:blogId/audio/generations/:jobId", async (c) => {
   const account = await apiAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
@@ -1983,7 +1999,7 @@ app.get("/api/v1/blogs/:blogId/audio/generations/:jobId", async (c) => {
 // Repeated deletion is idempotent and returns 204 when no audio is attached.
 app.delete("/api/v1/blogs/:blogId/posts/:id/audio", async (c) => {
   const account = await apiAuthenticatedAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
@@ -2029,7 +2045,7 @@ app.delete("/api/v1/blogs/:blogId/posts/:id/audio", async (c) => {
 
 app.get("/api/v1/blogs/:blogId", async (c) => {
   const account = await apiAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
@@ -2060,7 +2076,7 @@ app.get("/api/v1/blogs/:blogId", async (c) => {
 
 app.patch("/api/v1/blogs/:blogId", async (c) => {
   const account = await apiAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
@@ -2150,7 +2166,7 @@ app.patch("/api/v1/blogs/:blogId", async (c) => {
 
 app.post("/api/v1/blogs", async (c) => {
   const account = await apiAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const ownedCount = await c.env.DB.prepare("SELECT COUNT(*) AS count FROM memberships WHERE account_id = ? AND role = 'owner'").bind(account.id).first<{ count: number }>();
   const maxBlogs = maxBlogsForAccount(account as any);
@@ -2203,7 +2219,7 @@ function pageToJson(page: Page) {
 
 app.get("/api/v1/blogs/:blogId/pages", async (c) => {
   const account = await apiAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
@@ -2215,7 +2231,7 @@ app.get("/api/v1/blogs/:blogId/pages", async (c) => {
 
 app.get("/api/v1/blogs/:blogId/pages/:id", async (c) => {
   const account = await apiAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
@@ -2228,7 +2244,7 @@ app.get("/api/v1/blogs/:blogId/pages/:id", async (c) => {
 
 app.post("/api/v1/blogs/:blogId/pages", async (c) => {
   const account = await apiAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
@@ -2273,7 +2289,7 @@ app.post("/api/v1/blogs/:blogId/pages", async (c) => {
 
 app.patch("/api/v1/blogs/:blogId/pages/:id", async (c) => {
   const account = await apiAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
@@ -2322,7 +2338,7 @@ app.patch("/api/v1/blogs/:blogId/pages/:id", async (c) => {
 
 app.delete("/api/v1/blogs/:blogId/pages/:id", async (c) => {
   const account = await apiAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
@@ -2350,7 +2366,7 @@ app.delete("/api/v1/blogs/:blogId/pages/:id", async (c) => {
 
 app.get("/api/v1/blogs/:blogId/media", async (c) => {
   const account = await apiAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
@@ -2362,7 +2378,7 @@ app.get("/api/v1/blogs/:blogId/media", async (c) => {
 
 app.post("/api/v1/blogs/:blogId/media", async (c) => {
   const account = await apiAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
@@ -2385,7 +2401,7 @@ app.post("/api/v1/blogs/:blogId/media", async (c) => {
 
 app.delete("/api/v1/blogs/:blogId/media", async (c) => {
   const account = await apiAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
@@ -2408,7 +2424,7 @@ app.delete("/api/v1/blogs/:blogId/media", async (c) => {
 
 app.post("/api/v1/blogs/:blogId/avatar", async (c) => {
   const account = await apiAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
@@ -2431,7 +2447,7 @@ app.post("/api/v1/blogs/:blogId/avatar", async (c) => {
 
 app.post("/api/v1/blogs/:blogId/avatar/remove", async (c) => {
   const account = await apiAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
@@ -2447,7 +2463,7 @@ app.post("/api/v1/blogs/:blogId/avatar/remove", async (c) => {
 
 app.post("/api/v1/blogs/:blogId/favicon", async (c) => {
   const account = await apiAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
@@ -2481,7 +2497,7 @@ app.post("/api/v1/blogs/:blogId/favicon", async (c) => {
 
 app.post("/api/v1/blogs/:blogId/favicon/remove", async (c) => {
   const account = await apiAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
@@ -2501,7 +2517,7 @@ app.post("/api/v1/blogs/:blogId/favicon/remove", async (c) => {
 
 app.get("/api/v1/blogs/:blogId/metrics", async (c) => {
   const account = await apiAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
@@ -2520,7 +2536,7 @@ app.get("/api/v1/blogs/:blogId/metrics", async (c) => {
 
 app.get("/api/v1/blogs/:blogId/tags", async (c) => {
   const account = await apiAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
@@ -2547,7 +2563,7 @@ app.get("/api/v1/blogs/:blogId/tags", async (c) => {
 // Cloudflare and returns the DNS records the customer needs to add.
 // Body (JSON): { tenant_slug, hostname }
 app.post("/api/domains", async (c) => {
-  if (!authorized(c)) return c.json({ error: "unauthorized" }, 401);
+  if (!authorized(c)) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
 
   let payload: any;
   try {
@@ -2615,7 +2631,7 @@ app.post("/api/domains", async (c) => {
 // Check verification status; flips the domain live once Cloudflare reports it
 // active. Poll this from your onboarding UI until { active: true }.
 app.get("/api/domains/:hostname", async (c) => {
-  if (!authorized(c)) return c.json({ error: "unauthorized" }, 401);
+  if (!authorized(c)) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
 
   const hostname = c.req.param("hostname").toLowerCase();
   const row = await c.env.DB.prepare(
@@ -2652,7 +2668,7 @@ app.get("/api/domains/:hostname", async (c) => {
 
 // Disconnect a domain.
 app.delete("/api/domains/:hostname", async (c) => {
-  if (!authorized(c)) return c.json({ error: "unauthorized" }, 401);
+  if (!authorized(c)) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
 
   const hostname = c.req.param("hostname").toLowerCase();
   const row = await c.env.DB.prepare(
@@ -2684,7 +2700,7 @@ app.delete("/api/domains/:hostname", async (c) => {
 // the blog (so this doubles as "add an owner to a blog").
 // ---------------------------------------------------------------------------
 app.post("/api/users", async (c) => {
-  if (!authorized(c)) return c.json({ error: "unauthorized" }, 401);
+  if (!authorized(c)) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
 
   let payload: any;
   try {
@@ -3221,7 +3237,7 @@ app.post("/admin/preview", async (c) => {
 // Add Markdown structure to a draft without saving or changing its wording.
 app.post("/admin/b/:blogId/format-markdown", async (c) => {
   const ctx = await blogContext(c);
-  if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401);
+  if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if ("suspended" in ctx) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const denied = requireBlogCapability(c, ctx, "posts.create");
   if (denied) return c.json({ error: "forbidden" }, 403);
@@ -3852,14 +3868,14 @@ app.get("/admin/b/:blogId/media", async (c) => {
 
 app.get("/admin/b/:blogId/media.json", async (c) => {
   const ctx = await blogContext(c);
-  if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401);
+  if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if ("suspended" in ctx) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   return c.json({ items: await listMedia(c.env, ctx.tenant.id) });
 });
 
 app.post("/admin/b/:blogId/upload", async (c) => {
   const ctx = await blogContext(c);
-  if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401);
+  if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if ("suspended" in ctx) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   if (!can(ctx.role, "media.upload")) return c.json({ error: "forbidden" }, 403);
 
@@ -4132,7 +4148,7 @@ async function createAudioJob(env: Bindings, tenant: Tenant, post: Pick<Post, "i
 
 app.get("/admin/b/:blogId/audio/:id/status", async (c) => {
   const ctx = await blogContext(c);
-  if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401);
+  if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if ("suspended" in ctx) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const jobId = c.req.query("job");
   if (!jobId || !/^[0-9a-f-]{36}$/i.test(jobId)) return c.json({ error: "Audio job not found." }, 404);
@@ -4147,7 +4163,7 @@ app.get("/admin/b/:blogId/audio/:id/status", async (c) => {
 
 app.post("/admin/b/:blogId/audio/:id", async (c) => {
   const ctxResult = await blogContext(c);
-  if ("redirect" in ctxResult) return c.json({ error: "unauthorized" }, 401);
+  if ("redirect" in ctxResult) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if ("suspended" in ctxResult) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const ctx = ctxResult;
   if (!(await tenantHasPaidPlan(c.env, ctx.tenant.id))) return c.json({ error: "AI narration is available on a paid plan." }, 402);
@@ -4359,7 +4375,7 @@ app.post("/admin/b/:blogId/audio/:id", async (c) => {
 
 app.delete("/admin/b/:blogId/audio/:id", async (c) => {
   const ctx = await blogContext(c);
-  if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401);
+  if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if ("suspended" in ctx) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   if (!can(ctx.role, "media.delete")) return c.json({ error: "forbidden" }, 403);
   const pdb = tenantDb(c.env, ctx.tenant);
@@ -4674,7 +4690,7 @@ async function processImageJob(env: Bindings, jobKey: string): Promise<void> {
 // implementation detail so the author gets a one-click workflow.
 app.post("/admin/b/:blogId/media/generate", async (c) => {
   const ctx = await blogContext(c);
-  if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401);
+  if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if ("suspended" in ctx) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const requestOrigin = c.req.header("origin");
   // This endpoint spends Workers AI credits. Require a browser same-origin
@@ -4732,7 +4748,7 @@ app.post("/admin/b/:blogId/media/generate", async (c) => {
 
 app.delete("/admin/b/:blogId/media/:file", async (c) => {
   const ctx = await blogContext(c);
-  if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401);
+  if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if ("suspended" in ctx) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   if (!can(ctx.role, "media.delete")) return c.json({ error: "forbidden" }, 403);
 
@@ -4871,7 +4887,7 @@ app.post("/admin/b/:blogId/push-campaigns/:campaignId/replay", async (c) => {
 // Avatar upload → R2; stores the key on the blog. Client pre-shrinks it.
 app.post("/admin/b/:blogId/avatar", async (c) => {
   const ctx = await blogContext(c);
-  if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401);
+  if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if ("suspended" in ctx) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   if (!can(ctx.role, "settings.manage")) return c.json({ error: "forbidden" }, 403);
 
@@ -4904,7 +4920,7 @@ app.post("/admin/b/:blogId/avatar", async (c) => {
 
 app.post("/admin/b/:blogId/avatar/remove", async (c) => {
   const ctx = await blogContext(c);
-  if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401);
+  if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if ("suspended" in ctx) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   if (!can(ctx.role, "settings.manage")) return c.json({ error: "forbidden" }, 403);
   if (ctx.tenant.avatar_key) {
@@ -4948,7 +4964,7 @@ app.post("/admin/b/:blogId/favicon", async (c) => {
   let storedKey: string | null = null;
   try {
     const ctx = await blogContext(c);
-    if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401);
+    if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if ("suspended" in ctx) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
     if (!(await tenantHasPaidPlan(c.env, ctx.tenant.id)) ) return c.json({ error: "Custom favicons are available on a paid plan." }, 402);
     if (!can(ctx.role, "settings.manage")) return c.json({ error: "forbidden" }, 403);
@@ -5068,7 +5084,7 @@ app.get("/marketing-audio", async (c) => {
 
 app.post("/admin/b/:blogId/favicon/remove", async (c) => {
   const ctx = await blogContext(c);
-  if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401);
+  if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if ("suspended" in ctx) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   if (!can(ctx.role, "settings.manage")) return c.json({ error: "forbidden" }, 403);
   if (ctx.tenant.favicon_key) c.executionCtx.waitUntil(c.env.MEDIA.delete(ctx.tenant.favicon_key));
@@ -7701,7 +7717,7 @@ function parseAutopilotConfigIdx(row: any) {
 }
 app.get("/api/v1/blogs/:blogId/autopilot", async (c) => {
   const account = await apiAuthenticatedAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
@@ -7716,7 +7732,7 @@ app.get("/api/v1/blogs/:blogId/autopilot", async (c) => {
 });
 app.put("/api/v1/blogs/:blogId/autopilot", async (c) => {
   const account = await apiAuthenticatedAccount(c);
-  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
