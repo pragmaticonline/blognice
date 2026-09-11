@@ -2445,6 +2445,56 @@ app.post("/api/v1/blogs/:blogId/avatar/remove", async (c) => {
   return c.json({ ok: true });
 });
 
+app.post("/api/v1/blogs/:blogId/favicon", async (c) => {
+  const account = await apiAccount(c);
+  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
+  const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
+  if (!tenant) return c.json({ error: "blog not found" }, 404);
+  const role = await membershipRoleFor(c.env, account.id, tenant.id);
+  if (!role || !can(role, "settings.manage")) return c.json({ error: "forbidden" }, 403);
+  if (!(await tenantHasPaidPlan(c.env, tenant.id))) return c.json({ error: "Custom favicons are available on a paid plan." }, 402);
+  let storedKey: string | null = null;
+  try {
+    const form = await c.req.formData();
+    const file = form.get("file") as unknown as File | null;
+    if (!(file instanceof File)) return c.json({ error: "file is required (PNG or ICO, max 1 MB)" }, 400);
+    if (file.size > 1024 * 1024) return c.json({ error: "Favicon is too large (maximum 1 MB)." }, 413);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const isPng = isPngBytes(bytes);
+    const isIco = isIcoBytes(bytes);
+    if (!isPng && !isIco) return c.json({ error: "The uploaded file is not a valid PNG or ICO." }, 400);
+    let outBytes: Uint8Array = bytes;
+    if (isPng) outBytes = makeIco([{ size: 256, bytes }]);
+    const key = `${tenant.id}/favicon-${crypto.randomUUID().slice(0, 8)}.ico`;
+    storedKey = key;
+    await c.env.MEDIA.put(key, outBytes, { httpMetadata: { contentType: "image/x-icon", cacheControl: "public, max-age=3600" }, customMetadata: { originalName: file.name.slice(0, 200) } });
+    if ((tenant as any).favicon_key) c.executionCtx.waitUntil(c.env.MEDIA.delete((tenant as any).favicon_key));
+    await c.env.DB.prepare("UPDATE tenants SET favicon_key = ? WHERE id = ?").bind(key, tenant.id).run();
+    c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, tenant));
+    return c.json({ ok: true, key, url: `/media/${key}` }, 201);
+  } catch (e: any) {
+    if (storedKey) c.executionCtx.waitUntil(c.env.MEDIA.delete(storedKey));
+    return c.json({ error: e?.message || "favicon upload failed" }, 500);
+  }
+});
+
+app.post("/api/v1/blogs/:blogId/favicon/remove", async (c) => {
+  const account = await apiAccount(c);
+  if (!account) return c.json({ error: "unauthorized" }, 401);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
+  const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
+  if (!tenant) return c.json({ error: "blog not found" }, 404);
+  const role = await membershipRoleFor(c.env, account.id, tenant.id);
+  if (!role || !can(role, "settings.manage")) return c.json({ error: "forbidden" }, 403);
+  if ((tenant as any).favicon_key) {
+    c.executionCtx.waitUntil(c.env.MEDIA.delete((tenant as any).favicon_key));
+    await c.env.DB.prepare("UPDATE tenants SET favicon_key = NULL WHERE id = ?").bind(tenant.id).run();
+    c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, tenant));
+  }
+  return c.json({ ok: true });
+});
+
 // ---------------------------------------------------------------------------
 // Metrics + Tags (P1)
 // ---------------------------------------------------------------------------

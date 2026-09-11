@@ -222,6 +222,21 @@ export const BLOGNICE_MCP_TOOLS: McpTool[] = [
     inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" } }, required: ["blogId"] },
   },
   {
+    name: "blognice_upload_favicon",
+    description: "Upload and set a custom favicon (PNG or ICO, max 1 MB, paid plan). Provide filename+contentType and base64 data — stored as ICO and served at /favicon.ico.",
+    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, filename: { type: "string" }, contentType: { type: "string", description: "image/png or image/x-icon" }, data: { type: "string", description: "Base64-encoded PNG/ICO bytes" } }, required: ["blogId", "filename", "contentType", "data"] },
+  },
+  {
+    name: "blognice_remove_favicon",
+    description: "Remove the custom favicon (reverts to default).",
+    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" } }, required: ["blogId"] },
+  },
+  {
+    name: "blognice_delete_audio",
+    description: "Delete generated audio narration for a post.",
+    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, postId: { type: "integer", description: "Post numeric id" } }, required: ["blogId", "postId"] },
+  },
+  {
     name: "blognice_get_metrics",
     description: "Get pageview metrics for a blog (requires owner).",
     inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" } }, required: [ "blogId"] },
@@ -385,6 +400,33 @@ async function dispatchTool(c: any, name: string, args: any): Promise<{ content:
       }
       case "blognice_remove_avatar": {
         const r = await proxyToBlognice(c, apiKey, "POST", `/blogs/${encodeURIComponent(blogId)}/avatar/remove`, {});
+        if (r.ok && !r.text) return { content: [{ type: "text", text: JSON.stringify({ ok: true }) }], isError: false };
+        return { content: [{ type: "text", text: toolText(r.json ?? r.text) }], isError: !r.ok };
+      }
+      case "blognice_upload_favicon": {
+        if (!blogId) return { content: [{ type: "text", text: "blogId is required" }], isError: true };
+        const filename = String((args as any).filename || "favicon.png").slice(0, 200);
+        const contentType = String((args as any).contentType || (args as any).content_type || "image/png");
+        const b64 = String((args as any).data || (args as any).base64 || "");
+        if (!b64) return { content: [{ type: "text", text: "data (base64) is required" }], isError: true };
+        try {
+          const bytes = base64ToBytes(b64);
+          const file = new File([bytes], filename, { type: contentType });
+          const form = new FormData(); form.set("file", file);
+          const r = await proxyToBlogniceFormData(c, apiKey, "POST", `/blogs/${encodeURIComponent(blogId)}/favicon`, form);
+          return { content: [{ type: "text", text: toolText(r.json ?? r.text) }], isError: !r.ok };
+        } catch (e: any) { return { content: [{ type: "text", text: `favicon upload failed: ${e?.message || String(e)}` }], isError: true }; }
+      }
+      case "blognice_remove_favicon": {
+        const r = await proxyToBlognice(c, apiKey, "POST", `/blogs/${encodeURIComponent(blogId)}/favicon/remove`, {});
+        if (r.ok && !r.text) return { content: [{ type: "text", text: JSON.stringify({ ok: true }) }], isError: false };
+        return { content: [{ type: "text", text: toolText(r.json ?? r.text) }], isError: !r.ok };
+      }
+      case "blognice_delete_audio": {
+        if (!blogId) return { content: [{ type: "text", text: "blogId is required" }], isError: true };
+        const pid = (args as any).postId ?? (args as any).post_id ?? (args as any).id;
+        if (pid == null) return { content: [{ type: "text", text: "postId is required" }], isError: true };
+        const r = await proxyToBlognice(c, apiKey, "DELETE", `/blogs/${encodeURIComponent(blogId)}/posts/${encodeURIComponent(String(pid))}/audio`);
         if (r.ok && !r.text) return { content: [{ type: "text", text: JSON.stringify({ ok: true }) }], isError: false };
         return { content: [{ type: "text", text: toolText(r.json ?? r.text) }], isError: !r.ok };
       }
