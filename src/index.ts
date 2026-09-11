@@ -1943,19 +1943,20 @@ app.post("/api/v1/blogs/:blogId/images/generations", async (c) => {
   let postId: number | undefined;
   let postTitle = "";
   let postBody = "";
+  let postMetaDescription = "";
   if (input.post_id !== undefined && input.post_id !== null && String(input.post_id) !== "") {
     postId = Number(input.post_id);
     if (!Number.isInteger(postId) || postId < 1) return c.json({ error: "post_id must be a valid post id" }, 400);
-    const post = await tenantDb(c.env, tenant).prepare("SELECT title, body_md FROM posts WHERE id = ? AND tenant_id = ?")
-      .bind(postId, tenant.id).first<{ title: string; body_md: string }>();
+    const post = await tenantDb(c.env, tenant).prepare("SELECT title, body_md, meta_description FROM posts WHERE id = ? AND tenant_id = ?")
+      .bind(postId, tenant.id).first<{ title: string; body_md: string; meta_description: string | null }>();
     if (!post) return c.json({ error: "post not found" }, 404);
-    postTitle = post.title; postBody = post.body_md;
+    postTitle = post.title; postBody = post.body_md; postMetaDescription = post.meta_description || "";
   }
   if (!userPrompt && !postId) return c.json({ error: "prompt or post_id is required" }, 400);
   const source = buildSourceContext({
     prompt: userPrompt, mode: userPrompt ? "prompt" : "post",
     blogTitle: tenant.title, blogDescription: tenant.description,
-    postTitle: postTitle.slice(0, 500), postBody: postBody.slice(0, 20_000),
+    postTitle: postTitle.slice(0, 500), postBody: postBody.slice(0, 20_000), metaDescription: postMetaDescription.slice(0, 155),
   });
   let creditReservation: { accountId: number; period: string };
   try { creditReservation = await reserveAiCredits(c.env, tenant.id, AI_IMAGE_CREDITS); }
@@ -4462,6 +4463,7 @@ type AiBriefRequest = {
   prompt?: unknown;
   postTitle?: unknown;
   postBody?: unknown;
+  metaDescription?: unknown;
 };
 
 type MembershipRole = "owner" | "editor" | "author" | "contributor";
@@ -4790,6 +4792,7 @@ app.post("/admin/b/:blogId/media/generate", async (c) => {
     blogDescription: ctx.tenant.description,
     postTitle: String(input.postTitle ?? "").slice(0, 500),
     postBody: String(input.postBody ?? "").slice(0, 20_000),
+    metaDescription: String((input as any).metaDescription ?? (input as any).postMetaDescription ?? "").slice(0, 155),
   });
   let creditReservation: { accountId: number; period: string };
   try { creditReservation = await reserveAiCredits(c.env, ctx.tenant.id, AI_IMAGE_CREDITS); }

@@ -28,6 +28,7 @@ export function buildSourceContext(input: {
   blogDescription?: string;
   postTitle?: string;
   postBody?: string;
+  metaDescription?: string;
   blogPosts?: ImageContextPost[];
 }): string {
   const direction = plainText(input.prompt || "");
@@ -37,9 +38,11 @@ export function buildSourceContext(input: {
 
   if (input.mode === "post") {
     const title = plainText(input.postTitle || "");
-    const body = plainText(input.postBody || "");
+    const meta = plainText(input.metaDescription || "");
+    const bodyLead = clip(plainText(input.postBody || ""), 1500);
     if (title) parts.push(`POST TITLE — PRIMARY SUBJECT: ${clip(title, 500)}`);
-    if (body) parts.push(`Post body — supporting context only: ${clip(body, 9000)}`);
+    if (meta) parts.push(`Summary: ${clip(meta, 155)}`);
+    if (bodyLead) parts.push(`Opening — supporting context only: ${bodyLead}`);
   } else if (input.mode === "blog") {
     parts.push(`Blog: ${plainText(input.blogTitle)} — ${plainText(input.blogDescription || "")}`);
     const posts = (input.blogPosts || []).map((post) => {
