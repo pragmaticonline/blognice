@@ -224,6 +224,7 @@ type Bindings = {
   GOOGLE_CLIENT_ID?: string; // var
   GOOGLE_CLIENT_SECRET?: string; // secret
   OPENAI_APPS_CHALLENGE_TOKEN?: string; // secret; set only during OpenAI plugin domain verification
+  AUTOPILOT_RUN_SECRET?: string; // secret; guards /internal/autopilot/run-now for the staff worker
 };
 
 export const blogniceApp = new Hono<{ Bindings: Bindings }>();
@@ -7873,11 +7874,35 @@ app.put("/api/v1/blogs/:blogId/autopilot", async (c) => {
 });
 
 
-async function runAutopilotScheduled(env: Bindings, now: number) {
+// Staff-triggered single-tenant run (the staff worker forwards here).
+// Guarded by a shared secret header, same posture as other webhooks.
+app.post("/internal/autopilot/run-now", async (c) => {
+  const secret = String((c.env as any).AUTOPILOT_RUN_SECRET || "");
+  const provided = String(c.req.header("x-autopilot-run-secret") || "");
+  if (!secret || provided !== secret) return c.json({ error: "forbidden" }, 403);
+  let body: any = {};
+  try { body = await c.req.json(); } catch {}
+  const tenantId = Number(body?.tenant_id);
+  if (!Number.isSafeInteger(tenantId)) return c.json({ error: "tenant_id required" }, 400);
+  const now = Math.floor(Date.now() / 1000);
+  await runAutopilotScheduled(c.env, now, tenantId);
+  const latest = await c.env.DB.prepare(
+    "SELECT id, status, error, source_url, post_id, search_raw_count, search_kept_count FROM autopilot_runs WHERE tenant_id = ? ORDER BY started_at DESC LIMIT 1"
+  ).bind(tenantId).first().catch(() => null);
+  return c.json({ ok: true, run: latest ?? null });
+});
+
+async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: number) {
   try {
     await env.DB.prepare("CREATE TABLE IF NOT EXISTS autopilot_configs (tenant_id INTEGER PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, staff_enabled INTEGER NOT NULL DEFAULT 0, interval_days INTEGER NOT NULL DEFAULT 1, run_hour_utc INTEGER NOT NULL DEFAULT 9, criteria_json TEXT NOT NULL DEFAULT '{}', image_style TEXT NOT NULL DEFAULT 'editorial-photo', voice TEXT, auto_publish INTEGER NOT NULL DEFAULT 1, max_length INTEGER NOT NULL DEFAULT 900, next_run_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE)").run();
     await env.DB.prepare("CREATE TABLE IF NOT EXISTS autopilot_runs (id TEXT PRIMARY KEY, tenant_id INTEGER NOT NULL, started_at INTEGER NOT NULL, finished_at INTEGER, status TEXT NOT NULL, source_url TEXT, source_title TEXT, post_id INTEGER, error TEXT, FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE)").run();
-    const due = await env.DB.prepare("SELECT * FROM autopilot_configs WHERE enabled=1 AND staff_enabled=1 AND (next_run_at IS NULL OR next_run_at <= ?)").bind(now).all();
+    // Migration 063 backfill for pre-existing tables; no-op once applied.
+    try { await env.DB.prepare("ALTER TABLE autopilot_runs ADD COLUMN search_raw_count INTEGER NOT NULL DEFAULT 0").run(); } catch {}
+    try { await env.DB.prepare("ALTER TABLE autopilot_runs ADD COLUMN search_kept_count INTEGER NOT NULL DEFAULT 0").run(); } catch {}
+    // Forced single-tenant runs ignore the schedule but keep the on/off gates.
+    const due = Number.isSafeInteger(onlyTenantId)
+      ? await env.DB.prepare("SELECT * FROM autopilot_configs WHERE tenant_id = ? AND enabled = 1 AND staff_enabled = 1").bind(onlyTenantId).all()
+      : await env.DB.prepare("SELECT * FROM autopilot_configs WHERE enabled=1 AND staff_enabled=1 AND (next_run_at IS NULL OR next_run_at <= ?)").bind(now).all();
     for (const row of (due.results as any[]) || []) {
       const tenantId = Number((row as any).tenant_id);
       if (!Number.isSafeInteger(tenantId)) continue;
@@ -7898,6 +7923,8 @@ async function runAutopilotScheduled(env: Bindings, now: number) {
       let sourceUrl = "";
       let sourceTitle = topic;
       let sourceDescription = "";
+      let searchRawCount = 0;
+      let searchKeptCount = 0;
       const braveKey = (env as any).AUTOPILOT_SEARCH_API_KEY || (env as any).BRAVE_SEARCH_API_KEY || "";
       if (braveKey) {
         try {
@@ -7915,6 +7942,7 @@ async function runAutopilotScheduled(env: Bindings, now: number) {
           if (searchRes.ok) {
             const data: any = await searchRes.json();
             const rawResults: any[] = (data.web && Array.isArray(data.web.results) ? data.web.results : Array.isArray(data.results) ? data.results : []);
+            searchRawCount = rawResults.length;
             const allowDomains: string[] = Array.isArray(criteria.allowDomains) ? criteria.allowDomains.map((d: string) => String(d).toLowerCase()) : [];
             const blockDomains: string[] = Array.isArray(criteria.blockDomains) ? criteria.blockDomains.map((d: string) => String(d).toLowerCase()) : [];
             const filtered = rawResults.filter((r: any) => {
@@ -7926,6 +7954,7 @@ async function runAutopilotScheduled(env: Bindings, now: number) {
                 return true;
               } catch { return false; }
             });
+            searchKeptCount = filtered.length;
             const ranked = (filtered.length ? filtered : rawResults).map((r: any) => {
               let score = 0;
               try {
@@ -7970,7 +7999,7 @@ async function runAutopilotScheduled(env: Bindings, now: number) {
               }
               if (skippedUrl) {
                 const runId = crypto.randomUUID();
-                await env.DB.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error) VALUES (?, ?, ?, ?, 'skipped', ?, ?, NULL, 'dedup')").bind(runId, tenantId, now, now, skippedUrl, String(rawResults[0].title || topic).slice(0,300)).run();
+                await env.DB.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error, search_raw_count, search_kept_count) VALUES (?, ?, ?, ?, 'skipped', ?, ?, NULL, 'dedup', ?, ?)").bind(runId, tenantId, now, now, skippedUrl, String(rawResults[0].title || topic).slice(0,300), searchRawCount, searchKeptCount).run();
                 if (env.AUTOPILOT_EVENTS) env.AUTOPILOT_EVENTS.writeDataPoint({ indexes: [String(tenantId)], blobs: [String(tenantId), "skipped", "dedup"], doubles: [1] });
                 const interval_days = Number((row as any).interval_days || 1);
                 const run_hour_utc = Number((row as any).run_hour_utc || 9);
@@ -7983,7 +8012,7 @@ async function runAutopilotScheduled(env: Bindings, now: number) {
             }
             if (!sourceUrl) {
               const runId = crypto.randomUUID();
-              await env.DB.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error) VALUES (?, ?, ?, ?, 'skipped', NULL, NULL, NULL, 'no_source')").bind(runId, tenantId, now, now).run();
+              await env.DB.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error, search_raw_count, search_kept_count) VALUES (?, ?, ?, ?, 'skipped', NULL, NULL, NULL, 'no_source', ?, ?)").bind(runId, tenantId, now, now, searchRawCount, searchKeptCount).run();
               if (env.AUTOPILOT_EVENTS) env.AUTOPILOT_EVENTS.writeDataPoint({ indexes: [String(tenantId)], blobs: [String(tenantId), "skipped", "no_source"], doubles: [1] });
               const interval_days = Number((row as any).interval_days || 1);
               const run_hour_utc = Number((row as any).run_hour_utc || 9);

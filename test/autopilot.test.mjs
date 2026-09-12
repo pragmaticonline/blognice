@@ -1,8 +1,16 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import test from "node:test";
 import { Miniflare } from "miniflare";
 import staffModule from "../src/staff.ts";
+
+const require = createRequire(import.meta.url);
+for (const extension of [".html", ".svg"]) {
+  require.extensions[extension] = (module, filename) => {
+    module.exports = readFileSync(filename, "utf8");
+  };
+}
 
 const staffSrc = readFileSync(new URL("../src/staff.ts", import.meta.url), "utf8");
 const indexSrc = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
@@ -134,6 +142,7 @@ test("staff autopilot-runs page links each run to the live blog in a new tab", a
     const now = Math.floor(Date.now() / 1000);
     await db.prepare("INSERT INTO tenants (id, public_id, slug, title, description, custom_domain, created_at) VALUES (10, 'pub10', 'blog10', 'Blog 10', '', NULL, ?), (20, 'pub20', 'blog20', 'Blog 20', '', 'example.com', ?)").bind(now, now).run();
     await db.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error) VALUES (?, 10, ?, ?, 'success', 'https://example.com/a', 'A', 1, NULL), (?, 20, ?, ?, 'success', 'https://example.com/c', 'C', 2, NULL)").bind("r1", now, now, "r3", now, now).run();
+    await db.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error, search_raw_count, search_kept_count) VALUES (?, 10, ?, ?, 'skipped', NULL, NULL, NULL, 'no_source', 10, 2)").bind("r4", now, now).run();
     const adminAccess = await accessFixture("staff|admin", "admin@blognice.com");
     await db.prepare("INSERT INTO staff_users (subject, email, role, active, created_at, updated_at) VALUES ('staff|admin','admin@blognice.com','admin',1,?,?)").bind(now, now).run();
     globalThis.fetch = async (url) => {
@@ -146,6 +155,7 @@ test("staff autopilot-runs page links each run to the live blog in a new tab", a
     const html = await res.text();
     assert.match(html, /href="https:\/\/blog10\.blognice\.test"[^>]*target="_blank"/);
     assert.match(html, /href="https:\/\/example\.com"[^>]*target="_blank"/);
+    assert.match(html, />2\/10</);
   } finally {
     globalThis.fetch = originalFetch;
     await mf.dispose();
@@ -181,6 +191,77 @@ test("staff autopilot-runs endpoint returns filtered runs", async () => {
     res = await staffApp.request(new Request("https://staff.blognice.test/api/autopilot-runs?status=success", { headers: { "Cf-Access-Jwt-Assertion": adminAccess.token } }), undefined, env);
     body = await res.json();
     assert.equal(body.runs.length, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await mf.dispose();
+  }
+});
+
+test("internal run-now is secret-guarded and validates tenant", async () => {
+  const mf = new Miniflare({ modules: true, script: "export default { fetch() { return new Response('ok') } }", d1Databases: { DB: "autopilot-run-now-internal" } });
+  try {
+    const db = await mf.getD1Database("DB");
+    for (const s of schema.replace(/^[ \t]*--.*(?:\r?\n|$)/gm, "").split(/;\s*(?=\r?\n|$)/).map((v) => v.trim()).filter(Boolean)) await db.prepare(s).run();
+    const { blogniceApp } = await import("../src/index.ts");
+    const call = (env, body) => blogniceApp.request(
+      new Request("https://www.blognice.test/internal/autopilot/run-now", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+      }),
+      undefined, env, { waitUntil() {}, passThroughOnException() {} }
+    );
+    const base = { DB: db, POSTS: db, ROOT_DOMAIN: "blognice.test" };
+    assert.equal((await call(base, { tenant_id: 10 })).status, 403);
+    const authed = { ...base, AUTOPILOT_RUN_SECRET: "s3cret" };
+    const withSecret = (body) => blogniceApp.request(
+      new Request("https://www.blognice.test/internal/autopilot/run-now", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-autopilot-run-secret": "s3cret" },
+        body: JSON.stringify(body),
+      }),
+      undefined, authed, { waitUntil() {}, passThroughOnException() {} }
+    );
+    assert.equal((await withSecret({ tenant_id: "x" })).status, 400);
+    const res = await withSecret({ tenant_id: 10 });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { ok: true, run: null });
+  } finally {
+    await mf.dispose();
+  }
+});
+
+test("staff run-now is admin-gated and forwards to the main worker", async () => {
+  const staffApp = typeof staffModule.request === "function" ? staffModule : staffModule.default;
+  const mf = new Miniflare({ modules: true, script: "export default { fetch() { return new Response('ok') } }", d1Databases: { DB: "autopilot-run-now-staff" } });
+  const originalFetch = globalThis.fetch;
+  try {
+    const db = await mf.getD1Database("DB");
+    for (const s of schema.replace(/^[ \t]*--.*(?:\r?\n|$)/gm, "").split(/;\s*(?=\r?\n|$)/).map((v) => v.trim()).filter(Boolean)) await db.prepare(s).run();
+    const now = Math.floor(Date.now() / 1000);
+    const adminAccess = await accessFixture("staff|admin", "admin@blognice.com");
+    const supportAccess = await accessFixture("staff|support", "support@blognice.com");
+    await db.prepare("INSERT INTO staff_users (subject, email, role, active, created_at, updated_at) VALUES ('staff|admin','admin@blognice.com','admin',1,?,?), ('staff|support','support@blognice.com','support',1,?,?)").bind(now, now, now, now).run();
+    globalThis.fetch = async (url) => {
+      if (String(url).endsWith("/cdn-cgi/access/certs")) return new Response(JSON.stringify({ keys: [adminAccess.publicJwk, supportAccess.publicJwk] }), { status: 200 });
+      if (String(url) === "https://www.blognice.test/internal/autopilot/run-now") {
+        return new Response(JSON.stringify({ ok: true, run: { id: "r9", status: "success", error: null, source_url: "https://example.com/x", post_id: 5, search_raw_count: 10, search_kept_count: 8 } }), { status: 200 });
+      }
+      throw new Error("unexpected " + url);
+    };
+    const origin = "https://staff.blognice.test";
+    const call = (token, env) => staffApp.request(
+      new Request(`${origin}/api/autopilot/10/run-now`, {
+        method: "POST", headers: { Origin: origin, "Cf-Access-Jwt-Assertion": token, "content-type": "application/json" }, body: "{}",
+      }),
+      undefined, env,
+    );
+    const baseEnv = { DB: db, ROOT_DOMAIN: "blognice.test", ACCESS_TEAM_DOMAIN: "team.cloudflareaccess.com", ACCESS_AUD: "staff-audience" };
+    assert.equal((await call(supportAccess.token, { ...baseEnv, AUTOPILOT_RUN_SECRET: "s3cret" })).status, 403);
+    assert.equal((await call(adminAccess.token, baseEnv)).status, 503);
+    const res = await call(adminAccess.token, { ...baseEnv, AUTOPILOT_RUN_SECRET: "s3cret" });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).run.status, "success");
+    const auditRow = await db.prepare("SELECT action, target_id FROM staff_audit_events WHERE action = 'autopilot-run-now'").first();
+    assert.equal(auditRow.target_id, "10");
   } finally {
     globalThis.fetch = originalFetch;
     await mf.dispose();
