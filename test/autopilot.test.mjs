@@ -125,6 +125,13 @@ test("autopilot dedup, credits, and post creation are wired (source checks)", ()
   assert.match(src, /POSTS\.prepare.*INSERT INTO posts|tenantDb/);
 });
 
+test("broad topics merge the Brave News vertical so front pages are not the only candidates", () => {
+  const src = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
+  assert.match(src, /api\.search\.brave\.com\/res\/v1\/news\/search/);
+  assert.match(src, /rawResults = rawResults\.concat\(newsResults\)/);
+  assert.match(src, /searchRawCount = rawResults\.length/);
+});
+
 test("staff autopilot runs list exists (source checks)", () => {
   const staff = readFileSync(new URL("../src/staff.ts", import.meta.url), "utf8");
   assert.match(staff, /autopilot-runs|autopilot_runs/);

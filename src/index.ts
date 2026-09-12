@@ -7941,7 +7941,21 @@ async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: 
           const searchRes = await fetch(searchUrl, { headers: { Accept: "application/json", "X-Subscription-Token": braveKey } });
           if (searchRes.ok) {
             const data: any = await searchRes.json();
-            const rawResults: any[] = (data.web && Array.isArray(data.web.results) ? data.web.results : Array.isArray(data.results) ? data.results : []);
+            let rawResults: any[] = (data.web && Array.isArray(data.web.results) ? data.web.results : Array.isArray(data.results) ? data.results : []);
+            // Broad topics return outlet homepages/section fronts from web
+            // search, which the path filters below must reject. Merge in the
+            // Brave News vertical (article URLs) so such queries still have
+            // eligible candidates. Failures fall back to web results alone.
+            try {
+              const newsUrl = `https://api.search.brave.com/res/v1/news/search?q=${encodeURIComponent(q)}&count=10${freshnessParam}`;
+              const newsRes = await fetch(newsUrl, { headers: { Accept: "application/json", "X-Subscription-Token": braveKey } });
+              if (newsRes.ok) {
+                const newsData: any = await newsRes.json();
+                const newsResults: any[] = Array.isArray(newsData?.results) ? newsData.results
+                  : (newsData?.news && Array.isArray(newsData.news.results) ? newsData.news.results : []);
+                if (newsResults.length) rawResults = rawResults.concat(newsResults);
+              }
+            } catch {}
             searchRawCount = rawResults.length;
             const allowDomains: string[] = Array.isArray(criteria.allowDomains) ? criteria.allowDomains.map((d: string) => String(d).toLowerCase()) : [];
             const blockDomains: string[] = Array.isArray(criteria.blockDomains) ? criteria.blockDomains.map((d: string) => String(d).toLowerCase()) : [];
