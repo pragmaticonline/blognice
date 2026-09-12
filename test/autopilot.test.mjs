@@ -125,6 +125,21 @@ test("autopilot dedup, credits, and post creation are wired (source checks)", ()
   assert.match(src, /POSTS\.prepare.*INSERT INTO posts|tenantDb/);
 });
 
+test("AI source pick parses defensively and only reorders pool URLs", async () => {
+  const { parseAiSourcePick, applyAiSourcePick } = await import("../src/index.ts");
+  assert.deepEqual(parseAiSourcePick('["https://a.example/1", "https://b.example/2"]'), ["https://a.example/1", "https://b.example/2"]);
+  assert.deepEqual(parseAiSourcePick('Here you go:\n["https://a.example/1"]\nEnjoy'), ["https://a.example/1"]);
+  assert.deepEqual(parseAiSourcePick("no urls here"), []);
+  assert.deepEqual(parseAiSourcePick('{"urls": []}'), []);
+  const ranked = [{ url: "https://a.example/1" }, { url: "https://b.example/2" }, { url: "https://c.example/3" }];
+  assert.deepEqual(
+    applyAiSourcePick(ranked, ["https://c.example/3", "https://hallucinated.example/x", "https://c.example/3"]).map((c) => c.url),
+    ["https://c.example/3", "https://a.example/1", "https://b.example/2"],
+  );
+  assert.equal(applyAiSourcePick(ranked, []).length, 3);
+  assert.equal(applyAiSourcePick(ranked, null).length, 3);
+});
+
 test("broad topics merge the Brave News vertical so front pages are not the only candidates", () => {
   const src = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
   assert.match(src, /api\.search\.brave\.com\/res\/v1\/news\/search/);

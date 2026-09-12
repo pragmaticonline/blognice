@@ -7892,6 +7892,33 @@ app.post("/internal/autopilot/run-now", async (c) => {
   return c.json({ ok: true, run: latest ?? null });
 });
 
+export function parseAiSourcePick(text: unknown): string[] {
+  try {
+    const m = String(text || "").match(/\[[\s\S]*\]/);
+    if (!m) return [];
+    const arr = JSON.parse(m[0]);
+    return Array.isArray(arr) ? arr.map((u) => String(u)) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function applyAiSourcePick(ranked: any[], pickedUrls: unknown): any[] {
+  if (!Array.isArray(pickedUrls) || !pickedUrls.length) return ranked;
+  const pool = new Map(ranked.map((c: any) => [String(c?.url || ""), c]));
+  const seen = new Set<string>();
+  const first: any[] = [];
+  for (const u of pickedUrls) {
+    const key = String(u || "");
+    const hit = pool.get(key);
+    if (hit && !seen.has(key)) {
+      seen.add(key);
+      first.push(hit);
+    }
+  }
+  return first.concat(ranked.filter((c: any) => !seen.has(String(c?.url || ""))));
+}
+
 async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: number) {
   try {
     await env.DB.prepare("CREATE TABLE IF NOT EXISTS autopilot_configs (tenant_id INTEGER PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, staff_enabled INTEGER NOT NULL DEFAULT 0, interval_days INTEGER NOT NULL DEFAULT 1, run_hour_utc INTEGER NOT NULL DEFAULT 9, criteria_json TEXT NOT NULL DEFAULT '{}', image_style TEXT NOT NULL DEFAULT 'editorial-photo', voice TEXT, auto_publish INTEGER NOT NULL DEFAULT 1, max_length INTEGER NOT NULL DEFAULT 900, next_run_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE)").run();
@@ -7969,7 +7996,7 @@ async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: 
               } catch { return false; }
             });
             searchKeptCount = filtered.length;
-            const ranked = (filtered.length ? filtered : rawResults).map((r: any) => {
+            let ranked = (filtered.length ? filtered : rawResults).map((r: any) => {
               let score = 0;
               try {
                 const u = new URL(String(r.url||""));
@@ -7986,6 +8013,30 @@ async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: 
               if (/values your feedback|ad relevance/i.test(descStr)) score -= 10;
               return { r, score, url: String(r.url||"") };
             }).sort((a:any,b:any)=>b.score-a.score);
+            // Workers AI pick: ask the model to list the best full-article
+            // URLs from the shortlist. Model output only reorders — every
+            // candidate still passes the path/dedup gates below, and any
+            // failure falls back to heuristic order. URLs outside the pool
+            // are ignored so hallucinations can never enter.
+            try {
+              const ai = (env as any).AI;
+              if (ai && typeof ai.run === "function" && ranked.length > 1) {
+                const shortlist = ranked.slice(0, 12).map((c: any, i: number) =>
+                  `${i + 1}. ${String(c.r.title || "").slice(0, 120)} — ${c.url} — ${String(c.r.description || "").slice(0, 200)}`
+                ).join("\n");
+                const pickRes: any = await ai.run(AI_BRIEF_MODEL, {
+                  messages: [
+                    { role: "system", content: "You rank news source URLs for an automated blogger. Reply with ONLY a JSON array of up to 3 URLs, best first: full news articles (never homepages, section fronts, videos, or search pages), fresh, and topical. No explanation, no other text." },
+                    { role: "user", content: `Topic: ${topic}\nFreshness: ${String(criteria.freshness || "24h")}\nCandidates:\n${shortlist}` },
+                  ],
+                  max_tokens: 300,
+                  temperature: 0,
+                });
+                const pickText = String(pickRes?.response || pickRes?.text || "");
+                const picked = parseAiSourcePick(pickText);
+                if (picked.length) ranked = applyAiSourcePick(ranked, picked);
+              }
+            } catch {}
             for (const { r } of ranked) {
               const candUrl = String(r.url || "").trim();
               if (!candUrl) continue;
