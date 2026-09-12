@@ -1,4 +1,4 @@
-import { currentAccount, sha256hex, type Account } from "./auth";
+import { currentAccount, isEmailVerified, sha256hex, type Account } from "./auth";
 
 function b64urlEncode(bytes: Uint8Array): string {
   let s = "";
@@ -52,13 +52,45 @@ export function oauthAuthorizationServerMetadata(origin: string) {
     issuer: origin,
     authorization_endpoint: `${origin}/oauth/authorize`,
     token_endpoint: `${origin}/oauth/token`,
+    userinfo_endpoint: `${origin}/oauth/userinfo`,
     registration_endpoint: `${origin}/oauth/register`,
-    scopes_supported: ["blog:read", "blog:write"],
+    scopes_supported: ["openid", "email", "profile", "blog:read", "blog:write"],
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code", "refresh_token"],
     code_challenge_methods_supported: ["S256"],
     token_endpoint_auth_methods_supported: ["none"],
   };
+}
+
+export async function handleOAuthUserinfo(c: any): Promise<Response> {
+  // OpenID Connect UserInfo for workspace domain restrictions: ChatGPT
+  // requires the auth server to return the user's email and email_verified.
+  const hdr = String(c.req.header("authorization") || "");
+  const m = hdr.match(/^Bearer\s+(.+)$/i);
+  const token = m ? m[1].trim() : "";
+  if (!token) {
+    return c.json({ error: "unauthorized" }, 401, { "www-authenticate": `Bearer [REDACTED]\"blognice\"` });
+  }
+  const account = await accountFromOAuthToken(c.env.DB, token);
+  if (!account) {
+    return c.json({ error: "invalid_token" }, 401, { "www-authenticate": `Bearer [REDACTED]\"blognice\", error=\"invalid_token\"` });
+  }
+  // accountFromOAuthToken does not select the verification flag; read it
+  // explicitly so the email_verified claim is authoritative.
+  let verified = false;
+  try {
+    const row = (await c.env.DB.prepare(
+      "SELECT COALESCE(email_verified, 0) AS email_verified FROM accounts WHERE id = ?"
+    ).bind(account.id).first()) as { email_verified: number } | null;
+    verified = Number(row?.email_verified || 0) === 1;
+  } catch {
+    verified = isEmailVerified(account);
+  }
+  return c.json({
+    sub: String(account.id),
+    email: account.email,
+    email_verified: verified,
+  }, 200, { "cache-control": "no-store" });
 }
 
 export function oauthProtectedResourceMetadata(origin: string) {

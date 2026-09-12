@@ -20,6 +20,14 @@ This policy covers account holders who create and manage blogs, and readers or s
 - Hashed API-key identifiers, to authenticate API requests.
 - Billing and payment metadata, such as provider customer IDs, plan, payment/order IDs, currency, amount, status, and entitlement dates. Card details are handled by Stripe; crypto payments are handled by NOWPayments.
 
+### AI assistants (ChatGPT, Claude)
+
+- When you connect your Blognice account to an AI assistant, the assistant acts on your instructions through our API using OAuth or an API key you provided to that assistant.
+- The assistant can access only your own account data needed for your request: account email, blogs, posts, pages, media, and settings you ask it to read or change.
+- We do not send your password, API keys, or OAuth tokens to the assistant. Billing details and other accounts' data are never exposed through the assistant connection.
+- The assistant provider (OpenAI, Anthropic) processes your prompts and our API responses under its own terms and privacy notice.
+- You can disconnect at any time from within the assistant, and you can revoke API keys or OAuth access from Blog Settings (/admin/api-key) and your account settings.
+
 ### Readers and subscribers
 
 - Email address and a random subscription/unsubscribe token, when someone subscribes to a blog.
@@ -51,6 +59,7 @@ Depending on the features used, information may be processed by:
 - Stripe, for card subscriptions and hosted billing management.
 - NOWPayments, for annual prepaid cryptocurrency payments and payment-status notifications.
 - MailNice, for transactional and subscriber email delivery.
+- OpenAI or Anthropic, only when you connect your account to ChatGPT or Claude, to carry out your instructions.
 
 These providers may process information under their own terms and privacy notices. We share only what is needed for the relevant feature and do not sell personal information.
 

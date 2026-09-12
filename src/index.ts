@@ -151,7 +151,7 @@ import { refreshPostPopularity } from "./popularity";
 
 import { handleMcpRequest, aiPluginManifest } from "./mcp";
 import { OPENAPI_YAML } from "./openapi-data";
-import { oauthAuthorizationServerMetadata, oauthProtectedResourceMetadata, handleOAuthAuthorize, handleOAuthAuthorizePost, handleOAuthToken, accountFromOAuthToken, pkceS256 } from "./oauth";
+import { oauthAuthorizationServerMetadata, oauthProtectedResourceMetadata, handleOAuthAuthorize, handleOAuthAuthorizePost, handleOAuthToken, handleOAuthUserinfo, accountFromOAuthToken, pkceS256 } from "./oauth";
 import { handleGoogleCallback, handleGoogleStart } from "./google-auth";
 
 function oauthBearerChallenge(c: any): string {
@@ -223,6 +223,7 @@ type Bindings = {
   // Social login with Google. See src/google-auth.ts.
   GOOGLE_CLIENT_ID?: string; // var
   GOOGLE_CLIENT_SECRET?: string; // secret
+  OPENAI_APPS_CHALLENGE_TOKEN?: string; // secret; set only during OpenAI plugin domain verification
 };
 
 export const blogniceApp = new Hono<{ Bindings: Bindings }>();
@@ -962,6 +963,7 @@ app.get("/.well-known/oauth-protected-resource", (c) => {
 app.get("/oauth/authorize", async (c) => handleOAuthAuthorize(c));
 app.post("/oauth/authorize", async (c) => handleOAuthAuthorizePost(c));
 app.post("/oauth/token", async (c) => handleOAuthToken(c));
+app.get("/oauth/userinfo", async (c) => handleOAuthUserinfo(c));
 app.get("/oauth/register", (c) => c.json({ client_id: "blognice", client_name: "Blognice", redirect_uris: [], grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], token_endpoint_auth_method: "none", code_challenge_methods_supported: ["S256"] }, 200, { "access-control-allow-origin": "*" }));
 app.post("/oauth/register", async (c) => {
   let body: any = {};
@@ -6267,6 +6269,14 @@ app.get("/assets/*", async (c) => {
   return serveAssetFromR2(c, key, filename);
 });
 
+// OpenAI plugin domain verification: the submission portal issues a challenge
+// token that must be served verbatim at /.well-known/openai-apps-challenge.
+// Set OPENAI_APPS_CHALLENGE_TOKEN only while verifying; otherwise 404.
+app.get("/.well-known/openai-apps-challenge", (c) => {
+  const token = String(c.env?.OPENAI_APPS_CHALLENGE_TOKEN || "").trim();
+  if (!token) return c.text("Not found", 404);
+  return c.text(token, 200, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
+});
 app.get("/.well-known/security.txt", (c) => {
   const host = new URL(c.req.url).hostname.toLowerCase();
   if (host !== `www.${c.env.ROOT_DOMAIN}`.toLowerCase()) return c.redirect(`https://www.${c.env.ROOT_DOMAIN}/.well-known/security.txt`, 301);

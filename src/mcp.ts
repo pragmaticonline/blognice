@@ -140,210 +140,210 @@ function toolText(content: unknown): string {
 export const BLOGNICE_MCP_TOOLS: McpTool[] = [
   {
     name: "blognice_get_me",
-    description: "List your Blognice account and blogs. Returns public_id for each blog (use as blogId in other tools). Works with OAuth (ChatGPT/Claude Connect, recommended, no apiKey needed) or legacy paid-plan apiKey via Authorization: Bearer or apiKey param.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string", description: "Optional when connected via OAuth — Blognice API key from /admin/api-key (paid plan). When OAuth is linked, do not send apiKey." } }, required: [], additionalProperties: false },
+    description: "List your Blognice account and blogs. Returns public_id for each blog (use as blogId in other tools). Authenticates via the connected account (OAuth); no credentials needed in tool arguments.",
+    inputSchema: { type: "object", properties: {}, required: [], additionalProperties: false },
     annotations: { title: "Get account & blogs", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
     name: "blognice_create_blog",
     description: "Create a new Blognice blog. One account owns up to 5 blogs (1 on free). slug 3-40 a-z0-9-.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, slug: { type: "string", description: "Desired slug e.g. myblog (3-40, a-z0-9-)" }, title: { type: "string" }, description: { type: "string" } }, required: [], additionalProperties: true },
+    inputSchema: { type: "object", properties: { slug: { type: "string", description: "Desired slug e.g. myblog (3-40, a-z0-9-)" }, title: { type: "string" }, description: { type: "string" } }, required: [], additionalProperties: true },
     annotations: { title: "Create blog", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   
   },
   {
     name: "blognice_get_blog",
     description: "Get blog settings including navigation_links, header_link_url, accent_color, custom_domain, role, avatar_key/profile_image_key and avatar_url.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string", description: "Opaque public_id from blognice_get_me" } }, required: [ "blogId"] },
+    inputSchema: { type: "object", properties: { blogId: { type: "string", description: "Opaque public_id from blognice_get_me" } }, required: [ "blogId"] },
     annotations: { title: "Get blog settings", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   
   },
   {
     name: "blognice_update_blog",
     description: "Update blog settings (PATCH). Supports title, description, footer_name, accent_color (#rrggbb), topics, social_links, navigation_links [{label, href, order}], header_link_url (/ or https://), browser_push_enabled, and profile_image_key/avatar_key — set blog profile/avatar from an existing media library key (from blognice_upload_media or blognice_get_image_status). Workflow: upload → blognice_upload_media {blogId, filename, contentType, data} → use returned key as profile_image_key.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, title: { type: "string" }, description: { type: "string" }, footer_name: { type: "string" }, accent_color: { type: "string" }, topics: { type: "array", items: { type: "string" } }, social_links: { type: "object" }, navigation_links: { type: "array" }, header_link_url: { type: "string" }, browser_push_enabled: { type: "boolean" }, profile_image_key: { type: "string", description: "Media key from blognice_upload_media or blognice_get_image_status (e.g. 123/171234-xxxx.jpg or /media/123/...), or null to clear. Alias avatar_key." }, avatar_key: { type: "string" } }, required: [ "blogId"], additionalProperties: true },
+    inputSchema: { type: "object", properties: { blogId: { type: "string" }, title: { type: "string" }, description: { type: "string" }, footer_name: { type: "string" }, accent_color: { type: "string" }, topics: { type: "array", items: { type: "string" } }, social_links: { type: "object" }, navigation_links: { type: "array" }, header_link_url: { type: "string" }, browser_push_enabled: { type: "boolean" }, profile_image_key: { type: "string", description: "Media key from blognice_upload_media or blognice_get_image_status (e.g. 123/171234-xxxx.jpg or /media/123/...), or null to clear. Alias avatar_key." }, avatar_key: { type: "string" } }, required: [ "blogId"], additionalProperties: true },
     annotations: { title: "Update blog settings", readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   
   },
   {
     name: "blognice_list_posts",
     description: "List posts for a blog (published and drafts if owner).",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" } }, required: [ "blogId"] },
+    inputSchema: { type: "object", properties: { blogId: { type: "string" } }, required: [ "blogId"] },
     annotations: { title: "List posts", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   
   },
   {
     name: "blognice_create_post",
     description: "Create a post. Required: title, body_md (markdown). Optional: slug, published (bool, default true), tags (string[]), author_name, featured_image_key, meta_description, show_in_lists.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, title: { type: "string" }, body_md: { type: "string", description: "Markdown body" }, slug: { type: "string" }, published: { type: "boolean" }, tags: { type: "array", items: { type: "string" } }, author_name: { type: "string" }, featured_image_key: { type: "string" }, meta_description: { type: "string" } }, required: [ "blogId", "title", "body_md"] },
+    inputSchema: { type: "object", properties: { blogId: { type: "string" }, title: { type: "string" }, body_md: { type: "string", description: "Markdown body" }, slug: { type: "string" }, published: { type: "boolean" }, tags: { type: "array", items: { type: "string" } }, author_name: { type: "string" }, featured_image_key: { type: "string" }, meta_description: { type: "string" } }, required: [ "blogId", "title", "body_md"] },
     annotations: { title: "Create post", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   
   },
   {
     name: "blognice_get_post",
     description: "Get a single post by numeric id.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, postId: { type: "integer" } }, required: [ "blogId", "postId"] },
+    inputSchema: { type: "object", properties: { blogId: { type: "string" }, postId: { type: "integer" } }, required: [ "blogId", "postId"] },
     annotations: { title: "Get post", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   
   },
   {
     name: "blognice_update_post",
     description: "Patch a post (title, body_md, slug, published, tags, author_name, featured_image_key, meta_description).",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, postId: { type: "integer" }, title: { type: "string" }, body_md: { type: "string" }, slug: { type: "string" }, published: { type: "boolean" }, tags: { type: "array", items: { type: "string" } }, author_name: { type: "string" }, featured_image_key: { type: "string" }, meta_description: { type: "string" } }, required: [ "blogId", "postId"] },
+    inputSchema: { type: "object", properties: { blogId: { type: "string" }, postId: { type: "integer" }, title: { type: "string" }, body_md: { type: "string" }, slug: { type: "string" }, published: { type: "boolean" }, tags: { type: "array", items: { type: "string" } }, author_name: { type: "string" }, featured_image_key: { type: "string" }, meta_description: { type: "string" } }, required: [ "blogId", "postId"] },
     annotations: { title: "Update post", readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   
   },
   {
     name: "blognice_delete_post",
     description: "Delete a post by id.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, postId: { type: "integer" } }, required: [ "blogId", "postId"] },
+    inputSchema: { type: "object", properties: { blogId: { type: "string" }, postId: { type: "integer" } }, required: [ "blogId", "postId"] },
     annotations: { title: "Delete post", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   
   },
   {
     name: "blognice_list_pages",
     description: "List pages for a blog.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" } }, required: [ "blogId"] },
+    inputSchema: { type: "object", properties: { blogId: { type: "string" } }, required: [ "blogId"] },
     annotations: { title: "List pages", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   
   },
   {
     name: "blognice_create_page",
     description: "Create a page. Required title. Optional body_md, slug, published, show_in_navigation, navigation_label, navigation_order, meta_description.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, title: { type: "string" }, body_md: { type: "string" }, slug: { type: "string" }, published: { type: "boolean" }, show_in_navigation: { type: "boolean" }, navigation_label: { type: "string" }, navigation_order: { type: "integer" }, meta_description: { type: "string" } }, required: [ "blogId", "title"] },
+    inputSchema: { type: "object", properties: { blogId: { type: "string" }, title: { type: "string" }, body_md: { type: "string" }, slug: { type: "string" }, published: { type: "boolean" }, show_in_navigation: { type: "boolean" }, navigation_label: { type: "string" }, navigation_order: { type: "integer" }, meta_description: { type: "string" } }, required: [ "blogId", "title"] },
     annotations: { title: "Create page", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   
   },
   {
     name: "blognice_get_page",
     description: "Get a single page by id.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, pageId: { type: "integer" } }, required: [ "blogId", "pageId"] },
+    inputSchema: { type: "object", properties: { blogId: { type: "string" }, pageId: { type: "integer" } }, required: [ "blogId", "pageId"] },
     annotations: { title: "Get page", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   
   },
   {
     name: "blognice_update_page",
     description: "Patch a page.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, pageId: { type: "integer" }, title: { type: "string" }, body_md: { type: "string" }, slug: { type: "string" }, published: { type: "boolean" }, show_in_navigation: { type: "boolean" }, navigation_label: { type: "string" }, navigation_order: { type: "integer" }, meta_description: { type: "string" } }, required: [ "blogId", "pageId"] },
+    inputSchema: { type: "object", properties: { blogId: { type: "string" }, pageId: { type: "integer" }, title: { type: "string" }, body_md: { type: "string" }, slug: { type: "string" }, published: { type: "boolean" }, show_in_navigation: { type: "boolean" }, navigation_label: { type: "string" }, navigation_order: { type: "integer" }, meta_description: { type: "string" } }, required: [ "blogId", "pageId"] },
     annotations: { title: "Update page", readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   
   },
   {
     name: "blognice_delete_page",
     description: "Delete a page.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, pageId: { type: "integer" } }, required: [ "blogId", "pageId"] },
+    inputSchema: { type: "object", properties: { blogId: { type: "string" }, pageId: { type: "integer" } }, required: [ "blogId", "pageId"] },
     annotations: { title: "Delete page", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   
   },
   {
     name: "blognice_list_media",
     description: "List R2 media library keys for a blog.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" } }, required: [ "blogId"] },
+    inputSchema: { type: "object", properties: { blogId: { type: "string" } }, required: [ "blogId"] },
     annotations: { title: "List media", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   
   },
   {
     name: "blognice_upload_media",
     description: "Upload an image to the blog media library (R2). Provide filename + contentType (image/jpeg, image/png, image/gif, image/webp, image/avif) and base64-encoded file data. Returns key, url and markdown (![](url)). Max 15 MB.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string", description: "Opaque public_id from blognice_get_me" }, filename: { type: "string", description: "Original filename e.g. photo.jpg" }, contentType: { type: "string", description: "MIME type: image/jpeg, image/png, image/gif, image/webp, image/avif" }, data: { type: "string", description: "Base64-encoded image bytes (no data: prefix required, but accepted)" } }, required: ["blogId", "filename", "contentType", "data"] },
+    inputSchema: { type: "object", properties: { blogId: { type: "string", description: "Opaque public_id from blognice_get_me" }, filename: { type: "string", description: "Original filename e.g. photo.jpg" }, contentType: { type: "string", description: "MIME type: image/jpeg, image/png, image/gif, image/webp, image/avif" }, data: { type: "string", description: "Base64-encoded image bytes (no data: prefix required, but accepted)" } }, required: ["blogId", "filename", "contentType", "data"] },
     annotations: { title: "Upload media", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   
   },
   {
     name: "blognice_delete_media",
     description: "Delete a media file from the blog library by key.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, key: { type: "string", description: "Media key e.g. 123/1712345678901-abcd1234.jpg or full /media/123/..." } }, required: ["blogId", "key"] },
+    inputSchema: { type: "object", properties: { blogId: { type: "string" }, key: { type: "string", description: "Media key e.g. 123/1712345678901-abcd1234.jpg or full /media/123/..." } }, required: ["blogId", "key"] },
     annotations: { title: "Delete media", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   
   },
   {
     name: "blognice_upload_avatar",
     description: "Upload and set the blog profile/avatar image. Provide filename + contentType and base64 data — replaces existing avatar (15 MB max, paid-plan avatar).",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, filename: { type: "string" }, contentType: { type: "string" }, data: { type: "string", description: "Base64-encoded image bytes" } }, required: ["blogId", "filename", "contentType", "data"] },
+    inputSchema: { type: "object", properties: { blogId: { type: "string" }, filename: { type: "string" }, contentType: { type: "string" }, data: { type: "string", description: "Base64-encoded image bytes" } }, required: ["blogId", "filename", "contentType", "data"] },
     annotations: { title: "Upload avatar", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   
   },
   {
     name: "blognice_remove_avatar",
     description: "Remove the blog profile/avatar image.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" } }, required: ["blogId"] },
+    inputSchema: { type: "object", properties: { blogId: { type: "string" } }, required: ["blogId"] },
     annotations: { title: "Remove avatar", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   
   },
   {
     name: "blognice_upload_favicon",
     description: "Upload and set a custom favicon (PNG or ICO, max 1 MB, paid plan). Provide filename+contentType and base64 data — stored as ICO and served at /favicon.ico.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, filename: { type: "string" }, contentType: { type: "string", description: "image/png or image/x-icon" }, data: { type: "string", description: "Base64-encoded PNG/ICO bytes" } }, required: ["blogId", "filename", "contentType", "data"] },
+    inputSchema: { type: "object", properties: { blogId: { type: "string" }, filename: { type: "string" }, contentType: { type: "string", description: "image/png or image/x-icon" }, data: { type: "string", description: "Base64-encoded PNG/ICO bytes" } }, required: ["blogId", "filename", "contentType", "data"] },
     annotations: { title: "Upload favicon", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   
   },
   {
     name: "blognice_remove_favicon",
     description: "Remove the custom favicon (reverts to default).",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" } }, required: ["blogId"] },
+    inputSchema: { type: "object", properties: { blogId: { type: "string" } }, required: ["blogId"] },
     annotations: { title: "Remove favicon", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   
   },
   {
     name: "blognice_delete_audio",
     description: "Delete generated audio narration for a post.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, postId: { type: "integer", description: "Post numeric id" } }, required: ["blogId", "postId"] },
+    inputSchema: { type: "object", properties: { blogId: { type: "string" }, postId: { type: "integer", description: "Post numeric id" } }, required: ["blogId", "postId"] },
     annotations: { title: "Delete audio", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   
   },
   {
     name: "blognice_get_metrics",
     description: "Get pageview metrics for a blog (requires owner).",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" } }, required: [ "blogId"] },
+    inputSchema: { type: "object", properties: { blogId: { type: "string" } }, required: [ "blogId"] },
     annotations: { title: "Get metrics", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   
   },
   {
     name: "blognice_get_tags",
     description: "List tags used in a blog.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" } }, required: [ "blogId"] },
+    inputSchema: { type: "object", properties: { blogId: { type: "string" } }, required: [ "blogId"] },
     annotations: { title: "List tags", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   
   },
   {
     name: "blognice_generate_image",
     description: "Generate an editorial image via Workers AI (credit-gated, paid plan). Provide prompt+style or post_id. Styles: editorial-photo, editorial-illustration, cinematic, child-crayon, arcade-action, risograph, paper-collage, watercolor, minimal, auto.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, prompt: { type: "string" }, style: { type: "string" }, post_id: { type: "integer" } }, required: [ "blogId"] },
+    inputSchema: { type: "object", properties: { blogId: { type: "string" }, prompt: { type: "string" }, style: { type: "string" }, post_id: { type: "integer" } }, required: [ "blogId"] },
     annotations: { title: "Generate image", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   
   },
   {
     name: "blognice_get_image_status",
     description: "Poll image generation job status.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, jobId: { type: "string" } }, required: [ "blogId", "jobId"] },
+    inputSchema: { type: "object", properties: { blogId: { type: "string" }, jobId: { type: "string" } }, required: [ "blogId", "jobId"] },
     annotations: { title: "Poll image status", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   
   },
   {
     name: "blognice_generate_audio",
     description: "Generate TTS narration for a post (paid, credit-gated).",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, postId: { type: "integer" } }, required: [ "blogId", "postId"] },
+    inputSchema: { type: "object", properties: { blogId: { type: "string" }, postId: { type: "integer" } }, required: [ "blogId", "postId"] },
     annotations: { title: "Generate audio", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   
   },
   {
     name: "blognice_get_audio_status",
     description: "Poll audio generation job status.",
-    inputSchema: { type: "object", properties: { apiKey: { type: "string" }, blogId: { type: "string" }, jobId: { type: "string" } }, required: [ "blogId", "jobId"] },
+    inputSchema: { type: "object", properties: { blogId: { type: "string" }, jobId: { type: "string" } }, required: [ "blogId", "jobId"] },
     annotations: { title: "Poll audio status", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   
   },
 ];
 
 async function dispatchTool(c: any, name: string, args: any): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
-  let apiKey = String(args?.apiKey || "").trim();
+  // Header-only auth: OAuth access tokens and legacy API keys both arrive as
+  // Authorization: Bearer <token>. Tool arguments never carry credentials
+  // (OpenAI plugin review forbids collecting API keys via tool inputs).
+  const hdr = (c.req?.header?.("authorization") || c.req?.headers?.get?.("authorization") || "") as string;
+  const m = String(hdr).match(/^Bearer\s+(.+)$/i);
+  const apiKey = m ? m[1].trim() : "";
   if (!apiKey) {
-    const hdr = (c.req?.header?.("authorization") || c.req?.headers?.get?.("authorization") || "") as string;
-    const m = String(hdr).match(/^Bearer\s+(.+)$/i);
-    if (m) apiKey = m[1].trim();
-  }
-  if (!apiKey) {
-    return { content: [{ type: "text", text: "Authentication required — connect via OAuth at https://www.blognice.com/oauth/authorize (recommended, no apiKey needed when ChatGPT is linked, scope blog:read blog:write) or pass legacy paid-plan apiKey as \"apiKey\" or Authorization: Bearer <apiKey>. OAuth challenge: WWW-Authenticate: Bearer realm=\"blognice\", resource_metadata=\"https://www.blognice.com/.well-known/oauth-protected-resource\"" }], isError: true, _oauthChallenge: true } as any;
+    return { content: [{ type: "text", text: "Authentication required — connect via OAuth at https://www.blognice.com/oauth/authorize (scope blog:read blog:write). OAuth challenge: WWW-Authenticate: Bearer realm=\"blognice\", resource_metadata=\"https://www.blognice.com/.well-known/oauth-protected-resource\"" }], isError: true, _oauthChallenge: true } as any;
   }
   const blogId = args?.blogId ? String(args.blogId) : "";
   const postId = args?.postId ?? args?.id ?? args?.pageId;
@@ -665,7 +665,7 @@ export function aiPluginManifest(c: any): Record<string, unknown> {
     name_for_human: "Blognice",
     name_for_model: "blognice",
     description_for_human: "Create and manage blogs, posts, pages, and media on Blognice — privacy-first blogging.",
-    description_for_model: "Token-protected Blognice API for managing up to 5 blogs per account. Requires per-tool apiKey from https://www.blognice.com/admin/api-key. Use blognice_get_me to discover blog public_id, then posts/pages/media tools. Base https://www.blognice.com — see https://www.blognice.com/openapi.yaml.",
+    description_for_model: "Token-protected Blognice API for managing up to 5 blogs per account. Authenticates via the connected account (OAuth). Use blognice_get_me to discover blog public_id, then posts/pages/media tools. Base https://www.blognice.com — see https://www.blognice.com/openapi.yaml.",
     auth: { type: "none" },
     api: { type: "openapi", url: `${canonical}/openapi.yaml` },
     logo_url: `${canonical}/favicon.svg`,
