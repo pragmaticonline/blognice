@@ -183,6 +183,29 @@ test("callback rejects a mismatched state without creating a session", async () 
   }
 });
 
+test("login and signup pages offer Continue with Google", async () => {
+  const { mf, db } = await setupDb("google-auth-buttons");
+  try {
+    const { blogniceApp } = await import("../src/index.ts");
+    const env = baseEnv(db);
+    for (const path of ["/admin/login", "/signup"]) {
+      const res = await blogniceApp.request(
+        new Request(`https://www.blognice.test${path}`),
+        undefined,
+        env,
+        ctx,
+      );
+      assert.equal(res.status, 200);
+      const html = await res.text();
+      assert.match(html, /href="\/auth\/google"/);
+      assert.match(html, /Continue with Google/);
+      assert.match(html, /viewBox="0 0 48 48"/);
+    }
+  } finally {
+    await mf.dispose();
+  }
+});
+
 test("GET /auth/google without a client ID returns 503", async () => {
   const { mf, db } = await setupDb("google-auth-unconfigured");
   try {

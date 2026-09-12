@@ -85,5 +85,7 @@ test("push secrets are configuration-only", () => {
 });
 test("new blog creation enables browser push by default", () => {
   const tenantCreates = [...index.matchAll(/INSERT INTO tenants \(public_id, slug, title, description, shard, browser_push_enabled, created_at\) VALUES \(\?, \?, \?, '', 'primary', 1, \?\)/g)];
-  assert.equal(tenantCreates.length, 3);
+  // Two creation sites: the staff/platform blog grant and /admin/new-blog.
+  // /signup is account-only since the friction cut and creates no tenant.
+  assert.equal(tenantCreates.length, 2);
 });

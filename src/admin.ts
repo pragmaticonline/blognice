@@ -544,6 +544,14 @@ export function shell(
 <body>${bar}${inner}${switcherScript}<script>(function(){var b=document.getElementById('topbar-menu-open'),m=document.getElementById('topbar-menu');if(!b||!m)return;b.addEventListener('click',function(){var o=m.hidden;m.hidden=!o;b.setAttribute('aria-expanded',String(o));});document.addEventListener('click',function(e){if(!m.contains(e.target)&&!b.contains(e.target)){m.hidden=true;b.setAttribute('aria-expanded','false');}});})();</script><footer class="admin-footer"><span><strong>blognice</strong> · © 2026 Pragmatic Online Co., Ltd.</span><nav aria-label="Legal"><a href="https://www.blognice.com/policies">Policies</a></nav></footer><style>.admin-footer{max-width:1220px;margin:2.5rem auto 0;padding:1.25rem 1.5rem 2rem;border-top:1px solid var(--rule);display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;color:var(--muted);font-size:.82rem}.admin-footer nav{display:flex;gap:1rem;flex-wrap:wrap}.admin-footer a{color:inherit;text-decoration:none}.admin-footer a:hover,.admin-footer a:focus-visible{color:var(--accent);text-decoration:underline}@media(max-width:640px){.admin-footer{align-items:flex-start;flex-direction:column}.admin-footer a{padding:.5rem 0}}</style></body></html>`;
 }
 
+const GOOGLE_G_LOGO = `<svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/><path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"/><path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0 1 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/><path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/></svg>`;
+
+// Google-styled sign-in button: white surface, grey border, official G logo.
+// Kept as a helper so login and signup render the identical button.
+function googleSignInButton(): string {
+  return `<p style="margin-top:1.1rem"><a href="/auth/google" style="display:flex;align-items:center;justify-content:center;gap:.6rem;background:#fff;border:1px solid #dadce0;border-radius:4px;color:#3c4043;font-family:Roboto,system-ui,-apple-system,sans-serif;font-size:.95rem;font-weight:500;padding:.65rem 1rem;text-decoration:none">${GOOGLE_G_LOGO}<span>Continue with Google</span></a></p>`;
+}
+
 export function loginPage(error?: string, invite?: { token: string; email: string; title: string; role: string }): string {
   const inviteBanner = invite
     ? `<div class="notice" style="margin-bottom:1rem"><strong>Invitation for ${esc(invite.email)}</strong><br>Join <strong>${esc(invite.title)}</strong> as <em>${esc(invite.role)}</em>. Sign in with the invited email to accept.</div>`
@@ -567,7 +575,7 @@ export function loginPage(error?: string, invite?: { token: string; email: strin
         <input id="password" name="password" type="password" autocomplete="current-password" required>
         <button class="btn" type="submit">Sign in</button>
       </form>
-      <p style="margin-top:1.1rem"><a class="btn" href="/auth/google" style="display:block;text-align:center;text-decoration:none">Continue with Google</a></p>
+      ${googleSignInButton()}
       <p style="margin-top:1.1rem;color:var(--muted);font-size:0.9rem"><a href="/admin/forgot">Forgot your password?</a></p>
       ${inviteSignupLink}
       <p style="margin-top:1.4rem;color:var(--muted);font-size:0.9rem">
@@ -603,8 +611,7 @@ export function signupPage(
   inviteToken?: string,
   inviteInfo?: { title: string; role: string; email: string }
 ): string {
-  const slug = esc(values?.slug ?? "");
-  const title = esc(values?.title ?? "");
+  void rootDomain;
   const email = esc(values?.email ?? inviteInfo?.email ?? "");
   const inviteBanner = inviteToken && inviteInfo
     ? `<div class="notice" style="margin-bottom:1rem">You're invited to join <strong>${esc(inviteInfo.title)}</strong> as <em>${esc(inviteInfo.role)}</em> — create an account for <strong>${esc(inviteInfo.email)}</strong> to accept.</div>`
@@ -612,40 +619,26 @@ export function signupPage(
       ? `<p style="color:var(--muted)">Create your blognice account to accept this invitation.</p>`
       : "";
   return shell(
-    inviteToken ? "Join a blog" : "Create your blog",
+    inviteToken ? "Join a blog" : "Create your account",
     `<div class="page narrow">
-      <h1>${inviteToken ? "Join a blog" : "Create your blog"}</h1>
+      <h1>${inviteToken ? "Join a blog" : "Create your account"}</h1>
       ${inviteBanner}
       ${error ? `<div class="error">${esc(error)}</div>` : ""}
+      ${inviteToken ? "" : `<p style="color:var(--muted)">One account, up to five blogs. You can create your first blog right after signing up.</p>`}
       <form method="post" action="/signup">
         ${inviteToken ? `<input type="hidden" name="invite" value="${esc(inviteToken)}">` : ""}
-        ${inviteToken ? "" : `<label for="slug">Blog address</label>
-        <input id="slug" name="slug" type="text" value="${slug}" placeholder="yourname"
-               autocapitalize="none" autocorrect="off" spellcheck="false" required>
-        <div style="margin:-0.6rem 0 1rem;color:var(--muted);font-size:0.82rem">
-          <span id="preview">yourname</span>.${esc(rootDomain)}
-        </div>
-        <label for="title">Blog title</label>
-        <input id="title" name="title" type="text" value="${title}" placeholder="My Blog" required>`}
         <label for="email">Email</label>
         <input id="email" name="email" type="email" value="${email}" autocomplete="username" required ${inviteInfo ? `readonly style="background:var(--rule-bg, #f6f6f5)"` : ""}>
         ${inviteInfo ? `<div style="margin:-0.6rem 0 1rem;color:var(--muted);font-size:0.82rem">Invitation is for ${esc(inviteInfo.email)} — use that address.</div>` : ""}
         <label for="password">Password <span style="color:var(--muted)">(8+ characters)</span></label>
         <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" required>
-        <button class="btn" type="submit">${inviteToken ? "Create account and join" : "Create blog"}</button>
+        <button class="btn" type="submit">${inviteToken ? "Create account and join" : "Create account"}</button>
       </form>
+      ${googleSignInButton()}
       <p style="margin-top:1.4rem;color:var(--muted);font-size:0.9rem">
         Already have an account? <a href="/admin/login${inviteToken ? `?invite=${esc(inviteToken)}` : ""}">Sign in</a>.
       </p>
-    </div>
-    <script>
-      (function () {
-        var s = document.getElementById("slug"), p = document.getElementById("preview");
-        if (!s || !p) return;
-        function clean(v){ return v.toLowerCase().replace(/[^a-z0-9-]/g,"").replace(/^-+|-+$/g,""); }
-        s.addEventListener("input", function () { p.textContent = clean(s.value) || "yourname"; });
-      })();
-    </script>`
+    </div>`
   );
 }
 

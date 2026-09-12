@@ -5291,11 +5291,11 @@ async function createEmailVerification(c: any, accountId: number, email: string,
   return token;
 }
 function verificationPendingPage(email: string, resend?: boolean): string {
-  return shell(`Verify email — blognice`, `<div class="page narrow"><h1>Check your email</h1><p>We sent a verification link to <strong>${esc(email)}</strong>. Click the link to activate your blog (expires in 24 hours).</p>${resend?`<p style="color:#1a8917">New link sent — check your inbox.</p>`:""}<form method="post" action="/verify-email/resend" style="margin:1rem 0"><input type="hidden" name="email" value="${esc(email)}"><button class="btn" type="submit">Resend link</button></form><p style="color:var(--muted);font-size:.9rem">Didn't get it? Check spam, or try resending. You can also <a href="/admin/login">sign in</a> after verifying.</p></div>`);
+  return shell(`Verify email — blognice`, `<div class="page narrow"><h1>Check your email</h1><p>We sent a verification link to <strong>${esc(email)}</strong>. Click the link to activate your account (expires in 24 hours).</p>${resend?`<p style="color:#1a8917">New link sent — check your inbox.</p>`:""}<form method="post" action="/verify-email/resend" style="margin:1rem 0"><input type="hidden" name="email" value="${esc(email)}"><button class="btn" type="submit">Resend link</button></form><p style="color:var(--muted);font-size:.9rem">Didn't get it? Check spam, or try resending. You can also <a href="/admin/login">sign in</a> after verifying.</p></div>`);
 }
 function verificationResultPage(ok: boolean, msg?: string): string {
   return ok
-    ? shell(`Email verified — blognice`, `<div class="page narrow"><h1>Email verified</h1><p>Your email is confirmed. Your blog is now active.</p><p><a class="btn" href="/admin">Go to dashboard →</a></p></div>`)
+    ? shell(`Email verified — blognice`, `<div class="page narrow"><h1>Email verified</h1><p>Your email is confirmed. Your account is now active.</p><p><a class="btn" href="/admin">Go to dashboard →</a></p></div>`)
     : shell(`Verification failed — blognice`, `<div class="page narrow"><h1>Link invalid or expired</h1><p>${esc(msg||"This verification link is invalid or has expired.")}</p><p><a href="/verify-email/resend">Resend link</a> · <a href="/admin/login">Sign in</a></p></div>`);
 }
 async function recordAffiliateSignup(c: any, accountId: number): Promise<void> {
@@ -5399,12 +5399,10 @@ app.post("/signup", async (c) => {
   if (await currentAccount(c)) return c.redirect("/admin");
   const ip = getClientIp(c);
   const form = await c.req.formData();
-  const slug = String(form.get("slug") ?? "").trim().toLowerCase();
-  const title = String(form.get("title") ?? "").trim();
   const email = String(form.get("email") ?? "").trim().toLowerCase();
   const password = String(form.get("password") ?? "");
   const inviteToken = String(form.get("invite") ?? "").trim();
-  const values = { slug, title, email };
+  const values = { email };
   // Rate limit: 5/hour per IP, 3/hour per email
   const rl = await checkSignupRateLimit(c, ip, email);
   if (!rl.allowed) {
@@ -5432,19 +5430,12 @@ app.post("/signup", async (c) => {
     if (invite.email !== email) return fail(`Use the invited email address: ${invite.email}`, 400);
   }
 
-  if (!invite) {
-    const slugError = validateSlug(slug);
-    if (slugError) return fail(slugError);
-    if (!title) return fail("Please enter a blog title.");
-  }
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
     return fail("Please enter a valid email address.");
   if (password.length < 8)
     return fail("Password must be at least 8 characters.");
 
   // Pre-check uniqueness for friendly errors (DB constraints are the backstop).
-  if (!invite && await c.env.DB.prepare("SELECT 1 FROM tenants WHERE slug = ?").bind(slug).first())
-    return fail("That address is already taken.", 409);
   if (await c.env.DB.prepare("SELECT 1 FROM accounts WHERE email = ?").bind(email).first())
     return fail("That email already has an account.", 409);
 
@@ -5490,27 +5481,7 @@ app.post("/signup", async (c) => {
     return c.html(verificationPendingPage(email));
   }
 
-  // Create the blog and link it to the account.
-  let blogId: number;
-  const publicId = newPublicId();
-  try {
-    const res = await c.env.DB.prepare(
-      "INSERT INTO tenants (public_id, slug, title, description, shard, browser_push_enabled, created_at) VALUES (?, ?, ?, '', 'primary', 1, ?)"
-    )
-      .bind(publicId, slug, title, now)
-      .run();
-    blogId = res.meta.last_row_id as number;
-  } catch {
-    // Roll back the account so we don't leave one with no blog.
-    await c.env.DB.prepare("DELETE FROM accounts WHERE id = ?").bind(accountId).run();
-    return fail("That address is already taken.", 409);
-  }
-  await c.env.DB.prepare(
-    "INSERT INTO memberships (account_id, tenant_id, role, created_at) VALUES (?, ?, 'owner', ?)"
-  )
-    .bind(accountId, blogId, now)
-    .run();
-  c.executionCtx.waitUntil(purgeMasterSitemap(c.env).catch(() => {}));
+  // Account-only signup: the first blog is created later from /admin/new-blog.
   const affiliateCookieSecrets = String(c.env.AFFILIATE_REFERRAL_COOKIE_SECRETS || "").split(",").map((secret) => secret.trim()).filter(Boolean);
   if (affiliateCookieSecrets.length) {
     const capturedReferral = await captureSignupReferral(c.req.raw, c.env.DB, accountId, affiliateCookieSecrets, now);
@@ -5519,13 +5490,13 @@ app.post("/signup", async (c) => {
       await recordAffiliateSignup(c, accountId);
     }
   }
-  await createEmailVerification(c, accountId, email, title);
+  await createEmailVerification(c, accountId, email);
   c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...registrationWelcomeEmail({ signInUrl: "https://www.blognice.com/admin" }) }));
   const token = await createSession(c.env.DB, accountId);
   try { const ip = getClientIp(c); const ua = String(c.req.header('User-Agent')||'').slice(0,300); const ref = String(c.req.header('Referer')||'').slice(0,500); await c.env.DB.prepare('UPDATE sessions SET ip=?, user_agent=?, created_via="signup" WHERE token=?').bind(ip, ua, token).run(); try { await c.env.DB.prepare('UPDATE accounts SET signup_ip=?, signup_ua=?, signup_referer=? WHERE id=?').bind(ip, ua, ref, accountId).run(); } catch {} } catch {}
   clearSessionCookie(c);
   setSessionCookie(c, token);
-  if (!emailEnabled(c.env)) return c.redirect(`/admin/b/${publicId}`);
+  if (!emailEnabled(c.env)) return c.redirect("/admin");
   return c.html(verificationPendingPage(email));
 });
 
