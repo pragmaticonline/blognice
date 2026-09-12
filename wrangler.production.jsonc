@@ -33,7 +33,8 @@
     "AFFILIATE_POLICY_VERSION": "affiliate-1",
     "AFFILIATE_TERMS_URL": "https://www.blognice.com/affiliate-terms",
     "AFFILIATE_STRIPE_CONNECT_COUNTRIES": "US,CA,GB,TH",
-    "AFFILIATE_OFFER_EXPERIMENT": "off"
+    "AFFILIATE_OFFER_EXPERIMENT": "off",
+    "GOOGLE_CLIENT_ID": "757615193605-sfp38b845r9ofakcv2jbh49p5o2jhhb7.apps.googleusercontent.com"
   },
   "routes": [
     {

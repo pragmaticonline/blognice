@@ -15,3 +15,9 @@ DYNADOT_API_SECRET = "your-dynadot-api-secret"
 # Set to "true" only for sandbox testing. Production must be "false" or unset,
 # and must refuse to start domain fulfilment if only sandbox credentials are present.
 DYNADOT_SANDBOX = "false"
+
+# Social login with Google (local dev). Production uses the
+# GOOGLE_CLIENT_ID var in wrangler.production.jsonc plus the
+# GOOGLE_CLIENT_SECRET secret (wrangler secret put ...).
+GOOGLE_CLIENT_ID = "your-google-client-id.apps.googleusercontent.com"
+GOOGLE_CLIENT_SECRET = "your-google-client-secret"

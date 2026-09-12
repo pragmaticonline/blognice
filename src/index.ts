@@ -152,6 +152,7 @@ import { refreshPostPopularity } from "./popularity";
 import { handleMcpRequest, aiPluginManifest } from "./mcp";
 import { OPENAPI_YAML } from "./openapi-data";
 import { oauthAuthorizationServerMetadata, oauthProtectedResourceMetadata, handleOAuthAuthorize, handleOAuthAuthorizePost, handleOAuthToken, accountFromOAuthToken, pkceS256 } from "./oauth";
+import { handleGoogleCallback, handleGoogleStart } from "./google-auth";
 
 function oauthBearerChallenge(c: any): string {
   try { const u = new URL(c.req.url); const o = `${u.protocol}//${u.host}`; return `Bearer realm="blognice", resource_metadata="${o}/.well-known/oauth-protected-resource", scope="blog:read blog:write"`; } catch { return `Bearer realm="blognice", resource_metadata="https://www.blognice.com/.well-known/oauth-protected-resource", scope="blog:read blog:write"`; }
@@ -218,6 +219,10 @@ type Bindings = {
   DYNADOT_API_KEY?: string; // secret
   DYNADOT_API_SECRET?: string; // secret
   DYNADOT_SANDBOX?: string; // var: "true" for sandbox (api-sandbox.dynadot.com)
+
+  // Social login with Google. See src/google-auth.ts.
+  GOOGLE_CLIENT_ID?: string; // var
+  GOOGLE_CLIENT_SECRET?: string; // secret
 };
 
 export const blogniceApp = new Hono<{ Bindings: Bindings }>();
@@ -3194,6 +3199,10 @@ app.post("/admin/logout", async (c) => {
   if (next && next.startsWith("/")) return c.redirect(next);
   return c.redirect("/admin/login");
 });
+
+// Social login with Google (Blognice is the relying party).
+app.get("/auth/google", async (c) => handleGoogleStart(c));
+app.get("/auth/google/callback", async (c) => handleGoogleCallback(c));
 
 // Account home: the list of this account's blogs.
 app.get("/admin", async (c) => {

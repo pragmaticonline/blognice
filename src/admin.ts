@@ -567,6 +567,7 @@ export function loginPage(error?: string, invite?: { token: string; email: strin
         <input id="password" name="password" type="password" autocomplete="current-password" required>
         <button class="btn" type="submit">Sign in</button>
       </form>
+      <p style="margin-top:1.1rem"><a class="btn" href="/auth/google" style="display:block;text-align:center;text-decoration:none">Continue with Google</a></p>
       <p style="margin-top:1.1rem;color:var(--muted);font-size:0.9rem"><a href="/admin/forgot">Forgot your password?</a></p>
       ${inviteSignupLink}
       <p style="margin-top:1.4rem;color:var(--muted);font-size:0.9rem">
