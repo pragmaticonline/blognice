@@ -8222,7 +8222,7 @@ async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: 
         const finalNext = aligned <= now ? aligned + 86400 : aligned;
         await env.DB.prepare("UPDATE autopilot_configs SET next_run_at=?, updated_at=? WHERE tenant_id=?").bind(finalNext, now, tenantId).run();
         const runId = crypto.randomUUID();
-        await env.DB.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error) VALUES (?, ?, ?, ?, 'success', ?, ?, ?, NULL)").bind(runId, tenantId, now, now, sourceUrl, sourceTitle, postId).run();
+        await env.DB.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error, search_raw_count, search_kept_count) VALUES (?, ?, ?, ?, 'success', ?, ?, ?, NULL, ?, ?)").bind(runId, tenantId, now, now, sourceUrl, sourceTitle, postId, searchRawCount, searchKeptCount).run();
         if (env.AUTOPILOT_EVENTS) env.AUTOPILOT_EVENTS.writeDataPoint({ indexes: [String(tenantId)], blobs: [String(tenantId), "success", sourceUrl.slice(0, 80)], doubles: [1] });
       } catch (e) {
         if (creditReservation) await refundAiCredits(env as any, creditReservation.accountId, creditReservation.period, 1).catch(()=>{});
