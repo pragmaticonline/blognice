@@ -123,6 +123,35 @@ test("staff autopilot runs list exists (source checks)", () => {
   assert.match(staff, /AUTOPILOT_EVENTS|autopilot/);
 });
 
+test("staff autopilot-runs page links each run to the live blog in a new tab", async () => {
+  const staffApp = typeof staffModule.request === "function" ? staffModule : staffModule.default;
+  const mf = new Miniflare({ modules: true, script: "export default { fetch() { return new Response('ok') } }", d1Databases: { DB: "autopilot-runs-page" } });
+  const originalFetch = globalThis.fetch;
+  try {
+    const db = await mf.getD1Database("DB");
+    const baseSchema = readFileSync(new URL("../schema.sql", import.meta.url), "utf8");
+    for (const s of baseSchema.replace(/^[ \t]*--.*(?:\r?\n|$)/gm, "").split(/;\s*(?=\r?\n|$)/).map((v) => v.trim()).filter(Boolean)) await db.prepare(s).run();
+    const now = Math.floor(Date.now() / 1000);
+    await db.prepare("INSERT INTO tenants (id, public_id, slug, title, description, custom_domain, created_at) VALUES (10, 'pub10', 'blog10', 'Blog 10', '', NULL, ?), (20, 'pub20', 'blog20', 'Blog 20', '', 'example.com', ?)").bind(now, now).run();
+    await db.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error) VALUES (?, 10, ?, ?, 'success', 'https://example.com/a', 'A', 1, NULL), (?, 20, ?, ?, 'success', 'https://example.com/c', 'C', 2, NULL)").bind("r1", now, now, "r3", now, now).run();
+    const adminAccess = await accessFixture("staff|admin", "admin@blognice.com");
+    await db.prepare("INSERT INTO staff_users (subject, email, role, active, created_at, updated_at) VALUES ('staff|admin','admin@blognice.com','admin',1,?,?)").bind(now, now).run();
+    globalThis.fetch = async (url) => {
+      if (String(url).endsWith("/cdn-cgi/access/certs")) return new Response(JSON.stringify({ keys: [adminAccess.publicJwk] }), { status: 200 });
+      throw new Error("unexpected " + url);
+    };
+    const env = { DB: db, ROOT_DOMAIN: "blognice.test", ACCESS_TEAM_DOMAIN: "team.cloudflareaccess.com", ACCESS_AUD: "staff-audience" };
+    const res = await staffApp.request(new Request("https://staff.blognice.test/autopilot-runs", { headers: { "Cf-Access-Jwt-Assertion": adminAccess.token } }), undefined, env);
+    assert.equal(res.status, 200);
+    const html = await res.text();
+    assert.match(html, /href="https:\/\/blog10\.blognice\.test"[^>]*target="_blank"/);
+    assert.match(html, /href="https:\/\/example\.com"[^>]*target="_blank"/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await mf.dispose();
+  }
+});
+
 test("staff autopilot-runs endpoint returns filtered runs", async () => {
   const staffApp = typeof staffModule.request === "function" ? staffModule : staffModule.default;
   const mf = new Miniflare({ modules: true, script: "export default { fetch() { return new Response('ok') } }", d1Databases: { DB: "autopilot-runs" } });

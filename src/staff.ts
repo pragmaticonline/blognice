@@ -1281,8 +1281,15 @@ app.get("/autopilot-runs", async (c) => {
   const staff = c.get("staff") as StaffIdentity;
   if (!staff) return c.text("Unauthorized", 403);
   await ensureAutopilotTables(c.env.DB);
-  const { results } = await c.env.DB.prepare("SELECT * FROM autopilot_runs ORDER BY started_at DESC LIMIT 50").all();
-  const rows = (results || []).map((r: any) => `<tr><td>${r.tenant_id}</td><td>${r.status}</td><td>${r.source_url || ""}</td><td>${r.post_id || ""}</td><td>${new Date(r.started_at*1000).toISOString()}</td></tr>`).join("") || '<tr><td colspan="5" class="empty">No runs</td></tr>';
+  const { results } = await c.env.DB.prepare("SELECT r.*, t.slug, t.title, t.custom_domain FROM autopilot_runs r LEFT JOIN tenants t ON t.id = r.tenant_id ORDER BY r.started_at DESC LIMIT 50").all();
+  const rootDomain = c.env.ROOT_DOMAIN || "blognice.com";
+  const rows = (results || []).map((r: any) => {
+    const host = r.custom_domain || (r.slug ? `${r.slug}.${rootDomain}` : "");
+    const blog = host
+      ? `<a href="https://${esc(host)}" target="_blank" rel="noopener noreferrer">${esc(r.title || host)}</a><br><small>#${r.tenant_id}</small>`
+      : `#${r.tenant_id}`;
+    return `<tr><td>${blog}</td><td>${r.status}</td><td>${r.source_url || ""}</td><td>${r.post_id || ""}</td><td>${new Date(r.started_at*1000).toISOString()}</td></tr>`;
+  }).join("") || '<tr><td colspan="5" class="empty">No runs</td></tr>';
   return c.html(staffPage("Autopilot runs", `${staffHeader(staff)}<h2>Autopilot runs</h2><div class="card"><table><thead><tr><th>Tenant</th><th>Status</th><th>Source</th><th>Post</th><th>Started</th></tr></thead><tbody>${rows}</tbody></table></div>`));
 });
 
