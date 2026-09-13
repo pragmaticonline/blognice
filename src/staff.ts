@@ -1328,7 +1328,11 @@ app.get("/autopilot-runs", async (c) => {
     const started = Number.isFinite(startedSec)
       ? `${new Date(startedSec*1000).toISOString().replace("T", " ").slice(0, 16)} UTC`
       : "—";
-    return `<tr><td>${blog}</td><td>${r.status}</td><td>${esc(r.source_url || "")}</td><td>${r.post_id || ""}</td><td>${kept}/${raw}</td><td>${image}</td><td>${started}</td></tr>`;
+    const sourceUrl = String(r.source_url || "");
+    const source = /^https?:\/\//i.test(sourceUrl)
+      ? `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" title="${esc(sourceUrl)}">url...</a>`
+      : esc(sourceUrl);
+    return `<tr><td>${blog}</td><td>${r.status}</td><td>${source}</td><td>${r.post_id || ""}</td><td>${kept}/${raw}</td><td>${image}</td><td>${started}</td></tr>`;
   }).join("") || '<tr><td colspan="7" class="empty">No runs</td></tr>';
   return c.html(staffPage("Autopilot runs", `${staffHeader(staff)}<h2>Autopilot runs</h2><div class="card"><table><thead><tr><th>Tenant</th><th>Status</th><th>Source</th><th>Post</th><th>Sources<br><small>kept/raw</small></th><th>Image</th><th>Started</th></tr></thead><tbody>${rows}</tbody></table></div>`));
 });

@@ -241,5 +241,6 @@ test("autopilot runs table shows human-readable wrapped dates", () => {
   assert.doesNotMatch(page, /new Date\(r\.started_at\*1000\)\.toISOString\(\)/);
   assert.match(page, /\.slice\(0, 16\)\} UTC/);
   assert.match(page, /<td>\$\{started\}<\/td>/);
+  assert.match(page, /target="_blank" rel="noopener noreferrer" title="\$\{esc\(sourceUrl\)\}">url\.\.\.<\/a>/);
   assert.match(staff, /overflow-wrap:anywhere/);
 });
