@@ -106,6 +106,11 @@ test("tenant homepages advertise an RSS feed and expose published posts as RSS",
   assert.match(indexSource, /published = 1/);
 });
 
+test("RSS links open in a new tab", () => {
+  assert.match(renderSource, /<a href="\/rss\.xml" target="_blank" rel="noopener noreferrer" aria-label="RSS feed"/);
+  assert.match(renderSource, /<a href="\/rss\.xml" target="_blank" rel="noopener noreferrer">RSS<\/a>/);
+});
+
 test("tag pages use the same homepage shell and card layout", () => {
   assert.match(indexSource, /app\.get\("\/tag\/:tag"/);
   assert.match(indexSource, /renderTagPage\(tenant, tag, posts/);
