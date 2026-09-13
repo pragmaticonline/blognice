@@ -51,6 +51,17 @@ test("narration drops trailing citation-link clusters but keeps prose links", ()
   );
 });
 
+test("narration drops a mid-body paragraph-final citation cluster", () => {
+  const cluster = "[Amodei's proposal](https://darioamodei.com/post/we-must-pace-the-frontier), [Reuters on Altman's remarks](https://www.reuters.com/legal/litigation/openai-ipo-will-not-happen-2026-amid-ai-safety-fears-altman-says-2026-09-12/), [Anthropic's announcement](https://www.anthropic.com/news/confidential-draft-s1-sec), [OpenAI's announcement](https://openai.com/index/openai-submits-confidential-s-1/)";
+  const text = narrationText(
+    "Safety pause",
+    `Intro paragraph here.\r\n\r\nBoth companies announced confidential IPO submissions in June: Anthropic on June 1 and OpenAI on June 8. ${cluster}\r\n\r\nThen I saw the response.`,
+  ).replaceAll(TTS_HARD_PAUSE, "");
+  assert.match(text, /Anthropic on June 1 and OpenAI on June 8/);
+  assert.match(text, /Then I saw the response/);
+  assert.doesNotMatch(text, /Amodei's proposal|Reuters on Altman's|Anthropic's announcement|OpenAI's announcement|https:/);
+});
+
 test("narration adds structural pauses and conservative spoken forms", () => {
   const text = narrationText(
     "AI and the UK",
