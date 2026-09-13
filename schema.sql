@@ -138,6 +138,7 @@ CREATE TABLE accounts (
   vip_granted_by INTEGER REFERENCES accounts(id),
   vip_reason TEXT,
   max_blogs_override INTEGER,
+  trial_used_at INTEGER,
   email_verified INTEGER NOT NULL DEFAULT 0,
   email_verified_at INTEGER,
   created_at INTEGER NOT NULL

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { accountHasPaidPlan } from "../src/auth.ts";
-import { checkoutSubscriptionDecision, createAffiliateConnectedAccount, createAffiliateConnectOnboardingLink, createAffiliatePromotionCode, createAffiliateTransfer, createCheckoutSession, subscriptionEventMatchesCurrent, verifyStripeSignature } from "../src/stripe.ts";
+import { TRIAL_PERIOD_DAYS, checkoutSubscriptionDecision, createAffiliateConnectedAccount, createAffiliateConnectOnboardingLink, createAffiliatePromotionCode, createAffiliateTransfer, createCheckoutSession, subscriptionEventMatchesCurrent, verifyStripeSignature } from "../src/stripe.ts";
 
 const source = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
 const stripe = readFileSync(new URL("../src/stripe.ts", import.meta.url), "utf8");
@@ -375,4 +375,62 @@ test("email delivery log stale-pending reclaim uses 300s window", () => {
   // stale pending reclaim after 300s, and delete on failure
   assert.match(source, /pending.*300|300.*pending/);
   assert.match(source, /DELETE FROM email_delivery_log WHERE idempotency_key = \? AND status = 'pending'/);
+});
+
+test("free trial lasts 14 days and is sent only when granted", async () => {
+  assert.equal(TRIAL_PERIOD_DAYS, 14);
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (_url, init) => {
+    requests.push(new URLSearchParams(init.body));
+    return new Response(JSON.stringify({ id: "cs_trial", url: "https://checkout.stripe.test/cs_trial" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    await createCheckoutSession({ STRIPE_SECRET_KEY: "sk_test" }, {
+      accountId: 7, email: "trial@example.com", priceId: "price_monthly",
+      trialPeriodDays: TRIAL_PERIOD_DAYS,
+      successUrl: "https://example.com/success",
+      cancelUrl: "https://example.com/cancel",
+    });
+    await createCheckoutSession({ STRIPE_SECRET_KEY: "sk_test" }, {
+      accountId: 8, email: "repeat@example.com", priceId: "price_monthly",
+      trialPeriodDays: null,
+      successUrl: "https://example.com/success",
+      cancelUrl: "https://example.com/cancel",
+    });
+    assert.equal(requests[0].get("subscription_data[trial_period_days]"), "14");
+    assert.equal(requests[1].get("subscription_data[trial_period_days]"), null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("one trial per account gates checkout on trial_used_at", () => {
+  assert.match(source, /trial_used_at/);
+  assert.match(source, /const trialEligible = /);
+  assert.match(source, /trialPeriodDays: trialDays/);
+  assert.match(source, /trial=1/);
+  assert.match(source, /Trial started: /);
+  // used trials fall back to the immediate-charge confirmation
+  assert.match(source, /Subscription access will update after Stripe confirms payment/);
+});
+
+test("trialing webhook stamps trial_used_at without touching paid status flow", () => {
+  assert.match(source, /trial_used_at = CASE WHEN \? = 'trialing' THEN COALESCE\(trial_used_at, \?\) ELSE trial_used_at END/);
+  assert.match(source, /trialDays: status === "trialing" \? TRIAL_PERIOD_DAYS : null/);
+});
+
+test("billing page advertises the trial to eligible non-subscribers", () => {
+  assert.match(source, /Try Pro free for /);
+  assert.match(source, /pay nothing now/);
+});
+
+test("065 migration adds trial_used_at to accounts", () => {
+  const trialMigration = readFileSync(new URL("../migrations/065-accounts-trial-used.sql", import.meta.url), "utf8");
+  assert.match(trialMigration, /ALTER TABLE accounts ADD COLUMN trial_used_at INTEGER/);
+  const schema = readFileSync(new URL("../schema.sql", import.meta.url), "utf8");
+  assert.match(schema, /trial_used_at INTEGER/);
 });

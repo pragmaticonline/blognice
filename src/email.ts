@@ -76,9 +76,17 @@ export function emailVerificationEmail(input: { verifyUrl: string; blogTitle?: s
     emailKind: "verification",
   };
 }
-export function subscriptionActiveEmail(input: { billingUrl: string; plan?: "monthly" | "yearly" }) {
+export function subscriptionActiveEmail(input: { billingUrl: string; plan?: "monthly" | "yearly"; trialDays?: number | null }) {
   const url = htmlEscape(input.billingUrl);
   const plan = input.plan ? ` (${input.plan})` : "";
+  const trialDays = Number.isSafeInteger(input.trialDays) && Number(input.trialDays) > 0 ? Number(input.trialDays) : 0;
+  if (trialDays) {
+    return {
+      subject: "Your blognice pro trial is active",
+      plainText: `Your blognice pro trial is active${plan}: ${trialDays} days free.\n\nYou can now use AI features, collaborators, custom domains, favicons, and up to five blogs.\n\nManage billing: ${input.billingUrl}\n\nNo charge today — your card is only charged if you stay past day ${trialDays}. Cancel anytime.\n\nNeed a hand? Reply to this email or reach us at ${PLATFORM_SUPPORT}`,
+      html: `<div style="text-align:center"><div style="display:inline-block;width:64px;height:64px;margin:4px auto 18px;border-radius:50%;background:#1a8917;color:#fff;box-shadow:0 0 0 6px #eef5ec;font-size:34px;font-weight:700;line-height:64px">✓</div><h2 style="font-family:Arial,sans-serif;margin:0 0 14px;color:#181a12">Your blognice pro trial is active: ${trialDays} days free.</h2><p style="margin:0 auto;max-width:540px">You can now use AI features, collaborators, custom domains, favicons, and up to five blogs.</p><p style="margin:28px 0"><a href="${url}" style="display:inline-block;background:#1a8917;color:#fff;text-decoration:none;font-weight:700;padding:13px 30px;border-radius:9px">Manage billing</a></p></div><p style="background:#f7f8f5;border:1px solid #e7e7e2;border-radius:10px;padding:16px;text-align:center;color:#5c6455">No charge today — your card is only charged if you stay past day ${trialDays}. Cancel anytime.</p><hr><p><strong>Need a hand?</strong><br>Reply to this email or contact ${PLATFORM_SUPPORT}.</p>`,
+    };
+  }
   return {
     subject: "Your blognice pro subscription is active",
     plainText: `Your blognice pro subscription is active${plan}.\n\nYou can now use AI features, collaborators, custom domains, favicons, and up to five blogs.\n\nManage billing: ${input.billingUrl}\n\nStripe will send your payment receipt separately.\n\nNeed a hand? Reply to this email or reach us at ${PLATFORM_SUPPORT}`,

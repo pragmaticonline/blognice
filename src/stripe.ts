@@ -76,11 +76,16 @@ export function retrieveSubscription(env: StripeEnv, subscriptionId: string) {
   return stripeGet<StripeSubscription>(env, `subscriptions/${encodeURIComponent(subscriptionId)}`);
 }
 
-export function createCheckoutSession(env: StripeEnv, input: { accountId: number; email: string; successUrl: string; cancelUrl: string; priceId: string; customerId?: string | null; affiliateCheckoutId?: string | null; promotionCodeId?: string | null; experimentKey?: string | null; experimentVariant?: "control" | "focused" | null }) {
+export const TRIAL_PERIOD_DAYS = 14;
+
+export function createCheckoutSession(env: StripeEnv, input: { accountId: number; email: string; successUrl: string; cancelUrl: string; priceId: string; customerId?: string | null; affiliateCheckoutId?: string | null; promotionCodeId?: string | null; experimentKey?: string | null; experimentVariant?: "control" | "focused" | null; trialPeriodDays?: number | null }) {
   const params = new URLSearchParams();
   params.set("mode", "subscription");
   params.set("line_items[0][price]", input.priceId);
   params.set("line_items[0][quantity]", "1");
+  if (Number.isSafeInteger(input.trialPeriodDays) && Number(input.trialPeriodDays) > 0) {
+    params.set("subscription_data[trial_period_days]", String(input.trialPeriodDays));
+  }
   params.set("client_reference_id", String(input.accountId));
   params.set("customer_email", input.email);
   if (input.customerId) { params.delete("customer_email"); params.set("customer", input.customerId); }

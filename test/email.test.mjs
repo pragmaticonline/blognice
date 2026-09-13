@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { affiliateConnectRestrictedEmail, affiliateEnrollmentEmail, affiliatePayoutCancelledEmail, affiliatePayoutSentEmail, affiliateTermsRequiredEmail, passwordResetEmail, postNotificationEmail, subscriberWelcomeEmail } from "../src/email.ts";
+import { affiliateConnectRestrictedEmail, affiliateEnrollmentEmail, affiliatePayoutCancelledEmail, affiliatePayoutSentEmail, affiliateTermsRequiredEmail, passwordResetEmail, postNotificationEmail, subscriberWelcomeEmail, subscriptionActiveEmail } from "../src/email.ts";
 
 const email = readFileSync(new URL("../src/email.ts", import.meta.url), "utf8");
 const index = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
@@ -228,6 +228,19 @@ test("verified Stripe activation queues one idempotent Pro welcome email", () =>
   assert.match(index, /status = 'queued'/);
   assert.match(index, /INSERT OR IGNORE INTO email_delivery_log/);
   assert.match(email, /Stripe will send your payment receipt separately/);
+});
+
+test("trial welcome email promises no charge today instead of a receipt", () => {
+  const trial = subscriptionActiveEmail({ billingUrl: "https://example.com/admin/billing", plan: "monthly", trialDays: 14 });
+  assert.match(trial.subject, /trial/i);
+  assert.match(trial.plainText, /14 days free/);
+  assert.match(trial.plainText, /No charge today/);
+  assert.doesNotMatch(trial.plainText, /payment receipt/);
+  assert.match(trial.html, /only charged if you stay past day 14/);
+  const paid = subscriptionActiveEmail({ billingUrl: "https://example.com/admin/billing", plan: "monthly" });
+  assert.match(paid.subject, /subscription is active/);
+  assert.match(paid.plainText, /payment receipt/);
+  assert.doesNotMatch(paid.subject, /trial/i);
 });
 
 test("password reset is one-time, hashed, expiring, and emailed without account enumeration", () => {
