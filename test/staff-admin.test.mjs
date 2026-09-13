@@ -241,6 +241,9 @@ test("autopilot runs table shows human-readable wrapped dates", () => {
   assert.doesNotMatch(page, /new Date\(r\.started_at\*1000\)\.toISOString\(\)/);
   assert.match(page, /\.slice\(0, 16\)\} UTC/);
   assert.match(page, /<td>\$\{started\}<\/td>/);
-  assert.match(page, /target="_blank" rel="noopener noreferrer" title="\$\{esc\(sourceUrl\)\}">url\.\.\.<\/a>/);
+  assert.match(page, /target="_blank" rel="noopener noreferrer" title="\$\{esc\(sourceUrl\)\}">\$\{esc\(sourceHost\)\}<\/a>/);
+  assert.match(page, /SELECT id, slug FROM posts WHERE id IN/);
+  assert.match(page, /postSlugs\.get\(Number\(r\.post_id\)\)/);
+  assert.match(page, /target="_blank" rel="noopener noreferrer">#/);
   assert.match(staff, /overflow-wrap:anywhere/);
 });

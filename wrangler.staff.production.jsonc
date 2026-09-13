@@ -25,6 +25,11 @@
 			"binding": "DB",
 			"database_name": "blognice",
 			"database_id": "228b44b6-806a-4730-8c44-1b44d01a6536"
+		},
+		{
+			"binding": "POSTS",
+			"database_name": "blognice-posts",
+			"database_id": "ec0e85e0-03ec-41af-993d-2002cc00728c"
 		}
 	],
 	"ai": { "binding": "AI" },

@@ -1314,8 +1314,22 @@ app.get("/autopilot-runs", async (c) => {
   await ensureAutopilotTables(c.env.DB);
   const { results } = await c.env.DB.prepare("SELECT r.*, t.slug, t.title, t.custom_domain FROM autopilot_runs r LEFT JOIN tenants t ON t.id = r.tenant_id ORDER BY r.started_at DESC LIMIT 50").all();
   const rootDomain = c.env.ROOT_DOMAIN || "blognice.com";
+  const postIds = [...new Set((results || []).map((r: any) => Number(r.post_id)).filter((id) => Number.isSafeInteger(id) && id > 0))];
+  let postSlugs = new Map<number, string>();
+  try {
+    const postsDb = (c.env as any).POSTS;
+    if (postsDb && postIds.length) {
+      const placeholders = postIds.map(() => "?").join(",");
+      const slugs = await postsDb.prepare(`SELECT id, slug FROM posts WHERE id IN (${placeholders})`).bind(...postIds).all();
+      for (const p of (slugs.results || []) as any[]) postSlugs.set(Number(p.id), String(p.slug || ""));
+    }
+  } catch { postSlugs = new Map(); }
   const rows = (results || []).map((r: any) => {
     const host = r.custom_domain || (r.slug ? `${r.slug}.${rootDomain}` : "");
+    const postSlug = r.post_id ? postSlugs.get(Number(r.post_id)) : "";
+    const post = r.post_id && postSlug && host
+      ? `<a href="https://${esc(host)}/${esc(postSlug)}" target="_blank" rel="noopener noreferrer">#${r.post_id}</a>`
+      : (r.post_id ? `#${r.post_id}` : "—");
     const blog = host
       ? `<a href="https://${esc(host)}" target="_blank" rel="noopener noreferrer">${esc(r.title || host)}</a><br><small>#${r.tenant_id}</small>`
       : `#${r.tenant_id}`;
@@ -1329,10 +1343,17 @@ app.get("/autopilot-runs", async (c) => {
       ? `${new Date(startedSec*1000).toISOString().replace("T", " ").slice(0, 16)} UTC`
       : "—";
     const sourceUrl = String(r.source_url || "");
-    const source = /^https?:\/\//i.test(sourceUrl)
-      ? `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" title="${esc(sourceUrl)}">url...</a>`
+    let sourceHost = "";
+    try {
+      const parsed = new URL(sourceUrl);
+      if (/^https?:$/.test(parsed.protocol)) sourceHost = parsed.hostname.replace(/^www\./i, "");
+    } catch {
+      sourceHost = "";
+    }
+    const source = sourceHost
+      ? `<a href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" title="${esc(sourceUrl)}">${esc(sourceHost)}</a>`
       : esc(sourceUrl);
-    return `<tr><td>${blog}</td><td>${r.status}</td><td>${source}</td><td>${r.post_id || ""}</td><td>${kept}/${raw}</td><td>${image}</td><td>${started}</td></tr>`;
+    return `<tr><td>${blog}</td><td>${r.status}</td><td>${source}</td><td>${post}</td><td>${kept}/${raw}</td><td>${image}</td><td>${started}</td></tr>`;
   }).join("") || '<tr><td colspan="7" class="empty">No runs</td></tr>';
   return c.html(staffPage("Autopilot runs", `${staffHeader(staff)}<h2>Autopilot runs</h2><div class="card"><table><thead><tr><th>Tenant</th><th>Status</th><th>Source</th><th>Post</th><th>Sources<br><small>kept/raw</small></th><th>Image</th><th>Started</th></tr></thead><tbody>${rows}</tbody></table></div>`));
 });
