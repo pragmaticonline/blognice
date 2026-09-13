@@ -228,7 +228,7 @@ export function renderAffiliateOfferPage(
       '<p class="hero-sub">Your referral offer is ready. Create a beautiful, fast blog now; when you upgrade, your discount is applied automatically to the first 12 paid service months.</p>',
     )
     .replace('<a href="#pricing" class="btn btn-green">See pricing</a>', '<a href="/signup" class="btn btn-green">Claim 10% off</a>')
-    .replace('<p class="hero-trial-note">Your first blog is free to try.</p>', '<p class="hero-trial-note">Free to start · no payment details required · referral offer saved for 60 days</p>');
+    .replace('<p class="hero-trial-note">Your first blog is free to try · Pro free for 14 days.</p>', '<p class="hero-trial-note">Free to start · no payment details required · referral offer saved for 60 days</p>');
   if (variant === "control") return control;
   return control
     .replace("<h1>Save 10% for your first 12 paid months.</h1>", "<h1>Save 10% and lock in $36/year.</h1>")

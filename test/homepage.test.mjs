@@ -111,6 +111,13 @@ test("RSS links open in a new tab", () => {
   assert.match(renderSource, /<a href="\/rss\.xml" target="_blank" rel="noopener noreferrer">RSS<\/a>/);
 });
 
+test("www homepage advertises the Pro trial and the experiment tracks the copy", () => {
+  assert.match(homepage, /class="announce"/);
+  assert.match(homepage, /try Pro free for 14 days/);
+  const experiment = readFileSync(new URL("../src/funnel-experiment.ts", import.meta.url), "utf8");
+  assert.match(experiment, /Your first blog is free to try · Pro free for 14 days/);
+});
+
 test("tag pages use the same homepage shell and card layout", () => {
   assert.match(indexSource, /app\.get\("\/tag\/:tag"/);
   assert.match(indexSource, /renderTagPage\(tenant, tag, posts/);
