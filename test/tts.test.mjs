@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { applyManagedSpokenForms, applyPronunciations, classifyTtsError, mergeWav, narrationChunks, narrationSections, narrationText, pronunciationReplacements, ttsBytes, wavAssembly, TTS_CHUNK_MAX, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "../src/tts.ts";
+import { applyManagedSpokenForms, applyPronunciations, classifyTtsError, mergeWav, narrationChunks, narrationSections, narrationText, pronunciationReplacements, removeCitationClusters, ttsBytes, wavAssembly, TTS_CHUNK_MAX, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "../src/tts.ts";
 
 function wav(samples) {
   const bytes = new Uint8Array(44 + samples.length);
@@ -24,6 +24,31 @@ test("narration text keeps readable content and removes markdown plumbing", () =
   assert.match(text, /Chart/);
   assert.doesNotMatch(text, /https:|secret\(\)|```|#/);
   assert.equal(TTS_TEXT_MAX, 10_000);
+});
+
+test("narration drops trailing citation-link clusters but keeps prose links", () => {
+  const text = narrationText(
+    "Safety pause",
+    "Both companies announced confidential IPO submissions in June.\n\n[Amodei's proposal](https://a.example), [Reuters on Altman](https://b.example), [Anthropic's announcement](https://c.example), [OpenAI's announcement](https://d.example)."
+  ).replaceAll(TTS_HARD_PAUSE, "");
+  assert.match(text, /Both companies announced confidential IPO submissions in June/);
+  assert.doesNotMatch(text, /Amodei|Reuters|Anthropic|OpenAI|https:/);
+  assert.equal(
+    removeCitationClusters("Sources: [a](https://a.example), [b](https://b.example)."),
+    "Sources",
+  );
+  assert.equal(
+    removeCitationClusters("[a](https://a.example), [b](https://b.example)"),
+    "",
+  );
+  assert.equal(
+    removeCitationClusters("Read [the evidence](https://example.com)."),
+    "Read [the evidence](https://example.com).",
+  );
+  assert.equal(
+    removeCitationClusters("See [a](https://a.example). Later, see [b](https://b.example)."),
+    "See [a](https://a.example). Later, see [b](https://b.example).",
+  );
 });
 
 test("narration adds structural pauses and conservative spoken forms", () => {

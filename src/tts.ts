@@ -156,6 +156,24 @@ function spokenDomains(value: string): string {
     .replace(/\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}(?:\/[^\s]*)?/gi, " ");
 }
 
+const CITATION_LINK = "\\[[^\\]]+\\]\\([^)]*\\)";
+const CITATION_SEP = "(?:[\\s,;]+|\\s+and\\s+)";
+
+export function removeCitationClusters(value: string): string {
+  // A trailing run of 2+ citation links ("[a](u), [b](u).") reads aloud as a
+  // bare name list, so drop the whole run. Single links ("Read [this](u).")
+  // keep their text via the normal link handling below.
+  const trailingRun = new RegExp(`(?:${CITATION_LINK})(?:${CITATION_SEP}${CITATION_LINK})*[\\s,;]*[.。]?\\s*$`);
+  return value.split(/(\n\s*\n)/).map((chunk) => {
+    if (/^\s*$/.test(chunk) || !chunk.includes("](")) return chunk;
+    const match = chunk.match(trailingRun);
+    if (!match || match.index === undefined) return chunk;
+    const linkCount = (match[0].match(/\[[^\]]+\]\(/g) || []).length;
+    if (linkCount < 2) return chunk;
+    return chunk.slice(0, match.index).replace(/:\s*$/, "").trimEnd();
+  }).join("");
+}
+
 function removeMarkdownTables(value: string): string {
   const lines = value.split("\n");
   const kept: string[] = [];
@@ -194,10 +212,10 @@ function cleanSpeech(value: string, overrides: PronunciationReplacement[] = []):
 }
 
 export function narrationSections(title: string, markdown: string, overrides: PronunciationReplacement[] = []): { title: string; body: string } {
-  const cleaned = removeMarkdownTables(decodeEntities(markdown)
+  const cleaned = removeMarkdownTables(removeCitationClusters(decodeEntities(markdown)
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/`([^`]+)`/g, "$1")
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1"))
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
     .replace(/\bhttps?:\/\/[^\s<]+/gi, " ")
     .replace(/\bwww\.[^\s<]+/gi, " ")
