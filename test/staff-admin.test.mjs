@@ -235,3 +235,11 @@ test("account deletion cannot orphan an owned blog", () => {
   assert.match(staff, /m\.account_id=\? AND m\.role='owner' LIMIT 1/);
   assert.match(staff, /transfer or delete owned blogs before deleting this account/);
 });
+
+test("autopilot runs table shows human-readable wrapped dates", () => {
+  const page = staff.slice(staff.indexOf('app.get("/autopilot-runs"'));
+  assert.doesNotMatch(page, /new Date\(r\.started_at\*1000\)\.toISOString\(\)/);
+  assert.match(page, /\.slice\(0, 16\)\} UTC/);
+  assert.match(page, /<td>\$\{started\}<\/td>/);
+  assert.match(staff, /overflow-wrap:anywhere/);
+});
