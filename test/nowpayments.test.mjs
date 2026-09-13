@@ -103,3 +103,9 @@ test("crypto billing is separate from Stripe and cannot grant access from the re
   assert.match(migration, /crypto_payments/);
   assert.match(source, /Crypto payments are annual-only, prepaid/);
 });
+
+test("crypto checkout sends NOWPayments valid URIs", () => {
+  const block = source.slice(source.indexOf('app.post("/admin/billing/crypto/checkout"'), source.indexOf('app.post("/nowpayments/webhook"'));
+  assert.match(block, /successUrl: `\$\{origin\}\/admin\/billing\?message=\$\{encodeURIComponent\(/);
+  assert.match(block, /cancelUrl: `\$\{origin\}\/admin\/billing\?message=\$\{encodeURIComponent\(/);
+});

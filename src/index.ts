@@ -6981,8 +6981,8 @@ app.post("/admin/billing/crypto/checkout", async (c) => {
       experimentVariant: experimentContext?.variant,
       priceUsdMinor: checkout.expectedDiscountedAmountMinor,
       callbackUrl: `${origin}/nowpayments/webhook`,
-      successUrl: `${origin}/admin/billing?message=Crypto payment received. Access will update after NOWPayments confirms it.`,
-      cancelUrl: `${origin}/admin/billing?message=Crypto payment cancelled.`,
+      successUrl: `${origin}/admin/billing?message=${encodeURIComponent("Crypto payment received. Access will update after NOWPayments confirms it.")}`,
+      cancelUrl: `${origin}/admin/billing?message=${encodeURIComponent("Crypto payment cancelled.")}`,
     });
     const url = invoice.invoice_url || invoice.payment_url || invoice.pay_url;
     if (!url) throw new Error("NOWPayments did not return an invoice URL.");
