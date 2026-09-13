@@ -1010,6 +1010,8 @@ CREATE TABLE autopilot_runs (
   error TEXT,
   search_raw_count INTEGER NOT NULL DEFAULT 0,
   search_kept_count INTEGER NOT NULL DEFAULT 0,
+  image_status TEXT,
+  image_error TEXT,
   FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
 );
 CREATE INDEX idx_autopilot_runs_tenant ON autopilot_runs(tenant_id, started_at DESC);

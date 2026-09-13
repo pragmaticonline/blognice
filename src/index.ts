@@ -4721,7 +4721,7 @@ async function readImageJob(env: Bindings, jobKey: string): Promise<ImageJobMani
   return JSON.parse(await object.text()) as ImageJobManifest;
 }
 
-async function processImageJob(env: Bindings, jobKey: string): Promise<void> {
+export async function processImageJob(env: Bindings, jobKey: string): Promise<void> {
   const job = await readImageJob(env, jobKey);
   if (job.status === "complete") return;
   const tenant = await tenantById(env, job.tenantId);
@@ -4744,12 +4744,20 @@ async function processImageJob(env: Bindings, jobKey: string): Promise<void> {
           .bind(job.key, Math.floor(Date.now() / 1000), job.postId, tenant.id).run();
         await purgeTenant(env, tenant, ["/", "/" + post.slug]);
       }
+      if (job.postId != null) {
+        await env.DB.prepare("UPDATE autopilot_runs SET image_status = 'ready', image_error = NULL WHERE tenant_id = ? AND post_id = ?")
+          .bind(job.tenantId, job.postId).run().catch(() => {});
+      }
     }
     await writeImageJob(env, jobKey, job);
   } catch (error) {
     job.status = "failed";
     job.error = error instanceof Error ? error.message : String(error);
     await writeImageJob(env, jobKey, job);
+    if (job.postId != null) {
+      await env.DB.prepare("UPDATE autopilot_runs SET image_status = 'failed', image_error = ? WHERE tenant_id = ? AND post_id = ?")
+        .bind(String(job.error || "").slice(0, 300), job.tenantId, job.postId).run().catch(() => {});
+    }
     if (/3030|flagged|content policy/i.test(job.error)) {
       if (job.creditAccountId && job.creditPeriod && job.creditCost) {
         await refundAiCredits(env as any, job.creditAccountId, job.creditPeriod, job.creditCost).catch(()=>{});
@@ -7892,6 +7900,25 @@ app.post("/internal/autopilot/run-now", async (c) => {
   return c.json({ ok: true, run: latest ?? null });
 });
 
+export function stripViaCitation(md: string): string {
+  return String(md || "")
+    .replace(/^[ \t]*\*Via \[[^\]]*\]\([^)]*\)\*[ \t]*$/gim, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+export function autopilotMetaDescription(title: string, bodyMd: string): string {
+  const text = stripViaCitation(bodyMd)
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/[*_`~>|]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const clean = text || String(title || "").trim();
+  return clean.slice(0, 155);
+}
+
 export function parseAiSourcePick(text: unknown): string[] {
   try {
     const m = String(text || "").match(/\[[\s\S]*\]/);
@@ -7926,6 +7953,9 @@ async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: 
     // Migration 063 backfill for pre-existing tables; no-op once applied.
     try { await env.DB.prepare("ALTER TABLE autopilot_runs ADD COLUMN search_raw_count INTEGER NOT NULL DEFAULT 0").run(); } catch {}
     try { await env.DB.prepare("ALTER TABLE autopilot_runs ADD COLUMN search_kept_count INTEGER NOT NULL DEFAULT 0").run(); } catch {}
+    // Migration 064 backfill; no-op once applied.
+    try { await env.DB.prepare("ALTER TABLE autopilot_runs ADD COLUMN image_status TEXT").run(); } catch {}
+    try { await env.DB.prepare("ALTER TABLE autopilot_runs ADD COLUMN image_error TEXT").run(); } catch {}
     // Forced single-tenant runs ignore the schedule but keep the on/off gates.
     const due = Number.isSafeInteger(onlyTenantId)
       ? await env.DB.prepare("SELECT * FROM autopilot_configs WHERE tenant_id = ? AND enabled = 1 AND staff_enabled = 1").bind(onlyTenantId).all()
@@ -7952,6 +7982,8 @@ async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: 
       let sourceDescription = "";
       let searchRawCount = 0;
       let searchKeptCount = 0;
+      let imageState = "skipped";
+      let imageError: string | null = null;
       const braveKey = (env as any).AUTOPILOT_SEARCH_API_KEY || (env as any).BRAVE_SEARCH_API_KEY || "";
       if (braveKey) {
         try {
@@ -8162,8 +8194,8 @@ async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: 
       let title = stripTopicPrefix(String(criteria.title_override || sourceTitle || topic).replace(/^#+\s*/, "").trim().slice(0, 120) || String(sourceTitle || topic).slice(0,120));
       let body_md = "";
       try {
-        const prompt = `Date: ${currentDate}\nTopic: ${topic}\nSource: ${sourceTitle} ${sourceUrl}\nExcerpt: ${sourceExcerpt.slice(0, 4000) || sourceDescription || ""}\nTone: ${tone}${audience ? ` Audience: ${audience}` : ""}\nLength: ~${max_length} words, no preamble. Start with a brief 2-3 sentence intro paragraph (no heading), then H2/H3 for substantive sections. Do NOT use 'Overview' or 'Introduction' as a heading. End with a small italic source citation as '*Via [${sourceTitle}](${sourceUrl})*' on its own line (not a heading). Also suggest a concise 8-12 word title as first line starting with "# ".`;
-        const aiRes: any = await (env as any).AI.run(AI_BRIEF_MODEL, { messages: [{ role: "system", content: `You are a concise, factual blog writer for ${currentDate}. Write a well-structured markdown post (~${max_length} words) for the given topic using the source excerpt when relevant. Use neutral, helpful tone (${tone}). No hallucinations; if excerpt lacks detail, write general but useful content. Do NOT use 'Overview' or 'Introduction' as a heading \u2014 start with a 2-3 sentence intro paragraph (no heading), then H2/H3 for real sections, bullets where helpful. End with a single italic line '*Via [title](url)*' using the provided source (not a heading). Start with a single "# <title>" line.` }, { role: "user", content: prompt }], max_tokens: Math.min(2000, Math.max(600, Math.ceil(max_length * 1.4))), temperature: 0.6 });
+        const prompt = `Date: ${currentDate}\nTopic: ${topic}\nSource: ${sourceTitle} ${sourceUrl}\nExcerpt: ${sourceExcerpt.slice(0, 4000) || sourceDescription || ""}\nTone: ${tone}${audience ? ` Audience: ${audience}` : ""}\nLength: ~${max_length} words, no preamble. Start with a brief 2-3 sentence intro paragraph (no heading), then H2/H3 for substantive sections. Do NOT use 'Overview' or 'Introduction' as a heading. Also suggest a concise 8-12 word title as first line starting with "# ".`;
+        const aiRes: any = await (env as any).AI.run(AI_BRIEF_MODEL, { messages: [{ role: "system", content: `You are a concise, factual blog writer for ${currentDate}. Write a well-structured markdown post (~${max_length} words) for the given topic using the source excerpt when relevant. Use neutral, helpful tone (${tone}). No hallucinations; if excerpt lacks detail, write general but useful content. Do NOT use 'Overview' or 'Introduction' as a heading \u2014 start with a 2-3 sentence intro paragraph (no heading), then H2/H3 for real sections, bullets where helpful. Start with a single "# <title>" line.` }, { role: "user", content: prompt }], max_tokens: Math.min(2000, Math.max(600, Math.ceil(max_length * 1.4))), temperature: 0.6 });
         let gen = String((aiRes as any).response || (aiRes as any).text || ((aiRes as any).choices && (aiRes as any).choices[0] && ((aiRes as any).choices[0].message?.content || (aiRes as any).choices[0].text)) || "").trim();
         if (gen.length > 200) {
           const firstLine = gen.split("\n")[0] || "";
@@ -8176,10 +8208,10 @@ async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: 
           body_md = gen.slice(0, max_length * 6);
           body_md = body_md.replace(/\n##\s*(Overview|Introduction)\s*\n/gi, "\n");
           body_md = body_md.replace(/^##\s*(Overview|Introduction)\s*\n/gim, "");
-          if (!body_md.includes(sourceUrl)) body_md += `\n\n*Via [${sourceTitle}](${sourceUrl})*`;
+          body_md = stripViaCitation(body_md);
         }
       } catch {}
-      if (!body_md) body_md = `${sourceExcerpt ? sourceExcerpt.slice(0, 800) + "\n\n" : ""}*Via [${sourceTitle}](${sourceUrl})*`.slice(0, max_length * 6);
+      if (!body_md) body_md = String(sourceExcerpt || "").slice(0, 800);
       const interval_days = Number((row as any).interval_days || 1);
       const run_hour_utc = Number((row as any).run_hour_utc || 9);
       try {
@@ -8192,7 +8224,7 @@ async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: 
           finalSlug = `${slug}-${suffix}`;
           if (suffix > 10) break;
         }
-        const postRes = await pdb.prepare("INSERT INTO posts (tenant_id, slug, title, body_md, tags_json, published, created_at, updated_at, author_account_id, meta_description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)").bind(tenantId, finalSlug, title, body_md, JSON.stringify([]), auto_publish, now, now, `Autopilot: ${topic}`.slice(0, 160)).run();
+        const postRes = await pdb.prepare("INSERT INTO posts (tenant_id, slug, title, body_md, tags_json, published, created_at, updated_at, author_account_id, meta_description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)").bind(tenantId, finalSlug, title, body_md, JSON.stringify([]), auto_publish, now, now, autopilotMetaDescription(title, body_md)).run();
         const postId = Number((postRes as any).meta?.last_row_id || 0) || Math.floor(Math.random() * 1000000);
         try {
           const style = (String((row as any).image_style || "editorial-photo") as ImageStyle);
@@ -8205,8 +8237,11 @@ async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: 
             try {
               await writeImageJob(env as any, jobKey, job as any);
               await (env as any).AUDIO_QUEUE?.send({ kind: "image", jobKey, tenantId });
+              imageState = "queued";
             } catch (e) {
               await refundAiCredits(env as any, imageReservation.accountId, imageReservation.period, AI_IMAGE_CREDITS).catch(()=>{});
+              imageState = "failed";
+              imageError = (e instanceof Error ? e.message : String(e)).slice(0, 300);
               console.warn(JSON.stringify({ message: "autopilot image enqueue failed", tenantId, postId, error: e instanceof Error ? e.message : String(e) }));
             }
           }
@@ -8222,7 +8257,7 @@ async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: 
         const finalNext = aligned <= now ? aligned + 86400 : aligned;
         await env.DB.prepare("UPDATE autopilot_configs SET next_run_at=?, updated_at=? WHERE tenant_id=?").bind(finalNext, now, tenantId).run();
         const runId = crypto.randomUUID();
-        await env.DB.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error, search_raw_count, search_kept_count) VALUES (?, ?, ?, ?, 'success', ?, ?, ?, NULL, ?, ?)").bind(runId, tenantId, now, now, sourceUrl, sourceTitle, postId, searchRawCount, searchKeptCount).run();
+        await env.DB.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error, search_raw_count, search_kept_count, image_status, image_error) VALUES (?, ?, ?, ?, 'success', ?, ?, ?, NULL, ?, ?, ?, ?)").bind(runId, tenantId, now, now, sourceUrl, sourceTitle, postId, searchRawCount, searchKeptCount, imageState, imageError).run();
         if (env.AUTOPILOT_EVENTS) env.AUTOPILOT_EVENTS.writeDataPoint({ indexes: [String(tenantId)], blobs: [String(tenantId), "success", sourceUrl.slice(0, 80)], doubles: [1] });
       } catch (e) {
         if (creditReservation) await refundAiCredits(env as any, creditReservation.accountId, creditReservation.period, 1).catch(()=>{});

@@ -1146,6 +1146,9 @@ async function ensureAutopilotTables(db: D1Database) {
   // Migration 063 backfill for pre-existing tables; no-op once applied.
   try { await db.prepare("ALTER TABLE autopilot_runs ADD COLUMN search_raw_count INTEGER NOT NULL DEFAULT 0").run(); } catch {}
   try { await db.prepare("ALTER TABLE autopilot_runs ADD COLUMN search_kept_count INTEGER NOT NULL DEFAULT 0").run(); } catch {}
+  // Migration 064 backfill; no-op once applied.
+  try { await db.prepare("ALTER TABLE autopilot_runs ADD COLUMN image_status TEXT").run(); } catch {}
+  try { await db.prepare("ALTER TABLE autopilot_runs ADD COLUMN image_error TEXT").run(); } catch {}
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_autopilot_runs_tenant ON autopilot_runs(tenant_id, started_at DESC)").run();
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_autopilot_configs_next ON autopilot_configs(enabled, staff_enabled, next_run_at)").run();
 }
@@ -1318,9 +1321,12 @@ app.get("/autopilot-runs", async (c) => {
       : `#${r.tenant_id}`;
     const raw = Number(r.search_raw_count || 0);
     const kept = Number(r.search_kept_count || 0);
-    return `<tr><td>${blog}</td><td>${r.status}</td><td>${r.source_url || ""}</td><td>${r.post_id || ""}</td><td>${kept}/${raw}</td><td>${new Date(r.started_at*1000).toISOString()}</td></tr>`;
-  }).join("") || '<tr><td colspan="6" class="empty">No runs</td></tr>';
-  return c.html(staffPage("Autopilot runs", `${staffHeader(staff)}<h2>Autopilot runs</h2><div class="card"><table><thead><tr><th>Tenant</th><th>Status</th><th>Source</th><th>Post</th><th>Sources<br><small>kept/raw</small></th><th>Started</th></tr></thead><tbody>${rows}</tbody></table></div>`));
+    const image = r.image_status
+      ? `<span title="${esc(String(r.image_error || ""))}">${esc(String(r.image_status))}</span>`
+      : "—";
+    return `<tr><td>${blog}</td><td>${r.status}</td><td>${r.source_url || ""}</td><td>${r.post_id || ""}</td><td>${kept}/${raw}</td><td>${image}</td><td>${new Date(r.started_at*1000).toISOString()}</td></tr>`;
+  }).join("") || '<tr><td colspan="7" class="empty">No runs</td></tr>';
+  return c.html(staffPage("Autopilot runs", `${staffHeader(staff)}<h2>Autopilot runs</h2><div class="card"><table><thead><tr><th>Tenant</th><th>Status</th><th>Source</th><th>Post</th><th>Sources<br><small>kept/raw</small></th><th>Image</th><th>Started</th></tr></thead><tbody>${rows}</tbody></table></div>`));
 });
 
 export default app;

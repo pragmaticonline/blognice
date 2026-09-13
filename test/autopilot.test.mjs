@@ -140,6 +140,67 @@ test("AI source pick parses defensively and only reorders pool URLs", async () =
   assert.equal(applyAiSourcePick(ranked, null).length, 3);
 });
 
+test("autopilot copy helpers strip citations and describe the post", async () => {
+  const { stripViaCitation, autopilotMetaDescription } = await import("../src/index.ts");
+  assert.equal(
+    stripViaCitation("Hello\n\n*Via [Title](https://example.com/x)*"),
+    "Hello",
+  );
+  assert.equal(stripViaCitation("No citation here"), "No citation here");
+  const body = "# Big News\n\nFirst sentence here. Second sentence follows with more detail about the event.\n\n*Via [T](https://example.com/x)*";
+  const meta = autopilotMetaDescription("Fallback Title", body);
+  assert.ok(!meta.includes("Via"), "meta carries citation");
+  assert.ok(meta.startsWith("Big News First sentence"), `meta was: ${meta}`);
+  assert.ok(meta.length <= 155);
+  assert.equal(autopilotMetaDescription("Fallback Title", ""), "Fallback Title");
+});
+
+test("autopilot prompts no longer request a Via citation line", () => {
+  const src = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(src, /Via \[\$\{sourceTitle\}\]/);
+  assert.doesNotMatch(src, /'\*Via \[title\]\(url\)\*'/);
+});
+
+test("failed image jobs record the outcome on the autopilot run", async () => {
+  const { processImageJob } = await import("../src/index.ts");
+  const mf = new Miniflare({ modules: true, script: "export default { fetch() { return new Response('ok') } }", d1Databases: { DB: "autopilot-image-fail" } });
+  try {
+    const db = await mf.getD1Database("DB");
+    for (const s of schema.replace(/^[ \t]*--.*(?:\r?\n|$)/gm, "").split(/;\s*(?=\r?\n|$)/).map((v) => v.trim()).filter(Boolean)) await db.prepare(s).run();
+    const now = Math.floor(Date.now() / 1000);
+    await db.prepare("INSERT INTO tenants (id, public_id, slug, title, description, created_at) VALUES (10, 'pub10', 'blog10', 'Blog 10', '', ?)").bind(now).run();
+    await db.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error, image_status) VALUES ('run-img', 10, ?, ?, 'success', 'https://example.com/a', 'A', 99, NULL, 'queued')").bind(now, now).run();
+    const store = new Map();
+    const fakeMedia = {
+      async put(k, v) { store.set(String(k), String(v)); },
+      async get(k) {
+        const v = store.get(String(k));
+        return v === undefined ? null : { async text() { return v; } };
+      },
+    };
+    const jobKey = "10/.autopilot-image/99-test.json";
+    await fakeMedia.put(jobKey, JSON.stringify({
+      tenantId: 10, postId: 99, source: "test", style: "editorial-photo",
+      status: "queued", creditCost: 3, creditAccountId: 1, creditPeriod: "2026-09",
+    }));
+    const env = {
+      DB: db,
+      POSTS: db,
+      MEDIA: fakeMedia,
+      AI: { async run() { throw new Error("3030: Your output has been flagged. Please choose another prompt"); } },
+    };
+    await processImageJob(env, jobKey);
+    const manifest = JSON.parse(await (await fakeMedia.get(jobKey)).text());
+    assert.equal(manifest.status, "failed");
+    assert.match(manifest.error, /3030/);
+    const run = await db.prepare("SELECT image_status, image_error FROM autopilot_runs WHERE id = 'run-img'").first();
+    assert.equal(run.image_status, "failed");
+    assert.match(run.image_error, /3030/);
+  } finally {
+    await mf.dispose();
+  }
+});
+
 test("broad topics merge the Brave News vertical so front pages are not the only candidates", () => {
   const src = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
   assert.match(src, /api\.search\.brave\.com\/res\/v1\/news\/search/);
@@ -165,6 +226,7 @@ test("staff autopilot-runs page links each run to the live blog in a new tab", a
     await db.prepare("INSERT INTO tenants (id, public_id, slug, title, description, custom_domain, created_at) VALUES (10, 'pub10', 'blog10', 'Blog 10', '', NULL, ?), (20, 'pub20', 'blog20', 'Blog 20', '', 'example.com', ?)").bind(now, now).run();
     await db.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error) VALUES (?, 10, ?, ?, 'success', 'https://example.com/a', 'A', 1, NULL), (?, 20, ?, ?, 'success', 'https://example.com/c', 'C', 2, NULL)").bind("r1", now, now, "r3", now, now).run();
     await db.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error, search_raw_count, search_kept_count) VALUES (?, 10, ?, ?, 'skipped', NULL, NULL, NULL, 'no_source', 10, 2)").bind("r4", now, now).run();
+    await db.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error, image_status, image_error) VALUES (?, 10, ?, ?, 'success', 'https://example.com/b', 'B', 7, NULL, 'failed', '3030: flagged')").bind("r5", now, now).run();
     const adminAccess = await accessFixture("staff|admin", "admin@blognice.com");
     await db.prepare("INSERT INTO staff_users (subject, email, role, active, created_at, updated_at) VALUES ('staff|admin','admin@blognice.com','admin',1,?,?)").bind(now, now).run();
     globalThis.fetch = async (url) => {
@@ -178,6 +240,8 @@ test("staff autopilot-runs page links each run to the live blog in a new tab", a
     assert.match(html, /href="https:\/\/blog10\.blognice\.test"[^>]*target="_blank"/);
     assert.match(html, /href="https:\/\/example\.com"[^>]*target="_blank"/);
     assert.match(html, />2\/10</);
+    assert.match(html, /<th>Image<\/th>/);
+    assert.match(html, /title="3030: flagged">failed</);
   } finally {
     globalThis.fetch = originalFetch;
     await mf.dispose();
