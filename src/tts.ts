@@ -158,19 +158,36 @@ function spokenDomains(value: string): string {
 
 const CITATION_LINK = "\\[[^\\]]+\\]\\([^)]*\\)";
 const CITATION_SEP = "(?:[\\s,;]+|\\s+and\\s+)";
+const CITATION_LABEL = "(?:via|sources?|references?|read\\s+more|further\\s+reading)";
+
+function stripOrphanLabel(value: string): string {
+  // A leftover introducer ("Sources:", "*Via*") must not be narrated alone.
+  if (/^\s*[*_~]*\.?\s*:?\s*[*_~]*\s*$/.test(value)) return "";
+  if (new RegExp(`^\\s*[*_~]*${CITATION_LABEL}\\s*:?\\.?[*_~]*\\s*$`, "i").test(value)) return "";
+  return value;
+}
 
 export function removeCitationClusters(value: string): string {
-  // A trailing run of 2+ citation links ("[a](u), [b](u).") reads aloud as a
-  // bare name list, so drop the whole run. Single links ("Read [this](u).")
-  // keep their text via the normal link handling below.
+  // A trailing run of citation links ("[a](u), [b](u).") reads aloud as a
+  // bare name list, so drop the whole run. A lone trailing link after a
+  // finished sentence ("...technology. [CBS transcript](u)") is the same
+  // reference shape with one item, so it goes too. Links inside a sentence
+  // ("Read [this](u).") keep their text via the normal link handling below.
   const trailingRun = new RegExp(`(?:${CITATION_LINK})(?:${CITATION_SEP}${CITATION_LINK})*[\\s,;]*[.。]?\\s*$`);
+  const trailingSingle = new RegExp(`(^|[.!?])\\s*[*_~]*(?:${CITATION_LABEL}\\s*:?\\s+)?${CITATION_LINK}[*_~]*[.。]?\\s*$`, "i");
   return value.split(/(\n\s*\n)/).map((chunk) => {
     if (/^\s*$/.test(chunk) || !chunk.includes("](")) return chunk;
     const match = chunk.match(trailingRun);
-    if (!match || match.index === undefined) return chunk;
-    const linkCount = (match[0].match(/\[[^\]]+\]\(/g) || []).length;
-    if (linkCount < 2) return chunk;
-    return chunk.slice(0, match.index).replace(/:\s*$/, "").trimEnd();
+    if (match && match.index !== undefined) {
+      const linkCount = (match[0].match(/\[[^\]]+\]\(/g) || []).length;
+      if (linkCount >= 2) return stripOrphanLabel(chunk.slice(0, match.index).replace(/:\s*$/, "").trimEnd());
+    }
+    const single = chunk.match(trailingSingle);
+    if (single && single.index !== undefined) {
+      const kept = chunk.slice(0, single.index).trimEnd() + (/^[.!?]$/.test(single[1] || "") ? "." : "");
+      return stripOrphanLabel(kept);
+    }
+    return chunk;
   }).join("");
 }
 

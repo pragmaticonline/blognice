@@ -35,7 +35,15 @@ test("narration drops trailing citation-link clusters but keeps prose links", ()
   assert.doesNotMatch(text, /Amodei|Reuters|Anthropic|OpenAI|https:/);
   assert.equal(
     removeCitationClusters("Sources: [a](https://a.example), [b](https://b.example)."),
-    "Sources",
+    "",
+  );
+  assert.equal(
+    removeCitationClusters("On CBS, Amodei floated joint governance. [CBS transcript](https://example.com/x)"),
+    "On CBS, Amodei floated joint governance.",
+  );
+  assert.equal(
+    removeCitationClusters("*Via [7 Takeaways](https://example.com/x)*"),
+    "",
   );
   assert.equal(
     removeCitationClusters("[a](https://a.example), [b](https://b.example)"),
