@@ -46,6 +46,18 @@ test("narration drops trailing citation-link clusters but keeps prose links", ()
     "",
   );
   assert.equal(
+    removeCitationClusters("See [a](https://a.example) and [b](https://b.example)."),
+    "See",
+  );
+  assert.equal(
+    removeCitationClusters("Further reading: [x](https://example.com/x)"),
+    "",
+  );
+  assert.equal(
+    removeCitationClusters("Handing over the technology. [CBS transcript](https://example.com/x)."),
+    "Handing over the technology.",
+  );
+  assert.equal(
     removeCitationClusters("[a](https://a.example), [b](https://b.example)"),
     "",
   );
@@ -249,6 +261,15 @@ test("TTS errors classify known transient upstream failures without storing raw 
   assert.equal(TTS_RETRY_DELAYS.length, 12);
 });
 
+test("TTS errors separate timeouts, unknowns, and flag-gated empty audio", () => {
+  assert.deepEqual(classifyTtsError(new Error("Request timeout exceeded")), { transient: true, category: "timeout", code: null });
+  assert.deepEqual(classifyTtsError(new Error("weird failure")), { transient: false, category: "unknown", code: null });
+  assert.deepEqual(classifyTtsError("3040: boom"), { transient: true, category: "upstream", code: "3040" });
+  assert.deepEqual(classifyTtsError(null), { transient: false, category: "unknown", code: null });
+  assert.deepEqual(classifyTtsError(new Error("The model returned no audio.")), { transient: false, category: "unknown", code: null });
+  assert.deepEqual(classifyTtsError(new Error("temporarily overloaded, try later")), { transient: true, category: "upstream", code: null });
+});
+
 test("pronunciation replacements are constrained and cannot rewrite narration", () => {
   const source = "Siobhan visited Worcestershire with the API team.";
   const replacements = pronunciationReplacements(JSON.stringify({ replacements: [
@@ -308,6 +329,22 @@ test("WAV assembly can insert guaranteed silence after structural segments", () 
   );
   assert.equal(assembly.samples[1].length, 31_200);
   assert.ok(assembly.samples[1].every((byte) => byte === 0));
+});
+
+test("WAV assembly uses midpoint silence for unsigned 8-bit PCM", () => {
+  const eight = (samples) => {
+    const bytes = wav(samples);
+    new DataView(bytes.buffer).setUint16(34, 8, true);
+    return bytes;
+  };
+  const assembly = wavAssembly(
+    [eight(new Uint8Array([9, 9])), eight(new Uint8Array([7, 7]))],
+    [0.65, 0],
+  );
+  assert.equal(assembly.samples[1].length, 31_200);
+  assert.ok(assembly.samples[1].every((byte) => byte === 128));
+  assert.deepEqual([...assembly.samples[0]], [9, 9]);
+  assert.deepEqual([...assembly.samples[2]], [7, 7]);
 });
 
 test("narration is persisted safely and rendered only when assigned", () => {
