@@ -39,3 +39,7 @@ coverage/
 
 # TypeScript
 *.tsbuildinfo
+
+# Mutation testing
+reports/
+.stryker-tmp/

@@ -5,6 +5,7 @@
   "description": "A super-simple multi-tenant blogging platform on Cloudflare Workers",
   "scripts": {
     "test": "tsx --test test/*.test.mjs",
+    "test:mutation": "stryker run",
     "typecheck": "tsc --noEmit",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
@@ -36,6 +37,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260101.0",
+    "@stryker-mutator/core": "^10.0.0",
     "esbuild": "^0.28.1",
     "miniflare": "^5.20260730.0-alpha",
     "tsx": "^4.23.12",
