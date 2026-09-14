@@ -237,6 +237,23 @@ test("Stripe signature verification accepts valid and repeated signatures only w
   assert.equal(await verifyStripeSignature(body, `t=${timestamp},v1=${altered}`, secret), false);
   assert.equal(await verifyStripeSignature(body, `t=${timestamp},v1=not-a-signature`, secret), false);
   assert.equal(await verifyStripeSignature(body, `t=${timestamp - 301},v1=${digest}`, secret), false);
+  assert.equal(await verifyStripeSignature(body, undefined, secret), false);
+  assert.equal(await verifyStripeSignature(body, `t=${timestamp},v1=${digest}`, undefined), false);
+  assert.equal(await verifyStripeSignature(body, `t=${timestamp}`, secret), false);
+  assert.equal(await verifyStripeSignature(body, `t=not-a-time,v1=${digest}`, secret), false);
+  assert.equal(await verifyStripeSignature(body, `junk-without-equals,t=${timestamp},v1=${digest}`, secret), true);
+  assert.equal(await verifyStripeSignature(body, `t=${timestamp + 301},v1=${digest}`, secret), false);
+});
+
+test("checkout subscription decision adopts only newer or first subscriptions", () => {
+  assert.equal(checkoutSubscriptionDecision({ currentId: null, currentCreated: null, incomingId: "sub_new", incomingCreated: 300 }), "adopt");
+  assert.equal(checkoutSubscriptionDecision({ currentId: "sub_a", currentCreated: 100, incomingId: "sub_a", incomingCreated: 200 }), "same");
+  assert.equal(checkoutSubscriptionDecision({ currentId: "sub_a", currentCreated: null, incomingId: "sub_b", incomingCreated: 200 }), "ignore");
+  assert.equal(checkoutSubscriptionDecision({ currentId: "sub_a", currentCreated: 100, incomingId: "sub_b", incomingCreated: null }), "ignore");
+  assert.equal(checkoutSubscriptionDecision({ currentId: "sub_a", currentCreated: 200, incomingId: "sub_b", incomingCreated: 200 }), "ignore");
+  assert.equal(subscriptionEventMatchesCurrent(null, "sub_x"), true);
+  assert.equal(subscriptionEventMatchesCurrent("sub_x", "sub_x"), true);
+  assert.equal(subscriptionEventMatchesCurrent("sub_x", "sub_y"), false);
 });
 
 test("Stripe route supports a distinct Connect webhook signing secret", () => {

@@ -57,6 +57,41 @@ test("NOWPayments invoice uses the durable checkout amount", async () => {
   }
 });
 
+test("NOWPayments request surfaces provider messages and requires a key", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    await assert.rejects(
+      createAnnualInvoice({}, { orderId: "x", priceUsdMinor: 3600, callbackUrl: "https://example.com/c", successUrl: "https://example.com/s", cancelUrl: "https://example.com/x" }),
+      /NOWPayments is not configured/,
+    );
+    globalThis.fetch = async () => new Response(JSON.stringify({ message: "success_url must be a valid uri" }), { status: 400, headers: { "content-type": "application/json" } });
+    await assert.rejects(
+      createAnnualInvoice({ NOWPAYMENTS_API_KEY: "k" }, { orderId: "x", priceUsdMinor: 3600, callbackUrl: "https://example.com/c", successUrl: "bad url", cancelUrl: "https://example.com/x" }),
+      /success_url must be a valid uri/,
+    );
+    globalThis.fetch = async () => new Response("not json", { status: 500 });
+    await assert.rejects(
+      createAnnualInvoice({ NOWPAYMENTS_API_KEY: "k" }, { orderId: "x", priceUsdMinor: 3600, callbackUrl: "https://example.com/c", successUrl: "https://example.com/s", cancelUrl: "https://example.com/x" }),
+      /NOWPayments returned HTTP 500/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("NOWPayments IPN rejects missing secrets and malformed bodies", async () => {
+  assert.equal(await verifyNowPaymentsIpn("{}", undefined, "secret"), false);
+  assert.equal(await verifyNowPaymentsIpn("{}", "abc", undefined), false);
+  assert.equal(await verifyNowPaymentsIpn("not json{", "abc", "secret"), false);
+});
+
+test("only finished counts as paid across all IPN statuses", () => {
+  for (const status of ["waiting", "confirming", "confirmed", "sending", "partially_paid", "failed", "expired", undefined]) {
+    assert.equal(isTerminalPaidStatus(status), false, String(status));
+  }
+  assert.equal(isTerminalPaidStatus("finished"), true);
+});
+
 test("crypto access is time-limited and only finished is terminally paid", () => {
   const now = Math.floor(Date.now() / 1000);
   assert.equal(accountHasPaidPlan({ billing_status: "inactive", crypto_paid_through: now + 60 }), true);
