@@ -319,6 +319,17 @@ Audio starts and completions are stored separately in `blognice_events`, shown
 as aggregate engagement on the same dashboard, and archived under
 `events/daily/YYYY/MM/YYYY-MM-DD.json` without visitor identifiers.
 
+### UTM campaign tracking
+
+Tag any blog URL with `utm_source`, `utm_medium`, and `utm_campaign` (up to
+100 characters each) and the beacon sends them with the pageview, e.g.
+`https://example.blognice.com/my-post?utm_source=newsletter&utm_medium=email&utm_campaign=launch`.
+Values are lowercased and restricted to `a-z 0-9 . _ -`, so `Twitter` and
+`twitter` count as one source. The metrics dashboard shows the top 10 sources,
+mediums, and campaigns by views. The same three values are stored on the
+subscriber record when a tagged visitor subscribes, and they are included in
+the subscriber CSV export.
+
 ## Images
 
 Authors add images in the editor — the **Add image** button, drag-and-drop, or
