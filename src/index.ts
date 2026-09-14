@@ -236,6 +236,15 @@ const app = blogniceApp;
 // become alternate admin origins that share the session cookie.
 app.use("*", async (c, next) => {
   const url = new URL(c.req.url);
+  // Plain HTTP must never serve content: upgrade everything to HTTPS.
+  // Local dev stays on HTTP so wrangler dev keeps working.
+  if (url.protocol === "http:") {
+    const host = url.hostname.toLowerCase();
+    if (host !== "localhost" && host !== "127.0.0.1") {
+      url.protocol = "https:";
+      return c.redirect(url.toString(), 308);
+    }
+  }
   if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
     const host = url.hostname.toLowerCase();
     const canonical = `www.${c.env.ROOT_DOMAIN}`.toLowerCase();
