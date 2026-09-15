@@ -8005,7 +8005,7 @@ async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: 
     const due = Number.isSafeInteger(onlyTenantId)
       ? await env.DB.prepare("SELECT * FROM autopilot_configs WHERE tenant_id = ? AND enabled = 1 AND staff_enabled = 1").bind(onlyTenantId).all()
       : await env.DB.prepare("SELECT * FROM autopilot_configs WHERE enabled=1 AND staff_enabled=1 AND (next_run_at IS NULL OR next_run_at <= ?)").bind(now).all();
-    if (forcedRun) console.log(JSON.stringify({ message: "autopilot run due query ok", matched: ((due.results as any[]) || []).length, onlyTenantId }));
+    console.log(JSON.stringify({ message: "autopilot run due query ok", matched: ((due.results as any[]) || []).length, onlyTenantId: onlyTenantId ?? null }));
     for (const row of (due.results as any[]) || []) {
       const tenantId = Number((row as any).tenant_id);
       if (!Number.isSafeInteger(tenantId)) continue;
@@ -8084,6 +8084,7 @@ async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: 
               } catch { return false; }
             });
             searchKeptCount = filtered.length;
+            console.log(JSON.stringify({ message: "autopilot search done", tenantId, raw: searchRawCount, kept: searchKeptCount }));
             let ranked = (filtered.length ? filtered : rawResults).map((r: any) => {
               let score = 0;
               try {
@@ -8267,6 +8268,7 @@ async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: 
           body_md = stripViaCitation(body_md);
         }
       } catch {}
+      console.log(JSON.stringify({ message: "autopilot generation done", tenantId, bodyChars: body_md.length, fromAi: body_md.length > 200 }));
       if (!body_md) body_md = String(sourceExcerpt || "").slice(0, 800);
       const interval_days = Number((row as any).interval_days || 1);
       const run_hour_utc = Number((row as any).run_hour_utc || 9);
