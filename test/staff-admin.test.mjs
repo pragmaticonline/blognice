@@ -263,3 +263,65 @@ test("autopilot staff script parses and kicks off loading", async () => {
   new Script("(function(){" + body);
   assert.match(body, /\bload\(\)\}\)\(\);$/);
 });
+
+test("autopilot row buttons bind after load and enable opens the panel", async () => {
+  const { Script, createContext } = await import("node:vm");
+  const start = staff.indexOf("var tids=");
+  const end = staff.indexOf("load()})();", start) + "load()})();".length;
+  const js = staff
+    .slice(start, end)
+    .replace("${idsJson}", "[7]")
+    .replace("${blogsJson}", JSON.stringify([{ id: 7, title: "T", slug: "t", custom_domain: null }]))
+    .replace(/\$\{[^}]*\}/g, "0");
+  const clicks = [];
+  const fakeButton = (attrs) => ({
+    getAttribute: (k) => (attrs[k] === undefined ? null : attrs[k]),
+    addEventListener: (ev, fn) => clicks.push({ attrs, ev, fn }),
+  });
+  const store = {};
+  const field = (name) => ({
+    get value() { return store[name] ?? ""; },
+    set value(v) { store[name] = v; },
+  });
+  const panel = { style: {}, scrollIntoView: () => {} };
+  const formEls = {};
+  const form = {
+    elements: new Proxy({}, { get: (_t, k) => (formEls[k] ??= field("form:" + k)) }),
+    addEventListener: (ev, fn) => clicks.push({ attrs: { form: true }, ev, fn }),
+  };
+  let rendered = false;
+  const byId = {
+    "autopilot-rows": { set innerHTML(v) { this.html = v; rendered = true; } },
+    "autopilot-edit-panel": panel,
+    "autopilot-form": form,
+    "autopilot-cancel": { addEventListener: () => {} },
+    "autopilot-disable": { style: {}, addEventListener: () => {} },
+  };
+  const buttons = {
+    edit: [fakeButton({ "data-autopilot-edit": "7" })],
+    toggle: [fakeButton({ "data-autopilot-toggle": "7" })],
+    run: [fakeButton({ "data-autopilot-run": "7" })],
+  };
+  const documentStub = {
+    getElementById: (id) => byId[id] ?? null,
+    querySelectorAll: (sel) => {
+      if (!rendered) return [];
+      return sel.includes("edit") ? buttons.edit : sel.includes("toggle") ? buttons.toggle : sel.includes("run") ? buttons.run : [];
+    },
+    createElement: () => ({ set textContent(v) { this.html = v; }, get innerHTML() { return this.html; } }),
+    location: { hostname: "staff.blognice.com" },
+  };
+  const fetchStub = async (url) => ({ ok: true, json: async () => ({}) });
+  const ctx = createContext({ document: documentStub, fetch: fetchStub });
+  new Script(`(function(){${js}`).runInContext(ctx);
+  for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
+  const toggle = clicks.find((c) => c.attrs["data-autopilot-toggle"] === "7" && c.ev === "click");
+  assert.ok(toggle, "toggle button has a click handler after load");
+  toggle.fn();
+  for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
+  assert.equal(store["form:tenant_id"], "7");
+  assert.equal(panel.style.display, "block");
+  const html = byId["autopilot-rows"].html;
+  assert.ok(html.includes("Needs topic"), "row flags the missing topic when unconfigured");
+  assert.ok(html.includes("Set up"), "toggle button offers setup when the topic is missing");
+});
