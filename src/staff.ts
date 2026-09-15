@@ -1277,6 +1277,7 @@ app.post("/api/autopilot/:tenantId/run-now", async (c) => {
   const root = c.env.ROOT_DOMAIN || "blognice.com";
   let summary: any = null;
   const started = Date.now();
+  let via = "https";
   const runner = (c.env as any).AUTOPILOT_RUNNER;
   const triggerBody = JSON.stringify({ tenant_id: tenantId });
   const triggerHeaders = { "content-type": "application/json", "x-autopilot-run-secret": secret };
@@ -1284,19 +1285,20 @@ app.post("/api/autopilot/:tenantId/run-now", async (c) => {
     // Prefer the service binding: a public-edge subrequest to www can die
     // with a 522 before the main worker ever sees it. Fall back to HTTPS
     // when the binding is absent (local dev / other envs).
-    const res = runner && typeof runner.fetch === "function"
+    via = runner && typeof runner.fetch === "function" ? "binding" : "https";
+    const res = via === "binding"
       ? await runner.fetch(new Request("https://autopilot-internal/internal/autopilot/run-now", { method: "POST", headers: triggerHeaders, body: triggerBody }))
       : await fetch(`https://www.${root}/internal/autopilot/run-now`, { method: "POST", headers: triggerHeaders, body: triggerBody });
     const text = await res.text();
     try { summary = JSON.parse(text); } catch { summary = null; }
     if (!res.ok || !summary) {
-      console.error(JSON.stringify({ message: "autopilot run-now upstream failure", tenantId, upstream: res.status, elapsedMs: Date.now() - started, bodyHead: text.slice(0, 200) }));
-      return c.json({ error: "autopilot run failed: upstream " + res.status }, 502);
+      console.error(JSON.stringify({ message: "autopilot run-now upstream failure", tenantId, via, upstream: res.status, elapsedMs: Date.now() - started, bodyHead: text.slice(0, 200) }));
+      return c.json({ error: "autopilot run failed: upstream " + res.status + " via " + via }, 502);
     }
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
-    console.error(JSON.stringify({ message: "autopilot run-now fetch failed", tenantId, elapsedMs: Date.now() - started, error: detail }));
-    return c.json({ error: "autopilot run failed: " + detail }, 502);
+    console.error(JSON.stringify({ message: "autopilot run-now fetch failed", tenantId, via, elapsedMs: Date.now() - started, error: detail }));
+    return c.json({ error: "autopilot run failed: " + detail + " via " + via }, 502);
   }
   if (summary && summary.started) {
     // Async trigger: poll our own DB for the finished run row instead of

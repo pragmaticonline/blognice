@@ -382,7 +382,7 @@ test("staff run-now reports the specific upstream failure", async () => {
     };
     let res = await call();
     assert.equal(res.status, 502);
-    assert.match((await res.json()).error, /upstream 403/);
+    assert.match((await res.json()).error, /upstream 403 via https/);
     globalThis.fetch = async (url) => {
       if (String(url).endsWith("/cdn-cgi/access/certs")) return new Response(JSON.stringify({ keys: [adminAccess.publicJwk] }), { status: 200 });
       throw new Error("fetch failed");
