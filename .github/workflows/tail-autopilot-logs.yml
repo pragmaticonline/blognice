@@ -1,0 +1,42 @@
+name: Tail autopilot logs
+
+on:
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: "How long to record live logs"
+        required: false
+        default: "240"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  tail:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Record live worker logs
+        run: |
+          SECS=$(echo "${{ inputs.seconds }}" | tr -cd '0-9' | head -c 3)
+          if [ -z "$SECS" ]; then SECS=240; fi
+          echo "Recording ${SECS}s from $(date -u +%H:%M:%S) UTC"
+          (timeout "$SECS" npx wrangler tail --config wrangler.production.jsonc --format pretty > main-tail.log 2>&1 || true) &
+          (timeout "$SECS" npx wrangler tail --config wrangler.staff.production.jsonc --format pretty > staff-tail.log 2>&1 || true) &
+          wait
+          echo "=== main lines: $(wc -l < main-tail.log), staff lines: $(wc -l < staff-tail.log) ==="
+          echo "=== main autopilot/error lines ==="
+          grep -i "autopilot\|run-now\|scheduled\|error\|exception\|failed\|forbidden\|tenant" main-tail.log | head -60 || true
+          echo "=== staff autopilot/error lines ==="
+          grep -i "autopilot\|run-now\|error\|exception\|failed\|forbidden" staff-tail.log | head -60 || true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
