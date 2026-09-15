@@ -36,3 +36,13 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Check autopilot secret presence (names only, never values)
+        run: |
+          echo "--- staff worker ---"
+          npx wrangler secret list --config wrangler.staff.production.jsonc --format json | jq '[.[].name | select(. == "AUTOPILOT_RUN_SECRET")]'
+          echo "--- main worker ---"
+          npx wrangler secret list --config wrangler.production.jsonc --format json | jq '[.[].name | select(. == "AUTOPILOT_RUN_SECRET" or . == "AUTOPILOT_SEARCH_API_KEY" or . == "BRAVE_SEARCH_API_KEY")]'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
