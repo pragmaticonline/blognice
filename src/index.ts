@@ -7799,7 +7799,7 @@ app.get("/:slug", async (c) => {
 });
 
 async function ensureAutopilotTablesIdx(db: D1Database) {
-  await db.prepare("CREATE TABLE IF NOT EXISTS autopilot_configs (tenant_id INTEGER PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, staff_enabled INTEGER NOT NULL DEFAULT 0, interval_days INTEGER NOT NULL DEFAULT 1, run_hour_utc INTEGER NOT NULL DEFAULT 9, criteria_json TEXT NOT NULL DEFAULT '{}', image_style TEXT NOT NULL DEFAULT 'editorial-photo', voice TEXT, auto_publish INTEGER NOT NULL DEFAULT 1, max_length INTEGER NOT NULL DEFAULT 900, next_run_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE)").run();
+  await db.prepare("CREATE TABLE IF NOT EXISTS autopilot_configs (tenant_id INTEGER PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, staff_enabled INTEGER NOT NULL DEFAULT 0, interval_days INTEGER NOT NULL DEFAULT 1, run_hour_utc INTEGER NOT NULL DEFAULT 9, criteria_json TEXT NOT NULL DEFAULT '{}', image_style TEXT NOT NULL DEFAULT 'editorial-photo', voice TEXT, auto_publish INTEGER NOT NULL DEFAULT 1, max_length INTEGER NOT NULL DEFAULT 900, next_run_at INTEGER, run_lease_until INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE)").run();
   await db.prepare("CREATE TABLE IF NOT EXISTS autopilot_runs (id TEXT PRIMARY KEY, tenant_id INTEGER NOT NULL, started_at INTEGER NOT NULL, finished_at INTEGER, status TEXT NOT NULL, source_url TEXT, source_title TEXT, post_id INTEGER, error TEXT, FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE)").run();
 }
 function parseAutopilotConfigIdx(row: any) {
@@ -7989,9 +7989,9 @@ export function isAutopilotTick(cron: unknown): boolean {
   return String(cron || "") === "* * * * *";
 }
 
-async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: number) {
+export async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: number) {
   try {
-    await env.DB.prepare("CREATE TABLE IF NOT EXISTS autopilot_configs (tenant_id INTEGER PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, staff_enabled INTEGER NOT NULL DEFAULT 0, interval_days INTEGER NOT NULL DEFAULT 1, run_hour_utc INTEGER NOT NULL DEFAULT 9, criteria_json TEXT NOT NULL DEFAULT '{}', image_style TEXT NOT NULL DEFAULT 'editorial-photo', voice TEXT, auto_publish INTEGER NOT NULL DEFAULT 1, max_length INTEGER NOT NULL DEFAULT 900, next_run_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE)").run();
+    await env.DB.prepare("CREATE TABLE IF NOT EXISTS autopilot_configs (tenant_id INTEGER PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, staff_enabled INTEGER NOT NULL DEFAULT 0, interval_days INTEGER NOT NULL DEFAULT 1, run_hour_utc INTEGER NOT NULL DEFAULT 9, criteria_json TEXT NOT NULL DEFAULT '{}', image_style TEXT NOT NULL DEFAULT 'editorial-photo', voice TEXT, auto_publish INTEGER NOT NULL DEFAULT 1, max_length INTEGER NOT NULL DEFAULT 900, next_run_at INTEGER, run_lease_until INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE)").run();
     await env.DB.prepare("CREATE TABLE IF NOT EXISTS autopilot_runs (id TEXT PRIMARY KEY, tenant_id INTEGER NOT NULL, started_at INTEGER NOT NULL, finished_at INTEGER, status TEXT NOT NULL, source_url TEXT, source_title TEXT, post_id INTEGER, error TEXT, FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE)").run();
     // Migration 063 backfill for pre-existing tables; no-op once applied.
     try { await env.DB.prepare("ALTER TABLE autopilot_runs ADD COLUMN search_raw_count INTEGER NOT NULL DEFAULT 0").run(); } catch {}
@@ -7999,12 +7999,14 @@ async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: 
     // Migration 064 backfill; no-op once applied.
     try { await env.DB.prepare("ALTER TABLE autopilot_runs ADD COLUMN image_status TEXT").run(); } catch {}
     try { await env.DB.prepare("ALTER TABLE autopilot_runs ADD COLUMN image_error TEXT").run(); } catch {}
+    // Migration 066 backfill; no-op once applied.
+    try { await env.DB.prepare("ALTER TABLE autopilot_configs ADD COLUMN run_lease_until INTEGER").run(); } catch {}
     const forcedRun = Number.isSafeInteger(onlyTenantId);
     if (forcedRun) console.log(JSON.stringify({ message: "autopilot run preamble ok", onlyTenantId }));
     // Forced single-tenant runs ignore the schedule but keep the on/off gates.
     const due = Number.isSafeInteger(onlyTenantId)
       ? await env.DB.prepare("SELECT * FROM autopilot_configs WHERE tenant_id = ? AND enabled = 1 AND staff_enabled = 1").bind(onlyTenantId).all()
-      : await env.DB.prepare("SELECT * FROM autopilot_configs WHERE enabled=1 AND staff_enabled=1 AND (next_run_at IS NULL OR next_run_at <= ?)").bind(now).all();
+      : await env.DB.prepare("SELECT * FROM autopilot_configs WHERE enabled=1 AND staff_enabled=1 AND (next_run_at IS NULL OR next_run_at <= ?) AND (run_lease_until IS NULL OR run_lease_until <= ?)").bind(now, now).all();
     console.log(JSON.stringify({ message: "autopilot run due query ok", matched: ((due.results as any[]) || []).length, onlyTenantId: onlyTenantId ?? null }));
     for (const row of (due.results as any[]) || []) {
       const tenantId = Number((row as any).tenant_id);
@@ -8031,6 +8033,7 @@ async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: 
         continue;
       }
       if (forcedRun) console.log(JSON.stringify({ message: "autopilot run proceeding to search", tenantId }));
+      await env.DB.prepare("UPDATE autopilot_configs SET run_lease_until=? WHERE tenant_id=?").bind(now + 600, tenantId).run();
       const dedupDays = Math.min(90, Math.max(7, Number(criteria.dedup_days || 30)));
       const dedupCutoff = now - dedupDays * 86400;
       let sourceUrl = "";

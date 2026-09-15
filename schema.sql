@@ -995,6 +995,7 @@ CREATE TABLE autopilot_configs (
   auto_publish INTEGER NOT NULL DEFAULT 1 CHECK (auto_publish IN (0,1)),
   max_length INTEGER NOT NULL DEFAULT 900 CHECK (max_length BETWEEN 400 AND 2000),
   next_run_at INTEGER,
+  run_lease_until INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE

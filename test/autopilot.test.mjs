@@ -387,3 +387,61 @@ test("autopilotWithTimeout resolves fast results and times out hangs", async () 
   await assert.rejects(autopilotWithTimeout(lateBoom, 5, "slowfail"), /slowfail timed out/);
   await new Promise((r) => setTimeout(r, 40));
 });
+
+test("scheduler lease suppresses overlapping runs for the same blog", async () => {
+  const { runAutopilotScheduled } = await import("../src/index.ts");
+  const mf = new Miniflare({ modules: true, script: "export default { fetch() { return new Response('ok') } }", d1Databases: { DB: "autopilot-lease-a", POSTS: "autopilot-lease-posts" } });
+  const originalFetch = globalThis.fetch;
+  try {
+    const db = await mf.getD1Database("DB");
+    const postsDb = await mf.getD1Database("POSTS");
+    const postsSchema = readFileSync(new URL("../schema-posts.sql", import.meta.url), "utf8");
+    for (const s of schema.replace(/^[ \t]*--.*(?:\r?\n|$)/gm, "").split(/;\s*(?=\r?\n|$)/).map((v) => v.trim()).filter(Boolean)) await db.prepare(s).run();
+    for (const s of postsSchema.replace(/^[ \t]*--.*(?:\r?\n|$)/gm, "").split(/;\s*(?=\r?\n|$)/).map((v) => v.trim()).filter(Boolean)) await postsDb.prepare(s).run();
+    const now = Math.floor(Date.now() / 1000);
+    await db.prepare("INSERT INTO accounts (id, email, pw_hash, billing_status, created_at) VALUES (1, 'o@x.com', 'x', 'active', ?)").bind(now).run();
+    await db.prepare("INSERT INTO tenants (id, public_id, slug, title, created_at) VALUES (10, 't10', 't10', 'T10', ?)").bind(now).run();
+    await db.prepare("INSERT INTO memberships (account_id, tenant_id, role, created_at) VALUES (1, 10, 'owner', ?)").bind(now).run();
+    await db.prepare("INSERT INTO autopilot_configs (tenant_id, enabled, staff_enabled, image_style, criteria_json, next_run_at, created_at, updated_at) VALUES (10, 1, 1, 'none', ?, ?, ?, ?)").bind(JSON.stringify({ topic: "Adoptable cats" }), now - 5, now, now).run();
+    const aiStub = {
+      async run(model, opts) {
+        const text = JSON.stringify(opts);
+        if (text.includes("rank news source")) return { response: JSON.stringify(["https://example.com/a"]) };
+        if (text.includes("likely to mispronounce")) return { response: JSON.stringify({ replacements: [] }) };
+        return { response: "# Test Post About Cats\n\n" + "Body sentence about adoptable cats. ".repeat(25) };
+      },
+    };
+    globalThis.fetch = async (url) => {
+      const u = String(url);
+      if (u.includes("api.search.brave.com")) {
+        if (u.includes("/news/")) return new Response(JSON.stringify({ results: [] }), { status: 200 });
+        return new Response(JSON.stringify({ web: { results: [{ url: "https://example.com/a", title: "A cat story", description: "A description of adoptable cats. ".repeat(8), age: "2 hours ago" }] } }), { status: 200 });
+      }
+      if (u === "https://example.com/a") {
+        return new Response("<html><body><article><h1>A cat story</h1><p>" + "lorem ipsum dolor sit amet. ".repeat(40) + "</p></article></body>", { status: 200, headers: { "content-type": "text/html" } });
+      }
+      throw new Error("unexpected fetch: " + u);
+    };
+    const env = { DB: db, POSTS: postsDb, AI: aiStub, AUDIO_QUEUE: { send: async () => {} }, MEDIA: { put: async () => ({}) } };
+    await runAutopilotScheduled(env, now);
+    let runs = (await db.prepare("SELECT id, status FROM autopilot_runs ORDER BY started_at").all()).results;
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0].status, "success");
+    const lease = await db.prepare("SELECT run_lease_until, next_run_at FROM autopilot_configs WHERE tenant_id=10").first();
+    assert.ok(Number(lease.run_lease_until) > now, "run takes a lease when it starts");
+    // Simulate the next overlapping tick while the lease is fresh.
+    await db.prepare("UPDATE autopilot_configs SET next_run_at=? WHERE tenant_id=10").bind(now).run();
+    await runAutopilotScheduled(env, now);
+    runs = (await db.prepare("SELECT id, status FROM autopilot_runs ORDER BY started_at").all()).results;
+    assert.equal(runs.length, 1, "overlapping tick must not start a duplicate run");
+    // Expired lease runs again (dedup skips the same source).
+    await db.prepare("UPDATE autopilot_configs SET run_lease_until=?, next_run_at=? WHERE tenant_id=10").bind(now - 1, now).run();
+    await runAutopilotScheduled(env, now);
+    runs = (await db.prepare("SELECT id, status FROM autopilot_runs ORDER BY started_at").all()).results;
+    assert.equal(runs.length, 2);
+    assert.equal(runs[1].status, "skipped");
+  } finally {
+    globalThis.fetch = originalFetch;
+    await mf.dispose();
+  }
+});
