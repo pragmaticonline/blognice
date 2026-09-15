@@ -37,6 +37,13 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      - name: Global autopilot pipeline health (read-only)
+        run: |
+          npx wrangler d1 execute blognice --remote --config wrangler.production.jsonc --json --command "SELECT status, COUNT(*) AS n FROM autopilot_runs GROUP BY status; SELECT tenant_id, datetime(started_at,'unixepoch') AS started_utc, status, substr(error,1,200) AS error_head FROM autopilot_runs ORDER BY started_at DESC LIMIT 5;" | jq .
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
       - name: Check autopilot secret presence (names only, never values)
         run: |
           echo "--- staff worker ---"
