@@ -309,7 +309,10 @@ test("internal run-now is secret-guarded and validates tenant", async () => {
     assert.equal((await withSecret({ tenant_id: "x" })).status, 400);
     const res = await withSecret({ tenant_id: 10 });
     assert.equal(res.status, 200);
-    assert.deepEqual(await res.json(), { ok: true, run: null });
+    const body = await res.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.started, true);
+    assert.equal(typeof body.since, "number");
   } finally {
     await mf.dispose();
   }
@@ -387,6 +390,37 @@ test("staff run-now reports the specific upstream failure", async () => {
     res = await call();
     assert.equal(res.status, 502);
     assert.match((await res.json()).error, /fetch failed/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await mf.dispose();
+  }
+});
+
+test("staff run-now polls for the finished run after an async trigger", async () => {
+  const staffApp = typeof staffModule.request === "function" ? staffModule : staffModule.default;
+  const mf = new Miniflare({ modules: true, script: "export default { fetch() { return new Response('ok') } }", d1Databases: { DB: "autopilot-run-now-async" } });
+  const originalFetch = globalThis.fetch;
+  try {
+    const db = await mf.getD1Database("DB");
+    for (const s of schema.replace(/^[ \t]*--.*(?:\r?\n|$)/gm, "").split(/;\s*(?=\r?\n|$)/).map((v) => v.trim()).filter(Boolean)) await db.prepare(s).run();
+    const now = Math.floor(Date.now() / 1000);
+    const adminAccess = await accessFixture("staff|admin", "admin@blognice.com");
+    await db.prepare("INSERT INTO staff_users (subject, email, role, active, created_at, updated_at) VALUES ('staff|admin','admin@blognice.com','admin',1,?,?)").bind(now, now).run();
+    await db.prepare("INSERT INTO tenants (id, public_id, slug, title, created_at) VALUES (10, 't10', 't10', 'T10', ?)").bind(now).run();
+    await db.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error) VALUES ('r-async', 10, ?, ?, 'success', 'https://example.com/y', 'Y', 7, NULL)").bind(now, now + 60).run();
+    globalThis.fetch = async (url) => {
+      if (String(url).endsWith("/cdn-cgi/access/certs")) return new Response(JSON.stringify({ keys: [adminAccess.publicJwk] }), { status: 200 });
+      return new Response(JSON.stringify({ ok: true, started: true, since: now }), { status: 200 });
+    };
+    const origin = "https://staff.blognice.test";
+    const res = await staffApp.request(
+      new Request(`${origin}/api/autopilot/10/run-now`, {
+        method: "POST", headers: { Origin: origin, "Cf-Access-Jwt-Assertion": adminAccess.token, "content-type": "application/json" }, body: "{}",
+      }),
+      undefined, { DB: db, ROOT_DOMAIN: "blognice.test", ACCESS_TEAM_DOMAIN: "team.cloudflareaccess.com", ACCESS_AUD: "staff-audience", AUTOPILOT_RUN_SECRET: "s3cret" },
+    );
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).run.id, "r-async");
   } finally {
     globalThis.fetch = originalFetch;
     await mf.dispose();

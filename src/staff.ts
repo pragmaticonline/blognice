@@ -1294,6 +1294,26 @@ app.post("/api/autopilot/:tenantId/run-now", async (c) => {
     console.error(JSON.stringify({ message: "autopilot run-now fetch failed", tenantId, elapsedMs: Date.now() - started, error: detail }));
     return c.json({ error: "autopilot run failed: " + detail }, 502);
   }
+  if (summary && summary.started) {
+    // Async trigger: poll our own DB for the finished run row instead of
+    // holding the worker-to-worker call open (edge 522 on long AI runs).
+    const since = Number(summary.since) || Math.floor(Date.now() / 1000);
+    const deadline = Date.now() + 150000;
+    let run: any = null;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 5000));
+      try {
+        run = await c.env.DB.prepare(
+          "SELECT id, status, error, source_url, post_id, search_raw_count, search_kept_count FROM autopilot_runs WHERE tenant_id = ? AND started_at >= ? AND finished_at IS NOT NULL ORDER BY started_at DESC LIMIT 1"
+        ).bind(tenantId, since - 5).first().catch(() => null);
+      } catch { run = null; }
+      if (run) break;
+    }
+    if (!run) return c.json({ error: "autopilot run timed out waiting for the finished run" }, 504);
+    summary = { ok: true, run };
+  } else if (!summary || !summary.run) {
+    return c.json({ error: "autopilot run failed: upstream returned no run" }, 502);
+  }
   await audit(c, staff, { action: "autopilot-run-now", targetType: "tenant", targetId: String(tenantId), result: "success", after: summary });
   return c.json(summary);
 });

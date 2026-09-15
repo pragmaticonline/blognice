@@ -7917,11 +7917,10 @@ app.post("/internal/autopilot/run-now", async (c) => {
   const tenantId = Number(body?.tenant_id);
   if (!Number.isSafeInteger(tenantId)) return c.json({ error: "tenant_id required" }, 400);
   const now = Math.floor(Date.now() / 1000);
-  await runAutopilotScheduled(c.env, now, tenantId);
-  const latest = await c.env.DB.prepare(
-    "SELECT id, status, error, source_url, post_id, search_raw_count, search_kept_count FROM autopilot_runs WHERE tenant_id = ? ORDER BY started_at DESC LIMIT 1"
-  ).bind(tenantId).first().catch(() => null);
-  return c.json({ ok: true, run: latest ?? null });
+  // Run in the background and return immediately: a synchronous wait would
+  // outlast the edge timeout on the calling worker (522) for full AI runs.
+  c.executionCtx.waitUntil(runAutopilotScheduled(c.env, now, tenantId));
+  return c.json({ ok: true, started: true, since: now });
 });
 
 export function stripViaCitation(md: string): string {
