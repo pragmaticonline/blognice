@@ -1276,16 +1276,23 @@ app.post("/api/autopilot/:tenantId/run-now", async (c) => {
   if (!secret) return c.json({ error: "run-now is not configured" }, 503);
   const root = c.env.ROOT_DOMAIN || "blognice.com";
   let summary: any = null;
+  const started = Date.now();
   try {
     const res = await fetch(`https://www.${root}/internal/autopilot/run-now`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-autopilot-run-secret": secret },
       body: JSON.stringify({ tenant_id: tenantId }),
     });
-    summary = await res.json().catch(() => null);
-    if (!res.ok || !summary) return c.json({ error: "autopilot run failed" }, 502);
-  } catch {
-    return c.json({ error: "autopilot run failed" }, 502);
+    const text = await res.text();
+    try { summary = JSON.parse(text); } catch { summary = null; }
+    if (!res.ok || !summary) {
+      console.error(JSON.stringify({ message: "autopilot run-now upstream failure", tenantId, upstream: res.status, elapsedMs: Date.now() - started, bodyHead: text.slice(0, 200) }));
+      return c.json({ error: "autopilot run failed: upstream " + res.status }, 502);
+    }
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    console.error(JSON.stringify({ message: "autopilot run-now fetch failed", tenantId, elapsedMs: Date.now() - started, error: detail }));
+    return c.json({ error: "autopilot run failed: " + detail }, 502);
   }
   await audit(c, staff, { action: "autopilot-run-now", targetType: "tenant", targetId: String(tenantId), result: "success", after: summary });
   return c.json(summary);
