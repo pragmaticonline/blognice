@@ -325,3 +325,9 @@ test("autopilot row buttons bind after load and enable opens the panel", async (
   assert.ok(html.includes("Needs topic"), "row flags the missing topic when unconfigured");
   assert.ok(html.includes("Set up"), "toggle button offers setup when the topic is missing");
 });
+
+test("autopilot long actions show a spinner while busy", () => {
+  assert.match(staff, /@keyframes spin/);
+  assert.match(staff, /prefers-reduced-motion/);
+  assert.match(staff, /class=spin/);
+});

@@ -467,3 +467,17 @@ test("staff run-now prefers the service binding over public HTTPS", async () => 
     await mf.dispose();
   }
 });
+
+test("autopilotWithTimeout resolves fast results and times out hangs", async () => {
+  const { autopilotWithTimeout } = await import("../src/index.ts");
+  assert.equal(await autopilotWithTimeout(Promise.resolve("ok"), 1000, "fast"), "ok");
+  await assert.rejects(autopilotWithTimeout(new Promise(() => {}), 20, "hang"), /hang timed out/);
+  let late = "pending";
+  const slow = new Promise((res) => setTimeout(() => { late = "done"; res("late"); }, 50));
+  await assert.rejects(autopilotWithTimeout(slow, 10, "slow"), /slow timed out/);
+  await new Promise((r) => setTimeout(r, 80));
+  assert.equal(late, "done");
+  const lateBoom = new Promise((_, rej) => setTimeout(() => rej(new Error("late boom")), 20));
+  await assert.rejects(autopilotWithTimeout(lateBoom, 5, "slowfail"), /slowfail timed out/);
+  await new Promise((r) => setTimeout(r, 40));
+});

@@ -7973,6 +7973,18 @@ export function applyAiSourcePick(ranked: any[], pickedUrls: unknown): any[] {
   return first.concat(ranked.filter((c: any) => !seen.has(String(c?.url || ""))));
 }
 
+export function autopilotWithTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  const guarded = promise;
+  guarded.catch(() => {});
+  return Promise.race([
+    guarded,
+    new Promise<T>((_, reject) => setTimeout(() => {
+      try { console.warn(JSON.stringify({ message: "autopilot step timed out", label, ms })); } catch {}
+      reject(new Error(label + " timed out"));
+    }, ms)),
+  ]);
+}
+
 async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: number) {
   try {
     await env.DB.prepare("CREATE TABLE IF NOT EXISTS autopilot_configs (tenant_id INTEGER PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, staff_enabled INTEGER NOT NULL DEFAULT 0, interval_days INTEGER NOT NULL DEFAULT 1, run_hour_utc INTEGER NOT NULL DEFAULT 9, criteria_json TEXT NOT NULL DEFAULT '{}', image_style TEXT NOT NULL DEFAULT 'editorial-photo', voice TEXT, auto_publish INTEGER NOT NULL DEFAULT 1, max_length INTEGER NOT NULL DEFAULT 900, next_run_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE)").run();
@@ -8027,7 +8039,7 @@ async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: 
           else if (criteria.freshness === "7d") freshnessParam = "&freshness=pw";
           else if (criteria.freshness === "30d") freshnessParam = "&freshness=pm";
           const searchUrl = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=10${freshnessParam}`;
-          const searchRes = await fetch(searchUrl, { headers: { Accept: "application/json", "X-Subscription-Token": braveKey } });
+          const searchRes = await fetch(searchUrl, { headers: { Accept: "application/json", "X-Subscription-Token": braveKey }, signal: AbortSignal.timeout(20000) });
           if (searchRes.ok) {
             const data: any = await searchRes.json();
             let rawResults: any[] = (data.web && Array.isArray(data.web.results) ? data.web.results : Array.isArray(data.results) ? data.results : []);
@@ -8037,7 +8049,7 @@ async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: 
             // eligible candidates. Failures fall back to web results alone.
             try {
               const newsUrl = `https://api.search.brave.com/res/v1/news/search?q=${encodeURIComponent(q)}&count=10${freshnessParam}`;
-              const newsRes = await fetch(newsUrl, { headers: { Accept: "application/json", "X-Subscription-Token": braveKey } });
+              const newsRes = await fetch(newsUrl, { headers: { Accept: "application/json", "X-Subscription-Token": braveKey }, signal: AbortSignal.timeout(20000) });
               if (newsRes.ok) {
                 const newsData: any = await newsRes.json();
                 const newsResults: any[] = Array.isArray(newsData?.results) ? newsData.results
@@ -8086,14 +8098,14 @@ async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: 
                 const shortlist = ranked.slice(0, 12).map((c: any, i: number) =>
                   `${i + 1}. ${String(c.r.title || "").slice(0, 120)} — ${c.url} — ${String(c.r.description || "").slice(0, 200)}`
                 ).join("\n");
-                const pickRes: any = await ai.run(AI_BRIEF_MODEL, {
+                const pickRes: any = await autopilotWithTimeout(ai.run(AI_BRIEF_MODEL, {
                   messages: [
                     { role: "system", content: "You rank news source URLs for an automated blogger. Reply with ONLY a JSON array of up to 3 URLs, best first: full news articles (never homepages, section fronts, videos, or search pages), fresh, and topical. No explanation, no other text." },
                     { role: "user", content: `Topic: ${topic}\nFreshness: ${String(criteria.freshness || "24h")}\nCandidates:\n${shortlist}` },
                   ],
                   max_tokens: 300,
                   temperature: 0,
-                });
+                }), 45000, "source pick");
                 const pickText = String(pickRes?.response || pickRes?.text || "");
                 const picked = parseAiSourcePick(pickText);
                 if (picked.length) ranked = applyAiSourcePick(ranked, picked);
@@ -8225,7 +8237,7 @@ async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: 
       let body_md = "";
       try {
         const prompt = `Date: ${currentDate}\nTopic: ${topic}\nSource: ${sourceTitle} ${sourceUrl}\nExcerpt: ${sourceExcerpt.slice(0, 4000) || sourceDescription || ""}\nTone: ${tone}${audience ? ` Audience: ${audience}` : ""}\nLength: ~${max_length} words, no preamble. Start with a brief 2-3 sentence intro paragraph (no heading), then H2/H3 for substantive sections. Do NOT use 'Overview' or 'Introduction' as a heading. Also suggest a concise 8-12 word title as first line starting with "# ".`;
-        const aiRes: any = await (env as any).AI.run(AI_BRIEF_MODEL, { messages: [{ role: "system", content: `You are a concise, factual blog writer for ${currentDate}. Write a well-structured markdown post (~${max_length} words) for the given topic using the source excerpt when relevant. Use neutral, helpful tone (${tone}). No hallucinations; if excerpt lacks detail, write general but useful content. Do NOT use 'Overview' or 'Introduction' as a heading \u2014 start with a 2-3 sentence intro paragraph (no heading), then H2/H3 for real sections, bullets where helpful. Start with a single "# <title>" line.` }, { role: "user", content: prompt }], max_tokens: Math.min(2000, Math.max(600, Math.ceil(max_length * 1.4))), temperature: 0.6 });
+        const aiRes: any = await autopilotWithTimeout((env as any).AI.run(AI_BRIEF_MODEL, { messages: [{ role: "system", content: `You are a concise, factual blog writer for ${currentDate}. Write a well-structured markdown post (~${max_length} words) for the given topic using the source excerpt when relevant. Use neutral, helpful tone (${tone}). No hallucinations; if excerpt lacks detail, write general but useful content. Do NOT use 'Overview' or 'Introduction' as a heading \u2014 start with a 2-3 sentence intro paragraph (no heading), then H2/H3 for real sections, bullets where helpful. Start with a single "# <title>" line.` }, { role: "user", content: prompt }], max_tokens: Math.min(2000, Math.max(600, Math.ceil(max_length * 1.4))), temperature: 0.6 }), 120000, "generation");
         let gen = String((aiRes as any).response || (aiRes as any).text || ((aiRes as any).choices && (aiRes as any).choices[0] && ((aiRes as any).choices[0].message?.content || (aiRes as any).choices[0].text)) || "").trim();
         if (gen.length > 200) {
           const firstLine = gen.split("\n")[0] || "";
