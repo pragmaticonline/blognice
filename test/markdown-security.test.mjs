@@ -20,3 +20,9 @@ test("Markdown headings and fragments remain linked without clobberable IDs", ()
   assert.match(html, /href="#bn-one"/);
   assert.match(html, /id="bn-one-1"/);
 });
+
+test("ordered lists keep their start number instead of renumbering to 1", () => {
+  const html = renderMarkdown("1. Hardware\n\nText.\n\n2. Data\n\nMore.\n\n3. Power");
+  assert.match(html, /<ol start="2">/);
+  assert.match(html, /<ol start="3">/);
+});

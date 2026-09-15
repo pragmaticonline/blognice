@@ -22,7 +22,7 @@ const markdownSchema = {
     p: [], br: [], hr: [["className", "rule-dash", "rule-star", "rule-line"]],
     h1: ["id"], h2: ["id"], h3: ["id"], h4: ["id"], h5: ["id"], h6: ["id"],
     strong: [], em: [], del: [], s: [], u: [], pre: [],
-    code: [], ul: [], ol: [], li: [],
+    code: [], ul: [], ol: ["start"], li: [],
     a: ["href", "title", "target", "rel"],
     div: [["className", "tweet-card", "youtube-embed", "youtube-embed__inner", "bitchute-embed", "bitchute-embed__inner"], ["dataYoutubeId"], ["data-youtube-id"], ["dataBitchuteId"], ["data-bitchute-id"]],
     blockquote: [["className", "twitter-tweet"]],
