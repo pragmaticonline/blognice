@@ -7919,7 +7919,11 @@ app.post("/internal/autopilot/run-now", async (c) => {
   const now = Math.floor(Date.now() / 1000);
   // Run in the background and return immediately: a synchronous wait would
   // outlast the edge timeout on the calling worker (522) for full AI runs.
-  c.executionCtx.waitUntil(runAutopilotScheduled(c.env, now, tenantId));
+  c.executionCtx.waitUntil((async () => {
+    console.log(JSON.stringify({ message: "autopilot background run start", tenantId }));
+    await runAutopilotScheduled(c.env, now, tenantId);
+    console.log(JSON.stringify({ message: "autopilot background run done", tenantId }));
+  })().catch((e) => console.error(JSON.stringify({ message: "autopilot background run failed", tenantId, error: e instanceof Error ? e.message : String(e) }))));
   return c.json({ ok: true, started: true, since: now });
 });
 
