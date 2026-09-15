@@ -32,6 +32,7 @@ jobs:
           echo -n "$NEW_SECRET" | npx wrangler secret put AUTOPILOT_RUN_SECRET --config wrangler.staff.production.jsonc
           echo -n "$NEW_SECRET" | npx wrangler secret put AUTOPILOT_RUN_SECRET --config wrangler.production.jsonc
           echo "Secret synced on both workers."
+          unset CLOUDFLARE_API_TOKEN
           TID=$(npx wrangler d1 execute blognice --remote --config wrangler.production.jsonc --json --command "SELECT id FROM tenants WHERE slug LIKE '%${BLOG_SAFE}%' OR lower(title) LIKE lower('%${BLOG_SAFE}%') LIMIT 1;" | jq -r '.[0].results[0].id // empty')
           if [ -z "${TID}" ]; then echo "No tenant matched."; exit 1; fi
           echo "Testing run-now for tenant id: ${TID}"
