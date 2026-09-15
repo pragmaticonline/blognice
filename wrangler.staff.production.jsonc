@@ -20,9 +20,6 @@
 	"routes": [
 		{ "pattern": "staff.blognice.com/*", "zone_name": "blognice.com" }
 	],
-	"services": [
-		{ "binding": "AUTOPILOT_RUNNER", "service": "blognice" }
-	],
 	"d1_databases": [
 		{
 			"binding": "DB",

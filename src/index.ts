@@ -7985,6 +7985,10 @@ export function autopilotWithTimeout<T>(promise: Promise<T>, ms: number, label: 
   ]);
 }
 
+export function isAutopilotTick(cron: unknown): boolean {
+  return String(cron || "") === "* * * * *";
+}
+
 async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: number) {
   try {
     await env.DB.prepare("CREATE TABLE IF NOT EXISTS autopilot_configs (tenant_id INTEGER PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, staff_enabled INTEGER NOT NULL DEFAULT 0, interval_days INTEGER NOT NULL DEFAULT 1, run_hour_utc INTEGER NOT NULL DEFAULT 9, criteria_json TEXT NOT NULL DEFAULT '{}', image_style TEXT NOT NULL DEFAULT 'editorial-photo', voice TEXT, auto_publish INTEGER NOT NULL DEFAULT 1, max_length INTEGER NOT NULL DEFAULT 900, next_run_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE)").run();
@@ -7995,12 +7999,13 @@ async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: 
     // Migration 064 backfill; no-op once applied.
     try { await env.DB.prepare("ALTER TABLE autopilot_runs ADD COLUMN image_status TEXT").run(); } catch {}
     try { await env.DB.prepare("ALTER TABLE autopilot_runs ADD COLUMN image_error TEXT").run(); } catch {}
-    console.log(JSON.stringify({ message: "autopilot run preamble ok", onlyTenantId: onlyTenantId ?? null }));
+    const forcedRun = Number.isSafeInteger(onlyTenantId);
+    if (forcedRun) console.log(JSON.stringify({ message: "autopilot run preamble ok", onlyTenantId }));
     // Forced single-tenant runs ignore the schedule but keep the on/off gates.
     const due = Number.isSafeInteger(onlyTenantId)
       ? await env.DB.prepare("SELECT * FROM autopilot_configs WHERE tenant_id = ? AND enabled = 1 AND staff_enabled = 1").bind(onlyTenantId).all()
       : await env.DB.prepare("SELECT * FROM autopilot_configs WHERE enabled=1 AND staff_enabled=1 AND (next_run_at IS NULL OR next_run_at <= ?)").bind(now).all();
-    console.log(JSON.stringify({ message: "autopilot run due query ok", matched: ((due.results as any[]) || []).length, onlyTenantId: onlyTenantId ?? null }));
+    if (forcedRun) console.log(JSON.stringify({ message: "autopilot run due query ok", matched: ((due.results as any[]) || []).length, onlyTenantId }));
     for (const row of (due.results as any[]) || []) {
       const tenantId = Number((row as any).tenant_id);
       if (!Number.isSafeInteger(tenantId)) continue;
@@ -8025,7 +8030,7 @@ async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: 
         }
         continue;
       }
-      console.log(JSON.stringify({ message: "autopilot run proceeding to search", tenantId }));
+      if (forcedRun) console.log(JSON.stringify({ message: "autopilot run proceeding to search", tenantId }));
       const dedupDays = Math.min(90, Math.max(7, Number(criteria.dedup_days || 30)));
       const dedupCutoff = now - dedupDays * 86400;
       let sourceUrl = "";
@@ -8366,6 +8371,10 @@ export default {
         const now = Number.isFinite(scheduledTime) && scheduledTime > 0
           ? Math.floor(scheduledTime / 1000)
           : Math.floor(Date.now() / 1000);
+        if (isAutopilotTick((controller as any)?.cron)) {
+          ctx.waitUntil(runAutopilotScheduled(env, now));
+          return;
+        }
         const currentAffiliateTerms = affiliateTermsConfig(env);
         const termsReview = currentAffiliateTerms
           ? requireOutdatedAffiliateTermsInDb(env.DB, {

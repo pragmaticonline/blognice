@@ -1272,43 +1272,18 @@ app.post("/api/autopilot/:tenantId/run-now", async (c) => {
   if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
   const tenantId = Number(c.req.param("tenantId"));
   if (!Number.isSafeInteger(tenantId)) return c.json({ error: "invalid tenant" }, 400);
-  const secret = String((c.env as any).AUTOPILOT_RUN_SECRET || "");
-  if (!secret) return c.json({ error: "run-now is not configured" }, 503);
-  const root = c.env.ROOT_DOMAIN || "blognice.com";
-  let summary: any = null;
-  const started = Date.now();
-  let via = "https";
-  const runner = (c.env as any).AUTOPILOT_RUNNER;
-  const triggerBody = JSON.stringify({ tenant_id: tenantId });
-  const triggerHeaders = { "content-type": "application/json", "x-autopilot-run-secret": secret };
-  try {
-    // Prefer the service binding: a public-edge subrequest to www can die
-    // with a 522 before the main worker ever sees it. Fall back to HTTPS
-    // when the binding is absent (local dev / other envs).
-    via = runner && typeof runner.fetch === "function" ? "binding" : "https";
-    const res = via === "binding"
-      ? await runner.fetch(new Request("https://autopilot-internal/internal/autopilot/run-now", { method: "POST", headers: triggerHeaders, body: triggerBody }))
-      : await fetch(`https://www.${root}/internal/autopilot/run-now`, { method: "POST", headers: triggerHeaders, body: triggerBody });
-    const text = await res.text();
-    try { summary = JSON.parse(text); } catch { summary = null; }
-    if (!res.ok || !summary) {
-      console.error(JSON.stringify({ message: "autopilot run-now upstream failure", tenantId, via, upstream: res.status, elapsedMs: Date.now() - started, bodyHead: text.slice(0, 200) }));
-      return c.json({ error: "autopilot run failed: upstream " + res.status + " via " + via }, 502);
-    }
-  } catch (e) {
-    const detail = e instanceof Error ? e.message : String(e);
-    console.error(JSON.stringify({ message: "autopilot run-now fetch failed", tenantId, via, elapsedMs: Date.now() - started, error: detail }));
-    return c.json({ error: "autopilot run failed: " + detail + " via " + via }, 502);
-  }
-  if (summary && summary.started) {
-    // Async trigger: return immediately and let the page poll the shared
-    // runs table for the finished row. Holding this request open while a
-    // minutes-long AI run executes is what produced edge timeouts.
-    await audit(c, staff, { action: "autopilot-run-now", targetType: "tenant", targetId: String(tenantId), result: "success", after: summary });
-    return c.json(summary);
-  } else if (!summary || !summary.run) {
-    return c.json({ error: "autopilot run failed: upstream returned no run" }, 502);
-  }
+  // Mark the blog due and let the per-minute scheduler run it: no
+  // worker-to-worker call, so no edge timeouts and no secret to agree on.
+  // The page polls the shared runs table for the finished row.
+  await ensureAutopilotTables(c.env.DB);
+  const cfg = await c.env.DB.prepare("SELECT enabled, staff_enabled, criteria_json FROM autopilot_configs WHERE tenant_id=?").bind(tenantId).first() as any;
+  if (!cfg || !Number(cfg.enabled) || !Number(cfg.staff_enabled)) return c.json({ error: "enable autopilot first" }, 400);
+  let topic = "";
+  try { topic = String(JSON.parse((cfg as any).criteria_json || "{}").topic || "").trim(); } catch { topic = ""; }
+  if (!topic) return c.json({ error: "set a topic first" }, 400);
+  const now = Math.floor(Date.now() / 1000);
+  await c.env.DB.prepare("UPDATE autopilot_configs SET next_run_at=?, updated_at=? WHERE tenant_id=?").bind(now, now, tenantId).run();
+  const summary = { ok: true, started: true, since: now };
   await audit(c, staff, { action: "autopilot-run-now", targetType: "tenant", targetId: String(tenantId), result: "success", after: summary });
   return c.json(summary);
 });
