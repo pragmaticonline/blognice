@@ -426,3 +426,44 @@ test("staff run-now polls for the finished run after an async trigger", async ()
     await mf.dispose();
   }
 });
+
+test("staff run-now prefers the service binding over public HTTPS", async () => {
+  const staffApp = typeof staffModule.request === "function" ? staffModule : staffModule.default;
+  const mf = new Miniflare({ modules: true, script: "export default { fetch() { return new Response('ok') } }", d1Databases: { DB: "autopilot-run-now-binding" } });
+  const originalFetch = globalThis.fetch;
+  try {
+    const db = await mf.getD1Database("DB");
+    for (const s of schema.replace(/^[ \t]*--.*(?:\r?\n|$)/gm, "").split(/;\s*(?=\r?\n|$)/).map((v) => v.trim()).filter(Boolean)) await db.prepare(s).run();
+    const now = Math.floor(Date.now() / 1000);
+    const adminAccess = await accessFixture("staff|admin", "admin@blognice.com");
+    await db.prepare("INSERT INTO staff_users (subject, email, role, active, created_at, updated_at) VALUES ('staff|admin','admin@blognice.com','admin',1,?,?)").bind(now, now).run();
+    await db.prepare("INSERT INTO tenants (id, public_id, slug, title, created_at) VALUES (10, 't10', 't10', 'T10', ?)").bind(now).run();
+    await db.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error) VALUES ('r-bind', 10, ?, ?, 'success', 'https://example.com/z', 'Z', 9, NULL)").bind(now, now + 60).run();
+    let bindingHits = 0;
+    const runnerStub = {
+      async fetch(req) {
+        bindingHits++;
+        assert.equal(new URL(req.url).pathname, "/internal/autopilot/run-now");
+        assert.equal(req.headers.get("x-autopilot-run-secret"), "s3cret");
+        return new Response(JSON.stringify({ ok: true, started: true, since: now }), { status: 200 });
+      },
+    };
+    globalThis.fetch = async (url) => {
+      if (String(url).endsWith("/cdn-cgi/access/certs")) return new Response(JSON.stringify({ keys: [adminAccess.publicJwk] }), { status: 200 });
+      throw new Error("must use the service binding, not public HTTPS: " + url);
+    };
+    const origin = "https://staff.blognice.test";
+    const res = await staffApp.request(
+      new Request(`${origin}/api/autopilot/10/run-now`, {
+        method: "POST", headers: { Origin: origin, "Cf-Access-Jwt-Assertion": adminAccess.token, "content-type": "application/json" }, body: "{}",
+      }),
+      undefined, { DB: db, ROOT_DOMAIN: "blognice.test", ACCESS_TEAM_DOMAIN: "team.cloudflareaccess.com", ACCESS_AUD: "staff-audience", AUTOPILOT_RUN_SECRET: "s3cret", AUTOPILOT_RUNNER: runnerStub },
+    );
+    assert.equal(res.status, 200);
+    assert.equal(bindingHits, 1);
+    assert.equal((await res.json()).run.id, "r-bind");
+  } finally {
+    globalThis.fetch = originalFetch;
+    await mf.dispose();
+  }
+});

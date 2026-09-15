@@ -1277,12 +1277,16 @@ app.post("/api/autopilot/:tenantId/run-now", async (c) => {
   const root = c.env.ROOT_DOMAIN || "blognice.com";
   let summary: any = null;
   const started = Date.now();
+  const runner = (c.env as any).AUTOPILOT_RUNNER;
+  const triggerBody = JSON.stringify({ tenant_id: tenantId });
+  const triggerHeaders = { "content-type": "application/json", "x-autopilot-run-secret": secret };
   try {
-    const res = await fetch(`https://www.${root}/internal/autopilot/run-now`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-autopilot-run-secret": secret },
-      body: JSON.stringify({ tenant_id: tenantId }),
-    });
+    // Prefer the service binding: a public-edge subrequest to www can die
+    // with a 522 before the main worker ever sees it. Fall back to HTTPS
+    // when the binding is absent (local dev / other envs).
+    const res = runner && typeof runner.fetch === "function"
+      ? await runner.fetch(new Request("https://autopilot-internal/internal/autopilot/run-now", { method: "POST", headers: triggerHeaders, body: triggerBody }))
+      : await fetch(`https://www.${root}/internal/autopilot/run-now`, { method: "POST", headers: triggerHeaders, body: triggerBody });
     const text = await res.text();
     try { summary = JSON.parse(text); } catch { summary = null; }
     if (!res.ok || !summary) {
