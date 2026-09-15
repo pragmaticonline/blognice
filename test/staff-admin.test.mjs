@@ -247,3 +247,10 @@ test("autopilot runs table shows human-readable wrapped dates", () => {
   assert.match(page, /target="_blank" rel="noopener noreferrer">#/);
   assert.match(staff, /overflow-wrap:anywhere/);
 });
+
+test("autopilot enable/disable uses the setup panel, not prompt modals", () => {
+  const start = staff.indexOf('id="autopilot-edit-panel"');
+  const script = staff.slice(start, staff.indexOf("<\\/script>", start));
+  assert.doesNotMatch(script, /prompt\(/);
+  assert.match(script, /autopilot-disable/);
+});
