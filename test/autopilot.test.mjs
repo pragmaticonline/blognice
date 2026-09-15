@@ -461,7 +461,9 @@ test("staff run-now prefers the service binding over public HTTPS", async () => 
     );
     assert.equal(res.status, 200);
     assert.equal(bindingHits, 1);
-    assert.equal((await res.json()).run.id, "r-bind");
+    const startedBody = await res.json();
+    assert.equal(startedBody.started, true);
+    assert.equal(typeof startedBody.since, "number");
   } finally {
     globalThis.fetch = originalFetch;
     await mf.dispose();
