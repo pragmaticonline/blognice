@@ -24,22 +24,30 @@ jobs:
           cache: npm
       - run: npm ci
 
-      - name: Sync autopilot run secret on both workers then test run-now
+      - name: Sync autopilot run secret on both workers
+        id: sync
         run: |
-          BLOG_SAFE=$(echo "${{ inputs.blog }}" | tr -d "'\";\`" | head -c 80)
           NEW_SECRET=$(openssl rand -hex 32)
           echo "::add-mask::$NEW_SECRET"
           echo -n "$NEW_SECRET" | npx wrangler secret put AUTOPILOT_RUN_SECRET --config wrangler.staff.production.jsonc
           echo -n "$NEW_SECRET" | npx wrangler secret put AUTOPILOT_RUN_SECRET --config wrangler.production.jsonc
           echo "Secret synced on both workers."
-          unset CLOUDFLARE_API_TOKEN
-          TID=$(npx wrangler d1 execute blognice --remote --config wrangler.production.jsonc --json --command "SELECT id FROM tenants WHERE slug LIKE '%${BLOG_SAFE}%' OR lower(title) LIKE lower('%${BLOG_SAFE}%') LIMIT 1;" | jq -r '.[0].results[0].id // empty')
-          if [ -z "${TID}" ]; then echo "No tenant matched."; exit 1; fi
-          echo "Testing run-now for tenant id: ${TID}"
-          curl --silent --show-error --max-time 120 --write-out '\nHTTP %{http_code}\n' https://www.blognice.com/internal/autopilot/run-now -H 'content-type: application/json' -H "x-autopilot-run-secret: ${NEW_SECRET}" --data "{\"tenant_id\": ${TID}}"
-          echo "--- recorded run rows ---"
-          npx wrangler d1 execute blognice --remote --config wrangler.production.jsonc --json --command "SELECT id, tenant_id, datetime(started_at,'unixepoch') AS started_utc, status, substr(error,1,300) AS error_head, search_raw_count, search_kept_count, image_status FROM autopilot_runs WHERE tenant_id = ${TID} ORDER BY started_at DESC LIMIT 3;" | jq .
+          echo "run_secret=${NEW_SECRET}" >> "$GITHUB_OUTPUT"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_D1_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+
+      - name: Run run-now against the test blog (read DB + one test run)
+        run: |
+          BLOG_SAFE=$(echo "${{ inputs.blog }}" | tr -d "'\";\`" | head -c 80)
+          OUT=$(npx wrangler d1 execute blognice --remote --config wrangler.production.jsonc --json --command "SELECT id, slug FROM tenants WHERE slug LIKE '%${BLOG_SAFE}%' OR lower(title) LIKE lower('%${BLOG_SAFE}%') LIMIT 1;")
+          echo "$OUT" | head -c 800; echo
+          TID=$(echo "$OUT" | jq -r 'if type == "array" then .[0].results[0].id else .results[0].id end // empty')
+          if [ -z "${TID}" ]; then echo "No tenant matched."; exit 1; fi
+          echo "Testing run-now for tenant id: ${TID}"
+          curl --silent --show-error --max-time 120 --write-out '\nHTTP %{http_code}\n' https://www.blognice.com/internal/autopilot/run-now -H 'content-type: application/json' -H "x-autopilot-run-secret: ${{ steps.sync.outputs.run_secret }}" --data "{\"tenant_id\": ${TID}}"
+          echo "--- recorded run rows ---"
+          npx wrangler d1 execute blognice --remote --config wrangler.production.jsonc --json --command "SELECT id, tenant_id, datetime(started_at,'unixepoch') AS started_utc, status, substr(error,1,300) AS error_head, search_raw_count, search_kept_count, image_status FROM autopilot_runs WHERE tenant_id = ${TID} ORDER BY started_at DESC LIMIT 3;" | jq .
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
