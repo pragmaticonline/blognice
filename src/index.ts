@@ -8005,7 +8005,10 @@ async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: 
       const tenantId = Number((row as any).tenant_id);
       if (!Number.isSafeInteger(tenantId)) continue;
       const tenant = await env.DB.prepare("SELECT * FROM tenants WHERE id=?").bind(tenantId).first() as any;
-      if (!tenant) continue;
+      if (!tenant) {
+        console.error(JSON.stringify({ message: "autopilot run skipped: tenant not found", tenantId }));
+        continue;
+      }
       if (!(await tenantHasPaidPlan(env, tenantId))) {
         const runId = crypto.randomUUID();
         await env.DB.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error) VALUES (?, ?, ?, ?, 'skipped', NULL, NULL, NULL, 'unpaid')").bind(runId, tenantId, now, now).run();
@@ -8015,7 +8018,13 @@ async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: 
       let criteria: any = {};
       try { criteria = JSON.parse((row as any).criteria_json || "{}"); } catch { criteria = {}; }
       const topic = String(criteria.topic || "").trim();
-      if (!topic) continue;
+      if (!topic) {
+        if (Number.isSafeInteger(onlyTenantId)) {
+          const runId = crypto.randomUUID();
+          await env.DB.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error, search_raw_count, search_kept_count) VALUES (?, ?, ?, ?, 'skipped', NULL, NULL, NULL, 'no_topic', 0, 0)").bind(runId, tenantId, now, now).run();
+        }
+        continue;
+      }
       console.log(JSON.stringify({ message: "autopilot run proceeding to search", tenantId }));
       const dedupDays = Math.min(90, Math.max(7, Number(criteria.dedup_days || 30)));
       const dedupCutoff = now - dedupDays * 86400;

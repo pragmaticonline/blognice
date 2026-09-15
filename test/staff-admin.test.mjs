@@ -331,3 +331,62 @@ test("autopilot long actions show a spinner while busy", () => {
   assert.match(staff, /prefers-reduced-motion/);
   assert.match(staff, /class=spin/);
 });
+
+test("run now polls the shared runs table until the run finishes", async () => {
+  const { Script, createContext } = await import("node:vm");
+  const start = staff.indexOf("var tids=");
+  const end = staff.indexOf("load()})();", start) + "load()})();".length;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const js = staff
+    .slice(start, end)
+    .replace("${idsJson}", "[7]")
+    .replace("${blogsJson}", JSON.stringify([{ id: 7, title: "T", slug: "t", custom_domain: null }]))
+    .replace(/\$\{[^}]*\}/g, "0");
+  let rendered = false;
+  const clicks = [];
+  const fakeButton = (attrs) => ({
+    getAttribute: (k) => (attrs[k] === undefined ? null : attrs[k]),
+    addEventListener: (ev, fn) => clicks.push({ attrs, ev, fn }),
+    set innerHTML(v) { this.html = v; },
+    set textContent(v) { this.label = v; },
+  });
+  const alerts = [];
+  const panel = { style: {}, scrollIntoView: () => {} };
+  const byId = {
+    "autopilot-rows": { set innerHTML(v) { this.html = v; rendered = true; } },
+    "autopilot-edit-panel": panel,
+    "autopilot-form": { elements: {}, addEventListener: () => {} },
+    "autopilot-cancel": { addEventListener: () => {} },
+    "autopilot-disable": { style: {}, addEventListener: () => {} },
+  };
+  const buttons = { run: [fakeButton({ "data-autopilot-run": "7" })] };
+  const documentStub = {
+    getElementById: (id) => byId[id] ?? null,
+    querySelectorAll: (sel) => (!rendered ? [] : sel.includes("run") ? buttons.run : []),
+    createElement: () => ({ set textContent(v) { this.html = v; }, get innerHTML() { return this.html; } }),
+    location: { hostname: "staff.blognice.com" },
+  };
+  const fetchStub = async (url, opts) => {
+    const u = String(url);
+    if (u.endsWith("/run-now")) return { ok: true, json: async () => ({ ok: true, started: true, since: nowSec }) };
+    if (u.includes("/api/autopilot-runs")) {
+      return { ok: true, json: async () => ({ runs: [{ started_at: nowSec, finished_at: nowSec + 60, status: "success", error: null }] }) };
+    }
+    return { ok: true, json: async () => ({}) };
+  };
+  const ctx = createContext({
+    document: documentStub,
+    fetch: fetchStub,
+    confirm: () => true,
+    alert: (m) => alerts.push(String(m)),
+    location: { reload: () => {}, hostname: "staff.blognice.com" },
+    setTimeout,
+    Date,
+  });
+  new Script(`(function(){${js}`).runInContext(ctx);
+  for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
+  const run = clicks.find((c) => c.attrs["data-autopilot-run"] === "7" && c.ev === "click");
+  assert.ok(run, "run button has a click handler after load");
+  await run.fn();
+  assert.ok(alerts.some((m) => m.includes("Run finished: success")), "page reports the polled run result, got: " + JSON.stringify(alerts));
+});

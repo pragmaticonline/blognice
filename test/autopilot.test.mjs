@@ -396,7 +396,7 @@ test("staff run-now reports the specific upstream failure", async () => {
   }
 });
 
-test("staff run-now polls for the finished run after an async trigger", async () => {
+test("staff run-now returns started immediately after an async trigger", async () => {
   const staffApp = typeof staffModule.request === "function" ? staffModule : staffModule.default;
   const mf = new Miniflare({ modules: true, script: "export default { fetch() { return new Response('ok') } }", d1Databases: { DB: "autopilot-run-now-async" } });
   const originalFetch = globalThis.fetch;
@@ -406,8 +406,6 @@ test("staff run-now polls for the finished run after an async trigger", async ()
     const now = Math.floor(Date.now() / 1000);
     const adminAccess = await accessFixture("staff|admin", "admin@blognice.com");
     await db.prepare("INSERT INTO staff_users (subject, email, role, active, created_at, updated_at) VALUES ('staff|admin','admin@blognice.com','admin',1,?,?)").bind(now, now).run();
-    await db.prepare("INSERT INTO tenants (id, public_id, slug, title, created_at) VALUES (10, 't10', 't10', 'T10', ?)").bind(now).run();
-    await db.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error) VALUES ('r-async', 10, ?, ?, 'success', 'https://example.com/y', 'Y', 7, NULL)").bind(now, now + 60).run();
     globalThis.fetch = async (url) => {
       if (String(url).endsWith("/cdn-cgi/access/certs")) return new Response(JSON.stringify({ keys: [adminAccess.publicJwk] }), { status: 200 });
       return new Response(JSON.stringify({ ok: true, started: true, since: now }), { status: 200 });
@@ -420,7 +418,9 @@ test("staff run-now polls for the finished run after an async trigger", async ()
       undefined, { DB: db, ROOT_DOMAIN: "blognice.test", ACCESS_TEAM_DOMAIN: "team.cloudflareaccess.com", ACCESS_AUD: "staff-audience", AUTOPILOT_RUN_SECRET: "s3cret" },
     );
     assert.equal(res.status, 200);
-    assert.equal((await res.json()).run.id, "r-async");
+    const body = await res.json();
+    assert.equal(body.started, true);
+    assert.equal(body.since, now);
   } finally {
     globalThis.fetch = originalFetch;
     await mf.dispose();
