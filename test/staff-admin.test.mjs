@@ -254,3 +254,12 @@ test("autopilot enable/disable uses the setup panel, not prompt modals", () => {
   assert.doesNotMatch(script, /prompt\(/);
   assert.match(script, /autopilot-disable/);
 });
+
+test("autopilot staff script parses and kicks off loading", async () => {
+  const { Script } = await import("node:vm");
+  const start = staff.indexOf("var tids=");
+  const end = staff.indexOf("load()})();", start) + "load()})();".length;
+  const body = staff.slice(start, end).replace(/\$\{[^}]*\}/g, "0");
+  new Script("(function(){" + body);
+  assert.match(body, /\bload\(\)\}\)\(\);$/);
+});
