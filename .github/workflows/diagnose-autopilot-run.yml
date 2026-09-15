@@ -1,0 +1,38 @@
+name: Diagnose autopilot run
+
+on:
+  workflow_dispatch:
+    inputs:
+      blog:
+        description: "Blog slug or title fragment (e.g. critter-planet)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Diagnose latest autopilot runs (read-only)
+        run: |
+          BLOG_SAFE=$(echo "${{ inputs.blog }}" | tr -d "'\";\`" | head -c 80)
+          echo "Looking up blog: ${BLOG_SAFE}"
+          TENANT_JSON=$(npx wrangler d1 execute blognice --remote --config wrangler.production.jsonc --json --command "SELECT id, title, slug, custom_domain FROM tenants WHERE slug LIKE '%${BLOG_SAFE}%' OR lower(title) LIKE lower('%${BLOG_SAFE}%') LIMIT 10;")
+          echo "${TENANT_JSON}" | jq .
+          TID=$(echo "${TENANT_JSON}" | jq -r '.[0].results[0].id // empty')
+          if [ -z "${TID}" ]; then echo "No tenant matched."; exit 1; fi
+          echo "Tenant id: ${TID}"
+          npx wrangler d1 execute blognice --remote --config wrangler.production.jsonc --json --command "SELECT id, tenant_id, datetime(started_at,'unixepoch') AS started_utc, datetime(finished_at,'unixepoch') AS finished_utc, status, source_url, source_title, post_id, error, search_raw_count, search_kept_count, image_status, image_error FROM autopilot_runs WHERE tenant_id = ${TID} ORDER BY started_at DESC LIMIT 5; SELECT tenant_id, enabled, staff_enabled, interval_days, run_hour_utc, max_length, datetime(next_run_at,'unixepoch') AS next_run_utc, substr(criteria_json,1,500) AS criteria_head FROM autopilot_configs WHERE tenant_id = ${TID};" | jq .
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
