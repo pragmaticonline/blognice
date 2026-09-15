@@ -7983,10 +7983,12 @@ async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: 
     // Migration 064 backfill; no-op once applied.
     try { await env.DB.prepare("ALTER TABLE autopilot_runs ADD COLUMN image_status TEXT").run(); } catch {}
     try { await env.DB.prepare("ALTER TABLE autopilot_runs ADD COLUMN image_error TEXT").run(); } catch {}
+    console.log(JSON.stringify({ message: "autopilot run preamble ok", onlyTenantId: onlyTenantId ?? null }));
     // Forced single-tenant runs ignore the schedule but keep the on/off gates.
     const due = Number.isSafeInteger(onlyTenantId)
       ? await env.DB.prepare("SELECT * FROM autopilot_configs WHERE tenant_id = ? AND enabled = 1 AND staff_enabled = 1").bind(onlyTenantId).all()
       : await env.DB.prepare("SELECT * FROM autopilot_configs WHERE enabled=1 AND staff_enabled=1 AND (next_run_at IS NULL OR next_run_at <= ?)").bind(now).all();
+    console.log(JSON.stringify({ message: "autopilot run due query ok", matched: ((due.results as any[]) || []).length, onlyTenantId: onlyTenantId ?? null }));
     for (const row of (due.results as any[]) || []) {
       const tenantId = Number((row as any).tenant_id);
       if (!Number.isSafeInteger(tenantId)) continue;
@@ -8002,6 +8004,7 @@ async function runAutopilotScheduled(env: Bindings, now: number, onlyTenantId?: 
       try { criteria = JSON.parse((row as any).criteria_json || "{}"); } catch { criteria = {}; }
       const topic = String(criteria.topic || "").trim();
       if (!topic) continue;
+      console.log(JSON.stringify({ message: "autopilot run proceeding to search", tenantId }));
       const dedupDays = Math.min(90, Math.max(7, Number(criteria.dedup_days || 30)));
       const dedupCutoff = now - dedupDays * 86400;
       let sourceUrl = "";
