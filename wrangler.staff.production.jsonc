@@ -20,6 +20,13 @@
 	"routes": [
 		{ "pattern": "staff.blognice.com/*", "zone_name": "blognice.com" }
 	],
+	"rules": [
+		{
+			"type": "Text",
+			"globs": ["**/*.svg"],
+			"fallthrough": false
+		}
+	],
 	"d1_databases": [
 		{
 			"binding": "DB",
