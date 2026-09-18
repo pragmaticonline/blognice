@@ -4816,8 +4816,8 @@ export async function setAutopilotImageStatus(env: Bindings, tenantId: number, p
 // phrase dozens of times ("edible cookies made from" x60 was published
 // verbatim); returns the offending phrase so the caller can discard the draft
 // and retry instead of publishing it.
-export const AUTOPILOT_REPEAT_PHRASE_WORDS = 5;
-export const AUTOPILOT_MAX_PHRASE_REPEATS = 5;
+const AUTOPILOT_REPEAT_PHRASE_WORDS = 5;
+const AUTOPILOT_MAX_PHRASE_REPEATS = 5;
 
 export function findRepeatedPhrase(text: string, phraseWords = AUTOPILOT_REPEAT_PHRASE_WORDS, maxRepeats = AUTOPILOT_MAX_PHRASE_REPEATS): string | null {
   const words = text.toLowerCase().split(/\s+/).filter(Boolean);

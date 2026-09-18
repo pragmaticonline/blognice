@@ -132,7 +132,7 @@ test("correct title soft-deletes: page gone, lists clean, slot freed", async () 
     // The freed slot lets this free-plan owner create again.
     const create = await mf.dispatchFetch(`${ORIGIN}/admin/new-blog`, {
       method: "POST",
-      headers: { ...cookie("sess"), "Content-Type": "application/x-www-form-urlencoded" },
+      headers: { Origin: ORIGIN, ...cookie("sess"), "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ slug: "second", title: "Second" }).toString(),
       redirect: "manual",
     });
