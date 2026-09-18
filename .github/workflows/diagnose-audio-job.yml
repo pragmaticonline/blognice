@@ -57,3 +57,23 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Release manifest-less claim (guarded write)
+        run: |
+          POST_SAFE=$(echo "${{ inputs.post }}" | tr -d "'\"\`;" | head -c 16)
+          BLOG_SAFE=$(echo "${{ inputs.blog }}" | tr -d "'\"\`;" | head -c 64)
+          TID=$(npx wrangler d1 execute blognice --remote --config wrangler.production.jsonc --json --command "SELECT id FROM tenants WHERE public_id = '${BLOG_SAFE}' LIMIT 1;" | jq -r '.[0].results[0].id // empty')
+          GENID=$(npx wrangler d1 execute blognice-posts --remote --config wrangler.production.jsonc --json --command "SELECT audio_generation_id FROM posts WHERE id = ${POST_SAFE} AND tenant_id = ${TID};" | jq -r '.[0].results[0].audio_generation_id // empty')
+          if [ -z "${GENID}" ] || [ "${GENID}" = "null" ]; then echo "No claim held; nothing to release."; exit 0; fi
+          # A claim without a job manifest can never run (the consumer throws
+          # at manifest read) and can never self-release (release needs the
+          # manifest). Clear it only when the manifest is provably absent.
+          if npx wrangler r2 object get "blognice-media/${TID}/.audio-jobs/${GENID}.json" --file /tmp/audio-claim-check.json 2>/dev/null; then
+            echo "Manifest exists; leaving the live claim alone."
+          else
+            echo "Manifest absent; releasing dead claim ${GENID}."
+            npx wrangler d1 execute blognice-posts --remote --config wrangler.production.jsonc --json --command "UPDATE posts SET audio_generation_id = NULL, updated_at = $(date +%s) WHERE id = ${POST_SAFE} AND tenant_id = ${TID} AND audio_generation_id = '${GENID}';" | jq '.[0].meta'
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
