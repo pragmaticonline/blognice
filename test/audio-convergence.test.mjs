@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { Miniflare } from "miniflare";
 import { build } from "esbuild";
@@ -49,9 +52,10 @@ async function setup() {
       },
     }],
   });
-  const url = new URL(`../audio-conv-bundle-${Date.now()}.mjs`, import.meta.url);
-  fs.writeFileSync(url, bundle.outputFiles[0].text);
-  const worker = await import(url.href);
+  const bundlePath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "audio-conv-")), "worker.mjs");
+  fs.writeFileSync(bundlePath, bundle.outputFiles[0].text);
+  const worker = await import(pathToFileURL(bundlePath).href);
+  fs.rmSync(path.dirname(bundlePath), { recursive: true, force: true });
   const mf = new Miniflare({
     modules: true,
     script: "export default { fetch() { return new Response('ok') } }",
