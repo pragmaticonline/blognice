@@ -1,8 +1,18 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import test from "node:test";
 import { Miniflare } from "miniflare";
-import staffModule from "../src/staff.ts";
+
+const require = createRequire(import.meta.url);
+for (const extension of [".html", ".svg"]) {
+  require.extensions[extension] = (module, filename) => {
+    module.exports = readFileSync(filename, "utf8");
+  };
+}
+// Dynamic import: staff.ts (and its .svg asset) must load after the asset
+// handlers above are registered, otherwise tsx tries to compile the SVG.
+const { default: staffModule } = await import("../src/staff.ts");
 
 function b64url(value) {
   const bytes = typeof value === "string" ? new TextEncoder().encode(value) : new Uint8Array(value);
@@ -444,6 +454,22 @@ test("audit log shows ticks for success/failure and notes UTC once", async () =>
   }
 });
 
+test("staff pages use a recoloured staff favicon with the same mark", async () => {
+  const staffApp = typeof staffModule.request === "function" ? staffModule : staffModule.default;
+  const staffFavicon = readFileSync(new URL("../staff-favicon.svg", import.meta.url), "utf8");
+  const mainFavicon = readFileSync(new URL("../favicon.svg", import.meta.url), "utf8");
+  assert.match(staffFavicon, /<svg[\s>]/i);
+  const pathData = (svg) => [...svg.matchAll(/<path[^>]*d="([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(pathData(staffFavicon).length > 0, "staff favicon has drawn paths");
+  assert.deepEqual(pathData(staffFavicon), pathData(mainFavicon), "staff favicon reuses the main mark geometry");
+  assert.doesNotMatch(staffFavicon, /#1a8917/i, "staff favicon is not the main brand green");
+  assert.match(staff, /<link rel="icon" href="\/staff-favicon\.svg"/);
+  assert.match(staff, /app\.get\("\/staff-favicon\.svg"/);
+  const res = await staffApp.request(new Request("https://staff.blognice.test/staff-favicon.svg"));
+  assert.equal(res.status, 200, "staff favicon is served without staff login");
+  assert.match(res.headers.get("content-type") || "", /image\/svg\+xml/);
+});
+
 test("staff TTS engine switch persists and gates by role", async () => {
   const staffApp = typeof staffModule.request === "function" ? staffModule : staffModule.default;
   const mf = new Miniflare({ modules: true, script: "export default { fetch() { return new Response('ok') } }", d1Databases: { DB: "staff-tts-engine" } });
@@ -514,6 +540,67 @@ test("staff TTS test page shows the active narration engine", async () => {
     await db.prepare("INSERT INTO platform_settings (key, value, updated_at) VALUES ('tts.engine', 'aura-1', ?)").bind(now).run();
     html = await (await page(adminAccess)).text();
     assert.match(html, /<strong id="tts-engine-status">aura-1<\/strong>/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await mf.dispose();
+  }
+});
+
+test("staff TTS samples render on the active narration engine", async () => {
+  const staffApp = typeof staffModule.request === "function" ? staffModule : staffModule.default;
+  const mf = new Miniflare({ modules: true, script: "export default { fetch() { return new Response('ok') } }", d1Databases: { DB: "staff-tts-sample" } });
+  const originalFetch = globalThis.fetch;
+  const sampleWav = (() => {
+    const bytes = new Uint8Array(48);
+    const view = new DataView(bytes.buffer);
+    for (const [offset, text] of [[0, "RIFF"], [8, "WAVE"], [12, "fmt "], [36, "data"]])
+      for (let i = 0; i < text.length; i++) bytes[offset + i] = text.charCodeAt(i);
+    view.setUint32(4, 40, true);
+    view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+    view.setUint32(24, 24_000, true); view.setUint32(28, 48_000, true);
+    view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+    view.setUint32(40, 4, true);
+    return bytes;
+  })();
+  try {
+    const db = await mf.getD1Database("DB");
+    const baseSchema = readFileSync(new URL("../schema.sql", import.meta.url), "utf8");
+    for (const s of baseSchema.replace(/^[ \t]*--.*(?:\r?\n|$)/gm, "").split(/;\s*(?=\r?\n|$)/).map((v) => v.trim()).filter(Boolean)) await db.prepare(s).run();
+    const now = Math.floor(Date.now() / 1000);
+    const adminAccess = await accessFixture("staff|sampleadmin", "sampleadmin@blognice.com");
+    await db.prepare("INSERT INTO staff_users (subject, email, role, active, created_at, updated_at) VALUES ('staff|sampleadmin','sampleadmin@blognice.com','admin',1,?,?)").bind(now, now).run();
+    globalThis.fetch = async (url) => {
+      if (String(url).endsWith("/cdn-cgi/access/certs")) return new Response(JSON.stringify({ keys: [adminAccess.publicJwk] }), { status: 200 });
+      throw new Error("unexpected " + url);
+    };
+    const calls = [];
+    const aiStub = (behavior) => ({
+      run: async (model, input) => {
+        calls.push({ model, input });
+        if (behavior === "quota") throw new Error("3036 quota reached");
+        if (String(model).includes("aura")) {
+          return new ReadableStream({ start(c) { c.enqueue(sampleWav); c.close(); } });
+        }
+        return sampleWav;
+      },
+    });
+    const sample = (ai) => staffApp.request(new Request("https://staff.blognice.test/api/tts-test", {
+      method: "POST",
+      headers: { "Cf-Access-Jwt-Assertion": adminAccess.token, Origin: "https://staff.blognice.test", "content-type": "application/json" },
+      body: JSON.stringify({ text: "AI is useful." }),
+    }), undefined, { DB: db, AI: ai, ACCESS_TEAM_DOMAIN: "team.cloudflareaccess.com", ACCESS_AUD: "staff-audience" });
+    let res = await sample(aiStub("ok"));
+    assert.equal(res.status, 200, "melotts sample serves by default");
+    assert.match(res.headers.get("content-type") || "", /audio\/wav/);
+    assert.equal(calls[0].model, "@cf/myshell-ai/melotts");
+    assert.deepEqual((await res.arrayBuffer()).byteLength > 0, true);
+    await db.prepare("INSERT INTO platform_settings (key, value, updated_at) VALUES ('tts.engine', 'aura-1', ?)").bind(now).run();
+    res = await sample(aiStub("ok"));
+    assert.equal(res.status, 200, "aura-1 sample serves when the engine is set");
+    assert.equal(calls[1].model, "@cf/deepgram/aura-1");
+    assert.equal(calls[1].input.encoding, "linear16");
+    res = await sample(aiStub("quota"));
+    assert.equal(res.status, 502, "model failures answer 502 without retrying quota errors");
   } finally {
     globalThis.fetch = originalFetch;
     await mf.dispose();
