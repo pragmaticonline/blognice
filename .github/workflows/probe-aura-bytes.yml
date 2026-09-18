@@ -1,0 +1,78 @@
+name: Probe Aura-1 bytes
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Synthesize title variants on Aura-1 (read spend, tiny)
+        run: |
+          cat > /tmp/variants.txt <<'EOF'
+          U S Military Deploying Drones to South America for Counternarcotics.
+          US Military Deploying Drones to South America for Counternarcotics.
+          U.S. Military Deploying Drones to South America for Counternarcotics.
+          The quick brown fox jumps over the lazy dog.
+          U S
+          EOF
+          i=0
+          while IFS= read -r text; do
+            i=$((i + 1))
+            for round in 1 2; do
+              body=$(jq -n --arg t "$text" '{text: $t, encoding: "linear16", container: "wav"}')
+              code=$(curl -s -o "/tmp/v${i}r${round}.bin" -w "%{http_code}" --request POST \
+                --url "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/ai/run/@cf/deepgram/aura-1" \
+                --header "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
+                --header 'Content-Type: application/json' \
+                --data "$body")
+              echo "variant=$i round=$round http=$code bytes=$(stat -c%s /tmp/v${i}r${round}.bin)"
+              if [ "$code" != "200" ]; then head -c 300 "/tmp/v${i}r${round}.bin"; echo; fi
+              python3 - "/tmp/v${i}r${round}.bin" <<'PYEOF' || true
+          import struct, sys
+          p = sys.argv[1]
+          raw = open(p, "rb").read()
+          print("  total:", len(raw), "magic:", raw[:4], raw[8:12] if len(raw) >= 12 else b"")
+          if len(raw) < 44 or raw[:4] != b"RIFF" or raw[8:12] != b"WAVE":
+              print("  NOT-WAV"); sys.exit(0)
+          off = 12
+          while off + 8 <= len(raw):
+              cid, size = raw[off:off+4], struct.unpack("<I", raw[off+4:off+8])[0]
+              print(f"  chunk {cid} declared={size} avail={len(raw)-(off+8)}" + (" STREAMED-UNKNOWN" if size == 0xFFFFFFFF else "") + (" TRUNCATED" if size != 0xFFFFFFFF and off+8+size > len(raw) else ""))
+              if cid == b"data":
+                  break
+              off += 8 + size + (size % 2)
+          PYEOF
+              if python3 - "/tmp/v${i}r${round}.bin" <<'PYEOF' 2>/dev/null | grep -q TRUNCATED; then
+          import struct, sys
+          raw = open(sys.argv[1], "rb").read()
+          off = 12
+          while off + 8 <= len(raw):
+              cid, size = raw[off:off+4], struct.unpack("<I", raw[off+4:off+8])[0]
+              if cid == b"data" and size != 0xFFFFFFFF and off+8+size > len(raw):
+                  print("TRUNCATED")
+              if cid == b"data":
+                  break
+              off += 8 + size + (size % 2)
+          PYEOF
+                echo "  truncated; waiting 15s before round 2"
+                sleep 15
+              else
+                break
+              fi
+            done
+          done < /tmp/variants.txt
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
