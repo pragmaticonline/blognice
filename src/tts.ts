@@ -49,7 +49,11 @@ export function classifyTtsError(error: unknown, emptyAudio = false): TtsErrorIn
   const details = [message, value && value.code, value && value.status, value && value.cause].map((part) => String(part ?? "")).join(" ");
   const code = details.match(/\b(3036|3040|3043)\b/)?.[1] ?? null;
   if (code === "3036") return { transient: false, category: "quota", code };
-  if (code === "3040" || code === "3043" || /internal server error|temporar|timeout|overload|unavailable/i.test(details)) {
+  // A cut stream is worth retrying (and, through generateSpeechWithRecovery,
+  // splitting): flaky cuts succeed on retry, and a per-request output cap
+  // converges as segments halve. A streamed 0xFFFFFFFF size never reaches
+  // here — parseWav accepts it as complete.
+  if (code === "3040" || code === "3043" || /internal server error|temporar|timeout|overload|unavailable|truncated WAV/i.test(details)) {
     return { transient: true, category: /timeout/i.test(details) ? "timeout" : "upstream", code };
   }
   return { transient: false, category: "unknown", code };
@@ -460,12 +464,17 @@ function parseWav(bytes: Uint8Array): WavPart {
     const id = fourCC(bytes, offset);
     const size = view.getUint32(offset + 4, true);
     const dataOffset = offset + 8;
-    if (dataOffset + size > bytes.length) throw new Error("The speech model returned truncated WAV audio.");
-    if (id === "fmt ") format = bytes.slice(dataOffset, dataOffset + size);
     if (id === "data") {
       if (!format) throw new Error("The speech model returned WAV audio without a format chunk.");
-      return { bytes, dataOffset, dataSize: size, dataSizeOffset: offset + 4, format };
+      // Streaming encoders (Aura-1 over the Workers AI binding) emit the WAV
+      // container before the payload size is known and mark the data chunk
+      // 0xFFFFFFFF ("unknown size"). The bytes on the wire are the audio.
+      const dataSize = size === 0xFFFFFFFF ? bytes.length - dataOffset : size;
+      if (dataOffset + dataSize > bytes.length) throw new Error("The speech model returned truncated WAV audio.");
+      return { bytes, dataOffset, dataSize, dataSizeOffset: offset + 4, format };
     }
+    if (dataOffset + size > bytes.length) throw new Error("The speech model returned truncated WAV audio.");
+    if (id === "fmt ") format = bytes.slice(dataOffset, dataOffset + size);
     offset = dataOffset + size + (size % 2);
   }
   throw new Error("The speech model returned WAV audio without sample data.");

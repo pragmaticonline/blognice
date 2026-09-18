@@ -276,6 +276,7 @@ test("TTS errors separate timeouts, unknowns, and flag-gated empty audio", () =>
   assert.deepEqual(classifyTtsError(null), { transient: false, category: "unknown", code: null });
   assert.deepEqual(classifyTtsError(new Error("The model returned no audio.")), { transient: false, category: "unknown", code: null });
   assert.deepEqual(classifyTtsError(new Error("temporarily overloaded, try later")), { transient: true, category: "upstream", code: null });
+  assert.deepEqual(classifyTtsError(new Error("The speech model returned truncated WAV audio.")), { transient: true, category: "upstream", code: null });
 });
 
 test("pronunciation replacements are constrained and cannot rewrite narration", () => {
@@ -315,6 +316,24 @@ test("long narration splits on sentences and WAV segments merge into one file", 
   assert.equal(view.getUint32(4, true), merged.length - 8);
   assert.equal(view.getUint32(40, true), 6);
   assert.deepEqual([...merged.slice(44)], [1, 2, 3, 4, 5, 6]);
+});
+
+test("WAV assembly accepts streamed audio with an unknown data size", () => {
+  // Aura-1 over the Workers AI binding streams the WAV container and marks
+  // the data chunk 0xFFFFFFFF ("unknown size"). The payload on the wire is
+  // complete; only the declared size is a placeholder.
+  const streamed = wav(new Uint8Array([1, 2, 3, 4]));
+  new DataView(streamed.buffer).setUint32(40, 0xFFFFFFFF, true);
+  const assembly = wavAssembly([streamed], 0);
+  assert.equal(assembly.size, 44 + 4);
+  assert.deepEqual([...assembly.samples[0]], [1, 2, 3, 4]);
+  assert.equal(new DataView(assembly.header.buffer).getUint32(40, true), 4);
+});
+
+test("WAV assembly still rejects a concretely short data chunk", () => {
+  const short = wav(new Uint8Array([1, 2]));
+  new DataView(short.buffer).setUint32(40, 100, true);
+  assert.throws(() => wavAssembly([short], 0), /truncated WAV audio/);
 });
 
 test("WAV assembly inserts an exact 1.5-second pause after the title", () => {
