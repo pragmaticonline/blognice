@@ -153,6 +153,35 @@ test("a cut segment is retried and the narration still attaches", async () => {
   }
 });
 
+test("truncation that outlasts the normal schedule converges on the second wind", async () => {
+  const { worker, mf, postsDb, media } = await setup();
+  try {
+    const prompts = [{ text: "A patient segment.", pauseAfter: 0 }];
+    const jobKey = await seedJob(postsDb, media, { jobId: "cccccccc-3333-4333-8333-cccccccccccc", postId: 33, prompts, model: "@cf/deepgram/aura-1" });
+    let calls = 0;
+    const env = {
+      DB: await mf.getD1Database("DB"), POSTS: postsDb, MEDIA: media, ROOT_DOMAIN: "blognice.com",
+      AI: {
+        run: async () => {
+          calls++;
+          // Fail every attempt of the normal 13-attempt schedule; only a
+          // slower second wind reaches the 14th call.
+          return streamOf(calls <= 13 ? cut : wavBytes(64));
+        },
+      },
+    };
+    let acked = false;
+    await worker.default.queue({ messages: [{ body: { jobKey, tenantId: 1, postId: 33 }, attempts: 1, ack() { acked = true; }, retry() {} }] }, env);
+    assert.equal(acked, true, "slow recovery is acked, not retried");
+    const job = JSON.parse(await (await media.get(jobKey)).text());
+    assert.equal(job.status, "complete", "job converges past the normal retry budget");
+    assert.ok(job.audioKey, "audio attaches");
+    assert.equal(calls, 14, "recovery reached beyond the 13-attempt schedule");
+  } finally {
+    await mf.dispose();
+  }
+});
+
 test("a poisoned checkpoint is dropped and resynthesized instead of replayed", async () => {
   const { worker, mf, postsDb, media } = await setup();
   try {

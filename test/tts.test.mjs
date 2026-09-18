@@ -9,7 +9,7 @@ for (const extension of [".html", ".svg"]) {
     module.exports = readFileSync(filename, "utf8");
   };
 }
-import { applyManagedSpokenForms, applyPronunciations, classifyTtsError, mergeWav, narrationChunks, narrationSections, narrationText, pronunciationReplacements, removeCitationClusters, ttsBytes, validWavAudio, wavAssembly, TTS_CHUNK_MAX, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "../src/tts.ts";
+import { applyManagedSpokenForms, applyPronunciations, classifyTtsError, mergeWav, narrationChunks, narrationSections, narrationText, pronunciationReplacements, removeCitationClusters, ttsBytes, validWavAudio, wavAssembly, TTS_CHUNK_MAX, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_RETRY_DELAYS, TTS_TRUNCATED_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "../src/tts.ts";
 
 function wav(samples) {
   const bytes = new Uint8Array(44 + samples.length);
@@ -277,6 +277,7 @@ test("TTS errors separate timeouts, unknowns, and flag-gated empty audio", () =>
   assert.deepEqual(classifyTtsError(new Error("The model returned no audio.")), { transient: false, category: "unknown", code: null });
   assert.deepEqual(classifyTtsError(new Error("temporarily overloaded, try later")), { transient: true, category: "upstream", code: null });
   assert.deepEqual(classifyTtsError(new Error("The speech model returned truncated WAV audio.")), { transient: true, category: "upstream", code: null });
+  assert.deepEqual([...TTS_TRUNCATED_RETRY_DELAYS], [2_000, 5_000, 10_000, 15_000, 20_000, 30_000]);
 });
 
 test("pronunciation replacements are constrained and cannot rewrite narration", () => {
@@ -421,7 +422,8 @@ test("narration is persisted safely and rendered only when assigned", () => {
   assert.match(index, /Segment \$\{job\.completed \+ 1\} of \$\{job\.prompts\.length\} \(\$\{failing\.text\.length\} chars\): \$\{detail\}/);
   assert.match(index, /classifyTtsError\(error\)\.transient/);
   assert.match(index, /Workers AI narration quota reached \(3036\)/);
-  assert.match(index, /TTS_RETRY_DELAYS\[attempt\]/);
+  assert.match(index, /delays\[attempt\]/);
+  assert.match(index, /starting slower second wind/);
   assert.match(index, /if \(index > 0\) await new Promise\(\(resolve\) => setTimeout\(resolve, 350\)\)/);
   assert.match(index, /const generated = await generateSpeechWithRecovery\(c\.env\.AI, prompt\)/);
   assert.match(index, /audio-checkpoints/);

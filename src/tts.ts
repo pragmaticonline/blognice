@@ -22,6 +22,10 @@ export function selectTtsEngine(stored: string | null | undefined): typeof TTS_M
   return stored === TTS_ENGINE_AURA ? TTS_FALLBACK_MODEL : TTS_MODEL;
 }
 export const TTS_RETRY_DELAYS = [250, 500, 1_000, 1_500, 2_000, 2_000, 2_000, 2_000, 2_000, 2_000, 2_000, 2_000] as const;
+// Cut audio that survives the whole normal schedule is usually upstream
+// degradation lasting minutes, not a bad request. One slower second wind
+// outlasts it; anything still failing after that goes to split-recovery.
+export const TTS_TRUNCATED_RETRY_DELAYS = [2_000, 5_000, 10_000, 15_000, 20_000, 30_000] as const;
 export const TTS_CHUNK_MAX = 3_500;
 export const TTS_TEXT_MAX = 10_000;
 export const TTS_TITLE_PAUSE_SECONDS = 1.5;

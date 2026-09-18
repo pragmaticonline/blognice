@@ -120,7 +120,7 @@ import {
   type ImageContextMode,
   type ImageStyle,
 } from "./ai-image";
-import { applyPronunciations, assertEnglishText, classifyTtsError, mergeWav, narrationChunks, narrationSections, pronunciationReplacements, readTtsEngineSetting, selectTtsEngine, ttsBytes, ttsStreamToBytes, validWavAudio, wavAssembly, TTS_FALLBACK_MODEL, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "./tts";
+import { applyPronunciations, assertEnglishText, classifyTtsError, mergeWav, narrationChunks, narrationSections, pronunciationReplacements, readTtsEngineSetting, selectTtsEngine, ttsBytes, ttsStreamToBytes, validWavAudio, wavAssembly, TTS_FALLBACK_MODEL, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_RETRY_DELAYS, TTS_TRUNCATED_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "./tts";
 import {
   archivePreviousDay,
   archivePreviousDayAffiliateEvents,
@@ -4042,16 +4042,23 @@ async function generateSpeechWithRetry(ai: Ai, prompt: string, model: string = T
   // instance instead of exhausting every attempt in one short burst.
   // 3043 is an intermittent upstream failure. Keep the retry window focused
   // (rather than sleeping for one long interval) so capacity can recover.
-  let lastError: unknown;
-  for (let attempt = 0; attempt <= TTS_RETRY_DELAYS.length; attempt++) {
+  let delays: readonly number[] = TTS_RETRY_DELAYS;
+  let secondWind = false;
+  for (let attempt = 0; ; attempt++) {
     try {
       return await generateSpeechForModel(ai, model, prompt);
     } catch (error) {
-      lastError = error;
       const message = error instanceof Error ? error.message : String(error);
       if (classifyTtsError(error).category === "quota") throw new Error("Workers AI narration quota reached (3036). Please try again after the daily limit resets or upgrade your Workers AI plan.");
       const transient = classifyTtsError(error).transient;
-      if (!transient || attempt === TTS_RETRY_DELAYS.length) throw error;
+      if (transient && attempt >= delays.length && !secondWind && /truncated WAV/i.test(message)) {
+        secondWind = true;
+        delays = TTS_TRUNCATED_RETRY_DELAYS;
+        attempt = -1;
+        console.warn(JSON.stringify({ message: "Truncated TTS audio persists; starting slower second wind", model }));
+        continue;
+      }
+      if (!transient || attempt >= delays.length) throw error;
       console.warn(JSON.stringify({
         message: "Transient TTS failure; retrying",
         model,
@@ -4059,10 +4066,9 @@ async function generateSpeechWithRetry(ai: Ai, prompt: string, model: string = T
         attempt: attempt + 1,
       }));
       const jitter = Math.floor(Math.random() * 250);
-      await new Promise((resolve) => setTimeout(resolve, TTS_RETRY_DELAYS[attempt] + jitter));
+      await new Promise((resolve) => setTimeout(resolve, delays[attempt] + jitter));
     }
   }
-  throw lastError;
 }
 
 function splitSpeechPrompt(prompt: string): [string, string] | null {
