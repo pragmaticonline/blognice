@@ -418,6 +418,7 @@ test("narration is persisted safely and rendered only when assigned", () => {
   assert.match(index, /if \(!validWavAudio\(bytes\)\) throw new Error\("The speech model returned truncated WAV audio\."\);/);
   assert.match(index, /if \(!validWavAudio\(fresh\)\) throw new Error\("The speech model returned truncated WAV audio\."\);/);
   assert.match(index, /Drop the\n\s+\/\/ poison and resynthesize/);
+  assert.match(index, /Segment \$\{job\.completed \+ 1\} of \$\{job\.prompts\.length\} \(\$\{failing\.text\.length\} chars\): \$\{detail\}/);
   assert.match(index, /classifyTtsError\(error\)\.transient/);
   assert.match(index, /Workers AI narration quota reached \(3036\)/);
   assert.match(index, /TTS_RETRY_DELAYS\[attempt\]/);

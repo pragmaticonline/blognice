@@ -4202,7 +4202,14 @@ async function processAudioJob(env: Bindings, jobKey: string): Promise<void> {
     await purgeTenant(env, tenant, ["/" + post.slug]);
   } catch (error) {
     job.status = "failed";
-    job.error = error instanceof Error ? error.message : String(error);
+    const detail = error instanceof Error ? error.message : String(error);
+    // Name the failing segment and its size: a bare model message cannot
+    // distinguish a poisoned tail segment from a per-request output cap, and
+    // that distinction decides the next fix.
+    const failing = job.prompts[job.completed];
+    job.error = failing
+      ? `Segment ${job.completed + 1} of ${job.prompts.length} (${failing.text.length} chars): ${detail}`
+      : detail;
     await writeAudioJob(env, jobKey, job);
     throw error;
   }
