@@ -120,7 +120,7 @@ import {
   type ImageContextMode,
   type ImageStyle,
 } from "./ai-image";
-import { applyPronunciations, assertEnglishText, classifyTtsError, mergeWav, narrationChunks, narrationSections, pronunciationReplacements, readTtsEngineSetting, selectTtsEngine, ttsBytes, ttsStreamToBytes, wavAssembly, TTS_FALLBACK_MODEL, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "./tts";
+import { applyPronunciations, assertEnglishText, classifyTtsError, mergeWav, narrationChunks, narrationSections, pronunciationReplacements, readTtsEngineSetting, selectTtsEngine, ttsBytes, ttsStreamToBytes, validWavAudio, wavAssembly, TTS_FALLBACK_MODEL, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "./tts";
 import {
   archivePreviousDay,
   archivePreviousDayAffiliateEvents,
@@ -4027,6 +4027,10 @@ export async function generateSpeechForModel(ai: Ai, model: string, prompt: stri
     : await ai.run(TTS_MODEL, { prompt, lang: "en" });
   const bytes = model === TTS_FALLBACK_MODEL ? await ttsStreamToBytes(generated) : ttsBytes(generated);
   if (!bytes.byteLength) throw new Error("The model returned no audio.");
+  // Validate inside the retry window: cut bytes must throw here so the
+  // segment is retried and split, instead of surfacing only at final
+  // assembly after a poisoned checkpoint has already been stored.
+  if (!validWavAudio(bytes)) throw new Error("The speech model returned truncated WAV audio.");
   return bytes;
 }
 
@@ -4083,7 +4087,7 @@ async function generateSpeechWithRecovery(ai: Ai, prompt: string, depth = 0, mod
   try {
     return await generateSpeechWithRetry(ai, prompt, model);
   } catch (error) {
-    const parts = depth < 3 && prompt.length >= 240 && classifyTtsError(error).transient
+    const parts = depth < 3 && prompt.length >= 120 && classifyTtsError(error).transient
       ? splitSpeechPrompt(prompt)
       : null;
     if (!parts) throw error;
@@ -4133,17 +4137,31 @@ async function processAudioJob(env: Bindings, jobKey: string): Promise<void> {
   try {
     for (let index = 0; index < job.prompts.length; index++) {
       const checkpointKey = job.checkpointKeys[index];
+      const checkpointPut = (segment: Uint8Array) => env.MEDIA.put(checkpointKey, segment, {
+        httpMetadata: { contentType: "audio/wav", cacheControl: "private, max-age=3600" },
+        customMetadata: { postId: String(job.postId), checkpoint: "tts" },
+      });
+      const synthesize = async () => {
+        if (index > 0) await new Promise((resolve) => setTimeout(resolve, 350));
+        const fresh = await generateSpeechWithRecovery(env.AI, job.prompts[index].text, 0, job.model ?? TTS_MODEL);
+        // Fail fast on cut audio: inside the retry/split window the segment
+        // is retried and split, and poison never reaches the checkpoint.
+        if (!validWavAudio(fresh)) throw new Error("The speech model returned truncated WAV audio.");
+        await checkpointPut(fresh);
+        return fresh;
+      };
       const cached = await env.MEDIA.get(checkpointKey);
       let bytes: Uint8Array;
-      if (cached) bytes = new Uint8Array(await cached.arrayBuffer());
-      else {
-        if (index > 0) await new Promise((resolve) => setTimeout(resolve, 350));
-        bytes = await generateSpeechWithRecovery(env.AI, job.prompts[index].text, 0, job.model ?? TTS_MODEL);
-        await env.MEDIA.put(checkpointKey, bytes, {
-          httpMetadata: { contentType: "audio/wav", cacheControl: "private, max-age=3600" },
-          customMetadata: { postId: String(job.postId), checkpoint: "tts" },
-        });
-      }
+      if (cached) {
+        bytes = new Uint8Array(await cached.arrayBuffer());
+        if (!validWavAudio(bytes)) {
+          // A cut segment checkpointed before validation existed. Drop the
+          // poison and resynthesize so resume can converge instead of
+          // replaying the same bad bytes forever.
+          await env.MEDIA.delete(checkpointKey).catch(() => undefined);
+          bytes = await synthesize();
+        }
+      } else bytes = await synthesize();
       parts.push(bytes);
       job.completed = index + 1;
       await writeAudioJob(env, jobKey, job);

@@ -480,6 +480,18 @@ function parseWav(bytes: Uint8Array): WavPart {
   throw new Error("The speech model returned WAV audio without sample data.");
 }
 
+// Segment-level guard: truncated bytes must fail here — inside the
+// retry/split window — and never reach a checkpoint, or resume would reuse
+// them as good audio and the job could never converge.
+export function validWavAudio(bytes: Uint8Array): boolean {
+  try {
+    wavAssembly([bytes], 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function mergeWav(parts: Uint8Array[]): Uint8Array {
   if (!parts.length) return new Uint8Array();
   const assembly = wavAssembly(parts);

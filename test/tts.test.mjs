@@ -9,7 +9,7 @@ for (const extension of [".html", ".svg"]) {
     module.exports = readFileSync(filename, "utf8");
   };
 }
-import { applyManagedSpokenForms, applyPronunciations, classifyTtsError, mergeWav, narrationChunks, narrationSections, narrationText, pronunciationReplacements, removeCitationClusters, ttsBytes, wavAssembly, TTS_CHUNK_MAX, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "../src/tts.ts";
+import { applyManagedSpokenForms, applyPronunciations, classifyTtsError, mergeWav, narrationChunks, narrationSections, narrationText, pronunciationReplacements, removeCitationClusters, ttsBytes, validWavAudio, wavAssembly, TTS_CHUNK_MAX, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "../src/tts.ts";
 
 function wav(samples) {
   const bytes = new Uint8Array(44 + samples.length);
@@ -330,6 +330,17 @@ test("WAV assembly accepts streamed audio with an unknown data size", () => {
   assert.equal(new DataView(assembly.header.buffer).getUint32(40, true), 4);
 });
 
+test("segment audio validation gates checkpoints on complete WAV", () => {
+  assert.equal(validWavAudio(wav(new Uint8Array([1, 2]))), true);
+  const streamed = wav(new Uint8Array([1, 2]));
+  new DataView(streamed.buffer).setUint32(40, 0xFFFFFFFF, true);
+  assert.equal(validWavAudio(streamed), true);
+  const short = wav(new Uint8Array([1, 2]));
+  new DataView(short.buffer).setUint32(40, 100, true);
+  assert.equal(validWavAudio(short), false);
+  assert.equal(validWavAudio(new Uint8Array([1, 2, 3])), false);
+});
+
 test("WAV assembly still rejects a concretely short data chunk", () => {
   const short = wav(new Uint8Array([1, 2]));
   new DataView(short.buffer).setUint32(40, 100, true);
@@ -403,7 +414,10 @@ test("narration is persisted safely and rendered only when assigned", () => {
   assert.match(index, /async function generateSpeechWithRetry/);
   assert.match(index, /async function generateSpeechWithRecovery/);
   assert.match(index, /function splitSpeechPrompt/);
-  assert.match(index, /depth < 3 && prompt\.length >= 240/);
+  assert.match(index, /depth < 3 && prompt\.length >= 120/);
+  assert.match(index, /if \(!validWavAudio\(bytes\)\) throw new Error\("The speech model returned truncated WAV audio\."\);/);
+  assert.match(index, /if \(!validWavAudio\(fresh\)\) throw new Error\("The speech model returned truncated WAV audio\."\);/);
+  assert.match(index, /Drop the\n\s+\/\/ poison and resynthesize/);
   assert.match(index, /classifyTtsError\(error\)\.transient/);
   assert.match(index, /Workers AI narration quota reached \(3036\)/);
   assert.match(index, /TTS_RETRY_DELAYS\[attempt\]/);
@@ -497,25 +511,33 @@ test("speech generation routes by engine model and consumes Aura streams", async
   const { generateSpeechForModel } = await import("../src/index.ts");
   const { TTS_MODEL, TTS_FALLBACK_MODEL } = await import("../src/tts.ts");
   const calls = [];
+  const auraWav = wav(new Uint8Array([1, 2, 3]));
+  const meloWav = wav(new Uint8Array([9, 8]));
   const fakeAi = {
     run: async (model, input) => {
       calls.push({ model, input });
       if (String(model).includes("aura")) {
-        return new ReadableStream({ start(c) { c.enqueue(new Uint8Array([1, 2, 3])); c.close(); } });
+        return new ReadableStream({ start(c) { c.enqueue(auraWav); c.close(); } });
       }
-      return new Uint8Array([9, 8]);
+      return meloWav;
     },
   };
   const melo = await generateSpeechForModel(fakeAi, TTS_MODEL, "hello");
-  assert.deepEqual([...melo], [9, 8]);
+  assert.deepEqual([...melo], [...meloWav]);
   assert.equal(calls[0].model, TTS_MODEL);
   assert.deepEqual(calls[0].input, { prompt: "hello", lang: "en" });
   const aura = await generateSpeechForModel(fakeAi, TTS_FALLBACK_MODEL, "hello");
-  assert.deepEqual([...aura], [1, 2, 3]);
+  assert.deepEqual([...aura], [...auraWav]);
   assert.equal(calls[1].model, TTS_FALLBACK_MODEL);
   assert.equal(calls[1].input.encoding, "linear16");
   assert.equal(calls[1].input.container, "wav");
   await assert.rejects(generateSpeechForModel({ run: async () => new Uint8Array() }, TTS_FALLBACK_MODEL, "x"), /no audio/);
+  const cut = wav(new Uint8Array([1, 2]));
+  new DataView(cut.buffer).setUint32(40, 100, true);
+  await assert.rejects(
+    generateSpeechForModel({ run: async () => new ReadableStream({ start(c) { c.enqueue(cut); c.close(); } }) }, TTS_FALLBACK_MODEL, "x"),
+    /truncated WAV audio/,
+  );
 });
 
 test("audio jobs record the selected engine and render on it (source checks)", () => {
