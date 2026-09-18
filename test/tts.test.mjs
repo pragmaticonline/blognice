@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import test from "node:test";
+
+const require = createRequire(import.meta.url);
+for (const extension of [".html", ".svg"]) {
+  require.extensions[extension] = (module, filename) => {
+    module.exports = readFileSync(filename, "utf8");
+  };
+}
 import { applyManagedSpokenForms, applyPronunciations, classifyTtsError, mergeWav, narrationChunks, narrationSections, narrationText, pronunciationReplacements, removeCitationClusters, ttsBytes, wavAssembly, TTS_CHUNK_MAX, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "../src/tts.ts";
 
 function wav(samples) {
@@ -406,4 +414,96 @@ test("narration is persisted safely and rendered only when assigned", () => {
   assert.match(render, /\.post-audio \{[^}]*margin-left: auto;/);
   assert.match(render, /post\.audio_key/);
   assert.match(render, /defaultPlaybackRate=\.88/);
+});
+
+test("narration skips a trailing sources credit block", () => {
+  const sections = narrationSections(
+    "AI and institutions",
+    "Closing thought on power.\n\n---\n\nSources:\n\n- Jane Marple, [*How AI Destroys Institutions*](https://example.com/paper), 77 UC Law Journal (2026).\n- John Smith, [*A Response*](https://example.com/response).",
+  );
+  assert.match(sections.body, /Closing thought on power/);
+  assert.doesNotMatch(sections.body, /Sources/);
+  assert.doesNotMatch(sections.body, /Marple/);
+  assert.doesNotMatch(sections.body, /example\.com/);
+});
+
+test("narration skips an ATX sources heading variant", () => {
+  const sections = narrationSections(
+    "AI and institutions",
+    "Closing thought on power.\n\n## Sources\n\n- Jane Marple, How AI Destroys Institutions.",
+  );
+  assert.match(sections.body, /Closing thought on power/);
+  assert.doesNotMatch(sections.body, /Sources/);
+  assert.doesNotMatch(sections.body, /Marple/);
+});
+
+test("narration keeps a sources mention followed by real prose", () => {
+  const sections = narrationSections(
+    "AI and institutions",
+    "Opening line.\n\nSources\n\nThis paragraph continues the article with genuine analysis that runs well beyond two hundred characters so the cutter knows real prose follows the marker and nothing may be dropped from the narration at all.",
+  );
+  assert.match(sections.body, /Opening line/);
+  assert.match(sections.body, /genuine analysis/);
+  assert.match(sections.body, /Sources/);
+});
+
+test("audio queue failures answer JSON, refund, and never rethrow (source checks)", () => {
+  const src = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
+  assert.match(src, /Speech synthesis is temporarily unavailable — no credits were used/);
+  assert.match(src, /audio reservation refund failed/);
+  assert.match(src, /return c\.json\(\{ error: message \}, 409\)/);
+  assert.doesNotMatch(src, /await refundAiCredits\(c\.env, audioReservation\.accountId, audioReservation\.period, audioCost\);\n    throw error;/);
+});
+
+test("audio editor parses responses defensively instead of blind json() (source checks)", () => {
+  const admin = readFileSync(new URL("../src/admin.ts", import.meta.url), "utf8");
+  assert.match(admin, /function readJsonResponse\(r\)/);
+  assert.match(admin, /Server error \(" \+ r\.status \+ "\)\. Please try again\./);
+  const audioFetches = admin.match(/"\$\{base\}\/audio\/" \+ \(currentPostId \|\| ""\)[^;]*?\.then\(readJsonResponse\)/g) || [];
+  assert.ok(audioFetches.length >= 3, `expected 3 audio fetches via readJsonResponse, got ${audioFetches.length}`);
+});
+
+test("engine switch selects MeloTTS by default and Aura-1 only when set", async () => {
+  const { selectTtsEngine, TTS_MODEL, TTS_FALLBACK_MODEL } = await import("../src/tts.ts");
+  assert.equal(TTS_FALLBACK_MODEL, "@cf/deepgram/aura-1");
+  assert.equal(selectTtsEngine(undefined), TTS_MODEL);
+  assert.equal(selectTtsEngine(null), TTS_MODEL);
+  assert.equal(selectTtsEngine(""), TTS_MODEL);
+  assert.equal(selectTtsEngine("melotts"), TTS_MODEL);
+  assert.equal(selectTtsEngine("aura-1"), TTS_FALLBACK_MODEL);
+  assert.equal(selectTtsEngine("bogus"), TTS_MODEL);
+});
+
+test("speech generation routes by engine model and consumes Aura streams", async () => {
+  const { generateSpeechForModel } = await import("../src/index.ts");
+  const { TTS_MODEL, TTS_FALLBACK_MODEL } = await import("../src/tts.ts");
+  const calls = [];
+  const fakeAi = {
+    run: async (model, input) => {
+      calls.push({ model, input });
+      if (String(model).includes("aura")) {
+        return new ReadableStream({ start(c) { c.enqueue(new Uint8Array([1, 2, 3])); c.close(); } });
+      }
+      return new Uint8Array([9, 8]);
+    },
+  };
+  const melo = await generateSpeechForModel(fakeAi, TTS_MODEL, "hello");
+  assert.deepEqual([...melo], [9, 8]);
+  assert.equal(calls[0].model, TTS_MODEL);
+  assert.deepEqual(calls[0].input, { prompt: "hello", lang: "en" });
+  const aura = await generateSpeechForModel(fakeAi, TTS_FALLBACK_MODEL, "hello");
+  assert.deepEqual([...aura], [1, 2, 3]);
+  assert.equal(calls[1].model, TTS_FALLBACK_MODEL);
+  assert.equal(calls[1].input.encoding, "linear16");
+  assert.equal(calls[1].input.container, "wav");
+  await assert.rejects(generateSpeechForModel({ run: async () => new Uint8Array() }, TTS_FALLBACK_MODEL, "x"), /no audio/);
+});
+
+test("audio jobs record the selected engine and render on it (source checks)", () => {
+  const src = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
+  assert.match(src, /model\?: string;/);
+  assert.match(src, /selectTtsEngine\(await readTtsEngineSetting\((c\.env\.DB|env\.DB)\)\)/);
+  assert.match(src, /generateSpeechWithRecovery\(env\.AI, job\.prompts\[index\]\.text, 0, job\.model/);
+  assert.match(src, /checkpointHash = await sha256hex\(`\$\{[^`]*jobModel[^`]*\}`\)/);
+  assert.match(src, /generatedBy: job\.model \?\? TTS_MODEL/);
 });

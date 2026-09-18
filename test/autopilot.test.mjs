@@ -445,3 +445,73 @@ test("scheduler lease suppresses overlapping runs for the same blog", async () =
     await mf.dispose();
   }
 });
+
+test("trackAutopilotEvent writes a datapoint and never throws", async () => {
+  const { trackAutopilotEvent } = await import("../src/index.ts");
+  const points = [];
+  trackAutopilotEvent({ AUTOPILOT_EVENTS: { writeDataPoint: (p) => points.push(p) } }, 33, "image-failed", "boom");
+  assert.deepEqual(points, [{ indexes: ["33"], blobs: ["33", "image-failed", "boom"], doubles: [1] }]);
+  trackAutopilotEvent({}, 33, "image-failed", "no binding is fine");
+  trackAutopilotEvent({ AUTOPILOT_EVENTS: { writeDataPoint: () => { throw new Error("ae down"); } } }, 33, "image-failed", "binding throws is fine");
+});
+
+test("setAutopilotImageStatus mirrors ready/failed and reports write failures", async () => {
+  const { setAutopilotImageStatus } = await import("../src/index.ts");
+  const calls = [];
+  const okDb = { prepare: (sql) => ({ bind: (...args) => ({ run: async () => { calls.push({ sql, args }); return { meta: {} }; } }) }) };
+  await setAutopilotImageStatus({ DB: okDb }, 33, 255, "ready", null);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].sql, /UPDATE autopilot_runs SET image_status = \?, image_error = \?/);
+  assert.deepEqual(calls[0].args, ["ready", null, 33, 255]);
+  const points = [];
+  const errors = [];
+  const originalError = console.error;
+  console.error = (m) => errors.push(String(m));
+  try {
+    const badDb = { prepare: () => { throw new Error("d1 locked"); } };
+    await setAutopilotImageStatus({ DB: badDb, AUTOPILOT_EVENTS: { writeDataPoint: (p) => points.push(p) } }, 33, 255, "ready", null);
+  } finally {
+    console.error = originalError;
+  }
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /autopilot image status write failed/);
+  assert.equal(points.length, 1);
+  assert.equal(points[0].blobs[1], "image-status-write-failed");
+});
+
+test("image job outcomes and terminal retries are wired to telemetry (source checks)", () => {
+  const src = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
+  assert.match(src, /setAutopilotImageStatus\(env, job\.tenantId, job\.postId, "ready", null\)/);
+  assert.match(src, /trackAutopilotEvent\(env, job\.tenantId, "image-failed"/);
+  assert.match(src, /trackAutopilotEvent\(env, jobMessage\.tenantId, isImageJob \? "image-terminal" : "audio-terminal"/);
+  assert.doesNotMatch(src, /image_status = 'ready'[^;]*\.catch\(\(\)=>\{\}\)/);
+  assert.doesNotMatch(src, /image_status = 'failed'[^;]*\.catch\(\(\)=>\{\}\)/);
+});
+
+test("autopilot article generation uses the Scout model", async () => {
+  const { AI_AUTOPILOT_MODEL } = await import("../src/ai-image.ts");
+  assert.equal(AI_AUTOPILOT_MODEL, "@cf/meta/llama-4-scout-17b-16e-instruct");
+  assert.match(indexSrc, /AI\.run\(AI_AUTOPILOT_MODEL,/);
+  assert.match(indexSrc, /AI_AUTOPILOT_MODEL,\n  AI_BRIEF_MODEL,/);
+});
+
+test("findRepeatedPhrase flags a degenerate generation loop", async () => {
+  const { findRepeatedPhrase } = await import("../src/index.ts");
+  const looped = `Intro paragraph with real content here.\n\n${"edible cookies made from ".repeat(60)}`;
+  assert.equal(findRepeatedPhrase(looped), "edible cookies made from edible");
+  const healthy = "The reef lies deep beneath the Atlantic. Scientists mapped coral patches with cameras. Fish gather where light never reaches. Conservation teams now monitor the site monthly. Local guides report stable turtle nesting this season. Researchers publish findings after peer review each quarter.";
+  assert.equal(findRepeatedPhrase(healthy), null);
+  assert.equal(findRepeatedPhrase("too short"), null);
+  assert.equal(findRepeatedPhrase("word ".repeat(5).trim(), 5, 5), null);
+  const atLimit = Array(5).fill("alpha beta gamma delta epsilon").join(" ");
+  assert.equal(findRepeatedPhrase(atLimit), null);
+  assert.equal(findRepeatedPhrase(`${atLimit} alpha beta gamma delta epsilon`), "alpha beta gamma delta epsilon");
+});
+
+test("degenerate drafts are discarded and retried, never published (source checks)", () => {
+  assert.match(indexSrc, /findRepeatedPhrase\(candidate\)/);
+  assert.match(indexSrc, /autopilot generation degenerate, discarding draft/);
+  assert.match(indexSrc, /trackAutopilotEvent\(env, tenantId, "generation-degenerate"/);
+  assert.match(indexSrc, /temperature: attempt === 0 \? 0\.6 : 0/);
+  assert.match(indexSrc, /for \(let attempt = 0; attempt < 2 && !body_md; attempt\+\+\)/);
+});

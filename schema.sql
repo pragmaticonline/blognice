@@ -73,7 +73,8 @@ CREATE TABLE tenants (
   browser_push_enabled INTEGER NOT NULL DEFAULT 0, -- owner opt-in for reader notifications
   header_link_url TEXT NOT NULL DEFAULT '/',       -- where the header logo/name links ("/" = blog home, or https://parent.site)
   shard         TEXT    NOT NULL DEFAULT 'primary', -- which POSTS database holds this tenant's posts (see src/db.ts)
-  created_at    INTEGER NOT NULL                  -- unix seconds
+  created_at    INTEGER NOT NULL,                 -- unix seconds
+  deleted_at    INTEGER                           -- unix seconds; NULL = live, set = soft-deleted (expunge later)
 );
 
 -- Materialized anonymous readership rankings. Raw visitor identifiers stay in
@@ -1048,3 +1049,10 @@ CREATE TABLE oauth_access_tokens (
 CREATE INDEX idx_oauth_tokens_account ON oauth_access_tokens(account_id, expires_at);
 CREATE INDEX idx_oauth_tokens_refresh ON oauth_access_tokens(refresh_token);
 CREATE INDEX idx_oauth_tokens_client ON oauth_access_tokens(client_id, expires_at);
+
+-- Platform-wide switches managed from the staff area (migration 068).
+CREATE TABLE IF NOT EXISTS platform_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);

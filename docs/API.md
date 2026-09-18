@@ -85,7 +85,17 @@ curl -X POST https://www.blognice.com/api/v1/blogs \
   -d '{"slug":"my-new-blog","title":"My New Blog"}'
 ```
 
-Free accounts own 1 blog; paid own ≤5 (collaborations don't count). `409` if limit hit.
+Free accounts own 1 blog; paid own ≤5 (collaborations don't count). `409` if limit hit. Soft-deleted blogs don't count toward the limit.
+
+### `DELETE /api/v1/blogs/:blogId` — soft-delete blog (owner only)
+
+```bash
+curl -X DELETE https://www.blognice.com/api/v1/blogs/ggh6gvgsgj4h \
+  -H "Authorization: Bearer [REDACTED]" -H "Content-Type: application/json" \
+  -d '{"confirm":"My New Blog"}'
+```
+
+`confirm` must be the exact blog title. The blog leaves the web (pages, listings, sitemaps, API) but all rows are kept for later expunge tooling; the slug stays reserved. `200 { deleted: true, slug }`.
 
 ---
 

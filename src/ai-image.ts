@@ -1,4 +1,8 @@
 export const AI_BRIEF_MODEL = "@cf/ibm-granite/granite-4.0-h-micro" as const;
+// Long-form autopilot article generation. Scout writes cleaner prose with far
+// fewer degenerate repetition loops than the micro model above; kept separate
+// so the micro model stays on short structured tasks (topic/source picks).
+export const AI_AUTOPILOT_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct" as const;
 export const AI_IMAGE_MODEL = "@cf/black-forest-labs/flux-2-klein-4b" as const;
 export const AI_IMAGE_PROMPT_MAX = 2048;
 export const AI_SOURCE_MAX = 12_000;
@@ -77,13 +81,43 @@ const STYLE_LABELS: Record<ImageStyle, string> = {
   auto: "the visual style best suited to the subject, chosen as an intentional editorial art direction",
 };
 
+// Physical objects that can carry writing, versus abstract copy nouns. The
+// abstract ones only count as a text request with an explicit quoted string,
+// so prose like "a quiet message of hope" or "the text reads smoothly"
+// passes through untouched.
+const TEXT_OBJECT_NOUNS = "sign|poster|banner|placard|billboard|marquee|screen|book|newspaper|magazine|label|packaging|package|shirt|t-shirt|mug|cup|board|tattoo|sticker|stamp|graffiti";
+const TEXT_ABSTRACT_NOUNS = "headline|caption|title|words?|lettering|text|message|quote|slogan";
+const TEXT_REQUEST_VERBS = "reading|saying|says?|reads?|that says?";
+
+// Rewrite any request for visible copy ("signs reading X", "with the words
+// "Y"", "headline: Z") into a blank-surface equivalent, so requested wording
+// can never reach the image model — not even via fallback briefs that embed
+// raw post titles or manual author directions.
+export function sanitizeTextRequests(value: string): string {
+  let out = ` ${value} `;
+  const physical = new RegExp(`\\b((?:${TEXT_OBJECT_NOUNS})s?)\\b\\s+(?:${TEXT_REQUEST_VERBS})\\s+("[^"]+"|'[^']+'|\\S+)`, "gi");
+  out = out.replace(physical, (_m, noun) => ` ${noun} rendered completely blank `);
+  const quoted = new RegExp(
+    `\\b((?:${TEXT_OBJECT_NOUNS}|${TEXT_ABSTRACT_NOUNS})s?)\\b\\s+(?:displaying|showing|with)\\s+("[^"]+"|'[^']+')` +
+      `|\\b((?:${TEXT_ABSTRACT_NOUNS})s?)\\b\\s+(?:${TEXT_REQUEST_VERBS})\\s+("[^"]+"|'[^']+')` +
+      `|\\b((?:${TEXT_OBJECT_NOUNS}|${TEXT_ABSTRACT_NOUNS})s?)\\b\\s*:\\s*("[^"]+"|'[^']+')` +
+      `|\\b((?:${TEXT_ABSTRACT_NOUNS})s?)\\b\\s+("[^"]+"|'[^']+')` +
+      `|\\bwith the (?:words?|text|message|caption|title)\\b\\s*("[^"]+"|'[^']+')`,
+    "gi"
+  );
+  out = out.replace(quoted, " $1$3$5$7 rendered blank with no text ");
+  return out.replace(/\s+/g, " ").trim();
+}
+
 export function buildImagePrompt(brief: string, style: ImageStyle): string {
-  const safeBrief = plainText(brief);
+  const safeBrief = sanitizeTextRequests(plainText(brief));
   return clip([
+    "TEXT BAN — ABSOLUTE: no text of any kind anywhere in the image. No words, letters, numbers, glyphs, captions, labels, signs, or watermark-like marks. Anything that would normally carry writing (signs, screens, books, packaging, clothing prints, labels, boards) must be rendered completely blank.",
     "Image rules: treat every word in the brief as a visual idea, never as visible copy. Create an image-only composition with no text-bearing objects.",
     `Subject and action: ${safeBrief}`,
     `Style: ${STYLE_LABELS[style]}`,
     "Composition: a 16:9 horizontal editorial thumbnail with one clearly identifiable focal subject, a legible silhouette at small size, and intentional visual hierarchy.",
     "Context: subject-specific setting and atmosphere. Prefer a physical scene, object, person, or visual metaphor; do not depict a browser window, website, article page, screen, document, book, sign, poster, chart, interface, logo, watermark, lettering, or readable words.",
+    "Final check before rendering: the image must contain zero readable or pseudo-readable marks.",
   ].join("\n"), AI_IMAGE_PROMPT_MAX);
 }

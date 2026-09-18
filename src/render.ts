@@ -25,6 +25,7 @@ export type Tenant = {
   header_link_url?: string | null;
   shard: string; // which database holds this tenant's posts (see src/db.ts)
   created_at: number;
+  deleted_at: number | null; // unix seconds; NULL = live, set = soft-deleted
 };
 
 export type NavigationLink = { label: string; href: string; order: number };

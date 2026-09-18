@@ -89,6 +89,24 @@ test("password signup creates an account with no blog and starts a session", asy
   }
 });
 
+test("password signup stores the registration IP and Cloudflare country", async () => {
+  const { mf, db } = await setupDb("account-signup-geo");
+  try {
+    const { blogniceApp } = await import("../src/index.ts");
+    const res = await blogniceApp.request(new Request("https://www.blognice.test/signup", {
+      method: "POST",
+      body: signupForm("geo@example.com"),
+      headers: { "CF-Connecting-IP": "203.0.113.50", "CF-IPCountry": "TH" },
+    }), undefined, baseEnv(db), ctx);
+    assert.equal(res.status, 302);
+    const row = await db.prepare("SELECT signup_ip, signup_country FROM accounts WHERE email = 'geo@example.com'").first();
+    assert.equal(row.signup_ip, "203.0.113.50");
+    assert.equal(row.signup_country, "TH");
+  } finally {
+    await mf.dispose();
+  }
+});
+
 test("signup ignores legacy blog fields instead of creating a blog", async () => {
   const { mf, db } = await setupDb("account-signup-legacy");
   try {

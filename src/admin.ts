@@ -1720,6 +1720,14 @@ export function editorPage(
         document.getElementById("ai-insert").addEventListener("click", function () {
           if (!generatedImage) return; insertAtCursor("\\n![Generated image](" + generatedImage.url + ")\\n"); aiDialog.close();
         });
+        function readJsonResponse(r) {
+          return r.text().then(function(text){
+            var data = null;
+            try { data = text ? JSON.parse(text) : {}; }
+            catch (e) { throw new Error(r.ok ? "Unexpected server response. Please try again." : ("Server error (" + r.status + "). Please try again.")); }
+            return { ok: r.ok, data: data };
+          });
+        }
         function handleGenerateAudio() {
           var button = generateAudio;
           if (!button) return;
@@ -1727,7 +1735,7 @@ export function editorPage(
           var stopTimer = startGeneration(audioStatus, "Queueing narration…");
           function poll(jobId) {
             return fetch("${base}/audio/" + (currentPostId || "") + "/status?job=" + encodeURIComponent(jobId))
-              .then(function(r){return r.json().then(function(data){return {ok:r.ok,data:data};});})
+              .then(readJsonResponse)
               .then(function(result){
                 if (!result.ok || result.data.error) throw new Error(result.data.error || "Audio job status unavailable.");
                 if (result.data.status === "complete") return result.data;
@@ -1737,7 +1745,7 @@ export function editorPage(
               });
           }
           fetch("${base}/audio/" + (currentPostId || ""), { method: "POST" })
-            .then(function(r){return r.json().then(function(data){return {ok:r.ok,data:data};});})
+            .then(readJsonResponse)
             .then(function(result){
               if(!result.ok || result.data.error) throw new Error(result.data.error || "Audio generation failed.");
               return poll(result.data.jobId);
@@ -1756,7 +1764,7 @@ export function editorPage(
           if (!button) return;
           button.disabled = true;
           fetch("${base}/audio/" + (currentPostId || ""), { method: "DELETE" })
-            .then(function(r){return r.json().then(function(data){return {ok:r.ok,data:data};});})
+            .then(readJsonResponse)
             .then(function(result){
               if(!result.ok) throw new Error(result.data.error || "Could not remove audio.");
               audioPreview.pause(); audioPreview.removeAttribute("src"); audioPreview.load(); audioPreview.hidden = true;
@@ -1997,7 +2005,7 @@ export function newBlogPage(
 export function settingsPage(
   account: Account,
   tenant: Tenant,
-  opts?: { notice?: string; error?: string }
+  opts?: { notice?: string; error?: string; isOwner?: boolean }
 ): string {
   const base = `/admin/b/${tenant.public_id}`;
   const initial = (tenant.title.trim()[0] || "?").toUpperCase();
@@ -2079,6 +2087,7 @@ export function settingsPage(
           <a class="btn ghost" href="${base}">Done</a>
         </div>
       </form>
+      ${opts?.isOwner ? `<div class="card"><h2 style="margin-top:0">Delete blog</h2><p>Removes this blog from the web while keeping its posts and media for now. Deletion asks you to type the blog title to confirm.</p><p><a class="btn danger" href="${base}/delete">Delete this blog</a></p></div>` : ""}
     </div>
     <script>
       (function () {
@@ -2248,6 +2257,37 @@ export function settingsPage(
         });
       })();
     </script>`,
+    account,
+    tenant
+  );
+}
+
+export function blogDeletePage(
+  account: Account,
+  tenant: Tenant,
+  opts?: { error?: string }
+): string {
+  const base = `/admin/b/${tenant.public_id}`;
+  return shell(
+    `Delete ${tenant.title}`,
+    `<div class="page">
+      <h1>Delete blog</h1>
+      ${opts?.error ? `<div class="error">${esc(opts.error)}</div>` : ""}
+      <div class="card">
+        <p><strong>This removes &ldquo;${esc(tenant.title)}&rdquo; from the web.</strong> Readers will see a not-found page, the blog leaves listings and search indexes, and scheduled posts stop. Its posts, media, and settings are kept, so the blog can be restored or fully expunged later.</p>
+        <p>To confirm, check the box and type the blog title exactly:</p>
+        <p><code>${esc(tenant.title)}</code></p>
+        <form method="post" action="${base}/delete">
+          <label><input type="checkbox" name="understand" value="1" required> I understand this removes my blog from the web.</label>
+          <label for="confirm">Blog title</label>
+          <input id="confirm" name="confirm" type="text" required autocomplete="off" placeholder="${esc(tenant.title)}">
+          <div class="actions">
+            <button class="btn danger" type="submit">Delete this blog</button>
+            <a class="btn ghost" href="${base}/settings">Keep my blog</a>
+          </div>
+        </form>
+      </div>
+    </div>`,
     account,
     tenant
   );

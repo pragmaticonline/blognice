@@ -1,4 +1,26 @@
 export const TTS_MODEL = "@cf/myshell-ai/melotts" as const;
+export const TTS_FALLBACK_MODEL = "@cf/deepgram/aura-1" as const;
+export const TTS_ENGINE_AURA = "aura-1" as const;
+export const TTS_ENGINE_MELOTTS = "melotts" as const;
+export const TTS_ENGINE_SETTING_KEY = "tts.engine" as const;
+
+// Reads the staff backend switch. Null when unset or when the settings table
+// does not exist yet (pre-068 databases); callers fail closed via selectTtsEngine.
+export async function readTtsEngineSetting(db: D1Database): Promise<string | null> {
+  try {
+    const row = await db.prepare("SELECT value FROM platform_settings WHERE key = ?").bind(TTS_ENGINE_SETTING_KEY).first<{ value: string }>();
+    return row?.value ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// Staff backend switch: which engine renders narration. Anything unset or
+// unrecognized fails closed to the current engine; only the exact switch
+// value opts into the fallback model.
+export function selectTtsEngine(stored: string | null | undefined): typeof TTS_MODEL | typeof TTS_FALLBACK_MODEL {
+  return stored === TTS_ENGINE_AURA ? TTS_FALLBACK_MODEL : TTS_MODEL;
+}
 export const TTS_RETRY_DELAYS = [250, 500, 1_000, 1_500, 2_000, 2_000, 2_000, 2_000, 2_000, 2_000, 2_000, 2_000] as const;
 export const TTS_CHUNK_MAX = 3_500;
 export const TTS_TEXT_MAX = 10_000;
@@ -228,8 +250,30 @@ function cleanSpeech(value: string, overrides: PronunciationReplacement[] = []):
     .trim();
 }
 
+// A trailing "Sources:" credit block is shown on the page but must never be
+// narrated — reading bare citations aloud is noise. Only a standalone marker
+// line whose tail is list-like (blanks, rules, list items, short lines) is
+// cut; a marker followed by real prose is left alone.
+const SOURCES_MARKER = /^\s{0,3}(?:#{1,6}\s+|\*\*)?Sources:?\*?\*?\s*$/;
+const SOURCES_TAIL_OK = /^\s*(?:[-*_]{3,}|\d{1,6}[.)]\s+|[-+*]\s+|>).*$|^\s*$/;
+
+export function removeSourcesSection(markdown: string): string {
+  const lines = markdown.split("\n");
+  let marker = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (SOURCES_MARKER.test(lines[i])) { marker = i; break; }
+  }
+  if (marker < 0) return markdown;
+  for (let i = marker + 1; i < lines.length; i++) {
+    const line = lines[i].replace(/\bhttps?:\/\/[^\s<]+/gi, " ").replace(/\bwww\.[^\s<]+/gi, " ");
+    if (SOURCES_TAIL_OK.test(lines[i]) || SOURCES_TAIL_OK.test(line)) continue;
+    if (line.trim().length > 200) return markdown;
+  }
+  return lines.slice(0, marker).join("\n");
+}
+
 export function narrationSections(title: string, markdown: string, overrides: PronunciationReplacement[] = []): { title: string; body: string } {
-  const cleaned = removeMarkdownTables(removeCitationClusters(decodeEntities(markdown)
+  const cleaned = removeMarkdownTables(removeCitationClusters(decodeEntities(removeSourcesSection(markdown))
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1"))
@@ -330,6 +374,28 @@ export function ttsBytes(output: Uint8Array | { audio: string }): Uint8Array {
     for (let i = 0; i < binary.length; i++) bytes[offset++] = binary.charCodeAt(i);
   }
   return bytes.subarray(0, offset);
+}
+
+// Aura-1 answers through the binding as a byte stream (MPEG by default;
+// linear16+wav when requested). Collect it so engine output always ends up
+// as plain bytes regardless of which shape a model returns.
+export async function ttsStreamToBytes(output: unknown): Promise<Uint8Array> {
+  if (output instanceof Uint8Array) return output;
+  if (output instanceof ReadableStream) {
+    const reader = (output as ReadableStream<Uint8Array>).getReader();
+    const chunks: Uint8Array[] = [];
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) chunks.push(value);
+    }
+    const total = chunks.reduce((n, c) => n + c.length, 0);
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const c of chunks) { out.set(c, offset); offset += c.length; }
+    return out;
+  }
+  return ttsBytes(output as Uint8Array | { audio: string });
 }
 
 export function narrationChunks(text: string, maxLength = TTS_CHUNK_MAX): string[] {

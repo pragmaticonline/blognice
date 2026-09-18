@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { esc } from "./render";
 import { sendEmailDetailed, registrationWelcomeEmail, subscriptionActiveEmail, subscriberConfirmationEmail, passwordResetEmail, subscriberWelcomeEmail, postNotificationEmail } from "./email";
 import { generateResetToken, sha256hex } from "./auth";
-import { classifyTtsError, ttsBytes, TTS_MODEL, TTS_RETRY_DELAYS } from "./tts";
+import { classifyTtsError, ttsBytes, readTtsEngineSetting, selectTtsEngine, TTS_ENGINE_AURA, TTS_ENGINE_MELOTTS, TTS_ENGINE_SETTING_KEY, TTS_FALLBACK_MODEL, TTS_MODEL, TTS_RETRY_DELAYS } from "./tts";
 import { getAffiliatePayoutQueueInDb, getAffiliateSupportActivityInDb, getAffiliateSupportSummaryInDb } from "./affiliate-support";
 import { approveAffiliatePayoutInDb, hasIndependentPayoutApprovalInDb, loadStripePayoutDispatchInDb, parseAffiliateStripeConnectCountries, parsePayoutDualControlThreshold, reconcilePayoutInDb, recordAffiliateAccountRelationshipInDb, recordManualAffiliateAdjustmentInDb, recordPayoutDispatchResultInDb } from "./affiliate";
 import { createAffiliateTransfer } from "./stripe";
@@ -872,10 +872,12 @@ app.get("/pronunciations", async (c) => {
 
 app.get("/tts-test", async (c) => {
   const staff = c.get("staff") as StaffIdentity;
+  const engine = selectTtsEngine(await readTtsEngineSetting(c.env.DB)) === TTS_FALLBACK_MODEL ? TTS_ENGINE_AURA : TTS_ENGINE_MELOTTS;
+  const enginePanel = `<div class="card"><h2>Narration engine</h2><p class="muted">Blog narration currently renders on <strong id="tts-engine-status">${engine}</strong>. Aura-1 costs roughly 100× per narration — switch only while MeloTTS is unhealthy.</p>${canMutate(staff) ? `<form id="tts-engine-form"><label>Engine <select name="engine"><option value="melotts"${engine === TTS_ENGINE_MELOTTS ? " selected" : ""}>melotts</option><option value="aura-1"${engine === TTS_ENGINE_AURA ? " selected" : ""}>aura-1</option></select></label> <button class="btn" type="submit">Switch engine</button></form><p id="tts-engine-message" class="muted" aria-live="polite"></p><script>(function(){var form=document.getElementById('tts-engine-form');if(!form)return;var status=document.getElementById('tts-engine-status');var message=document.getElementById('tts-engine-message');form.addEventListener('submit',async function(event){event.preventDefault();var button=form.querySelector('button');button.disabled=true;message.textContent='Switching…';try{var response=await fetch('/api/tts-engine',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({engine:form.elements.engine.value})});var data=await response.json().catch(function(){return {};});if(!response.ok)throw new Error(data.error||'Could not switch engine.');status.textContent=data.engine;message.textContent='Active engine: '+data.engine+'.';}catch(error){message.textContent=error.message||'Could not switch engine.';}finally{button.disabled=false;}});})();</script>` : ""}</div>`;
   const editor = canMutate(staff)
     ? `<div class="card"><h2>Short TTS test</h2><p class="muted">Generate a short sample without creating a post or consuming a customer’s AI allowance. Try variants such as <code>ay eye</code>, <code>eigh eye</code>, or <code>A, I</code>.</p><form id="tts-test-form"><label>Text <input name="text" required maxlength="240" value="AI is useful." style="padding:9px;border:1px solid var(--rule);border-radius:5px;min-width:360px"></label> <button class="btn" type="submit">Generate sample</button></form><p id="tts-test-status" class="muted" aria-live="polite"></p><audio id="tts-test-audio" controls hidden style="width:min(100%,520px)"></audio></div><script>(function(){var form=document.getElementById('tts-test-form');var status=document.getElementById('tts-test-status');var audio=document.getElementById('tts-test-audio');form.addEventListener('submit',async function(event){event.preventDefault();var button=form.querySelector('button');button.disabled=true;audio.hidden=true;status.textContent='Generating…';try{var response=await fetch('/api/tts-test',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:form.elements.text.value})});if(!response.ok){var data=await response.json().catch(function(){return {}});throw new Error(data.error||'Could not generate sample.');}var blob=await response.blob();if(audio.dataset.url)URL.revokeObjectURL(audio.dataset.url);audio.dataset.url=URL.createObjectURL(blob);audio.src=audio.dataset.url;audio.hidden=false;status.textContent='Sample ready.';await audio.play().catch(function(){});}catch(error){status.textContent=error.message||'Could not generate sample.';}finally{button.disabled=false;}});})();</script>`
     : `<div class="notice">Your role is read-only. TTS testing requires support or admin access.</div>`;
-  return c.html(staffPage("TTS test", `${staffHeader(staff)}<h2>TTS test</h2><p class="muted">Use this for quick pronunciation experiments before regenerating a full article.</p>${editor}`));
+  return c.html(staffPage("TTS test", `${staffHeader(staff)}<h2>TTS test</h2><p class="muted">Use this for quick pronunciation experiments before regenerating a full article.</p>${enginePanel}${editor}`));
 });
 
 app.post("/api/tts-test", async (c) => {
@@ -896,6 +898,28 @@ app.post("/api/tts-test", async (c) => {
     await audit(c, staff, { action: "tts-test", targetType: "tts", targetId: TTS_MODEL, reason: "Generate short pronunciation sample", result: "failure", after: { characters: text.length, error: info.category, code: info.code, transient: info.transient, retries: Array.isArray(retries) ? retries : [] } });
     return c.json({ error: "TTS sample generation failed." }, 502);
   }
+});
+
+// Backend TTS engine switch: which model renders narration. Any authenticated
+// staff role may read; changing requires a mutating role.
+app.get("/api/tts-engine", async (c) => {
+  const engine = selectTtsEngine(await readTtsEngineSetting(c.env.DB)) === TTS_FALLBACK_MODEL ? TTS_ENGINE_AURA : TTS_ENGINE_MELOTTS;
+  return c.json({ engine });
+});
+
+app.post("/api/tts-engine", async (c) => {
+  const staff = c.get("staff") as StaffIdentity;
+  if (!canMutate(staff)) return c.json({ error: "staff role cannot change the TTS engine" }, 403);
+  if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
+  const input = await c.req.json().catch(() => ({})) as { engine?: unknown };
+  const engine = String(input.engine || "").trim();
+  if (engine !== TTS_ENGINE_MELOTTS && engine !== TTS_ENGINE_AURA) return c.json({ error: "engine must be melotts or aura-1" }, 400);
+  const before = selectTtsEngine(await readTtsEngineSetting(c.env.DB)) === TTS_FALLBACK_MODEL ? TTS_ENGINE_AURA : TTS_ENGINE_MELOTTS;
+  try {
+    await c.env.DB.prepare("INSERT INTO platform_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at").bind(TTS_ENGINE_SETTING_KEY, engine, Math.floor(Date.now() / 1000)).run();
+  } catch { return c.json({ error: "settings table not available — run migration 068" }, 500); }
+  await audit(c, staff, { action: "tts-engine-change", targetType: "tts", targetId: TTS_ENGINE_SETTING_KEY, result: "success", before: { engine: before }, after: { engine } });
+  return c.json({ engine });
 });
 
 app.post("/api/pronunciations", async (c) => {
@@ -982,9 +1006,18 @@ app.get("/audit", async (c) => {
   ).bind(limit + 1, offset).all<{ occurred_at: number; email: string; role: string; action: string; target_type: string; target_id: string; reason: string | null; result: string; request_id: string }>();
   const hasMore = rows.results.length > limit;
   const slice = hasMore ? rows.results.slice(0, limit) : rows.results;
-  const body = slice.map((row) => `<tr><td>${new Date(row.occurred_at * 1000).toISOString().replace("T", " ").replace(".000Z", " UTC")}</td><td>${esc(row.email)}<br><small>${esc(row.role)}</small></td><td><strong>${esc(row.action)}</strong><br><small>${esc(row.target_type)}:${esc(row.target_id)}</small></td><td>${esc(row.reason || "—")}</td><td><span class="badge ${row.result === "success" ? "" : "suspended"}">${esc(row.result)}</span></td><td><code>${esc(row.request_id)}</code></td></tr>`).join("");
+  const auditWhen = (occurredAt: number) => new Date(occurredAt * 1000).toISOString().replace("T", " ").replace(".000Z", "");
+  const auditResult = (result: string) => result === "success"
+    ? `<span title="success" aria-label="Result: success" style="color:#20611e;font-weight:800">✓</span>`
+    : result === "failure"
+      ? `<span title="failure" aria-label="Result: failure" style="color:#8d241b;font-weight:800">✗</span>`
+      : `<span class="badge suspended">${esc(result)}</span>`;
+  const auditWho = (email: string) => email.length > 14
+    ? `<span title="${esc(email)}">${esc(email.slice(0, 13))}…</span>`
+    : esc(email);
+  const body = slice.map((row) => `<tr><td>${auditWhen(row.occurred_at)}</td><td>${auditWho(row.email)}<br><small>${esc(row.role)}</small></td><td><strong>${esc(row.action)}</strong><br><small>${esc(row.target_type)}:${esc(row.target_id)}</small></td><td>${esc(row.reason || "—")}</td><td>${auditResult(row.result)}</td><td><code>${esc(row.request_id)}</code></td></tr>`).join("");
   const pageLinks = `<p class="pagination" style="display:flex;align-items:center;gap:10px;justify-content:flex-end"><span>Page ${page}</span>${page > 1 ? `<a class="btn" href="/audit?page=${page - 1}">← Previous</a>` : ""}${hasMore ? `<a class="btn" href="/audit?page=${page + 1}">Next →</a>` : ""}</p>`;
-  return c.html(staffPage("Staff audit log", `${staffHeader(staff)}<h2>Staff audit log</h2><p class="muted">Showing ${slice.length} events — page ${page}${hasMore ? " (more available)" : ""}</p><div class="card"><table><thead><tr><th>When</th><th>Staff member</th><th>Action</th><th>Reason</th><th>Result</th><th>Request</th></tr></thead><tbody>${body || `<tr><td colspan="6" class="empty">No staff actions recorded yet.</td></tr>`}</tbody></table></div>${pageLinks}`));
+  return c.html(staffPage("Staff audit log", `${staffHeader(staff)}<h2>Staff audit log</h2><p class="muted">Showing ${slice.length} events — page ${page}${hasMore ? " (more available)" : ""} · Times are in UTC</p><div class="card"><table><thead><tr><th>When</th><th>Staff member</th><th>Action</th><th>Reason</th><th>Result</th><th>Request</th></tr></thead><tbody>${body || `<tr><td colspan="6" class="empty">No staff actions recorded yet.</td></tr>`}</tbody></table></div>${pageLinks}`));
 });
 
 function emailPreviewPanel(staff: StaffIdentity): string { return canMutate(staff) ? `<div class="card" id="email-preview"><h2>Email preview</h2><p class="muted">Send a production-format sample to any address you control. This tool uses the same branded delivery wrapper as live email. Preview links are non-functional.</p><form id="test-email-form"><label>To <input name="to" type="email" required placeholder="you@example.com" style="padding:8px;border:1px solid var(--rule);border-radius:5px;min-width:280px"></label> <label>Type <select name="type" style="padding:8px;border:1px solid var(--rule);border-radius:5px"><option value="registration">Registration</option><option value="subscription-active">Subscription active</option><option value="subscriber-confirmation">Confirm subscription</option><option value="subscriber-welcome">Subscriber welcome</option><option value="new-post">New-post notification</option><option value="password-reset">Password reset</option></select></label> <button class="btn" type="submit">Send test email</button></form><p id="test-email-status" class="muted" aria-live="polite"></p></div><script>document.getElementById('test-email-form').addEventListener('submit',async function(event){event.preventDefault();var form=this;var status=document.getElementById('test-email-status');if(!confirm('Send this email now?'))return;var button=form.querySelector('button');button.disabled=true;status.textContent='Sending…';var response=await fetch('/api/test-email',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({to:form.elements.to.value,type:form.elements.type.value})});var data=await response.json();button.disabled=false;status.textContent=response.ok?'Sent to '+data.recipient+'.':'Error: '+(data.error||'Test email failed.');})</script>` : `<p class="muted">Your role is read-only; email testing requires support or admin access.</p>`; }

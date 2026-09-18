@@ -8,6 +8,7 @@ import {
   buildFallbackBrief,
   buildImagePrompt,
   buildSourceContext,
+  sanitizeTextRequests,
 } from "../src/ai-image.ts";
 
 test("post source context prioritizes the title and stays bounded", () => {
@@ -41,6 +42,9 @@ test("final image prompt uses wide framing without inviting generic scenery", ()
   assert.match(prompt, /natural-light editorial photograph/);
   assert.match(prompt, /lettering, or readable words/);
   assert.match(prompt, /browser window, website, article page/);
+  assert.match(prompt, /TEXT BAN/);
+  assert.match(prompt, /rendered completely blank/);
+  assert.match(prompt, /zero readable or pseudo-readable marks/);
   assert.doesNotMatch(prompt, /Landscape composition/);
   assert.ok(prompt.length <= AI_IMAGE_PROMPT_MAX);
 });
@@ -92,4 +96,33 @@ test("one-click generation chains both models and saves to the media bucket", ()
   assert.match(admin, /if \(!creativeDirection\)/);
   assert.match(admin, /do not send the full draft over the wire/);
   assert.match(admin, /Generating narration/);
+});
+
+test("text requests in the brief are neutralized to blank surfaces", () => {
+  assert.match(
+    sanitizeTextRequests('protesters holding signs reading "JUSTICE NOW" march downtown'),
+    /signs rendered completely blank/
+  );
+  assert.doesNotMatch(sanitizeTextRequests('protesters holding signs reading "JUSTICE NOW"'), /JUSTICE/);
+  assert.match(sanitizeTextRequests("a poster saying Hello on the wall"), /poster rendered completely blank/);
+  assert.doesNotMatch(sanitizeTextRequests("a poster saying Hello on the wall"), /Hello/);
+  assert.match(sanitizeTextRequests('shop window with the words "OPEN" glowing'), /no text/);
+  assert.doesNotMatch(sanitizeTextRequests('shop window with the words "OPEN" glowing'), /OPEN/);
+  assert.match(sanitizeTextRequests("headline: \"Cats Rule\""), /blank/);
+  assert.match(sanitizeTextRequests('a sailor with a tattoo saying "MOM"'), /tattoo rendered completely blank/);
+  assert.doesNotMatch(sanitizeTextRequests('a sailor with a tattoo saying "MOM"'), /MOM/);
+  assert.match(sanitizeTextRequests('newspaper headline "Markets Rally"'), /blank/);
+  assert.doesNotMatch(sanitizeTextRequests('newspaper headline "Markets Rally"'), /Markets Rally/);
+});
+
+test("ordinary prose without text requests passes through untouched", () => {
+  assert.equal(sanitizeTextRequests("a cat reading a book under a lamp"), "a cat reading a book under a lamp");
+  assert.equal(sanitizeTextRequests("an open book showing illustrations"), "an open book showing illustrations");
+  assert.equal(sanitizeTextRequests("a quiet message of hope at dawn"), "a quiet message of hope at dawn");
+});
+
+test("final image prompt never forwards requested copy", () => {
+  const prompt = buildImagePrompt('a street vendor with a sign reading "SALE" beside fruit', "editorial-photo");
+  assert.doesNotMatch(prompt, /SALE/);
+  assert.match(prompt, /rendered completely blank/);
 });

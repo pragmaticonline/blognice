@@ -73,6 +73,7 @@ import {
   domainsPage,
   blogListPage,
   newBlogPage,
+  blogDeletePage,
   settingsPage,
   subscribersPage,
   apiKeyPage,
@@ -110,6 +111,7 @@ import policiesPage from "../policies.html";
 import faviconSvg from "../favicon.svg";
 import { findMediaUse, mediaKey, mediaUrl, validLibraryFile } from "./media";
 import {
+  AI_AUTOPILOT_MODEL,
   AI_BRIEF_MODEL,
   AI_IMAGE_MODEL,
   buildFallbackBrief,
@@ -118,7 +120,7 @@ import {
   type ImageContextMode,
   type ImageStyle,
 } from "./ai-image";
-import { applyPronunciations, assertEnglishText, classifyTtsError, mergeWav, narrationChunks, narrationSections, pronunciationReplacements, ttsBytes, wavAssembly, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "./tts";
+import { applyPronunciations, assertEnglishText, classifyTtsError, mergeWav, narrationChunks, narrationSections, pronunciationReplacements, readTtsEngineSetting, selectTtsEngine, ttsBytes, ttsStreamToBytes, wavAssembly, TTS_FALLBACK_MODEL, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "./tts";
 import {
   archivePreviousDay,
   archivePreviousDayAffiliateEvents,
@@ -347,7 +349,7 @@ async function resolveTenant(
   const managed = await env.DB.prepare(
     `SELECT t.* FROM tenants t
        JOIN domains d ON d.tenant_id = t.id
-      WHERE d.hostname = ? AND d.status = 'active'`
+      WHERE d.hostname = ? AND d.status = 'active' AND t.deleted_at IS NULL`
   )
     .bind(host)
     .first<Tenant>();
@@ -355,7 +357,7 @@ async function resolveTenant(
 
   // 2) A custom domain set manually on the tenant row (simple single-domain case).
   const byDomain = await env.DB.prepare(
-    "SELECT * FROM tenants WHERE custom_domain = ?"
+    "SELECT * FROM tenants WHERE custom_domain = ? AND deleted_at IS NULL"
   )
     .bind(host)
     .first<Tenant>();
@@ -366,7 +368,7 @@ async function resolveTenant(
   if (host.endsWith("." + root)) {
     const slug = host.slice(0, host.length - root.length - 1);
     if (slug && !slug.includes(".")) {
-      return env.DB.prepare("SELECT * FROM tenants WHERE slug = ?")
+      return env.DB.prepare("SELECT * FROM tenants WHERE slug = ? AND deleted_at IS NULL")
         .bind(slug)
         .first<Tenant>();
     }
@@ -606,7 +608,7 @@ async function purgeMasterSitemap(env: Bindings): Promise<void> {
   const wwwHost = `www.${env.ROOT_DOMAIN}`;
   const basePaths = ["/sitemap-index.xml"];
   try {
-    const countRow = await env.DB.prepare("SELECT COUNT(*) as count FROM tenants WHERE slug <> 'www'").first<{ count: number }>();
+    const countRow = await env.DB.prepare("SELECT COUNT(*) as count FROM tenants WHERE slug <> 'www' AND deleted_at IS NULL").first<{ count: number }>();
     const total = countRow?.count ?? 0;
     const shardCount = Math.max(1, Math.ceil(total / MASTER_SITEMAP_PAGE_SIZE));
     for (let i = 1; i <= Math.min(shardCount, 100); i++) basePaths.push(`/sitemaps/blogs/${i}.xml`);
@@ -758,7 +760,9 @@ async function subscriptionManageToken(env: Bindings, email: string): Promise<st
 }
 
 async function tenantById(env: Bindings, id: number | string): Promise<Tenant | null> {
-  return (await env.DB.prepare("SELECT * FROM tenants WHERE id = ?")
+  // Soft-deleted blogs read as gone, so queued jobs, confirmations, and push
+  // campaigns for them no-op through their existing null checks.
+  return (await env.DB.prepare("SELECT * FROM tenants WHERE id = ? AND deleted_at IS NULL")
     .bind(id)
     .first()) as Tenant | null;
 }
@@ -1000,7 +1004,7 @@ app.get("/llms.txt", async (c) => {
     const isApex = host === c.env.ROOT_DOMAIN.toLowerCase();
     if (isWww || isApex) {
       const { results } = await c.env.DB.prepare(
-        "SELECT slug, custom_domain, title, description FROM tenants WHERE slug <> 'www' ORDER BY created_at DESC LIMIT 50"
+        "SELECT slug, custom_domain, title, description FROM tenants WHERE slug <> 'www' AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 50"
       ).all<{ slug: string; custom_domain: string | null; title: string; description: string }>();
       const origin = originOf(c);
       const lines = [
@@ -1061,7 +1065,7 @@ app.get("/llms-full.txt", async (c) => {
     const isWww = host === `www.${c.env.ROOT_DOMAIN}`.toLowerCase();
     if (isWww) {
       const { results } = await c.env.DB.prepare(
-        "SELECT slug, custom_domain, title, description FROM tenants WHERE slug <> 'www' ORDER BY created_at DESC LIMIT 50"
+        "SELECT slug, custom_domain, title, description FROM tenants WHERE slug <> 'www' AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 50"
       ).all<{ slug: string; custom_domain: string | null; title: string; description: string }>();
       const origin = originOf(c);
       const lines = [
@@ -1215,7 +1219,7 @@ async function legacySlugRedirect(c: any): Promise<Response | null> {
 }
 
 async function tenantByPublicId(env: Bindings, publicId: string): Promise<Tenant | null> {
-  return (await env.DB.prepare("SELECT * FROM tenants WHERE public_id = ?")
+  return (await env.DB.prepare("SELECT * FROM tenants WHERE public_id = ? AND deleted_at IS NULL")
     .bind(publicId)
     .first()) as Tenant | null;
 }
@@ -1393,13 +1397,13 @@ app.get("/sitemap-index.xml", async (c) => {
   if (host !== `www.${c.env.ROOT_DOMAIN}`.toLowerCase()) return c.text("Not found", 404);
   return serveCached(c, async () => {
     const countRow = await c.env.DB.prepare(
-      "SELECT COUNT(*) as count FROM tenants WHERE slug <> 'www'"
+      "SELECT COUNT(*) as count FROM tenants WHERE slug <> 'www' AND deleted_at IS NULL"
     ).first<{ count: number }>();
     const total = countRow?.count ?? 0;
     const shardCount = Math.max(1, Math.ceil(total / MASTER_SITEMAP_PAGE_SIZE));
     if (total <= MASTER_SITEMAP_PAGE_SIZE) {
       const { results } = await c.env.DB.prepare(
-        "SELECT slug, custom_domain FROM tenants WHERE slug <> 'www' ORDER BY created_at LIMIT ?"
+        "SELECT slug, custom_domain FROM tenants WHERE slug <> 'www' AND deleted_at IS NULL ORDER BY created_at LIMIT ?"
       ).bind(MASTER_SITEMAP_PAGE_SIZE).all<{ slug: string; custom_domain: string | null }>();
       const xml = buildShardSitemapIndexXml(results, c.env.ROOT_DOMAIN);
       return new Response(xml, { headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=300" } });
@@ -1417,14 +1421,14 @@ app.get("/sitemaps/blogs/:page.xml", async (c) => {
   if (!Number.isInteger(page) || page < 1) return c.text("Not found", 404);
   return serveCached(c, async () => {
     const countRow = await c.env.DB.prepare(
-      "SELECT COUNT(*) as count FROM tenants WHERE slug <> 'www'"
+      "SELECT COUNT(*) as count FROM tenants WHERE slug <> 'www' AND deleted_at IS NULL"
     ).first<{ count: number }>();
     const total = countRow?.count ?? 0;
     const shardCount = Math.max(1, Math.ceil(total / MASTER_SITEMAP_PAGE_SIZE));
     if (page > shardCount) return new Response("Not found", { status: 404 });
     const offset = (page - 1) * MASTER_SITEMAP_PAGE_SIZE;
     const { results } = await c.env.DB.prepare(
-      "SELECT slug, custom_domain FROM tenants WHERE slug <> 'www' ORDER BY created_at LIMIT ? OFFSET ?"
+      "SELECT slug, custom_domain FROM tenants WHERE slug <> 'www' AND deleted_at IS NULL ORDER BY created_at LIMIT ? OFFSET ?"
     ).bind(MASTER_SITEMAP_PAGE_SIZE, offset).all<{ slug: string; custom_domain: string | null }>();
     const xml = buildShardSitemapIndexXml(results, c.env.ROOT_DOMAIN);
     return new Response(xml, { headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=300" } });
@@ -1615,7 +1619,7 @@ async function ownedTenantById(
   return (await env.DB.prepare(
     `SELECT t.* FROM tenants t
        JOIN memberships m ON m.tenant_id = t.id
-      WHERE t.public_id = ? AND m.account_id = ?`
+      WHERE t.public_id = ? AND m.account_id = ? AND t.deleted_at IS NULL`
   )
     .bind(blogId, accountId)
     .first<Tenant>()) ?? null;
@@ -1629,7 +1633,7 @@ app.get("/api/v1/me", async (c) => {
   const { results } = await c.env.DB.prepare(
     `SELECT t.public_id, t.slug, t.title FROM tenants t
        JOIN memberships m ON m.tenant_id = t.id
-      WHERE m.account_id = ? ORDER BY t.created_at`
+      WHERE m.account_id = ? AND t.deleted_at IS NULL ORDER BY t.created_at`
   )
     .bind(account.id)
     .all();
@@ -2249,7 +2253,7 @@ app.post("/api/v1/blogs", async (c) => {
   const account = await apiAccount(c);
   if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
   if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
-  const ownedCount = await c.env.DB.prepare("SELECT COUNT(*) AS count FROM memberships WHERE account_id = ? AND role = 'owner'").bind(account.id).first<{ count: number }>();
+  const ownedCount = await c.env.DB.prepare("SELECT COUNT(*) AS count FROM memberships m JOIN tenants t ON t.id = m.tenant_id WHERE m.account_id = ? AND m.role = 'owner' AND t.deleted_at IS NULL").bind(account.id).first<{ count: number }>();
   const maxBlogs = maxBlogsForAccount(account as any);
   if ((ownedCount?.count ?? 0) >= maxBlogs) return c.json({ error: maxBlogs > 1 ? `Your account can own up to ${maxBlogs} blogs. Collaborations do not count toward this limit.` : "Free accounts can own one blog. Upgrade to add more blogs." }, 409);
   let body: any;
@@ -2275,6 +2279,31 @@ app.post("/api/v1/blogs", async (c) => {
   queueBlogAudit(c, blogId, account.id, "blog_created", slug);
   c.executionCtx.waitUntil(purgeMasterSitemap(c.env).catch(() => {}));
   return c.json({ blog: { public_id: publicId, slug: tenant?.slug ?? slug, title: tenant?.title ?? title, description: "", accent_color: DEFAULT_ACCENT_COLOR, topics: [], social_links: {}, browser_push_enabled: true, header_link_url: "/", created_at: now } }, 201);
+});
+
+// Soft-delete a blog (owner only). The blog leaves the web but every row is
+// kept for later expunge tooling. Body: { confirm: "<exact blog title>" }.
+app.delete("/api/v1/blogs/:blogId", async (c) => {
+  const account = await apiAccount(c);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
+  const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
+  if (!tenant) return c.json({ error: "blog not found" }, 404);
+  const role = await membershipRoleFor(c.env, account.id, tenant.id);
+  if (role !== "owner") return c.json({ error: "forbidden" }, 403);
+  let body: any = {};
+  try { body = await c.req.json(); } catch { body = {}; }
+  if (String(body?.confirm ?? "").trim() !== tenant.title)
+    return c.json({ error: "Type the exact blog title in 'confirm' to delete it." }, 400);
+  const now = Math.floor(Date.now() / 1000);
+  await c.env.DB.prepare("UPDATE tenants SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL")
+    .bind(now, tenant.id).run();
+  queueBlogAudit(c, tenant.id, account.id, "blog_deleted", tenant.slug);
+  c.executionCtx.waitUntil((async () => {
+    await purgeTenantEverywhere(c.env, tenant).catch(() => {});
+    await purgeMasterSitemap(c.env).catch(() => {});
+  })());
+  return c.json({ deleted: true, slug: tenant.slug });
 });
 
 // ---------------------------------------------------------------------------
@@ -2839,7 +2868,7 @@ async function ownedBlog(c: any, account: Account): Promise<Tenant | null> {
   return (await c.env.DB.prepare(
     `SELECT t.*, m.role AS membership_role FROM tenants t
        JOIN memberships m ON m.tenant_id = t.id
-      WHERE t.public_id = ? AND m.account_id = ?`
+      WHERE t.public_id = ? AND m.account_id = ? AND t.deleted_at IS NULL`
   )
     .bind(c.req.param("blogId"), account.id)
     .first()) as (Tenant & { membership_role: MembershipRole }) | null;
@@ -3091,7 +3120,7 @@ async function accountBlogsForDocs(env: Bindings, account: Account): Promise<Arr
   const { results } = await env.DB.prepare(
     `SELECT t.public_id, t.title, t.slug FROM tenants t
        JOIN memberships m ON m.tenant_id = t.id
-      WHERE m.account_id = ? ORDER BY t.title`
+      WHERE m.account_id = ? AND t.deleted_at IS NULL ORDER BY t.title`
   ).bind(account.id).all<{ public_id: string; title: string; slug: string }>();
   return results;
 }
@@ -3225,7 +3254,7 @@ app.get("/admin", async (c) => {
   const { results } = await c.env.DB.prepare(
     `SELECT t.public_id, t.slug, t.title, t.description, t.avatar_key, t.topics_json, m.role FROM tenants t
        JOIN memberships m ON m.tenant_id = t.id
-      WHERE m.account_id = ? ORDER BY t.title`
+      WHERE m.account_id = ? AND t.deleted_at IS NULL ORDER BY t.title`
   )
     .bind(account.id)
     .all<{ public_id: string; slug: string; title: string; description: string | null; avatar_key: string | null; topics_json: string | null; role: MembershipRole }>();
@@ -3249,7 +3278,7 @@ app.get("/admin/blogs.json", async (c) => {
   const { results } = await c.env.DB.prepare(
     `SELECT t.public_id, t.slug, t.title, m.role FROM tenants t
        JOIN memberships m ON m.tenant_id = t.id
-      WHERE m.account_id = ? ORDER BY t.title`
+      WHERE m.account_id = ? AND t.deleted_at IS NULL ORDER BY t.title`
   ).bind(account.id).all<{ public_id: string; slug: string; title: string; role: MembershipRole }>();
   return c.json({ blogs: results });
 });
@@ -3275,7 +3304,7 @@ app.post("/admin/new-blog", async (c) => {
     c.html(newBlogPage(account, c.env.ROOT_DOMAIN, values, msg), status);
 
   const ownedCount = await c.env.DB.prepare(
-    "SELECT COUNT(*) AS count FROM memberships WHERE account_id = ? AND role = 'owner'"
+    "SELECT COUNT(*) AS count FROM memberships m JOIN tenants t ON t.id = m.tenant_id WHERE m.account_id = ? AND m.role = 'owner' AND t.deleted_at IS NULL"
   ).bind(account.id).first<{ count: number }>();
   const maxBlogs = maxBlogsForAccount(account as any);
   if ((ownedCount?.count ?? 0) >= maxBlogs)
@@ -3988,10 +4017,23 @@ app.post("/admin/b/:blogId/upload", async (c) => {
   return c.json({ key, url, markdown: `![](${url})` });
 });
 
+// One speech segment on a chosen engine. MeloTTS answers with WAV bytes;
+// Aura-1 is requested as linear16-in-wav so its segments stay WAV-shaped and
+// merge with the same pipeline (one engine per job, so formats never mix).
+// The default speaker is used for Aura: every fallback narration sounds alike.
+export async function generateSpeechForModel(ai: Ai, model: string, prompt: string): Promise<Uint8Array> {
+  const generated = model === TTS_FALLBACK_MODEL
+    ? await (ai as any).run(model, { text: prompt, encoding: "linear16", container: "wav" })
+    : await ai.run(TTS_MODEL, { prompt, lang: "en" });
+  const bytes = model === TTS_FALLBACK_MODEL ? await ttsStreamToBytes(generated) : ttsBytes(generated);
+  if (!bytes.byteLength) throw new Error("The model returned no audio.");
+  return bytes;
+}
+
 // Generate narration once, persist it to R2, and attach it to a saved post.
 // Regeneration is deliberately a remove-then-generate flow, preventing an
 // accidental click from replacing approved narration or consuming AI usage.
-async function generateSpeechWithRetry(ai: Ai, prompt: string): Promise<Uint8Array> {
+async function generateSpeechWithRetry(ai: Ai, prompt: string, model: string = TTS_MODEL): Promise<Uint8Array> {
   // Longer spacing helps a retry escape the same temporarily unhealthy model
   // instance instead of exhausting every attempt in one short burst.
   // 3043 is an intermittent upstream failure. Keep the retry window focused
@@ -3999,10 +4041,7 @@ async function generateSpeechWithRetry(ai: Ai, prompt: string): Promise<Uint8Arr
   let lastError: unknown;
   for (let attempt = 0; attempt <= TTS_RETRY_DELAYS.length; attempt++) {
     try {
-      const generated = await ai.run(TTS_MODEL, { prompt, lang: "en" });
-      const bytes = ttsBytes(generated);
-      if (!bytes.byteLength) throw new Error("The model returned no audio.");
-      return bytes;
+      return await generateSpeechForModel(ai, model, prompt);
     } catch (error) {
       lastError = error;
       const message = error instanceof Error ? error.message : String(error);
@@ -4010,7 +4049,8 @@ async function generateSpeechWithRetry(ai: Ai, prompt: string): Promise<Uint8Arr
       const transient = classifyTtsError(error).transient;
       if (!transient || attempt === TTS_RETRY_DELAYS.length) throw error;
       console.warn(JSON.stringify({
-        message: "Transient MeloTTS failure; retrying",
+        message: "Transient TTS failure; retrying",
+        model,
         error: message,
         attempt: attempt + 1,
       }));
@@ -4039,17 +4079,17 @@ function splitSpeechPrompt(prompt: string): [string, string] | null {
 // after normal retries, split that segment at a natural boundary and assemble
 // the two successful WAV responses. This is deliberately bounded to avoid
 // hiding permanent model failures or creating unbounded recursive work.
-async function generateSpeechWithRecovery(ai: Ai, prompt: string, depth = 0): Promise<Uint8Array> {
+async function generateSpeechWithRecovery(ai: Ai, prompt: string, depth = 0, model: string = TTS_MODEL): Promise<Uint8Array> {
   try {
-    return await generateSpeechWithRetry(ai, prompt);
+    return await generateSpeechWithRetry(ai, prompt, model);
   } catch (error) {
     const parts = depth < 3 && prompt.length >= 240 && classifyTtsError(error).transient
       ? splitSpeechPrompt(prompt)
       : null;
     if (!parts) throw error;
-    const first = await generateSpeechWithRecovery(ai, parts[0], depth + 1);
+    const first = await generateSpeechWithRecovery(ai, parts[0], depth + 1, model);
     await new Promise((resolve) => setTimeout(resolve, 350));
-    const second = await generateSpeechWithRecovery(ai, parts[1], depth + 1);
+    const second = await generateSpeechWithRecovery(ai, parts[1], depth + 1, model);
     return mergeWav([first, second]);
   }
 }
@@ -4098,7 +4138,7 @@ async function processAudioJob(env: Bindings, jobKey: string): Promise<void> {
       if (cached) bytes = new Uint8Array(await cached.arrayBuffer());
       else {
         if (index > 0) await new Promise((resolve) => setTimeout(resolve, 350));
-        bytes = await generateSpeechWithRecovery(env.AI, job.prompts[index].text);
+        bytes = await generateSpeechWithRecovery(env.AI, job.prompts[index].text, 0, job.model ?? TTS_MODEL);
         await env.MEDIA.put(checkpointKey, bytes, {
           httpMetadata: { contentType: "audio/wav", cacheControl: "private, max-age=3600" },
           customMetadata: { postId: String(job.postId), checkpoint: "tts" },
@@ -4115,7 +4155,7 @@ async function processAudioJob(env: Bindings, jobKey: string): Promise<void> {
     const fixed = new FixedLengthStream(assembly.size);
     const upload = env.MEDIA.put(audioKey, fixed.readable, {
       httpMetadata: { contentType: "audio/wav", cacheControl: "public, max-age=31536000, immutable" },
-      customMetadata: { originalName: `${job.postSlug} narration.wav`, generatedBy: TTS_MODEL, postId: String(job.postId) },
+      customMetadata: { originalName: `${job.postSlug} narration.wav`, generatedBy: job.model ?? TTS_MODEL, postId: String(job.postId) },
     });
     const writer = fixed.writable.getWriter();
     try {
@@ -4214,9 +4254,10 @@ async function createAudioJob(env: Bindings, tenant: Tenant, post: Pick<Post, "i
   }
   const jobId = crypto.randomUUID();
   const jobKey = `${tenant.id}/.audio-jobs/${jobId}.json`;
-  const checkpointHash = await sha256hex(`${TTS_MODEL}\n${preparedTitle}\n${preparedBody}`);
+  const jobModel = selectTtsEngine(await readTtsEngineSetting(env.DB));
+  const checkpointHash = await sha256hex(`${jobModel}\n${preparedTitle}\n${preparedBody}`);
   const checkpointPrefix = `${tenant.id}/.audio-checkpoints/${post.id}-${checkpointHash}`;
-  const job: AudioJobManifest = { jobId, tenantId: tenant.id, postId: post.id, postSlug: post.slug, prompts, checkpointKeys: prompts.map((_, index) => `${checkpointPrefix}/${index}.wav`), status: "queued", completed: 0, creditCost: audioCost, creditAccountId: audioReservation.accountId, creditPeriod: audioReservation.period };
+  const job: AudioJobManifest = { jobId, tenantId: tenant.id, postId: post.id, postSlug: post.slug, prompts, checkpointKeys: prompts.map((_, index) => `${checkpointPrefix}/${index}.wav`), status: "queued", completed: 0, creditCost: audioCost, creditAccountId: audioReservation.accountId, creditPeriod: audioReservation.period, model: jobModel };
   try {
     const claimed = await tenantDb(env, tenant).prepare("UPDATE posts SET audio_generation_id = ?, updated_at = ? WHERE id = ? AND tenant_id = ? AND audio_key IS NULL AND audio_generation_id IS NULL")
       .bind(jobId, Math.floor(Date.now() / 1000), post.id, tenant.id).run();
@@ -4274,52 +4315,62 @@ app.post("/admin/b/:blogId/audio/:id", async (c) => {
   catch (error) { return c.json({ error: error instanceof Error ? error.message : "AI credits unavailable" }, 402); }
 
   // Long narration is queued so the browser is never responsible for keeping
-  // one Worker invocation alive while dozens of model calls run.
-  const replacements = await preparePronunciations(c.env.AI, text.replaceAll(TTS_HARD_PAUSE, "\n\n").replaceAll(TTS_SOFT_PAUSE, " "));
-  const preparedTitle = applyPronunciations(sections.title, replacements).replaceAll(TTS_SOFT_PAUSE, " ");
-  const preparedBody = applyPronunciations(sections.body, replacements);
-  const prompts: Array<{ text: string; pauseAfter: number }> = [{ text: preparedTitle, pauseAfter: TTS_TITLE_PAUSE_SECONDS }];
-  const structuralParts = preparedBody.split(TTS_HARD_PAUSE);
-  for (let partIndex = 0; partIndex < structuralParts.length; partIndex++) {
-    const punctuationParts = structuralParts[partIndex].split(TTS_SOFT_PAUSE);
-    for (let punctuationIndex = 0; punctuationIndex < punctuationParts.length; punctuationIndex++) {
-      const chunks = narrationChunks(punctuationParts[punctuationIndex].trim());
-      for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-        const isLastChunk = chunkIndex === chunks.length - 1;
-        const isLastPunctuationPart = punctuationIndex === punctuationParts.length - 1;
-        prompts.push({
-          text: chunks[chunkIndex],
-          pauseAfter: isLastChunk && !isLastPunctuationPart
-            ? TTS_PUNCTUATION_PAUSE_SECONDS
-            : isLastChunk && partIndex < structuralParts.length - 1
-              ? TTS_STRUCTURE_PAUSE_SECONDS : 0,
-        });
+  // one Worker invocation alive while dozens of model calls run. Every failure
+  // below refunds the reservation and answers JSON, so the editor never sees a
+  // bare 500 page and credits never leak on a failed queue attempt.
+  let jobId = "";
+  let queuedSegments = 0;
+  try {
+    const replacements = await preparePronunciations(c.env.AI, text.replaceAll(TTS_HARD_PAUSE, "\n\n").replaceAll(TTS_SOFT_PAUSE, " "));
+    const preparedTitle = applyPronunciations(sections.title, replacements).replaceAll(TTS_SOFT_PAUSE, " ");
+    const preparedBody = applyPronunciations(sections.body, replacements);
+    const prompts: Array<{ text: string; pauseAfter: number }> = [{ text: preparedTitle, pauseAfter: TTS_TITLE_PAUSE_SECONDS }];
+    const structuralParts = preparedBody.split(TTS_HARD_PAUSE);
+    for (let partIndex = 0; partIndex < structuralParts.length; partIndex++) {
+      const punctuationParts = structuralParts[partIndex].split(TTS_SOFT_PAUSE);
+      for (let punctuationIndex = 0; punctuationIndex < punctuationParts.length; punctuationIndex++) {
+        const chunks = narrationChunks(punctuationParts[punctuationIndex].trim());
+        for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+          const isLastChunk = chunkIndex === chunks.length - 1;
+          const isLastPunctuationPart = punctuationIndex === punctuationParts.length - 1;
+          prompts.push({
+            text: chunks[chunkIndex],
+            pauseAfter: isLastChunk && !isLastPunctuationPart
+              ? TTS_PUNCTUATION_PAUSE_SECONDS
+              : isLastChunk && partIndex < structuralParts.length - 1
+                ? TTS_STRUCTURE_PAUSE_SECONDS : 0,
+          });
+        }
       }
     }
-  }
-  const jobId = crypto.randomUUID();
-  const jobKey = `${ctx.tenant.id}/.audio-jobs/${jobId}.json`;
-  const checkpointHash = await sha256hex(`${TTS_MODEL}\n${preparedTitle}\n${preparedBody}`);
-  const checkpointPrefix = `${ctx.tenant.id}/.audio-checkpoints/${post.id}-${checkpointHash}`;
-  const job: AudioJobManifest = {
-    jobId, tenantId: ctx.tenant.id, postId: post.id, postSlug: post.slug, prompts,
-    checkpointKeys: prompts.map((_, index) => `${checkpointPrefix}/${index}.wav`),
-    status: "queued", completed: 0,
-    creditCost: audioCost, creditAccountId: audioReservation.accountId, creditPeriod: audioReservation.period,
-  };
-  try {
+    jobId = crypto.randomUUID();
+    const jobKey = `${ctx.tenant.id}/.audio-jobs/${jobId}.json`;
+    const jobModel = selectTtsEngine(await readTtsEngineSetting(c.env.DB));
+    const checkpointHash = await sha256hex(`${jobModel}\n${preparedTitle}\n${preparedBody}`);
+    const checkpointPrefix = `${ctx.tenant.id}/.audio-checkpoints/${post.id}-${checkpointHash}`;
+    const job: AudioJobManifest = {
+      jobId, tenantId: ctx.tenant.id, postId: post.id, postSlug: post.slug, prompts,
+      checkpointKeys: prompts.map((_, index) => `${checkpointPrefix}/${index}.wav`),
+      status: "queued", completed: 0,
+      creditCost: audioCost, creditAccountId: audioReservation.accountId, creditPeriod: audioReservation.period,
+      model: jobModel,
+    };
     const claimed = await pdb.prepare("UPDATE posts SET audio_generation_id = ?, updated_at = ? WHERE id = ? AND tenant_id = ? AND audio_key IS NULL AND audio_generation_id IS NULL")
       .bind(jobId, Math.floor(Date.now() / 1000), post.id, ctx.tenant.id).run();
     if (!claimed.meta.changes) throw new Error("A narration is already being generated or attached to this post.");
     await writeAudioJob(c.env, jobKey, job);
     await c.env.AUDIO_QUEUE.send({ jobKey, tenantId: ctx.tenant.id, postId: post.id });
+    queuedSegments = prompts.length;
   } catch (error) {
-    await pdb.prepare("UPDATE posts SET audio_generation_id = NULL WHERE id = ? AND tenant_id = ? AND audio_generation_id = ?").bind(post.id, ctx.tenant.id, jobId).run().catch(() => undefined);
-    await refundAiCredits(c.env, audioReservation.accountId, audioReservation.period, audioCost);
-    throw error;
+    if (jobId) await pdb.prepare("UPDATE posts SET audio_generation_id = NULL WHERE id = ? AND tenant_id = ? AND audio_generation_id = ?").bind(post.id, ctx.tenant.id, jobId).run().catch(() => undefined);
+    await refundAiCredits(c.env, audioReservation.accountId, audioReservation.period, audioCost).catch((refundError) => console.error(JSON.stringify({ message: "audio reservation refund failed", tenantId: ctx.tenant.id, error: refundError instanceof Error ? refundError.message : String(refundError) })));
+    const message = error instanceof Error ? error.message : String(error);
+    if (/already being generated/.test(message)) return c.json({ error: message }, 409);
+    const info = classifyTtsError(error);
+    return c.json({ error: info.transient ? "Speech synthesis is temporarily unavailable — no credits were used. Please try again in a bit." : message }, info.transient ? 502 : 500);
   }
   queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "audio_generation_requested", post.slug);
-  return c.json({ queued: true, jobId, status: job.status, segments: prompts.length });
+  return c.json({ queued: true, jobId, status: "queued", segments: queuedSegments });
 
   const encoder = new TextEncoder();
   let streamController!: ReadableStreamDefaultController<Uint8Array>;
@@ -4549,6 +4600,7 @@ type AudioJobManifest = {
   creditAccountId?: number;
   creditPeriod?: string;
   creditsRefunded?: boolean;
+  model?: string;
 };
 type ImageJobManifest = {
   tenantId: number;
@@ -4658,7 +4710,7 @@ async function createVisualBrief(env: Bindings, source: string, tenantId: number
       messages: [
         {
           role: "system",
-          content: `You are an art director writing a prompt for FLUX.2. Produce one concise visual brief of 80–160 words using this order: Subject and action, Style, Composition, Context. Put the main subject and action first. Translate titles into visual concepts; never turn the title into visible lettering. Choose concrete, specific visual details and a subject-appropriate physical scene or visual metaphor. Make the image work as a 16:9 editorial thumbnail with one dominant focal subject. Do not propose screens, browser windows, websites, article pages, documents, books, signs, posters, charts, logos, or interface mockups. Return only the brief, without headings or commentary.`,
+          content: `You are an art director writing a prompt for FLUX.2. Produce one concise visual brief of 80–160 words using this order: Subject and action, Style, Composition, Context. Put the main subject and action first. Translate titles into visual concepts; never turn the title into visible lettering. The final image must contain no text of any kind — no words, letters, numbers, or watermark-like marks — so if a scene would normally show writing (signs, screens, books, packaging, clothing prints, labels), describe those surfaces as blank. Choose concrete, specific visual details and a subject-appropriate physical scene or visual metaphor. Make the image work as a 16:9 editorial thumbnail with one dominant focal subject. Do not propose screens, browser windows, websites, article pages, documents, books, signs, posters, charts, logos, or interface mockups. Return only the brief, without headings or commentary.`,
         },
         { role: "user", content: source },
       ],
@@ -4730,6 +4782,56 @@ async function readImageJob(env: Bindings, jobKey: string): Promise<ImageJobMani
   return JSON.parse(await object.text()) as ImageJobManifest;
 }
 
+// Fatal-error telemetry for the autopilot media pipeline. Analytics Engine is
+// the durable log (worker logs scroll away); every write here is best-effort
+// and never throws, so telemetry can never break a run.
+export function trackAutopilotEvent(env: Bindings, tenantId: number | string, kind: string, detail: string): void {
+  try {
+    env.AUTOPILOT_EVENTS?.writeDataPoint({
+      indexes: [String(tenantId)],
+      blobs: [String(tenantId), kind, String(detail ?? "").slice(0, 80)],
+      doubles: [1],
+    });
+  } catch (e) {
+    console.error(JSON.stringify({ message: "autopilot event tracking failed", tenantId: String(tenantId), kind, error: e instanceof Error ? e.message : String(e) }));
+  }
+}
+
+// Runs-table mirror of the image job outcome. On failure it logs loudly and
+// records a telemetry point instead of swallowing, so a stale "queued" label
+// is always explainable afterwards.
+export async function setAutopilotImageStatus(env: Bindings, tenantId: number, postId: number, status: "ready" | "failed", error: string | null): Promise<void> {
+  try {
+    await env.DB.prepare(
+      "UPDATE autopilot_runs SET image_status = ?, image_error = ? WHERE tenant_id = ? AND post_id = ?"
+    ).bind(status, error, tenantId, postId).run();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(JSON.stringify({ message: "autopilot image status write failed", tenantId, postId, status, error: msg }));
+    trackAutopilotEvent(env, tenantId, "image-status-write-failed", `${status}: ${msg}`);
+  }
+}
+
+// Sanity check for autopilot drafts. A degenerate generation loop repeats one
+// phrase dozens of times ("edible cookies made from" x60 was published
+// verbatim); returns the offending phrase so the caller can discard the draft
+// and retry instead of publishing it.
+export const AUTOPILOT_REPEAT_PHRASE_WORDS = 5;
+export const AUTOPILOT_MAX_PHRASE_REPEATS = 5;
+
+export function findRepeatedPhrase(text: string, phraseWords = AUTOPILOT_REPEAT_PHRASE_WORDS, maxRepeats = AUTOPILOT_MAX_PHRASE_REPEATS): string | null {
+  const words = text.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length < phraseWords * 2) return null;
+  const counts = new Map<string, number>();
+  for (let i = 0; i + phraseWords <= words.length; i++) {
+    const phrase = words.slice(i, i + phraseWords).join(" ");
+    const n = (counts.get(phrase) || 0) + 1;
+    if (n > maxRepeats) return phrase;
+    counts.set(phrase, n);
+  }
+  return null;
+}
+
 export async function processImageJob(env: Bindings, jobKey: string): Promise<void> {
   const job = await readImageJob(env, jobKey);
   if (job.status === "complete") return;
@@ -4754,8 +4856,7 @@ export async function processImageJob(env: Bindings, jobKey: string): Promise<vo
         await purgeTenant(env, tenant, ["/", "/" + post.slug]);
       }
       if (job.postId != null) {
-        await env.DB.prepare("UPDATE autopilot_runs SET image_status = 'ready', image_error = NULL WHERE tenant_id = ? AND post_id = ?")
-          .bind(job.tenantId, job.postId).run().catch(() => {});
+        await setAutopilotImageStatus(env, job.tenantId, job.postId, "ready", null);
       }
     }
     await writeImageJob(env, jobKey, job);
@@ -4763,9 +4864,9 @@ export async function processImageJob(env: Bindings, jobKey: string): Promise<vo
     job.status = "failed";
     job.error = error instanceof Error ? error.message : String(error);
     await writeImageJob(env, jobKey, job);
+    trackAutopilotEvent(env, job.tenantId, "image-failed", job.error || "");
     if (job.postId != null) {
-      await env.DB.prepare("UPDATE autopilot_runs SET image_status = 'failed', image_error = ? WHERE tenant_id = ? AND post_id = ?")
-        .bind(String(job.error || "").slice(0, 300), job.tenantId, job.postId).run().catch(() => {});
+      await setAutopilotImageStatus(env, job.tenantId, job.postId, "failed", String(job.error || "").slice(0, 300));
     }
     if (/3030|flagged|content policy/i.test(job.error)) {
       if (job.creditAccountId && job.creditPeriod && job.creditCost) {
@@ -4877,7 +4978,7 @@ app.get("/admin/b/:blogId/settings", async (c) => {
   if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
   const denied = requireBlogCapability(c, ctx, "settings.manage");
   if (denied) return denied;
-  return c.html(settingsPage(ctx.account, ctx.tenant));
+  return c.html(settingsPage(ctx.account, ctx.tenant, { isOwner: ctx.role === "owner" }));
 });
 
 app.post("/admin/b/:blogId/settings", async (c) => {
@@ -4902,36 +5003,36 @@ app.post("/admin/b/:blogId/settings", async (c) => {
   const headerLinkRaw = String(form.get("header_link_url") ?? "/").trim();
   const headerLinkParsed = normalizeHeaderLink(headerLinkRaw);
   if (headerLinkParsed.error)
-    return c.html(settingsPage(ctx.account, ctx.tenant, { error: headerLinkParsed.error }), 400);
+    return c.html(settingsPage(ctx.account, ctx.tenant, { isOwner: ctx.role === "owner", error: headerLinkParsed.error }), 400);
   const headerLinkUrl = headerLinkParsed.url;
   const normalizedTopics = normalizeTopics(String(form.get("topics") ?? ""));
   const socialLinks: Record<string, string> = {};
   for (const key of ["x", "facebook", "instagram", "linkedin", "youtube", "tiktok", "bluesky", "mastodon", "bitchute", "telegram"]) {
     const value = String(form.get(`social_${key}`) ?? "").trim();
     if (!value) continue;
-    if (value.length > 500) return c.html(settingsPage(ctx.account, ctx.tenant, { error: `${key} social link must be 500 characters or fewer.` }), 400);
+    if (value.length > 500) return c.html(settingsPage(ctx.account, ctx.tenant, { isOwner: ctx.role === "owner", error: `${key} social link must be 500 characters or fewer.` }), 400);
     try {
       const url = new URL(value);
       if (url.protocol !== "https:") throw new Error("https required");
       socialLinks[key] = url.toString();
     } catch {
-      return c.html(settingsPage(ctx.account, ctx.tenant, { error: `${key} social link must be a valid HTTPS URL.` }), 400);
+      return c.html(settingsPage(ctx.account, ctx.tenant, { isOwner: ctx.role === "owner", error: `${key} social link must be a valid HTTPS URL.` }), 400);
     }
   }
   const slugError = validateSlug(slug);
   if (slugError)
-    return c.html(settingsPage(ctx.account, ctx.tenant, { error: slugError }), 400);
+    return c.html(settingsPage(ctx.account, ctx.tenant, { isOwner: ctx.role === "owner", error: slugError }), 400);
   if (slug !== ctx.tenant.slug) {
     const taken = await c.env.DB.prepare("SELECT 1 FROM tenants WHERE slug = ? UNION SELECT 1 FROM tenant_slug_aliases WHERE old_slug = ?")
       .bind(slug, slug).first();
-    if (taken) return c.html(settingsPage(ctx.account, ctx.tenant, { error: "That blog address is already in use." }), 409);
+    if (taken) return c.html(settingsPage(ctx.account, ctx.tenant, { isOwner: ctx.role === "owner", error: "That blog address is already in use." }), 409);
   }
   if (!title)
-    return c.html(settingsPage(ctx.account, ctx.tenant, { error: "A blog title is required." }), 400);
+    return c.html(settingsPage(ctx.account, ctx.tenant, { isOwner: ctx.role === "owner", error: "A blog title is required." }), 400);
   if (normalizedTopics.error)
-    return c.html(settingsPage(ctx.account, ctx.tenant, { error: normalizedTopics.error }), 400);
+    return c.html(settingsPage(ctx.account, ctx.tenant, { isOwner: ctx.role === "owner", error: normalizedTopics.error }), 400);
   if (!/^#[0-9a-f]{6}$/i.test(accentColor))
-    return c.html(settingsPage(ctx.account, ctx.tenant, { error: "Brand colour must be a six-digit hex value, such as #1a8917." }), 400);
+    return c.html(settingsPage(ctx.account, ctx.tenant, { isOwner: ctx.role === "owner", error: "Brand colour must be a six-digit hex value, such as #1a8917." }), 400);
 
   const now = Math.floor(Date.now() / 1000);
   if (slug !== ctx.tenant.slug) {
@@ -4946,7 +5047,45 @@ app.post("/admin/b/:blogId/settings", async (c) => {
 
   c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant));
   const updated = { ...ctx.tenant, slug, title, description, footer_name: footerName, accent_color: accentColor.toLowerCase(), topics_json: JSON.stringify(normalizedTopics.topics), social_links_json: JSON.stringify(socialLinks), browser_push_enabled: browserPushEnabled, header_link_url: headerLinkUrl };
-  return c.html(settingsPage(ctx.account, updated, { notice: "Saved." }));
+  return c.html(settingsPage(ctx.account, updated, { isOwner: ctx.role === "owner", notice: "Saved." }));
+});
+
+// Blog deletion (owner only, soft delete). Two confirmations: opening this
+// page from Settings, then checking the box and typing the exact blog title.
+app.get("/admin/b/:blogId/delete", async (c) => {
+  const ctx = await blogContext(c);
+  if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
+  if (ctx.role !== "owner") return c.text("Only the blog owner can delete it.", 403);
+  return c.html(blogDeletePage(ctx.account, ctx.tenant));
+});
+
+app.post("/admin/b/:blogId/delete", async (c) => {
+  const ctx = await blogContext(c);
+  if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
+  if (ctx.role !== "owner") return c.text("Only the blog owner can delete it.", 403);
+
+  const origin = c.req.header("Origin");
+  try {
+    if (!origin || new URL(origin).origin !== new URL(c.req.url).origin) return c.text("Cross-origin requests are not allowed.", 403);
+  } catch { return c.text("Cross-origin requests are not allowed.", 403); }
+
+  const form = await c.req.formData();
+  if (form.get("understand") !== "1")
+    return c.html(blogDeletePage(ctx.account, ctx.tenant, { error: "Check the box to confirm you understand." }), 400);
+  if (String(form.get("confirm") ?? "").trim() !== ctx.tenant.title)
+    return c.html(blogDeletePage(ctx.account, ctx.tenant, { error: "The typed title does not match. Nothing was deleted." }), 400);
+
+  const now = Math.floor(Date.now() / 1000);
+  await c.env.DB.prepare("UPDATE tenants SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL")
+    .bind(now, ctx.tenant.id).run();
+  queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "blog_deleted", ctx.tenant.slug);
+  c.executionCtx.waitUntil((async () => {
+    await purgeTenantEverywhere(c.env, ctx.tenant).catch(() => {});
+    await purgeMasterSitemap(c.env).catch(() => {});
+  })());
+  return c.redirect("/admin?list=1");
 });
 
 app.post("/admin/b/:blogId/push-campaigns/:campaignId/replay", async (c) => {
@@ -5513,7 +5652,7 @@ app.post("/signup", async (c) => {
   await createEmailVerification(c, accountId, email);
   c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...registrationWelcomeEmail({ signInUrl: "https://www.blognice.com/admin" }) }));
   const token = await createSession(c.env.DB, accountId);
-  try { const ip = getClientIp(c); const ua = String(c.req.header('User-Agent')||'').slice(0,300); const ref = String(c.req.header('Referer')||'').slice(0,500); await c.env.DB.prepare('UPDATE sessions SET ip=?, user_agent=?, created_via="signup" WHERE token=?').bind(ip, ua, token).run(); try { await c.env.DB.prepare('UPDATE accounts SET signup_ip=?, signup_ua=?, signup_referer=? WHERE id=?').bind(ip, ua, ref, accountId).run(); } catch {} } catch {}
+  try { const ip = getClientIp(c); const ua = String(c.req.header('User-Agent')||'').slice(0,300); const ref = String(c.req.header('Referer')||'').slice(0,500); const country = String(c.req.header('CF-IPCountry')||'').slice(0,2); await c.env.DB.prepare('UPDATE sessions SET ip=?, user_agent=?, created_via="signup" WHERE token=?').bind(ip, ua, token).run(); try { await c.env.DB.prepare('UPDATE accounts SET signup_ip=?, signup_ua=?, signup_referer=?, signup_country=? WHERE id=?').bind(ip, ua, ref, country, accountId).run(); } catch { try { await c.env.DB.prepare('UPDATE accounts SET signup_ip=?, signup_ua=?, signup_referer=? WHERE id=?').bind(ip, ua, ref, accountId).run(); } catch {} } } catch {}
   clearSessionCookie(c);
   setSessionCookie(c, token);
   if (!emailEnabled(c.env)) return c.redirect("/admin");
@@ -7527,7 +7666,8 @@ app.get("/unsubscribe/:token", async (c) => {
       ? c.html(renderSimplePage(t, "Unsubscribe", body), 404)
       : c.text("Invalid unsubscribe link", 404);
   }
-  const tenant = (await tenantById(c.env, row.tenant_id))!;
+  const tenant = await tenantById(c.env, row.tenant_id);
+  if (!tenant) return c.text("This unsubscribe link is invalid or already used.", 404);
   return c.html(
     renderSimplePage(
       tenant,
@@ -8016,6 +8156,10 @@ export async function runAutopilotScheduled(env: Bindings, now: number, onlyTena
         console.error(JSON.stringify({ message: "autopilot run skipped: tenant not found", tenantId }));
         continue;
       }
+      if ((tenant as any).deleted_at) {
+        console.error(JSON.stringify({ message: "autopilot run skipped: tenant deleted", tenantId }));
+        continue;
+      }
       if (!(await tenantHasPaidPlan(env, tenantId))) {
         const runId = crypto.randomUUID();
         await env.DB.prepare("INSERT INTO autopilot_runs (id, tenant_id, started_at, finished_at, status, source_url, source_title, post_id, error) VALUES (?, ?, ?, ?, 'skipped', NULL, NULL, NULL, 'unpaid')").bind(runId, tenantId, now, now).run();
@@ -8253,24 +8397,39 @@ export async function runAutopilotScheduled(env: Bindings, now: number, onlyTena
       };
       let title = stripTopicPrefix(String(criteria.title_override || sourceTitle || topic).replace(/^#+\s*/, "").trim().slice(0, 120) || String(sourceTitle || topic).slice(0,120));
       let body_md = "";
-      try {
-        const prompt = `Date: ${currentDate}\nTopic: ${topic}\nSource: ${sourceTitle} ${sourceUrl}\nExcerpt: ${sourceExcerpt.slice(0, 4000) || sourceDescription || ""}\nTone: ${tone}${audience ? ` Audience: ${audience}` : ""}\nLength: ~${max_length} words, no preamble. Start with a brief 2-3 sentence intro paragraph (no heading), then H2/H3 for substantive sections. Do NOT use 'Overview' or 'Introduction' as a heading. Also suggest a concise 8-12 word title as first line starting with "# ".`;
-        const aiRes: any = await autopilotWithTimeout((env as any).AI.run(AI_BRIEF_MODEL, { messages: [{ role: "system", content: `You are a concise, factual blog writer for ${currentDate}. Write a well-structured markdown post (~${max_length} words) for the given topic using the source excerpt when relevant. Use neutral, helpful tone (${tone}). No hallucinations; if excerpt lacks detail, write general but useful content. Do NOT use 'Overview' or 'Introduction' as a heading \u2014 start with a 2-3 sentence intro paragraph (no heading), then H2/H3 for real sections, bullets where helpful. Start with a single "# <title>" line.` }, { role: "user", content: prompt }], max_tokens: Math.min(2000, Math.max(600, Math.ceil(max_length * 1.4))), temperature: 0.6 }), 120000, "generation");
-        let gen = String((aiRes as any).response || (aiRes as any).text || ((aiRes as any).choices && (aiRes as any).choices[0] && ((aiRes as any).choices[0].message?.content || (aiRes as any).choices[0].text)) || "").trim();
-        if (gen.length > 200) {
-          const firstLine = gen.split("\n")[0] || "";
-          if (firstLine.startsWith("# ")) {
-            let aiTitle = firstLine.replace(/^#\s*/, "").trim().slice(0,120);
-            aiTitle = stripTopicPrefix(aiTitle);
-            if (aiTitle.length >= 10) title = aiTitle;
-            gen = gen.replace(/^#\s*.*\n+/, "").trim();
+      const generationPrompt = `Date: ${currentDate}\nTopic: ${topic}\nSource: ${sourceTitle} ${sourceUrl}\nExcerpt: ${sourceExcerpt.slice(0, 4000) || sourceDescription || ""}\nTone: ${tone}${audience ? ` Audience: ${audience}` : ""}\nLength: ~${max_length} words, no preamble. Start with a brief 2-3 sentence intro paragraph (no heading), then H2/H3 for substantive sections. Do NOT use 'Overview' or 'Introduction' as a heading. Also suggest a concise 8-12 word title as first line starting with "# ".`;
+      const generationSystem = `You are a concise, factual blog writer for ${currentDate}. Write a well-structured markdown post (~${max_length} words) for the given topic using the source excerpt when relevant. Use neutral, helpful tone (${tone}). No hallucinations; if excerpt lacks detail, write general but useful content. Do NOT use 'Overview' or 'Introduction' as a heading \u2014 start with a 2-3 sentence intro paragraph (no heading), then H2/H3 for real sections, bullets where helpful. Start with a single "# <title>" line.`;
+      const extractAiResponse = (aiRes: any): string => String(aiRes?.response || aiRes?.text || (aiRes?.choices?.[0]?.message?.content || aiRes?.choices?.[0]?.text) || "").trim();
+      // Up to two attempts: a degenerate loop (same phrase repeated) discards
+      // the draft and retries once at temperature 0 before falling back to
+      // the source excerpt, so looped output can never be published.
+      for (let attempt = 0; attempt < 2 && !body_md; attempt++) {
+        try {
+          const aiRes: any = await autopilotWithTimeout((env as any).AI.run(AI_AUTOPILOT_MODEL, { messages: [{ role: "system", content: generationSystem }, { role: "user", content: generationPrompt }], max_tokens: Math.min(2000, Math.max(600, Math.ceil(max_length * 1.4))), temperature: attempt === 0 ? 0.6 : 0 }), 120000, "generation");
+          let gen = extractAiResponse(aiRes);
+          if (gen.length > 200) {
+            let candidateTitle = title;
+            const firstLine = gen.split("\n")[0] || "";
+            if (firstLine.startsWith("# ")) {
+              const aiTitle = stripTopicPrefix(firstLine.replace(/^#\s*/, "").trim().slice(0, 120));
+              if (aiTitle.length >= 10) candidateTitle = aiTitle;
+              gen = gen.replace(/^#\s*.*\n+/, "").trim();
+            }
+            let candidate = gen.slice(0, max_length * 6);
+            candidate = candidate.replace(/\n##\s*(Overview|Introduction)\s*\n/gi, "\n");
+            candidate = candidate.replace(/^##\s*(Overview|Introduction)\s*\n/gim, "");
+            candidate = stripViaCitation(candidate);
+            const repeated = findRepeatedPhrase(candidate);
+            if (repeated) {
+              console.error(JSON.stringify({ message: "autopilot generation degenerate, discarding draft", tenantId, attempt, repeated: repeated.slice(0, 80) }));
+              trackAutopilotEvent(env, tenantId, "generation-degenerate", `${attempt}: ${repeated.slice(0, 60)}`);
+              continue;
+            }
+            title = candidateTitle;
+            body_md = candidate;
           }
-          body_md = gen.slice(0, max_length * 6);
-          body_md = body_md.replace(/\n##\s*(Overview|Introduction)\s*\n/gi, "\n");
-          body_md = body_md.replace(/^##\s*(Overview|Introduction)\s*\n/gim, "");
-          body_md = stripViaCitation(body_md);
-        }
-      } catch {}
+        } catch {}
+      }
       console.log(JSON.stringify({ message: "autopilot generation done", tenantId, bodyChars: body_md.length, fromAi: body_md.length > 200 }));
       if (!body_md) body_md = String(sourceExcerpt || "").slice(0, 800);
       const interval_days = Number((row as any).interval_days || 1);
@@ -8360,6 +8519,7 @@ export default {
         if (attempts >= 6 && (isImageJob || isAudioJob) && "jobKey" in jobMessage) {
           await refundTerminalAiJob(env, jobMessage.jobKey, isImageJob ? "image" : "audio").catch((refundError) => console.error(JSON.stringify({ message: "terminal AI credit refund failed", error: refundError instanceof Error ? refundError.message : String(refundError) })));
           if (isAudioJob) await releaseTerminalAudioGeneration(env, jobMessage.jobKey);
+          trackAutopilotEvent(env, jobMessage.tenantId, isImageJob ? "image-terminal" : "audio-terminal", jobMessage.jobKey);
         }
         console.error(JSON.stringify({
           message: "Queued job failed; retrying",

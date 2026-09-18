@@ -1,6 +1,24 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { Miniflare } from "miniflare";
+import staffModule from "../src/staff.ts";
+
+function b64url(value) {
+  const bytes = typeof value === "string" ? new TextEncoder().encode(value) : new Uint8Array(value);
+  return Buffer.from(bytes).toString("base64url");
+}
+async function accessFixture(subject, email) {
+  const keys = await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"]);
+  const publicJwk = await crypto.subtle.exportKey("jwk", keys.publicKey);
+  publicJwk.kid = "staff-test-key-" + subject;
+  publicJwk.alg = "RS256";
+  const now = Math.floor(Date.now() / 1000);
+  const header = b64url(JSON.stringify({ alg: "RS256", kid: publicJwk.kid }));
+  const payload = b64url(JSON.stringify({ sub: subject, email, iss: "https://team.cloudflareaccess.com", aud: ["staff-audience"], iat: now - 1, exp: now + 3600 }));
+  const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", keys.privateKey, new TextEncoder().encode(`${header}.${payload}`));
+  return { token: `${header}.${payload}.${b64url(signature)}`, publicJwk };
+}
 
 const staff = readFileSync(new URL("../src/staff.ts", import.meta.url), "utf8");
 const auth = readFileSync(new URL("../src/auth.ts", import.meta.url), "utf8");
@@ -389,4 +407,115 @@ test("run now polls the shared runs table until the run finishes", async () => {
   assert.ok(run, "run button has a click handler after load");
   await run.fn();
   assert.ok(alerts.some((m) => m.includes("Run finished: success")), "page reports the polled run result, got: " + JSON.stringify(alerts));
+});
+
+test("audit log shows ticks for success/failure and notes UTC once", async () => {
+  const staffApp = typeof staffModule.request === "function" ? staffModule : staffModule.default;
+  const mf = new Miniflare({ modules: true, script: "export default { fetch() { return new Response('ok') } }", d1Databases: { DB: "staff-audit-page" } });
+  const originalFetch = globalThis.fetch;
+  try {
+    const db = await mf.getD1Database("DB");
+    const baseSchema = readFileSync(new URL("../schema.sql", import.meta.url), "utf8");
+    for (const s of baseSchema.replace(/^[ \t]*--.*(?:\r?\n|$)/gm, "").split(/;\s*(?=\r?\n|$)/).map((v) => v.trim()).filter(Boolean)) await db.prepare(s).run();
+    const now = Math.floor(Date.now() / 1000);
+    await db.prepare("INSERT INTO staff_audit_events (id, occurred_at, subject, email, role, action, target_type, target_id, reason, result, request_id) VALUES ('e1', ?, 'staff|admin', 'admin@blognice.com', 'admin', 'lock', 'account', '1', 'test', 'success', 'req-1'), ('e2', ?, 'staff|admin', 'admin@blognice.com', 'admin', 'delete-account', 'account', '2', 'test', 'failure', 'req-2'), ('e3', ?, 'staff|admin', 'very-long-staff-name@blognice.com', 'admin', 'lock', 'account', '3', 'test', 'success', 'req-3')").bind(now, now - 60, now - 120).run();
+    const adminAccess = await accessFixture("staff|admin", "admin@blognice.com");
+    await db.prepare("INSERT INTO staff_users (subject, email, role, active, created_at, updated_at) VALUES ('staff|admin','admin@blognice.com','admin',1,?,?)").bind(now, now).run();
+    globalThis.fetch = async (url) => {
+      if (String(url).endsWith("/cdn-cgi/access/certs")) return new Response(JSON.stringify({ keys: [adminAccess.publicJwk] }), { status: 200 });
+      throw new Error("unexpected " + url);
+    };
+    const env = { DB: db, ACCESS_TEAM_DOMAIN: "team.cloudflareaccess.com", ACCESS_AUD: "staff-audience" };
+    const res = await staffApp.request(new Request("https://staff.blognice.test/audit", { headers: { "Cf-Access-Jwt-Assertion": adminAccess.token } }), undefined, env);
+    assert.equal(res.status, 200);
+    const html = await res.text();
+    assert.match(html, /aria-label="Result: success"[^>]*>✓</);
+    assert.match(html, /aria-label="Result: failure"[^>]*>✗</);
+    assert.doesNotMatch(html, />success</);
+    assert.doesNotMatch(html, />failure</);
+    assert.match(html, /Times are in UTC/);
+    assert.doesNotMatch(html, /\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC/);
+    assert.match(html, /<span title="admin@blognice\.com">admin@blognic…<\/span>/);
+    assert.match(html, /<span title="very-long-staff-name@blognice\.com">very-long-sta…<\/span>/);
+    assert.doesNotMatch(html, /very-long-staff-name@blognice\.com<br>/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await mf.dispose();
+  }
+});
+
+test("staff TTS engine switch persists and gates by role", async () => {
+  const staffApp = typeof staffModule.request === "function" ? staffModule : staffModule.default;
+  const mf = new Miniflare({ modules: true, script: "export default { fetch() { return new Response('ok') } }", d1Databases: { DB: "staff-tts-engine" } });
+  const originalFetch = globalThis.fetch;
+  try {
+    const db = await mf.getD1Database("DB");
+    const baseSchema = readFileSync(new URL("../schema.sql", import.meta.url), "utf8");
+    for (const s of baseSchema.replace(/^[ \t]*--.*(?:\r?\n|$)/gm, "").split(/;\s*(?=\r?\n|$)/).map((v) => v.trim()).filter(Boolean)) await db.prepare(s).run();
+    const now = Math.floor(Date.now() / 1000);
+    const adminAccess = await accessFixture("staff|admin", "admin@blognice.com");
+    const readerAccess = await accessFixture("staff|reader", "reader@blognice.com");
+    await db.prepare("INSERT INTO staff_users (subject, email, role, active, created_at, updated_at) VALUES ('staff|admin','admin@blognice.com','admin',1,?,?),('staff|reader','reader@blognice.com','read_only',1,?,?)").bind(now, now, now, now).run();
+    globalThis.fetch = async (url) => {
+      if (String(url).endsWith("/cdn-cgi/access/certs")) return new Response(JSON.stringify({ keys: [adminAccess.publicJwk, readerAccess.publicJwk] }), { status: 200 });
+      throw new Error("unexpected " + url);
+    };
+    const env = { DB: db, ACCESS_TEAM_DOMAIN: "team.cloudflareaccess.com", ACCESS_AUD: "staff-audience" };
+    const authed = (access, init = {}) => new Request("https://staff.blognice.test/api/tts-engine", {
+      headers: { "Cf-Access-Jwt-Assertion": access.token, Origin: "https://staff.blognice.test", "content-type": "application/json" },
+      ...init,
+    });
+    let res = await staffApp.request(authed(adminAccess), undefined, env);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { engine: "melotts" });
+    res = await staffApp.request(authed(readerAccess), undefined, env);
+    assert.equal(res.status, 200);
+    res = await staffApp.request(authed(adminAccess, { method: "POST", body: JSON.stringify({ engine: "bogus" }) }), undefined, env);
+    assert.equal(res.status, 400);
+    res = await staffApp.request(authed(readerAccess, { method: "POST", body: JSON.stringify({ engine: "aura-1" }) }), undefined, env);
+    assert.equal(res.status, 403);
+    res = await staffApp.request(authed(adminAccess, { method: "POST", body: JSON.stringify({ engine: "aura-1" }) }), undefined, env);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { engine: "aura-1" });
+    res = await staffApp.request(authed(adminAccess), undefined, env);
+    assert.deepEqual(await res.json(), { engine: "aura-1" });
+    const stored = await db.prepare("SELECT value FROM platform_settings WHERE key = 'tts.engine'").first();
+    assert.equal(stored.value, "aura-1");
+  } finally {
+    globalThis.fetch = originalFetch;
+    await mf.dispose();
+  }
+});
+
+test("staff TTS test page shows the active narration engine", async () => {
+  const staffApp = typeof staffModule.request === "function" ? staffModule : staffModule.default;
+  const mf = new Miniflare({ modules: true, script: "export default { fetch() { return new Response('ok') } }", d1Databases: { DB: "staff-tts-engine-page" } });
+  const originalFetch = globalThis.fetch;
+  try {
+    const db = await mf.getD1Database("DB");
+    const baseSchema = readFileSync(new URL("../schema.sql", import.meta.url), "utf8");
+    for (const s of baseSchema.replace(/^[ \t]*--.*(?:\r?\n|$)/gm, "").split(/;\s*(?=\r?\n|$)/).map((v) => v.trim()).filter(Boolean)) await db.prepare(s).run();
+    const now = Math.floor(Date.now() / 1000);
+    const adminAccess = await accessFixture("staff|pageadmin", "pageadmin@blognice.com");
+    const readerAccess = await accessFixture("staff|pagereader", "pagereader@blognice.com");
+    await db.prepare("INSERT INTO staff_users (subject, email, role, active, created_at, updated_at) VALUES ('staff|pageadmin','pageadmin@blognice.com','admin',1,?,?),('staff|pagereader','pagereader@blognice.com','read_only',1,?,?)").bind(now, now, now, now).run();
+    globalThis.fetch = async (url) => {
+      if (String(url).endsWith("/cdn-cgi/access/certs")) return new Response(JSON.stringify({ keys: [adminAccess.publicJwk, readerAccess.publicJwk] }), { status: 200 });
+      throw new Error("unexpected " + url);
+    };
+    const env = { DB: db, ACCESS_TEAM_DOMAIN: "team.cloudflareaccess.com", ACCESS_AUD: "staff-audience" };
+    const page = (access) => staffApp.request(new Request("https://staff.blognice.test/tts-test", { headers: { "Cf-Access-Jwt-Assertion": access.token } }), undefined, env);
+    let html = await (await page(adminAccess)).text();
+    assert.match(html, /<strong id="tts-engine-status">melotts<\/strong>/);
+    assert.match(html, /id="tts-engine-form"/);
+    html = await (await page(readerAccess)).text();
+    assert.match(html, /id="tts-engine-status"/);
+    assert.doesNotMatch(html, /id="tts-engine-form"/);
+    await db.prepare("INSERT INTO platform_settings (key, value, updated_at) VALUES ('tts.engine', 'aura-1', ?)").bind(now).run();
+    html = await (await page(adminAccess)).text();
+    assert.match(html, /<strong id="tts-engine-status">aura-1<\/strong>/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await mf.dispose();
+  }
 });
