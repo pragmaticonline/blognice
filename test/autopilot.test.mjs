@@ -3,7 +3,6 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import test from "node:test";
 import { Miniflare } from "miniflare";
-import staffModule from "../src/staff.ts";
 
 const require = createRequire(import.meta.url);
 for (const extension of [".html", ".svg"]) {
@@ -11,6 +10,9 @@ for (const extension of [".html", ".svg"]) {
     module.exports = readFileSync(filename, "utf8");
   };
 }
+// Dynamic import: staff.ts (and its .svg asset) must load after the asset
+// handlers above are registered, otherwise tsx tries to compile the SVG.
+const { default: staffModule } = await import("../src/staff.ts");
 
 const staffSrc = readFileSync(new URL("../src/staff.ts", import.meta.url), "utf8");
 const indexSrc = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");

@@ -1,9 +1,19 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import test from "node:test";
 import { Miniflare } from "miniflare";
-import staffModule from "../src/staff.ts";
 import { preparePayoutInDb, recognizeRevenueInDb } from "../src/affiliate.ts";
+
+const require = createRequire(import.meta.url);
+for (const extension of [".html", ".svg"]) {
+  require.extensions[extension] = (module, filename) => {
+    module.exports = readFileSync(filename, "utf8");
+  };
+}
+// Dynamic import: staff.ts (and its .svg asset) must load after the asset
+// handlers above are registered, otherwise tsx tries to compile the SVG.
+const { default: staffModule } = await import("../src/staff.ts");
 
 function b64url(value) {
   const bytes = typeof value === "string" ? new TextEncoder().encode(value) : new Uint8Array(value);
