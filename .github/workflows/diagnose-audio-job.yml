@@ -46,7 +46,8 @@ jobs:
           GENID=$(npx wrangler d1 execute blognice-posts --remote --config wrangler.production.jsonc --json --command "SELECT audio_generation_id FROM posts WHERE id = ${POST_SAFE} AND tenant_id = ${TID};" | jq -r '.[0].results[0].audio_generation_id // empty')
           if [ -z "${GENID}" ] || [ "${GENID}" = "null" ]; then echo "No active generation claim."; exit 0; fi
           echo "Generation id: ${GENID}"
-          npx wrangler r2 object get blognice-media "${TID}/.audio-jobs/${GENID}.json" --file /tmp/audio-job.json --remote 2>&1 | tail -n 2 || true
+          npx wrangler r2 object get blognice-media "${TID}/.audio-jobs/${GENID}.json" --file /tmp/audio-job.json || echo "R2_FETCH_FAILED=$?"
+          if [ ! -f /tmp/audio-job.json ]; then echo "Manifest unreachable (see R2 error above)."; exit 1; fi
           jq '{jobId, status, completed, segments: (.prompts | length), model, error, creditCost}' /tmp/audio-job.json
           jq -r '.prompts | to_entries[] | "\(.key): \(.value.text | length) chars: \(.value.text[:90])"' /tmp/audio-job.json
         env:
