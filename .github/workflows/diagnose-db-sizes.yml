@@ -23,9 +23,9 @@ jobs:
           for spec in "blognice:index" "blognice-posts:posts"; do
             db="${spec%%:*}"
             echo "=== ${db} ==="
-            tables=$(npx wrangler d1 execute "${db}" --remote --config wrangler.production.jsonc --json --command "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name;" | jq -r '.[0].results[].name')
+            tables=$(npx wrangler d1 execute "${db}" --remote --config wrangler.production.jsonc --json --command "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name;" | jq -r '.. | .name? // empty')
             for t in $tables; do
-              n=$(npx wrangler d1 execute "${db}" --remote --config wrangler.production.jsonc --json --command "SELECT COUNT(*) AS n FROM \"${t}\";" | jq -r '.[0].results[0].n')
+              n=$(npx wrangler d1 execute "${db}" --remote --config wrangler.production.jsonc --json --command "SELECT COUNT(*) AS n FROM \"${t}\";" | jq -r '.. | .n? // empty')
               echo "${n} ${t}"
             done | sort -rn | head -n 40
           done
