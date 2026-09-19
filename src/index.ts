@@ -2010,42 +2010,6 @@ app.get("/api/v1/blogs/:blogId/images/generations/:jobId", async (c) => {
   } catch { return c.json({ error: "image job not found" }, 404); }
 });
 
-// TEMPORARY diagnostic probe (revert before merging anything else): synthesizes
-// one short Aura-1 sample through the production AI binding and reports the
-// raw container layout. Capability-gated by an unguessable path; text capped.
-app.post("/api/debug-tts-probe-9f3c2a7e4b1d8f6a5c0e3d2a7198465", async (c) => {
-  let body: any;
-  try { body = await c.req.json(); } catch { return c.json({ error: "bad request" }, 400); }
-  const text = String(body?.text ?? "").slice(0, 500);
-  if (!text) return c.json({ error: "bad request" }, 400);
-  try {
-    const generated = await (c.env.AI as any).run(TTS_FALLBACK_MODEL, { text, encoding: "linear16", container: "wav" });
-    const bytes = await ttsStreamToBytes(generated);
-    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    const chunks: Array<{ id: string; declared: number; avail: number }> = [];
-    if (bytes.length >= 12) {
-      let offset = 12;
-      while (offset + 8 <= bytes.length && chunks.length < 12) {
-        const id = String.fromCharCode(bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3]);
-        const declared = view.getUint32(offset + 4, true);
-        chunks.push({ id, declared, avail: bytes.length - (offset + 8) });
-        if (id === "data") break;
-        offset += 8 + declared + (declared % 2);
-        if (declared === 0xFFFFFFFF || declared > 1_000_000_000) break;
-      }
-    }
-    return c.json({
-      total: bytes.length,
-      riff: bytes.length >= 4 ? String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]) : null,
-      wave: bytes.length >= 12 ? String.fromCharCode(bytes[8], bytes[9], bytes[10], bytes[11]) : null,
-      chunks,
-      valid: validWavAudio(bytes),
-    });
-  } catch (error) {
-    return c.json({ error: error instanceof Error ? error.message : String(error) }, 502);
-  }
-});
-
 app.post("/api/v1/blogs/:blogId/posts/:id/audio/generations", async (c) => {
   const account = await apiAccount(c);
   if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);

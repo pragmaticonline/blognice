@@ -470,10 +470,11 @@ function parseWav(bytes: Uint8Array): WavPart {
     const dataOffset = offset + 8;
     if (id === "data") {
       if (!format) throw new Error("The speech model returned WAV audio without a format chunk.");
-      // Streaming encoders (Aura-1 over the Workers AI binding) emit the WAV
-      // container before the payload size is known and mark the data chunk
-      // 0xFFFFFFFF ("unknown size"). The bytes on the wire are the audio.
-      const dataSize = size === 0xFFFFFFFF ? bytes.length - dataOffset : size;
+      // Streaming encoders emit the WAV container before the payload size is
+      // known and mark the data chunk with an unknown-size sentinel
+      // (0xFFFFFFFF per convention; Aura-1 over the Workers AI binding emits
+      // 0x7FFF0000, verified live). The bytes on the wire are the audio.
+      const dataSize = size === 0xFFFFFFFF || size === 0x7FFF0000 ? bytes.length - dataOffset : size;
       if (dataOffset + dataSize > bytes.length) throw new Error("The speech model returned truncated WAV audio.");
       return { bytes, dataOffset, dataSize, dataSizeOffset: offset + 4, format };
     }
