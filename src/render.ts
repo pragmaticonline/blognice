@@ -1292,9 +1292,9 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
   });
   var maxId=0;
   section.querySelectorAll("[data-comment]").forEach(function(el){var id=Number(el.getAttribute("data-comment"));if(id>maxId)maxId=id;});
-  function depthOf(el){var m=/\bd([0-4])\b/.exec(el.className||"");return m?Number(m[1]):0;}
+  function depthOf(el){var m=/\\bd([0-4])\\b/.exec(el.className||"");return m?Number(m[1]):0;}
   function authorOf(el){var a=el.querySelector(":scope > summary .comment-author");return a?a.textContent:"this comment";}
-  function bumpCount(d){var h=section.querySelector("h2");if(!h)return;var m=/\(([0-9]+)\)/.exec(h.textContent);if(m)h.textContent=h.textContent.replace(/ \([0-9]+\)/," ("+(Number(m[1])+d)+")");}
+  function bumpCount(d){var h=section.querySelector("h2");if(!h)return;var m=/\\(([0-9]+)\\)/.exec(h.textContent);if(m)h.textContent=h.textContent.replace(/ \\([0-9]+\\)/," ("+(Number(m[1])+d)+")");}
   function isoDay(ts){try{return new Date(ts*1000).toISOString().slice(0,10);}catch(e){return "";}}
   function insertApproved(c){
     if(!c||c.id==null||section.querySelector('[data-comment="'+c.id+'"]'))return;
@@ -1304,7 +1304,7 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     var label=replyTo?'<span class="comment-in-reply">in reply to '+escHtml(replyTo)+'</span>':"";
     var html='<details class="comment d'+depth+'" data-comment="'+c.id+'" open>'
       +'<summary><span class="comment-author">'+escHtml(c.author_name||"Someone")+'</span>'+label+'<time datetime="'+new Date((c.created_at||0)*1000).toISOString()+'">'+escHtml(isoDay(c.created_at||0))+'</time></summary>'
-      +'<div class="comment-body">'+escHtml(c.body||"").replace(/\n/g,"<br>")+'</div>'
+      +'<div class="comment-body">'+escHtml(c.body||"").replace(/\\n/g,"<br>")+'</div>'
       +'<button class="reply-btn" type="button" data-reply-to="'+c.id+'" data-reply-name="'+escHtml(c.author_name||"Someone")+'">Reply</button></details>';
     var host;
     if(parentEl){host=parentEl.querySelector(":scope > .comment-children");if(!host){host=document.createElement("div");host.className="comment-children";parentEl.appendChild(host);}host.insertAdjacentHTML("beforeend",html);}
