@@ -102,7 +102,7 @@ test("verified accounts enroll through the production HTTP and Stripe seams", as
     }), undefined, env, executionCtx);
     const enrollmentHtml = await enrollmentPage.text();
     assert.equal(enrollmentPage.status, 200);
-    assert.match(enrollmentHtml, /class="topbar"/);
+    assert.match(enrollmentHtml, /class="topbar globalbar owner-topbar"/);
     assert.match(enrollmentHtml, />Blogs</);
     assert.match(enrollmentHtml, /href="\/admin\/billing">Billing</);
     assert.match(enrollmentHtml, /href="\/admin\/affiliate"[^>]*aria-current="page"[^>]*>Affiliate</);

@@ -446,6 +446,41 @@ function themeScript(): string {
   })();</script>`;
 }
 
+// One global topbar for every authenticated admin page: constrained measure,
+// brand, account cluster (Blogs, Billing, Affiliate, API), day/night toggle,
+// and a mobile drawer. Blog pages add the context toolbar below it.
+function accountNavLinks(linkClass: string, affiliateCurrent: string, billingCurrent: string): string {
+  const cls = linkClass ? ` class="${linkClass}"` : "";
+  return `<a${cls} href="/admin?list=1">Blogs</a>`
+    + `<a${cls} href="/admin/billing"${billingCurrent}>Billing</a>`
+    + `<a${cls} href="/admin/affiliate"${affiliateCurrent}>Affiliate</a>`
+    + `<a${cls} href="/admin/api-key">API</a>`;
+}
+
+function accountTopbar(account: Account, planBadge: string, affiliateCurrent: string, billingCurrent: string): string {
+  return `<header class="topbar globalbar owner-topbar">
+        <div class="owner-topbar-inner">
+          <a class="brand" href="/admin?list=1">blognice</a>
+          <div class="owner-account">
+            <span class="owner-account-email">${esc(account.email)}</span>${planBadge}
+            ${accountNavLinks("", affiliateCurrent, billingCurrent)}
+            <form method="post" action="/admin/logout"><button class="linkbtn" type="submit">Log out</button></form>
+            ${themeToggleButton(false)}
+            <button class="owner-menu-open" id="owner-menu-open" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="owner-drawer"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="6" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="18" r="1.7"/></svg></button>
+          </div>
+        </div>
+      </header>`;
+}
+
+function accountDrawer(account: Account, paid: boolean, affiliateCurrent: string, billingCurrent: string, blogSection: string): string {
+  return `<div class="owner-drawer-backdrop" id="owner-drawer-backdrop"></div>
+      <aside class="owner-drawer" id="owner-drawer" aria-label="Owner menu" aria-hidden="true" inert>
+        <div class="owner-drawer-head"><span class="owner-drawer-who">${esc(account.email)} · ${paid ? "Pro" : "Free"}</span><button class="owner-drawer-close" id="owner-menu-close" type="button" aria-label="Close menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+        ${blogSection}
+        <div class="owner-drawer-section"><div class="owner-drawer-label">Account</div>${accountNavLinks("owner-drawer-link", affiliateCurrent, billingCurrent)}${themeToggleButton(true)}<form method="post" action="/admin/logout"><button class="linkbtn" type="submit">Log out</button></form></div>
+      </aside>`;
+}
+
 export function shell(
   title: string,
   inner: string,
@@ -456,6 +491,8 @@ export function shell(
   const planBadge = account
     ? `<a class="plan-badge ${paid ? "paid" : "free"}" href="/admin/billing" title="View your blognice plan">${paid ? "Pro" : "Free"}</a>`
     : "";
+  const affiliateCurrent = title.toLowerCase().startsWith("affiliate") ? ' aria-current="page"' : "";
+  const billingCurrent = title.toLowerCase().startsWith("billing") ? ' aria-current="page"' : "";
   let bar = "";
   if (account && tenant) {
     const titleKey = title.toLowerCase();
@@ -489,19 +526,7 @@ export function shell(
     const navItems = navDefinitions.filter(([, , , cap]) => !cap || can(cap)).map(([k, l, h]) => [k, l, h] as const);
     const navLinks = navItems.map(([key, label, href]) => `<a class="${activeNav === key ? "active" : ""}" href="${href}">${label}</a>`).join("");
     const drawerLinks = navItems.map(([key, label, href]) => `<a class="owner-drawer-link ${activeNav === key ? "active" : ""}" href="${href}">${label}</a>`).join("");
-    bar = `<header class="topbar globalbar owner-topbar">
-        <div class="owner-topbar-inner">
-          <a class="brand" href="/admin?list=1">blognice</a>
-          <div class="owner-account">
-            <span class="owner-account-email">${esc(account.email)}</span>${planBadge}
-            <a href="/admin?list=1">Blogs</a>
-            <a href="/admin/api-key">API</a>
-            <form method="post" action="/admin/logout"><button class="linkbtn" type="submit">Log out</button></form>
-            ${themeToggleButton(false)}
-            <button class="owner-menu-open" id="owner-menu-open" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="owner-drawer"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="6" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="18" r="1.7"/></svg></button>
-          </div>
-        </div>
-      </header>
+    bar = `${accountTopbar(account, planBadge, affiliateCurrent, billingCurrent)}
       <div class="contextbar owner-toolbar"><div class="owner-toolbar-inner">
         <div class="blog-switcher owner-switcher">
           <button class="blog-switcher-toggle" type="button" id="blog-switcher-toggle" aria-label="Current blog: ${esc(tenant.title)}" aria-expanded="false" aria-controls="blog-switcher-menu">
@@ -512,44 +537,16 @@ export function shell(
         </div>
         <nav class="owner-nav context-links" aria-label="Blog navigation">${navLinks}</nav>
       </div></div>
-      <div class="owner-drawer-backdrop" id="owner-drawer-backdrop"></div>
-      <aside class="owner-drawer" id="owner-drawer" aria-label="Owner menu" aria-hidden="true" inert>
-        <div class="owner-drawer-head"><span class="owner-drawer-who">${esc(account.email)} · ${paid ? "Pro" : "Free"}</span><button class="owner-drawer-close" id="owner-menu-close" type="button" aria-label="Close menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
-        <div class="owner-drawer-section"><div class="owner-drawer-label">${esc(tenant.title)}</div>${drawerLinks}</div>
-        <div class="owner-drawer-divider"></div>
-        <div class="owner-drawer-section"><div class="owner-drawer-label">Account</div><a class="owner-drawer-link" href="/admin?list=1">Blogs</a><a class="owner-drawer-link" href="/admin/api-key">API</a>${themeToggleButton(true)}<form method="post" action="/admin/logout"><button class="linkbtn" type="submit">Log out</button></form></div>
-      </aside>`;
+      ${accountDrawer(account, paid, affiliateCurrent, billingCurrent,
+        `<div class="owner-drawer-section"><div class="owner-drawer-label">${esc(tenant.title)}</div>${drawerLinks}</div>
+        <div class="owner-drawer-divider"></div>`)}`;
   } else if (account) {
-    // Account-level pages (blog list, new blog).
-    const affiliateCurrent = title.toLowerCase().startsWith("affiliate") ? ' aria-current="page"' : "";
-    const billingCurrent = title.toLowerCase().startsWith("billing") ? ' aria-current="page"' : "";
-    bar = `<div class="topbar">
-        <span class="brand">blognice</span>
-        <div class="right">
-          <span style="color:var(--muted);font-size:0.85rem">${esc(account.email)}</span>${planBadge}
-          <a href="/admin?list=1">Blogs</a>
-          <a href="/admin/billing"${billingCurrent}>Billing</a>
-          <a href="/admin/affiliate"${affiliateCurrent}>Affiliate</a>
-          <a href="/admin/api-key">API</a>
-          ${themeToggleButton(false)}
-          <form method="post" action="/admin/logout">
-            <button class="linkbtn" type="submit">Log out</button>
-          </form>
-        </div>
-        <button class="topbar-menu-open" id="topbar-menu-open" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="topbar-menu"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="6" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="18" r="1.7"/></svg></button>
-        <div class="topbar-menu" id="topbar-menu" hidden>
-          <div style="padding:.4rem .55rem; color:var(--muted); font-size:.82rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(account.email)} ${paid ? "· Pro" : "· Free"}</div>
-          <a href="/admin?list=1">Blogs</a>
-          <a href="/admin/billing"${billingCurrent}>Billing</a>
-          <a href="/admin/affiliate"${affiliateCurrent}>Affiliate</a>
-          <a href="/admin/api-key">API</a>
-          ${themeToggleButton(true)}
-          <form method="post" action="/admin/logout"><button class="linkbtn" type="submit">Log out</button></form>
-        </div>
-      </div>`;
+    // Account-level pages (blog list, new blog, billing, affiliate) share the
+    // same compact topbar; they just have no blog context toolbar.
+    bar = `${accountTopbar(account, planBadge, affiliateCurrent, billingCurrent)}
+      ${accountDrawer(account, paid, affiliateCurrent, billingCurrent, "")}`;
   }
-  const switcherScript = account && tenant ? `<script>
-    (function () {
+  const switcherPart = account && tenant ? `
       var toggle = document.getElementById("blog-switcher-toggle");
       var menu = document.getElementById("blog-switcher-menu");
       var list = document.getElementById("blog-switcher-list");
@@ -576,6 +573,11 @@ export function shell(
         }
       });
       document.addEventListener("click", function (event) { if (!menu.contains(event.target) && !toggle.contains(event.target)) { menu.hidden = true; toggle.setAttribute("aria-expanded", "false"); } });
+` : "";
+  // Mobile drawer wiring ships on every authenticated admin page; the blog
+  // switcher part above only exists on blog pages.
+  const menuScript = account ? `<script>
+    (function () {${switcherPart}
       var openButton = document.getElementById("owner-menu-open");
       var closeButton = document.getElementById("owner-menu-close");
       var drawer = document.getElementById("owner-drawer");
@@ -619,7 +621,7 @@ export function shell(
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>${esc(title)}</title>${account ? THEME_HEAD_SCRIPT : ""}<style>${ADMIN_STYLES}</style>${brandingStyle}</head>
-<body>${bar}${inner}${switcherScript}${account ? themeScript() : ""}<script>(function(){var b=document.getElementById('topbar-menu-open'),m=document.getElementById('topbar-menu');if(!b||!m)return;b.addEventListener('click',function(){var o=m.hidden;m.hidden=!o;b.setAttribute('aria-expanded',String(o));});document.addEventListener('click',function(e){if(!m.contains(e.target)&&!b.contains(e.target)){m.hidden=true;b.setAttribute('aria-expanded','false');}});})();</script><footer class="admin-footer"><span><strong>blognice</strong> · © 2026 Pragmatic Online Co., Ltd.</span><nav aria-label="Legal"><a href="https://www.blognice.com/policies">Policies</a></nav></footer><style>.admin-footer{max-width:1220px;margin:2.5rem auto 0;padding:1.25rem 1.5rem 2rem;border-top:1px solid var(--rule);display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;color:var(--muted);font-size:.82rem}.admin-footer nav{display:flex;gap:1rem;flex-wrap:wrap}.admin-footer a{color:inherit;text-decoration:none}.admin-footer a:hover,.admin-footer a:focus-visible{color:var(--accent);text-decoration:underline}@media(max-width:640px){.admin-footer{align-items:flex-start;flex-direction:column}.admin-footer a{padding:.5rem 0}}</style></body></html>`;
+<body>${bar}${inner}${menuScript}${account ? themeScript() : ""}<footer class="admin-footer"><span><strong>blognice</strong> · © 2026 Pragmatic Online Co., Ltd.</span><nav aria-label="Legal"><a href="https://www.blognice.com/policies">Policies</a></nav></footer><style>.admin-footer{max-width:1220px;margin:2.5rem auto 0;padding:1.25rem 1.5rem 2rem;border-top:1px solid var(--rule);display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;color:var(--muted);font-size:.82rem}.admin-footer nav{display:flex;gap:1rem;flex-wrap:wrap}.admin-footer a{color:inherit;text-decoration:none}.admin-footer a:hover,.admin-footer a:focus-visible{color:var(--accent);text-decoration:underline}@media(max-width:640px){.admin-footer{align-items:flex-start;flex-direction:column}.admin-footer a{padding:.5rem 0}}</style></body></html>`;
 }
 
 const GOOGLE_G_LOGO = `<svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/><path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"/><path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0 1 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/><path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/></svg>`;

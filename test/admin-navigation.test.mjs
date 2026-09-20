@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { shell } from "../src/admin.ts";
 
 const admin = readFileSync(new URL("../src/admin.ts", import.meta.url), "utf8");
 const indexSource = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
@@ -29,6 +30,30 @@ test("admin navigation keeps global and current-blog contexts visible", () => {
   assert.match(admin, />Pro<|Pro/);
   assert.match(admin, />Free<|Free/);
   assert.match(admin, /eventually consistent/);
+});
+
+test("every authenticated admin page shares one compact topbar", () => {
+  const account = {
+    email: "owner@example.com",
+    billing_status: "inactive",
+    crypto_paid_through: 0,
+    vip_granted_at: null,
+    vip_expires_at: null,
+  };
+  const tenant = { public_id: "b_test", title: "Test blog", accent_color: "#146b54" };
+  const blogHtml = shell("Posts", "<div></div>", account, tenant);
+  const listHtml = shell("Blogs", "<div></div>", account);
+  for (const html of [blogHtml, listHtml]) {
+    assert.match(html, /class="topbar globalbar owner-topbar"/);
+    assert.match(html, /\/admin\/billing/);
+    assert.match(html, /\/admin\/affiliate/);
+    assert.match(html, /owner-drawer/);
+    assert.match(html, /class="[^"]*theme-toggle[^"]*"/);
+  }
+  // The old full-width account bar and its dropdown menu are gone.
+  assert.doesNotMatch(listHtml, /id="topbar-menu-open"/);
+  assert.doesNotMatch(listHtml, /id="topbar-menu"/);
+  assert.doesNotMatch(listHtml, /class="topbar"/);
 });
 
 test("post actions use labeled edit, view, and delete icons", () => {
