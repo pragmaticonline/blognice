@@ -22,6 +22,7 @@ export type Tenant = {
   social_links_json?: string | null;
   navigation_links_json?: string | null;
   browser_push_enabled?: number;
+  comments_enabled?: number;
   header_link_url?: string | null;
   shard: string; // which database holds this tenant's posts (see src/db.ts)
   created_at: number;
@@ -519,6 +520,43 @@ const STYLES = /* css */ `
   }
   .draft-band a { color: #fff; text-decoration: underline; text-underline-offset: 2px; }
   .draft-band a:hover { text-decoration-thickness: 2px; }
+  .comments { margin: 3rem 0 0; padding-top: 1.5rem; border-top: 1px solid var(--rule); font-family: var(--sans); }
+  .comments h2 { font-size: 1.25rem; margin: 0 0 1.25rem; }
+  .comments .presence { color: var(--muted); font-size: .85rem; margin: -.9rem 0 1rem; }
+  .comments .presence[hidden] { display: none; }
+  .comment-list { display: flex; flex-direction: column; gap: 1rem; }
+  .comment { border: 1px solid var(--rule); border-radius: 8px; padding: .8rem 1rem; background: var(--bg); }
+  .comment.d1 { margin-left: 1.5rem; } .comment.d2 { margin-left: 3rem; }
+  .comment.d3, .comment.d4 { margin-left: 4.5rem; }
+  .comment summary { cursor: pointer; list-style-position: inside; display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; }
+  .comment-author { font-weight: 700; font-size: .9rem; }
+  .comment time { color: var(--muted); font-size: .8rem; }
+  .comment-in-reply { color: var(--muted); font-size: .8rem; font-style: italic; }
+  .comment-body { margin: .6rem 0; font-size: .95rem; line-height: 1.6; overflow-wrap: anywhere; }
+  .comment .reply-btn { background: none; border: none; padding: 0; color: var(--accent); font: inherit; font-size: .85rem; cursor: pointer; }
+  .comment .reply-btn:hover { text-decoration: underline; }
+  .comment-children { display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem; }
+  .comment.removed { border-style: dashed; color: var(--muted); font-size: .88rem; }
+  .comment-form { margin-top: 2rem; border: 1px solid var(--rule); border-radius: 8px; padding: 1.2rem; background: var(--bg); }
+  .comment-form h3 { margin: 0 0 1rem; font-size: 1.05rem; }
+  .comment-form label { display: block; margin: 0 0 .9rem; font-size: .88rem; font-weight: 600; }
+  .comment-form input[type="text"], .comment-form input[type="email"], .comment-form textarea {
+    display: block; width: 100%; margin-top: .3rem; padding: .55rem .65rem;
+    border: 1px solid var(--rule); border-radius: 6px; background: var(--bg); color: var(--ink);
+    font: inherit; font-weight: 400;
+  }
+  .comment-form textarea { min-height: 6rem; resize: vertical; }
+  .comment-form .help { display: block; margin-top: .3rem; font-size: .8rem; font-weight: 400; color: var(--muted); }
+  .comment-form button[type="submit"] {
+    background: none; border: 1px solid var(--accent); color: var(--accent); border-radius: 6px;
+    padding: .6rem 1.2rem; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  .comment-form button[type="submit"]:hover { background: var(--accent); color: var(--bg); }
+  .comment-form .form-note { margin: .9rem 0 0; font-size: .88rem; }
+  .replying-to { font-size: .88rem; color: var(--muted); }
+  .replying-to button { background: none; border: none; padding: 0; color: var(--accent); font: inherit; cursor: pointer; }
+  .new-comments-btn { margin-top: 1rem; background: none; border: 1px solid var(--accent); color: var(--accent); border-radius: 6px; padding: .5rem 1rem; font: inherit; cursor: pointer; }
+  @media (max-width: 560px) { .comment.d1 { margin-left: .9rem; } .comment.d2 { margin-left: 1.8rem; } .comment.d3, .comment.d4 { margin-left: 2.7rem; } }
   .byline-identity { display: flex; align-items: center; gap: 0.75rem; min-width: 0; color: inherit; text-decoration: none; }
   .avatar {
     width: 2.6rem; height: 2.6rem; border-radius: 50%;
@@ -1114,6 +1152,232 @@ export function renderPage(
   });
 }
 
+export type CommentRow = {
+  id: number; parent_id: number | null; author_name: string; body: string;
+  created_at: number; status: string;
+};
+
+export type CommentNode = {
+  id: number; parent_id: number | null; author_name: string; body: string;
+  created_at: number; tombstone: boolean; children: CommentNode[];
+};
+
+// Build the visible comment tree: approved nodes plus removed parents that
+// still have approved descendants (tombstones). Childless removed comments
+// vanish. Orphans whose parent is missing or invisible attach at top level.
+export function buildCommentTree(rows: CommentRow[]): { roots: CommentNode[]; count: number } {
+  const approved = new Map<number, CommentRow>();
+  for (const row of rows) if (row.status === "approved") approved.set(row.id, row);
+  // A removed node stays visible (as a tombstone) iff it has a visible child.
+  // Fixpoint propagation keeps every ancestor of an approved node tombstoned.
+  const byParent = new Map<number, CommentRow[]>();
+  for (const row of rows) {
+    if (row.parent_id == null) continue;
+    const list = byParent.get(row.parent_id) ?? [];
+    list.push(row);
+    byParent.set(row.parent_id, list);
+  }
+  const visible = new Map<number, CommentRow>();
+  for (const row of approved.values()) visible.set(row.id, row);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const row of rows) {
+      if (row.status !== "removed" || visible.has(row.id)) continue;
+      if ((byParent.get(row.id) ?? []).some((child) => visible.has(child.id))) {
+        visible.set(row.id, row);
+        changed = true;
+      }
+    }
+  }
+  const toNode = (row: CommentRow): CommentNode => ({
+    id: row.id, parent_id: row.parent_id, author_name: row.author_name, body: row.body,
+    created_at: row.created_at, tombstone: row.status !== "approved", children: [],
+  });
+  const nodes = new Map<number, CommentNode>();
+  for (const row of visible.values()) nodes.set(row.id, toNode(row));
+  const roots: CommentNode[] = [];
+  for (const node of nodes.values()) {
+    const parent = node.parent_id == null ? undefined : nodes.get(node.parent_id);
+    if (parent) parent.children.push(node);
+    else roots.push(node);
+  }
+  const byId = (a: CommentNode, b: CommentNode) => a.id - b.id;
+  roots.sort(byId);
+  for (const node of nodes.values()) node.children.sort(byId);
+  let count = 0;
+  for (const node of nodes.values()) if (!node.tombstone) count++;
+  return { roots, count };
+}
+
+export function commentNodeJson(node: CommentNode): unknown {
+  if (node.tombstone) {
+    return { id: node.id, parent_id: node.parent_id, tombstone: true, replies: node.children.map(commentNodeJson) };
+  }
+  return {
+    id: node.id, parent_id: node.parent_id, author_name: node.author_name,
+    body: node.body, created_at: node.created_at, replies: node.children.map(commentNodeJson),
+  };
+}
+
+function renderCommentNodes(nodes: CommentNode[], depth: number, parentAuthor: string): string {
+  return nodes.map((node) => {
+    const capped = Math.min(depth, 4);
+    const flatLabel = depth > 4 ? `<span class="comment-in-reply">in reply to ${esc(parentAuthor)}</span>` : "";
+    const kids = node.children.length ? `<div class="comment-children">${renderCommentNodes(node.children, depth + 1, node.tombstone ? parentAuthor : node.author_name)}</div>` : "";
+    if (node.tombstone) {
+      return `<div class="comment removed d${capped}" data-comment="${node.id}"><span>Removed by moderator</span>${kids}</div>`;
+    }
+    const iso = new Date(node.created_at * 1000).toISOString();
+    return `<details class="comment d${capped}" data-comment="${node.id}" open>`
+      + `<summary><span class="comment-author">${esc(node.author_name)}</span>${flatLabel}<time datetime="${iso}">${esc(formatDate(node.created_at))}</time></summary>`
+      + `<div class="comment-body">${esc(node.body).replace(/\n/g, "<br>")}</div>`
+      + `<button class="reply-btn" type="button" data-reply-to="${node.id}" data-reply-name="${esc(node.author_name)}">Reply</button>${kids}</details>`;
+  }).join("");
+}
+
+const COMMENT_CLIENT_SCRIPT = `<script>(function(){
+  var section=document.querySelector("[data-comment-section]");if(!section)return;
+  var path=section.getAttribute("data-comments-path")||location.pathname;
+  var form=section.querySelector("[data-comment-form]");
+  var nameField=form.querySelector("[data-field-name]"),emailField=form.querySelector("[data-field-email]"),
+      bodyField=form.querySelector("[data-field-body]"),parentField=form.querySelector("[data-field-parent]"),
+      note=form.querySelector("[data-form-note]"),title=form.querySelector("[data-form-title]"),
+      replying=form.querySelector("[data-replying-to]"),replyName=form.querySelector("[data-reply-name]");
+  function say(text){note.textContent=text;note.hidden=false;}
+  function escHtml(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+  function wireReply(btn){
+    btn.addEventListener("click",function(){
+      parentField.value=btn.getAttribute("data-reply-to");
+      replyName.textContent=btn.getAttribute("data-reply-name")||"this comment";
+      replying.hidden=false;title.textContent="Leave a reply";bodyField.focus();
+    });
+  }
+  section.querySelectorAll("[data-reply-to]").forEach(wireReply);
+  var cancelBtn=form.querySelector("[data-reply-cancel]");
+  if(cancelBtn)cancelBtn.addEventListener("click",function(){parentField.value="";replying.hidden=true;title.textContent="Leave a comment";});
+  form.addEventListener("submit",function(e){
+    e.preventDefault();note.hidden=true;
+    var payload={body:bodyField.value};
+    if(parentField.value)payload.parent_id=Number(parentField.value);
+    fetch(path+"/comments",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)}).then(function(r){
+      if(r.status===201){location.reload();return null;}
+      if(r.status===401){
+        return fetch(path+"/comments/start",{method:"POST",headers:{"content-type":"application/json"},
+          body:JSON.stringify({email:emailField.value,author_name:nameField.value})}).then(function(r2){
+          say(r2.ok?"Check your email for a confirmation link, then post again.":"Could not start verification. Check the name and email.");});
+      }
+      return r.json().catch(function(){return null;}).then(function(j){say((j&&j.error)||"Could not post the comment.");});
+    }).catch(function(){say("Network error. Try again.");});
+  });
+  var KEY="bn_comments_closed",closed=[];
+  try{closed=JSON.parse(localStorage.getItem(KEY)||"[]");}catch(e){closed=[];}
+  section.querySelectorAll("[data-comment]").forEach(function(el){
+    var id=el.getAttribute("data-comment");
+    if(el.tagName==="DETAILS"&&closed.indexOf(id)>=0)el.open=false;
+    el.addEventListener("toggle",function(){
+      try{var c=JSON.parse(localStorage.getItem(KEY)||"[]");var i=c.indexOf(id);
+        if(el.open&&i>=0)c.splice(i,1);if(!el.open&&i<0)c.push(id);
+        localStorage.setItem(KEY,JSON.stringify(c));}catch(e){}
+    });
+  });
+  var maxId=0;
+  section.querySelectorAll("[data-comment]").forEach(function(el){var id=Number(el.getAttribute("data-comment"));if(id>maxId)maxId=id;});
+  function depthOf(el){var m=/\bd([0-4])\b/.exec(el.className||"");return m?Number(m[1]):0;}
+  function authorOf(el){var a=el.querySelector(":scope > summary .comment-author");return a?a.textContent:"this comment";}
+  function bumpCount(d){var h=section.querySelector("h2");if(!h)return;var m=/\(([0-9]+)\)/.exec(h.textContent);if(m)h.textContent=h.textContent.replace(/ \([0-9]+\)/," ("+(Number(m[1])+d)+")");}
+  function isoDay(ts){try{return new Date(ts*1000).toISOString().slice(0,10);}catch(e){return "";}}
+  function insertApproved(c){
+    if(!c||c.id==null||section.querySelector('[data-comment="'+c.id+'"]'))return;
+    var parentEl=c.parent_id?section.querySelector('[data-comment="'+c.parent_id+'"]'):null;
+    var depth=0,replyTo="";
+    if(parentEl){var pd=depthOf(parentEl);depth=Math.min(pd+1,4);if(pd>=4)replyTo=authorOf(parentEl);}
+    var label=replyTo?'<span class="comment-in-reply">in reply to '+escHtml(replyTo)+'</span>':"";
+    var html='<details class="comment d'+depth+'" data-comment="'+c.id+'" open>'
+      +'<summary><span class="comment-author">'+escHtml(c.author_name||"Someone")+'</span>'+label+'<time datetime="'+new Date((c.created_at||0)*1000).toISOString()+'">'+escHtml(isoDay(c.created_at||0))+'</time></summary>'
+      +'<div class="comment-body">'+escHtml(c.body||"").replace(/\n/g,"<br>")+'</div>'
+      +'<button class="reply-btn" type="button" data-reply-to="'+c.id+'" data-reply-name="'+escHtml(c.author_name||"Someone")+'">Reply</button></details>';
+    var host;
+    if(parentEl){host=parentEl.querySelector(":scope > .comment-children");if(!host){host=document.createElement("div");host.className="comment-children";parentEl.appendChild(host);}host.insertAdjacentHTML("beforeend",html);}
+    else{host=section.querySelector(".comment-list");host.insertAdjacentHTML("beforeend",html);var empty=section.querySelector(".no-comments");if(empty)empty.remove();}
+    var fresh=section.querySelector('[data-comment="'+c.id+'"]');
+    if(fresh){var rb=fresh.querySelector("[data-reply-to]");if(rb)wireReply(rb);}
+    bumpCount(1);if(c.id>maxId)maxId=c.id;
+  }
+  function tombstone(id){
+    var el=section.querySelector('[data-comment="'+id+'"]');
+    if(!el||el.tagName!=="DETAILS"||el.classList.contains("removed"))return;
+    el.classList.add("removed");
+    var s=el.querySelector(":scope > summary");if(s)s.innerHTML="<span>Removed by moderator</span>";
+    var b=el.querySelector(":scope > .comment-body");if(b)b.remove();
+    var r=el.querySelector(":scope > .reply-btn");if(r)r.remove();
+    bumpCount(-1);
+  }
+  var presenceEl=section.querySelector("[data-presence]");
+  function showPresence(viewers,writers){
+    if(!presenceEl)return;
+    var parts=[];
+    if(viewers>1)parts.push(viewers+" reading");
+    if(writers>0)parts.push((writers>1?writers+" are":writers+" is")+" writing");
+    if(!parts.length){presenceEl.hidden=true;return;}
+    presenceEl.textContent=parts.join(" · ");presenceEl.hidden=false;
+  }
+  var ws=null;
+  try{ws=new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.host+path+"/comments/watch");}catch(e){ws=null;}
+  if(ws){
+    ws.onmessage=function(ev){
+      var msg=null;try{msg=JSON.parse(ev.data);}catch(e){return;}
+      if(!msg||!msg.type)return;
+      if(msg.type==="comment-approved"&&msg.comment)insertApproved(msg.comment);
+      else if(msg.type==="comment-removed"&&msg.id!=null)tombstone(msg.id);
+      else if(msg.type==="presence")showPresence(msg.viewers,msg.writers);
+    };
+    setInterval(function(){
+      if(ws.readyState===1&&document.hasFocus&&document.hasFocus()&&document.activeElement===bodyField&&bodyField.value.trim()){
+        try{ws.send(JSON.stringify({type:"typing"}));}catch(e){}
+      }
+    },8000);
+  }
+  var btn=null;
+  setInterval(function(){
+    fetch(path+"/comments?since_id="+maxId,{headers:{accept:"application/json"}}).then(function(r){
+      if(!r.ok)return null;return r.json();
+    }).then(function(j){
+      if(!j||!j.comments||!j.comments.length)return;
+      for(var i=0;i<j.comments.length;i++)if(j.comments[i].id>maxId)maxId=j.comments[i].id;
+      if(!btn){btn=document.createElement("button");btn.type="button";btn.className="new-comments-btn";}
+      btn.textContent="New comments — refresh to read";
+      btn.onclick=function(){location.reload();};
+      if(!btn.parentNode)section.querySelector(".comment-list").after(btn);
+    }).catch(function(){});
+  },15000);
+})();</script>`;
+
+// Server-rendered approved threads plus the reader form. Bodies and names
+// are always escaped here; the submit endpoint also rejects angle brackets.
+export function renderCommentSection(post: { id: number; slug: string }, rows: CommentRow[]): string {
+  const { roots, count } = buildCommentTree(rows);
+  const list = roots.length
+    ? renderCommentNodes(roots, 0, "")
+    : `<p class="no-comments">No comments yet. Start the discussion below.</p>`;
+  return `<section class="comments" id="comments" aria-label="Comments" data-comment-section data-comments-path="/${esc(post.slug)}">`
+    + `<h2>Comments (${count})</h2>`
+    + `<p class="presence" data-presence hidden></p>`
+    + `<div class="comment-list">${list}</div>`
+    + `<form class="comment-form" data-comment-form>`
+    + `<h3 data-form-title>Leave a comment</h3>`
+    + `<p class="replying-to" data-replying-to hidden>Replying to <span data-reply-name></span> <button type="button" data-reply-cancel>Cancel</button></p>`
+    + `<label>Display name<input type="text" data-field-name maxlength="60" required autocomplete="nickname"></label>`
+    + `<label>Email<input type="email" data-field-email required autocomplete="email"><span class="help">First time? We will email you a confirmation link. Your address is never shown.</span></label>`
+    + `<label>Comment<textarea data-field-body maxlength="2000" required></textarea></label>`
+    + `<input type="hidden" data-field-parent value="">`
+    + `<button type="submit">Post comment</button>`
+    + `<p class="form-note" data-form-note hidden></p>`
+    + `</form>`
+    + COMMENT_CLIENT_SCRIPT
+    + `</section>`;
+}
+
 export function renderPost(
   tenant: Tenant,
   post: Post,
@@ -1122,7 +1386,8 @@ export function renderPost(
   adminOrigin: string,
   analyticsConsentRequired = false,
   relatedPosts: Post[] = [],
-  isDraftPreview = false
+  isDraftPreview = false,
+  commentSection = ""
 ): string {
   const shareUrl = `${origin}/${post.slug}`;
   const shareTitle = post.title;
@@ -1175,6 +1440,7 @@ export function renderPost(
     <div class="${proseClass}">${htmlBody}</div>
     ${subscribeBox(tenant)}
     ${relatedBlock}
+    ${commentSection}
     <a class="backlink" href="/">&larr; All posts</a>
   </article>`;
 

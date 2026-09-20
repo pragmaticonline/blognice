@@ -18,8 +18,13 @@ import {
   type Post,
   type Page,
   type Tenant,
+  buildCommentTree,
+  commentNodeJson,
+  renderCommentSection,
 } from "./render";
-import { sendEmail, sendEmailDetailed, emailEnabled, registrationWelcomeEmail, invitationWelcomeEmail, emailVerificationEmail, subscriptionActiveEmail, subscriberConfirmationEmail, passwordResetEmail, subscriberWelcomeEmail, postNotificationEmail } from "./email";
+import { sendEmail, sendEmailDetailed, emailEnabled, registrationWelcomeEmail, invitationWelcomeEmail, emailVerificationEmail, subscriptionActiveEmail, subscriberConfirmationEmail, commentVerificationEmail, passwordResetEmail, subscriberWelcomeEmail, postNotificationEmail } from "./email";
+import { getCookie, setCookie } from "hono/cookie";
+import { commentRoomName, signRoomRequest } from "./comment-room-protocol";
 import {
   createCustomHostname,
   getCustomHostname,
@@ -76,6 +81,7 @@ import {
   blogDeletePage,
   settingsPage,
   subscribersPage,
+  commentsPage,
   apiKeyPage,
   mediaPage,
   metricsPage,
@@ -175,6 +181,8 @@ type Bindings = {
   VAPID_PUBLIC_KEY?: string;
   VAPID_PRIVATE_KEY?: string;
   PUSH_IP_HMAC_SECRET?: string;
+  COMMENT_ROOMS?: DurableObjectNamespace; // per-post comment rooms (slice 5)
+  COMMENTS_ROOM_SECRET?: string; // secret; signs worker-to-room broadcasts
   METRICS: AnalyticsEngineDataset; // anonymous public page-view events
   EVENTS: AnalyticsEngineDataset; // audio engagement events
   AFFILIATE_EVENTS: AnalyticsEngineDataset; // approximate affiliate funnel events, indexed by Affiliate
@@ -552,6 +560,9 @@ async function ensureTenantHeaderLinkColumn(env: Bindings): Promise<void> {
   } catch {}
   try {
     await env.DB.prepare("ALTER TABLE tenants ADD COLUMN browser_push_enabled INTEGER NOT NULL DEFAULT 0").run();
+  } catch {}
+  try {
+    await env.DB.prepare("ALTER TABLE tenants ADD COLUMN comments_enabled INTEGER NOT NULL DEFAULT 0").run();
   } catch {}
   try {
     await env.DB.prepare("ALTER TABLE tenants ADD COLUMN accent_color TEXT NOT NULL DEFAULT '#1a8917'").run();
@@ -2120,6 +2131,7 @@ app.get("/api/v1/blogs/:blogId", async (c) => {
       social_links: social,
       navigation_links,
       browser_push_enabled: !!tenant.browser_push_enabled,
+      comments_enabled: !!tenant.comments_enabled,
       header_link_url: (tenant as any).header_link_url || "/",
       custom_domain: tenant.custom_domain,
       avatar_key: avatarKey,
@@ -2194,6 +2206,7 @@ app.patch("/api/v1/blogs/:blogId", async (c) => {
     }
   }
   const browserPushEnabled = has("browser_push_enabled") ? (body.browser_push_enabled ? 1 : 0) : (tenant.browser_push_enabled ? 1 : 0);
+  const commentsEnabled = has("comments_enabled") ? (body.comments_enabled ? 1 : 0) : (tenant.comments_enabled ? 1 : 0);
   let headerLinkUrl = (tenant as any).header_link_url || "/";
   if (has("header_link_url")) {
     const parsed = normalizeHeaderLink(body.header_link_url);
@@ -2236,8 +2249,8 @@ app.patch("/api/v1/blogs/:blogId", async (c) => {
   }
   await ensureTenantHeaderLinkColumn(c.env);
   const finalAvatarKey = avatarKey === undefined ? (tenant as any).avatar_key || null : avatarKey;
-  await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, footer_name = ?, accent_color = ?, topics_json = ?, social_links_json = ?, navigation_links_json = ?, browser_push_enabled = ?, header_link_url = ?, avatar_key = ? WHERE id = ?")
-    .bind(slug, title, description, footerName, accentColor, JSON.stringify(topics), JSON.stringify(socialLinks), JSON.stringify(navigationLinks), browserPushEnabled, headerLinkUrl, finalAvatarKey, tenant.id).run();
+  await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, footer_name = ?, accent_color = ?, topics_json = ?, social_links_json = ?, navigation_links_json = ?, browser_push_enabled = ?, comments_enabled = ?, header_link_url = ?, avatar_key = ? WHERE id = ?")
+    .bind(slug, title, description, footerName, accentColor, JSON.stringify(topics), JSON.stringify(socialLinks), JSON.stringify(navigationLinks), browserPushEnabled, commentsEnabled, headerLinkUrl, finalAvatarKey, tenant.id).run();
   queueBlogAudit(c, tenant.id, account.id, "blog_settings_updated", "settings");
   const updatedTenant = { ...tenant, slug } as Tenant;
   c.executionCtx.waitUntil((async () => {
@@ -2246,7 +2259,7 @@ app.patch("/api/v1/blogs/:blogId", async (c) => {
   })());
   const retAvatarKey = finalAvatarKey;
   const retAvatarUrl = retAvatarKey ? `/media/${retAvatarKey}` : null;
-  return c.json({ blog: { public_id: tenant.public_id, slug, title, description, footer_name: footerName, accent_color: accentColor, topics, social_links: socialLinks, navigation_links: navigationLinks, browser_push_enabled: !!browserPushEnabled, header_link_url: headerLinkUrl, custom_domain: tenant.custom_domain, avatar_key: retAvatarKey, avatar_url: retAvatarUrl, profile_image_key: retAvatarKey, profile_image_url: retAvatarUrl, created_at: tenant.created_at } });
+  return c.json({ blog: { public_id: tenant.public_id, slug, title, description, footer_name: footerName, accent_color: accentColor, topics, social_links: socialLinks, navigation_links: navigationLinks, browser_push_enabled: !!browserPushEnabled, comments_enabled: !!commentsEnabled, header_link_url: headerLinkUrl, custom_domain: tenant.custom_domain, avatar_key: retAvatarKey, avatar_url: retAvatarUrl, profile_image_key: retAvatarKey, profile_image_url: retAvatarUrl, created_at: tenant.created_at } });
 });
 
 app.post("/api/v1/blogs", async (c) => {
@@ -4576,6 +4589,7 @@ type Capability =
   | "posts.edit.own"
   | "posts.publish"
   | "posts.delete"
+  | "comments.moderate"
   | "media.upload"
   | "media.delete"
   | "settings.manage"
@@ -4584,11 +4598,11 @@ type Capability =
 const ROLE_CAPABILITIES: Record<MembershipRole, ReadonlySet<Capability>> = {
   owner: new Set([
     "posts.create", "posts.edit.any", "posts.publish", "posts.delete",
-    "media.upload", "media.delete", "settings.manage", "members.manage",
+    "comments.moderate", "media.upload", "media.delete", "settings.manage", "members.manage",
   ]),
   editor: new Set([
     "posts.create", "posts.edit.any", "posts.publish", "posts.delete",
-    "media.upload", "media.delete",
+    "comments.moderate", "media.upload", "media.delete",
   ]),
   author: new Set(["posts.create", "posts.edit.own", "posts.publish", "media.upload"]),
   contributor: new Set(["posts.create", "posts.edit.own", "media.upload"]),
@@ -5029,6 +5043,7 @@ app.post("/admin/b/:blogId/settings", async (c) => {
   const title = String(form.get("title") ?? "").trim();
   const description = String(form.get("description") ?? "").trim();
   const browserPushEnabled = form.get("browser_push_enabled") === "1" ? 1 : 0;
+  const commentsEnabled = form.get("comments_enabled") === "1" ? 1 : 0;
   const footerName = String(form.get("footer_name") ?? "").trim().slice(0, 160);
   const accentColor = String(form.get("accent_color") ?? "").trim();
   const headerLinkRaw = String(form.get("header_link_url") ?? "/").trim();
@@ -5071,15 +5086,75 @@ app.post("/admin/b/:blogId/settings", async (c) => {
       .bind(ctx.tenant.slug, ctx.tenant.id, now).run();
   }
   await ensureTenantHeaderLinkColumn(c.env);
-  await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, footer_name = ?, accent_color = ?, topics_json = ?, social_links_json = ?, browser_push_enabled = ?, header_link_url = ? WHERE id = ?")
-    .bind(slug, title, description, footerName, accentColor.toLowerCase(), JSON.stringify(normalizedTopics.topics), JSON.stringify(socialLinks), browserPushEnabled, headerLinkUrl, ctx.tenant.id)
+  await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, footer_name = ?, accent_color = ?, topics_json = ?, social_links_json = ?, browser_push_enabled = ?, comments_enabled = ?, header_link_url = ? WHERE id = ?")
+    .bind(slug, title, description, footerName, accentColor.toLowerCase(), JSON.stringify(normalizedTopics.topics), JSON.stringify(socialLinks), browserPushEnabled, commentsEnabled, headerLinkUrl, ctx.tenant.id)
     .run();
   queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "blog_settings_updated", "settings");
 
   c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant));
-  const updated = { ...ctx.tenant, slug, title, description, footer_name: footerName, accent_color: accentColor.toLowerCase(), topics_json: JSON.stringify(normalizedTopics.topics), social_links_json: JSON.stringify(socialLinks), browser_push_enabled: browserPushEnabled, header_link_url: headerLinkUrl };
+  const updated = { ...ctx.tenant, slug, title, description, footer_name: footerName, accent_color: accentColor.toLowerCase(), topics_json: JSON.stringify(normalizedTopics.topics), social_links_json: JSON.stringify(socialLinks), browser_push_enabled: browserPushEnabled, comments_enabled: commentsEnabled, header_link_url: headerLinkUrl };
   return c.html(settingsPage(ctx.account, updated, { isOwner: ctx.role === "owner", notice: "Saved." }));
 });
+
+// Blog comment moderation (slice 4): owners and editors via comments.moderate.
+app.get("/admin/b/:blogId/comments", async (c) => {
+  const ctx = await blogContext(c);
+  if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
+  const denied = requireBlogCapability(c, ctx, "comments.moderate");
+  if (denied) return denied;
+  if (!ctx.tenant.comments_enabled) return c.text("Comments are not available.", 404);
+  const postFilter = Number(c.req.query("post") ?? "");
+  const db = tenantDb(c.env, ctx.tenant);
+  const { results } = await db.prepare(
+    `SELECT c.id, c.post_id, c.author_name, c.body, c.status, c.created_at, p.slug AS post_slug, p.title AS post_title
+     FROM comments c JOIN posts p ON p.id = c.post_id AND p.tenant_id = c.tenant_id
+     WHERE c.tenant_id = ? ORDER BY c.id DESC LIMIT 100`
+  ).bind(ctx.tenant.id).all<any>();
+  const { results: postRows } = await db.prepare(
+    "SELECT id, title FROM posts WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 100"
+  ).bind(ctx.tenant.id).all<{ id: number; title: string }>();
+  const items = (Number.isSafeInteger(postFilter) && postFilter > 0
+    ? results.filter((r) => r.post_id === postFilter)
+    : results) as any;
+  return c.html(commentsPage(ctx.account, ctx.tenant, items, {
+    postFilter: Number.isSafeInteger(postFilter) && postFilter > 0 ? postFilter : undefined,
+    posts: postRows,
+  }));
+});
+
+async function moderateComment(c: any, status: "removed" | "approved"): Promise<Response> {
+  const ctx = await blogContext(c);
+  if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
+  const denied = requireBlogCapability(c, ctx, "comments.moderate");
+  if (denied) return denied;
+  if (!ctx.tenant.comments_enabled) return c.text("Comments are not available.", 404);
+  const origin = c.req.header("Origin");
+  try {
+    if (!origin || new URL(origin).origin !== new URL(c.req.url).origin) return c.text("Cross-origin requests are not allowed.", 403);
+  } catch { return c.text("Cross-origin requests are not allowed.", 403); }
+  const id = Number(c.req.param("commentId"));
+  if (!Number.isSafeInteger(id) || id <= 0) return c.text("Invalid comment.", 400);
+  const db = tenantDb(c.env, ctx.tenant);
+  const row = await db.prepare("SELECT id, post_id, parent_id, author_name, body, created_at FROM comments WHERE tenant_id = ? AND id = ?").bind(ctx.tenant.id, id).first<any>();
+  if (!row) return c.redirect(`/admin/b/${ctx.tenant.public_id}/comments`, 303);
+  const now = Math.floor(Date.now() / 1000);
+  await db.prepare("UPDATE comments SET status = ?, decided_at = ? WHERE tenant_id = ? AND id = ?").bind(status, now, ctx.tenant.id, id).run();
+  queueBlogAudit(c, ctx.tenant.id, ctx.account.id, status === "removed" ? "comment_removed" : "comment_restored", "comments");
+  const post = await db.prepare("SELECT slug FROM posts WHERE tenant_id = ? AND id = ?").bind(ctx.tenant.id, row.post_id).first<{ slug: string }>();
+  if (post) c.executionCtx.waitUntil(purge(c, [`/${post.slug}`]).catch(() => {}));
+  c.executionCtx.waitUntil(broadcastCommentEvent(c.env, ctx.tenant, row.post_id, status === "removed"
+    ? { type: "comment-removed", id: row.id }
+    : {
+      type: "comment-approved",
+      comment: { id: row.id, parent_id: row.parent_id, author_name: row.author_name, body: row.body, created_at: row.created_at },
+    }).catch(() => false));
+  return c.redirect(`/admin/b/${ctx.tenant.public_id}/comments`, 303);
+}
+
+app.post("/admin/b/:blogId/comments/:commentId/remove", (c) => moderateComment(c, "removed"));
+app.post("/admin/b/:blogId/comments/:commentId/restore", (c) => moderateComment(c, "approved"));
 
 // Blog deletion (owner only, soft delete). Two confirmations: opening this
 // page from Settings, then checking the box and typing the exact blog title.
@@ -7995,11 +8070,310 @@ app.get("/:slug", async (c) => {
     if (htmlBody.includes("youtube-embed")) htmlBody = expandYoutubeEmbeds(htmlBody);
     if (htmlBody.includes("bitchute-embed")) htmlBody = expandBitchuteEmbeds(htmlBody);
     const relatedPosts = await publishedRelatedPosts(c.env, tenant, post);
-    return new Response(renderPost(tenant, post, htmlBody, originOf(c), adminOriginOf(c), analyticsConsentRequired(c.req.raw.cf?.country), relatedPosts), {
+    let commentSection = "";
+    if (tenant.comments_enabled) {
+      try {
+        const { results } = await tenantDb(c.env, tenant).prepare(
+          "SELECT id, parent_id, author_name, body, created_at, status FROM comments WHERE tenant_id = ? AND post_id = ? ORDER BY id ASC LIMIT 2000"
+        ).bind(tenant.id, post.id).all<any>();
+        commentSection = renderCommentSection(post, results);
+      } catch {}
+    }
+    return new Response(renderPost(tenant, post, htmlBody, originOf(c), adminOriginOf(c), analyticsConsentRequired(c.req.raw.cf?.country), relatedPosts, false, commentSection), {
       status: 200,
       headers: { "content-type": "text/html; charset=utf-8" },
     });
   }, true);
+});
+
+const COMMENT_PAGE_SIZE = 20;
+
+// Paged top-level threads (?cursor=offset) with full subtrees, or flat
+// catch-up (?since_id=) for polling clients. Removed bodies never leave the
+// server: tombstones carry no author or text.
+app.get("/:slug/comments", async (c) => {
+  const tenant = await resolveTenant(c.env, c.req.header("host") || "");
+  if (!tenant || !tenant.comments_enabled) return c.json({ error: "Comments are not available." }, 404);
+  const post = await commentPost(c, tenant);
+  if (!post) return c.json({ error: "Comments are not available." }, 404);
+  const db = tenantDb(c.env, tenant);
+  const sinceRaw = c.req.query("since_id");
+  if (sinceRaw != null && sinceRaw !== "") {
+    const sinceId = Number(sinceRaw);
+    if (!Number.isSafeInteger(sinceId) || sinceId < 0) return c.json({ error: "Invalid cursor." }, 400);
+    const { results } = await db.prepare(
+      "SELECT id, parent_id, author_name, body, created_at FROM comments WHERE tenant_id = ? AND post_id = ? AND status = 'approved' AND id > ? ORDER BY id ASC LIMIT 100"
+    ).bind(tenant.id, post.id, sinceId).all<any>();
+    return c.json(
+      { comments: results.map((r) => ({ id: r.id, parent_id: r.parent_id, author_name: r.author_name, body: r.body, created_at: r.created_at })) },
+      200,
+      { "cache-control": "public, max-age=30" }
+    );
+  }
+  const cursorRaw = c.req.query("cursor") ?? "0";
+  const cursor = Number(cursorRaw);
+  if (!Number.isSafeInteger(cursor) || cursor < 0) return c.json({ error: "Invalid cursor." }, 400);
+  const { results } = await db.prepare(
+    "SELECT id, parent_id, author_name, body, created_at, status FROM comments WHERE tenant_id = ? AND post_id = ? ORDER BY id ASC LIMIT 2000"
+  ).bind(tenant.id, post.id).all<any>();
+  const { roots } = buildCommentTree(results);
+  const page = roots.slice(cursor, cursor + COMMENT_PAGE_SIZE);
+  return c.json(
+    {
+      comments: page.map(commentNodeJson),
+      next_cursor: cursor + COMMENT_PAGE_SIZE < roots.length ? cursor + COMMENT_PAGE_SIZE : null,
+    },
+    200,
+    { "cache-control": "public, max-age=30" }
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Blog comments (slice 2: identity + submit; rendering lands in slice 3).
+// All comment state lives in the POSTS database; nothing touches the index
+// database except the tenant row itself. Rate windows:
+//   verification starts: 5/hour per (tenant, email)
+//   submits: 20/10min per identity, 200/hour per tenant
+//   duplicates: same identity + body within 10 minutes is rejected
+// ---------------------------------------------------------------------------
+const COMMENT_COOKIE = "bn_comment";
+const COMMENT_BODY_MAX = 2000;
+const COMMENT_TOKEN_TTL = 86400; // verification links live 24 hours
+const COMMENT_START_WINDOW = 3600;
+const COMMENT_START_MAX = 5;
+const COMMENT_SUBMIT_WINDOW = 600;
+const COMMENT_SUBMIT_MAX = 20;
+const COMMENT_TENANT_WINDOW = 3600;
+const COMMENT_TENANT_MAX = 200;
+const COMMENT_DUPLICATE_WINDOW = 600;
+const COMMENT_REPORT_REASONS = ["spam", "harassment", "other"];
+const COMMENT_REPORT_WINDOW = 3600;
+const COMMENT_REPORT_MAX = 10; // per (tenant, reporter) per hour
+const COMMENT_REPORT_TENANT_MAX = 100; // per tenant per hour
+
+function commentRandomToken(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function setCommentCookie(c: any, token: string): void {
+  const secure = new URL(c.req.url).protocol === "https:";
+  setCookie(c, COMMENT_COOKIE, token, {
+    httpOnly: true,
+    secure, // off on http://localhost so the cookie is still sent in dev
+    sameSite: "Lax",
+    path: "/", // host-scoped: never shared across blogs
+    maxAge: 31536000,
+  });
+}
+
+async function commentPost(c: any, tenant: Tenant): Promise<Post | null> {
+  const post = await tenantDb(c.env, tenant).prepare(
+    "SELECT * FROM posts WHERE tenant_id = ? AND slug = ?"
+  ).bind(tenant.id, c.req.param("slug")).first<Post>();
+  if (!post || !post.published) return null;
+  return post;
+}
+
+async function commentAttemptCount(env: Bindings, tenantId: number, kind: string, emailHash: string | null, since: number): Promise<number> {
+  const db = tenantDb(env, await tenantShardTenant(env, tenantId));
+  const counted = emailHash
+    ? await db.prepare("SELECT COUNT(*) AS count FROM comment_attempts WHERE tenant_id = ? AND email_hash = ? AND kind = ? AND created_at > ?").bind(tenantId, emailHash, kind, since).first<{ count: number }>()
+    : await db.prepare("SELECT COUNT(*) AS count FROM comment_attempts WHERE tenant_id = ? AND kind = ? AND created_at > ?").bind(tenantId, kind, since).first<{ count: number }>();
+  return counted?.count ?? 0;
+}
+
+async function tenantShardTenant(env: Bindings, tenantId: number): Promise<Tenant> {
+  // comment_attempts lives in POSTS; resolve the shard from the index tenant row.
+  const tenant = await env.DB.prepare("SELECT * FROM tenants WHERE id = ?").bind(tenantId).first<Tenant>();
+  return (tenant ?? { shard: "primary" }) as Tenant;
+}
+
+async function logCommentAttempt(env: Bindings, tenant: Tenant, kind: string, emailHash: string, now: number): Promise<void> {
+  const db = tenantDb(env, tenant);
+  await db.prepare("INSERT INTO comment_attempts (tenant_id, email_hash, kind, created_at) VALUES (?, ?, ?, ?)").bind(tenant.id, emailHash, kind, now).run();
+  await db.prepare("DELETE FROM comment_attempts WHERE created_at < ?").bind(now - COMMENT_TENANT_WINDOW).run();
+}
+
+async function commentIdentityByCookie(env: Bindings, tenant: Tenant, cookie: string): Promise<any | null> {
+  const cookieHash = await sha256hex(cookie);
+  return tenantDb(env, tenant).prepare(
+    "SELECT * FROM comment_identities WHERE tenant_id = ? AND cookie_hash = ?"
+  ).bind(tenant.id, cookieHash).first();
+}
+
+export type CommentRoomEvent =
+  | { type: "comment-approved"; comment: { id: number; parent_id: number | null; author_name: string; body: string; created_at: number } }
+  | { type: "comment-removed"; id: number };
+
+// Best-effort broadcast to the post's room. Fails closed (false) when the
+// room is unconfigured or unreachable; the comment stays stored and visible
+// on next load or poll regardless.
+export async function broadcastCommentEvent(env: Bindings, tenant: Tenant, postId: number, event: CommentRoomEvent): Promise<boolean> {
+  try {
+    if (!env.COMMENT_ROOMS || !env.COMMENTS_ROOM_SECRET) return false;
+    const body = JSON.stringify(event);
+    const path = "/internal/broadcast";
+    const { nonce, mac } = await signRoomRequest(env.COMMENTS_ROOM_SECRET, "POST", path, body);
+    const id = env.COMMENT_ROOMS.idFromName(commentRoomName(tenant.id, postId));
+    const res = await env.COMMENT_ROOMS.get(id).fetch(`https://comment-room${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-bn-nonce": nonce, "x-bn-mac": mac },
+      body,
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+app.post("/:slug/comments/start", async (c) => {
+  const tenant = await resolveTenant(c.env, c.req.header("host") || "");
+  if (!tenant || !tenant.comments_enabled) return c.json({ error: "Comments are not available." }, 404);
+  const post = await commentPost(c, tenant);
+  if (!post) return c.json({ error: "Comments are not available." }, 404);
+  let payload: any = null;
+  try { payload = await c.req.json(); } catch { return c.json({ error: "Invalid request." }, 400); }
+  const email = String(payload?.email ?? "").trim();
+  const authorName = String(payload?.author_name ?? "").trim();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || email.length > 254) return c.json({ error: "A valid email address is required." }, 400);
+  if (!authorName || authorName.length > 60) return c.json({ error: "A display name up to 60 characters is required." }, 400);
+  if (!emailEnabled(c.env)) return c.json({ error: "Comment verification email is not available." }, 503);
+  const now = Math.floor(Date.now() / 1000);
+  const emailHash = await sha256hex(email.toLowerCase());
+  const recent = await commentAttemptCount(c.env, tenant.id, "start", emailHash, now - COMMENT_START_WINDOW);
+  if (recent >= COMMENT_START_MAX) return c.json({ error: "Too many verification requests. Try again later." }, 429);
+  const token = commentRandomToken();
+  const db = tenantDb(c.env, tenant);
+  const tokenHash = await sha256hex(token);
+  // Re-verification rotates the token but never clears an existing verified_at.
+  const existing = await db.prepare(
+    "SELECT email_hash FROM comment_identities WHERE tenant_id = ? AND email_hash = ?"
+  ).bind(tenant.id, emailHash).first();
+  if (existing) {
+    await db.prepare(
+      "UPDATE comment_identities SET author_name = ?, token_hash = ?, token_expires_at = ? WHERE tenant_id = ? AND email_hash = ?"
+    ).bind(authorName, tokenHash, now + COMMENT_TOKEN_TTL, tenant.id, emailHash).run();
+  } else {
+    await db.prepare(
+      "INSERT INTO comment_identities (tenant_id, email_hash, author_name, token_hash, token_expires_at, verified_at, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?)"
+    ).bind(tenant.id, emailHash, authorName, tokenHash, now + COMMENT_TOKEN_TTL, now).run();
+  }
+  await logCommentAttempt(c.env, tenant, "start", emailHash, now);
+  const verifyUrl = `${originOf(c)}/${post.slug}/comments/verify?token=${token}`;
+  c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...commentVerificationEmail({ blogTitle: tenant.title, verifyUrl, authorName }) }).then(() => {}));
+  return c.json({ ok: true });
+});
+
+app.get("/:slug/comments/verify", async (c) => {
+  const tenant = await resolveTenant(c.env, c.req.header("host") || "");
+  if (!tenant || !tenant.comments_enabled) return c.text("Comments are not available.", 404);
+  const post = await commentPost(c, tenant);
+  if (!post) return c.text("Comments are not available.", 404);
+  const token = String(c.req.query("token") ?? "");
+  if (!token) return c.text("This verification link is invalid or expired.", 400);
+  const now = Math.floor(Date.now() / 1000);
+  const db = tenantDb(c.env, tenant);
+  const identity = await db.prepare(
+    "SELECT * FROM comment_identities WHERE tenant_id = ? AND token_hash = ? AND token_expires_at > ?"
+  ).bind(tenant.id, await sha256hex(token), now).first<any>();
+  if (!identity) return c.text("This verification link is invalid or expired.", 400);
+  const cookieToken = commentRandomToken();
+  await db.prepare(
+    "UPDATE comment_identities SET cookie_hash = ?, token_hash = NULL, token_expires_at = NULL, verified_at = ? WHERE tenant_id = ? AND email_hash = ?"
+  ).bind(await sha256hex(cookieToken), now, tenant.id, identity.email_hash).run();
+  setCommentCookie(c, cookieToken);
+  return c.redirect(`/${post.slug}#comments`, 302);
+});
+
+app.post("/:slug/comments", async (c) => {
+  const tenant = await resolveTenant(c.env, c.req.header("host") || "");
+  if (!tenant || !tenant.comments_enabled) return c.json({ error: "Comments are not available." }, 404);
+  const post = await commentPost(c, tenant);
+  if (!post) return c.json({ error: "Comments are not available." }, 404);
+  const cookie = getCookie(c, COMMENT_COOKIE);
+  if (!cookie) return c.json({ error: "Verify your email address before commenting." }, 401);
+  const identity = await commentIdentityByCookie(c.env, tenant, cookie);
+  if (!identity || !identity.verified_at) return c.json({ error: "Verify your email address before commenting." }, 401);
+  let payload: any = null;
+  try { payload = await c.req.json(); } catch { return c.json({ error: "Invalid request." }, 400); }
+  const body = String(payload?.body ?? "").trim();
+  if (!body || body.length > COMMENT_BODY_MAX) return c.json({ error: `Comment must be 1 to ${COMMENT_BODY_MAX} characters.` }, 400);
+  if (/[<>]/.test(body)) return c.json({ error: "Comments are plain text." }, 400);
+  const db = tenantDb(c.env, tenant);
+  let parentId: number | null = null;
+  if (payload?.parent_id != null) {
+    if (!Number.isInteger(payload.parent_id)) return c.json({ error: "Invalid parent comment." }, 400);
+    const parent = await db.prepare("SELECT * FROM comments WHERE tenant_id = ? AND id = ?").bind(tenant.id, payload.parent_id).first<any>();
+    if (!parent || parent.post_id !== post.id || parent.status !== "approved") return c.json({ error: "Invalid parent comment." }, 400);
+    parentId = parent.id;
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const recent = await commentAttemptCount(c.env, tenant.id, "submit", identity.email_hash, now - COMMENT_SUBMIT_WINDOW);
+  if (recent >= COMMENT_SUBMIT_MAX) return c.json({ error: "Too many comments. Try again later." }, 429);
+  const tenantRecent = await commentAttemptCount(c.env, tenant.id, "submit", null, now - COMMENT_TENANT_WINDOW);
+  if (tenantRecent >= COMMENT_TENANT_MAX) return c.json({ error: "Too many comments. Try again later." }, 429);
+  const duplicate = await db.prepare(
+    "SELECT id FROM comments WHERE tenant_id = ? AND email_hash = ? AND body = ? AND created_at > ?"
+  ).bind(tenant.id, identity.email_hash, body, now - COMMENT_DUPLICATE_WINDOW).first<{ id: number }>();
+  if (duplicate) return c.json({ error: "Duplicate comment." }, 409);
+  const inserted = await db.prepare(
+    "INSERT INTO comments (tenant_id, post_id, parent_id, author_name, email_hash, body, status, created_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(tenant.id, post.id, parentId, identity.author_name, identity.email_hash, body, "approved", now, now).run();
+  await logCommentAttempt(c.env, tenant, "submit", identity.email_hash, now);
+  // Keep the server-rendered section fresh: the post page is edge-cached.
+  c.executionCtx.waitUntil(purge(c, [`/${post.slug}`]).catch(() => {}));
+  const id = Number((inserted as any)?.meta?.last_row_id ?? 0);
+  c.executionCtx.waitUntil(broadcastCommentEvent(c.env, tenant, post.id, {
+    type: "comment-approved",
+    comment: { id, parent_id: parentId, author_name: identity.author_name, body, created_at: now },
+  }).catch(() => false));
+  return c.json({ comment: { id, parent_id: parentId, author_name: identity.author_name, body, status: "approved", created_at: now } }, 201);
+});
+
+// Reader abuse reports on approved comments. Anyone (verified or not) may
+// report; reporters are distinguished by their comment cookie when present.
+app.post("/:slug/comments/:commentId/report", async (c) => {
+  const tenant = await resolveTenant(c.env, c.req.header("host") || "");
+  if (!tenant || !tenant.comments_enabled) return c.json({ error: "Comments are not available." }, 404);
+  const post = await commentPost(c, tenant);
+  if (!post) return c.json({ error: "Comments are not available." }, 404);
+  let payload: any = null;
+  try { payload = await c.req.json(); } catch { return c.json({ error: "Invalid request." }, 400); }
+  const reason = String(payload?.reason ?? "");
+  if (!COMMENT_REPORT_REASONS.includes(reason)) return c.json({ error: "Invalid reason." }, 400);
+  const id = Number(c.req.param("commentId"));
+  if (!Number.isSafeInteger(id) || id <= 0) return c.json({ error: "Invalid comment." }, 400);
+  const db = tenantDb(c.env, tenant);
+  const target = await db.prepare(
+    "SELECT post_id FROM comments WHERE tenant_id = ? AND id = ? AND status = 'approved'"
+  ).bind(tenant.id, id).first<{ post_id: number }>();
+  if (!target || target.post_id !== post.id) return c.json({ error: "Comment not found." }, 404);
+  const cookie = getCookie(c, COMMENT_COOKIE);
+  const reporterHash = cookie ? await sha256hex(cookie) : "anonymous";
+  const now = Math.floor(Date.now() / 1000);
+  const recent = await commentAttemptCount(c.env, tenant.id, "report", reporterHash, now - COMMENT_REPORT_WINDOW);
+  if (recent >= COMMENT_REPORT_MAX) return c.json({ error: "Too many reports. Try again later." }, 429);
+  const tenantRecent = await commentAttemptCount(c.env, tenant.id, "report", null, now - COMMENT_REPORT_WINDOW);
+  if (tenantRecent >= COMMENT_REPORT_TENANT_MAX) return c.json({ error: "Too many reports. Try again later." }, 429);
+  await db.prepare(
+    "INSERT INTO comment_reports (tenant_id, post_id, comment_id, reason, reporter_hash, status, created_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)"
+  ).bind(tenant.id, post.id, id, reason, reporterHash, "open", now).run();
+  await logCommentAttempt(c.env, tenant, "report", reporterHash, now);
+  return c.json({ ok: true });
+});
+
+// Live-update socket for a post's comments. Drafts and disabled blogs 404;
+// unconfigured rooms 503 so clients keep polling instead.
+app.get("/:slug/comments/watch", async (c) => {
+  const tenant = await resolveTenant(c.env, c.req.header("host") || "");
+  if (!tenant || !tenant.comments_enabled) return c.json({ error: "Comments are not available." }, 404);
+  const post = await commentPost(c, tenant);
+  if (!post) return c.json({ error: "Comments are not available." }, 404);
+  if (!c.env.COMMENT_ROOMS) return c.json({ error: "Live updates are not available." }, 503);
+  const id = c.env.COMMENT_ROOMS.idFromName(commentRoomName(tenant.id, post.id));
+  return c.env.COMMENT_ROOMS.get(id).fetch(c.req.raw);
 });
 
 async function ensureAutopilotTablesIdx(db: D1Database) {

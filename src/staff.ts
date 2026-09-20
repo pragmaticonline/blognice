@@ -16,6 +16,7 @@ type StaffIdentity = { subject: string; email: string; role: StaffRole };
 
 type StaffBindings = {
   DB: D1Database;
+  POSTS: D1Database;
   AI?: Ai;
   ACCESS_TEAM_DOMAIN?: string;
   ACCESS_AUD?: string;
@@ -475,6 +476,97 @@ app.post("/api/affiliate-payouts/:id/approve", async (c) => {
     before: { approval: null }, after: { approved_at: approvedAt },
   });
   return c.json({ approved: true, payout_id: payoutId });
+});
+
+// Comment abuse triage (slice 6). Support and admin can work the queue and
+// remove comments; only admin can toggle a blog's comment flag. Staff
+// removals tombstone in D1 like blog-admin removals; live sockets and polls
+// converge within seconds, full pages within the edge TTL (no room binding
+// on this worker by design).
+app.get("/api/comment-reports", async (c) => {
+  const staff = c.get("staff") as StaffIdentity;
+  if (!canMutate(staff)) return c.json({ error: "support role required" }, 403);
+  const status = String(c.req.query("status") || "open");
+  if (status !== "open" && status !== "all") return c.json({ error: "Invalid status filter." }, 400);
+  const page = boundedPage(c.req.query("page"));
+  const limit = 50;
+  const { results } = await c.env.POSTS.prepare(
+    `SELECT r.id, r.tenant_id, r.post_id, r.comment_id, r.reason, r.status, r.created_at,
+            t.title AS blog_title, t.slug AS blog_slug, p.slug AS post_slug,
+            co.body AS comment_body, co.status AS comment_status
+       FROM comment_reports r
+       JOIN tenants t ON t.id = r.tenant_id
+       JOIN posts p ON p.id = r.post_id AND p.tenant_id = r.tenant_id
+       LEFT JOIN comments co ON co.id = r.comment_id AND co.tenant_id = r.tenant_id
+      ${status === "open" ? "WHERE r.status = 'open'" : ""} ORDER BY r.id DESC LIMIT ? OFFSET ?`
+  ).bind(limit, (page - 1) * limit).all();
+  return c.json({ page, limit, reports: results });
+});
+
+app.post("/api/comment-reports/:id/resolve", async (c) => {
+  const staff = c.get("staff") as StaffIdentity;
+  if (!canMutate(staff)) return c.json({ error: "support role required" }, 403);
+  if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
+  const id = Number(c.req.param("id"));
+  if (!Number.isSafeInteger(id) || id <= 0) return c.json({ error: "Invalid report." }, 400);
+  const body = await c.req.json<{ decision?: unknown }>().catch(() => ({} as { decision?: unknown }));
+  const decision = String(body.decision || "");
+  if (decision !== "dismissed" && decision !== "actioned") return c.json({ error: "decision must be dismissed or actioned" }, 400);
+  const row = await c.env.POSTS.prepare("SELECT id, status FROM comment_reports WHERE id = ?").bind(id).first<{ id: number; status: string }>();
+  if (!row) return c.json({ error: "Report not found." }, 404);
+  if (row.status !== "open") return c.json({ error: "Report is already resolved." }, 409);
+  const now = Math.floor(Date.now() / 1000);
+  await c.env.POSTS.prepare("UPDATE comment_reports SET status = ?, decided_at = ? WHERE id = ?").bind(decision, now, id).run();
+  await audit(c, staff, {
+    action: "comment-report-resolve", targetType: "comment_report",
+    targetId: String(id), reason: decision, result: decision,
+    before: { status: "open" }, after: { status: decision },
+  });
+  return c.json({ resolved: true, report_id: id, decision });
+});
+
+app.post("/api/comments/remove", async (c) => {
+  const staff = c.get("staff") as StaffIdentity;
+  if (!canMutate(staff)) return c.json({ error: "support role required" }, 403);
+  if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
+  const body = await c.req.json<{ tenant_id?: unknown; comment_id?: unknown; reason?: unknown }>().catch(() => ({} as { tenant_id?: unknown; comment_id?: unknown; reason?: unknown }));
+  const tenantId = Number(body.tenant_id);
+  const commentId = Number(body.comment_id);
+  const reason = String(body.reason || "").trim().slice(0, 500);
+  if (!Number.isSafeInteger(tenantId) || tenantId <= 0 || !Number.isSafeInteger(commentId) || commentId <= 0) {
+    return c.json({ error: "tenant_id and comment_id are required" }, 400);
+  }
+  if (!reason) return c.json({ error: "a reason is required" }, 400);
+  const row = await c.env.POSTS.prepare("SELECT id, status FROM comments WHERE tenant_id = ? AND id = ?").bind(tenantId, commentId).first<{ id: number; status: string }>();
+  if (!row) return c.json({ error: "Comment not found." }, 404);
+  if (row.status === "removed") return c.json({ error: "Comment is already removed." }, 409);
+  const now = Math.floor(Date.now() / 1000);
+  await c.env.POSTS.prepare("UPDATE comments SET status = ?, decided_at = ? WHERE tenant_id = ? AND id = ?").bind("removed", now, tenantId, commentId).run();
+  await audit(c, staff, {
+    action: "comment-remove", targetType: "comment",
+    targetId: `${tenantId}:${commentId}`, reason, result: "removed",
+    before: { status: row.status }, after: { status: "removed" },
+  });
+  return c.json({ removed: true, tenant_id: tenantId, comment_id: commentId });
+});
+
+app.post("/api/blogs/:id/comments-enabled", async (c) => {
+  const staff = c.get("staff") as StaffIdentity;
+  if (!canAdmin(staff)) return c.json({ error: "admin role required for comment flag override" }, 403);
+  if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
+  const id = Number(c.req.param("id"));
+  if (!Number.isSafeInteger(id) || id <= 0) return c.json({ error: "Invalid blog." }, 400);
+  const body = await c.req.json<{ enabled?: unknown }>().catch(() => ({} as { enabled?: unknown }));
+  if (typeof body.enabled !== "boolean") return c.json({ error: "enabled must be a boolean" }, 400);
+  const tenant = await c.env.DB.prepare("SELECT id, comments_enabled FROM tenants WHERE id = ?").bind(id).first<{ id: number; comments_enabled: number }>();
+  if (!tenant) return c.json({ error: "Blog not found." }, 404);
+  await c.env.DB.prepare("UPDATE tenants SET comments_enabled = ? WHERE id = ?").bind(body.enabled ? 1 : 0, id).run();
+  await audit(c, staff, {
+    action: "blog-comments-override", targetType: "blog",
+    targetId: String(id), reason: body.enabled ? "enabled" : "disabled", result: body.enabled ? "enabled" : "disabled",
+    before: { comments_enabled: tenant.comments_enabled }, after: { comments_enabled: body.enabled ? 1 : 0 },
+  });
+  return c.json({ updated: true, blog_id: id, comments_enabled: body.enabled });
 });
 
 app.post("/api/affiliate-payouts/:id/dispatch", async (c) => {

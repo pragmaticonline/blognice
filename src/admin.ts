@@ -497,6 +497,7 @@ export function shell(
   if (account && tenant) {
     const titleKey = title.toLowerCase();
     const activeNav = titleKey.startsWith("page") ? "pages"
+      : titleKey.startsWith("comment") ? "comments"
       : titleKey.startsWith("media") ? "media"
       : titleKey.startsWith("subscriber") ? "subscribers"
       : titleKey.startsWith("collaborator") || titleKey.startsWith("author") ? "authors"
@@ -510,12 +511,14 @@ export function shell(
       if (role === "owner") return true;
       if (capability === "settings.manage") return role === "owner";
       if (capability === "members.manage") return role === "owner";
+      if (capability === "comments.moderate") return role === "editor";
       return true;
     };
     const navDefinitions: Array<[string, string, string, string | null]> = [
       ["posts", "Posts", `/admin/b/${tenant.public_id}`, null],
       ["pages", "Pages", `/admin/b/${tenant.public_id}/pages`, null],
       ["media", "Media", `/admin/b/${tenant.public_id}/media`, null],
+      ["comments", "Comments", `/admin/b/${tenant.public_id}/comments`, "comments.moderate"],
       ["subscribers", "Subscribers", `/admin/b/${tenant.public_id}/subscribers`, "settings.manage"],
       ["authors", "Collaborators", `/admin/b/${tenant.public_id}/authors`, "members.manage"],
       ["metrics", "Metrics", `/admin/b/${tenant.public_id}/metrics`, null],
@@ -523,7 +526,10 @@ export function shell(
       ["domains", "Domains", `/admin/b/${tenant.public_id}/domains`, "settings.manage"],
       ["settings", "Settings", `/admin/b/${tenant.public_id}/settings`, "settings.manage"],
     ];
-    const navItems = navDefinitions.filter(([, , , cap]) => !cap || can(cap)).map(([k, l, h]) => [k, l, h] as const);
+    const navItems = navDefinitions
+      .filter(([, , , cap]) => !cap || can(cap))
+      .filter(([k]) => k !== "comments" || tenant.comments_enabled)
+      .map(([k, l, h]) => [k, l, h] as const);
     const navLinks = navItems.map(([key, label, href]) => `<a class="${activeNav === key ? "active" : ""}" href="${href}">${label}</a>`).join("");
     const drawerLinks = navItems.map(([key, label, href]) => `<a class="owner-drawer-link ${activeNav === key ? "active" : ""}" href="${href}">${label}</a>`).join("");
     bar = `${accountTopbar(account, planBadge, affiliateCurrent, billingCurrent)}
@@ -2137,6 +2143,10 @@ export function settingsPage(
           <p class="help">Allow readers to opt in to browser notifications when this blog publishes a new post. Readers must still grant permission in their browser.</p>
           <label><input type="checkbox" name="browser_push_enabled" value="1"${tenant.browser_push_enabled ? " checked" : ""}> Enable browser notifications for this blog</label>
         </fieldset>
+        <fieldset class="settings-card"><legend>Comments</legend>
+          <p class="help">Allow readers with a verified email address to post comments on this blog. All comments are approved automatically; remove anything unwanted from the blog's Comments section.</p>
+          <label><input type="checkbox" name="comments_enabled" value="1"${tenant.comments_enabled ? " checked" : ""}> Enable comments for this blog</label>
+        </fieldset>
         <label for="footer-name">Footer publisher name</label>
         <input id="footer-name" name="footer_name" type="text" value="${esc(tenant.footer_name || "")}" maxlength="160" placeholder="Defaults to your blog title">
         <p style="color:var(--muted);font-size:.85rem;margin:-.5rem 0 1.2rem">Shown in the public footer. This is useful when the blog represents a company or publication; leave blank to use the blog title.</p>
@@ -2374,6 +2384,55 @@ export function blogDeletePage(
 }
 
 // Subscriber list for a blog, with CSV export and per-row removal.
+export type AdminCommentItem = {
+  id: number; post_id: number; post_slug?: string | null; post_title?: string | null;
+  author_name: string; body: string; status: string; created_at: number;
+};
+
+export function commentsPage(
+  account: Account,
+  tenant: Tenant,
+  items: AdminCommentItem[],
+  opts?: { postFilter?: number; posts?: Array<{ id: number; title: string }>; notice?: string; error?: string }
+): string {
+  const base = `/admin/b/${esc(tenant.public_id)}/comments`;
+  const banner = opts?.error
+    ? `<div class="error">${esc(opts.error)}</div>`
+    : opts?.notice
+      ? `<div class="notice">${esc(opts.notice)}</div>`
+      : "";
+  const filter = opts?.posts?.length
+    ? `<form method="get" action="${base}" style="margin:0 0 1rem;display:flex;gap:.6rem;align-items:center">`
+      + `<label for="post-filter" style="font-size:.88rem;color:var(--muted)">Post</label>`
+      + `<select id="post-filter" name="post" onchange="this.form.submit()">`
+      + `<option value="">All posts</option>`
+      + opts.posts.map((p) => `<option value="${p.id}"${opts.postFilter === p.id ? " selected" : ""}>${esc(p.title)}</option>`).join("")
+      + `</select></form>`
+    : "";
+  const rows = items.map((item) => {
+    const action = item.status === "removed"
+      ? `<form method="post" action="${base}/${item.id}/restore"><button class="linkbtn" type="submit">Restore</button></form>`
+      : `<form method="post" action="${base}/${item.id}/remove"><button class="linkbtn" type="submit">Remove</button></form>`;
+    return `<tr><td style="white-space:nowrap">${esc(formatDate(item.created_at))}</td>`
+      + `<td><a href="/admin/b/${esc(tenant.public_id)}/edit/${item.post_id}">${esc(item.post_title || `Post #${item.post_id}`)}</a></td>`
+      + `<td>${esc(item.author_name)}</td>`
+      + `<td>${esc(item.body.length > 160 ? item.body.slice(0, 160) + "…" : item.body)}</td>`
+      + `<td>${item.status === "removed" ? "Removed" : "Approved"}</td>`
+      + `<td>${action}</td></tr>`;
+  }).join("");
+  const content = items.length
+    ? `<table class="metrics"><thead><tr><th>Date</th><th>Post</th><th>Author</th><th>Comment</th><th>Status</th><th>Action</th></tr></thead><tbody>${rows}</tbody></table>`
+    : `<p style="color:var(--muted)">No comments yet.</p>`;
+  return shell(
+    `Comments — ${tenant.title}`,
+    `<div class="page"><div class="row"><h1 style="margin:0">Comments</h1></div>`
+    + `<p style="color:var(--muted);margin-top:-.8rem">Reader comments on this blog. Removing hides a comment everywhere immediately; restoring brings it back.</p>`
+    + `${banner}${filter}<div class="panel-block">${content}</div></div>`,
+    account,
+    tenant
+  );
+}
+
 export function subscribersPage(
   account: Account,
   tenant: Tenant,
@@ -2574,7 +2633,7 @@ curl ${base}/blogs/${exampleBlogId}/tags -H "Authorization: Bearer YOUR_KEY"</pr
         homepage, sitemap, and RSS feed. Post creation and updates accept <code>tags</code>,
         <code>author_name</code>, <code>author_visible</code>, and a validated
         <code>featured_image_key</code>; image generation accepts <code>prompt</code> or
-        <code>post_id</code> with <code>style</code> (see above); pages accept <code>title</code>, <code>slug</code>, <code>body_md</code>, <code>published</code>, <code>show_in_navigation</code>, <code>navigation_label</code>, <code>navigation_order</code>, <code>meta_description</code>; blogs accept <code>slug</code>, <code>title</code>, <code>description</code>, <code>footer_name</code>, <code>accent_color</code>, <code>topics</code>, <code>social_links</code>, <code>navigation_links</code> (<code>{label, href, order}</code> with https or / paths), <code>header_link_url</code> (<code>/</code> or <code>https://</code> — where the header logo/title links), <code>browser_push_enabled</code>; use the returned job URLs to poll AI work.
+        <code>post_id</code> with <code>style</code> (see above); pages accept <code>title</code>, <code>slug</code>, <code>body_md</code>, <code>published</code>, <code>show_in_navigation</code>, <code>navigation_label</code>, <code>navigation_order</code>, <code>meta_description</code>; blogs accept <code>slug</code>, <code>title</code>, <code>description</code>, <code>footer_name</code>, <code>accent_color</code>, <code>topics</code>, <code>social_links</code>, <code>navigation_links</code> (<code>{label, href, order}</code> with https or / paths), <code>header_link_url</code> (<code>/</code> or <code>https://</code> — where the header logo/title links), <code>browser_push_enabled</code>, <code>comments_enabled</code>; use the returned job URLs to poll AI work.
         Everything is scoped to blogs you own.
       </p>
     </div>`,
