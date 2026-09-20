@@ -28,6 +28,8 @@ jobs:
             TID=$(npx wrangler d1 execute blognice --remote --config wrangler.production.jsonc --json --command "SELECT id FROM tenants WHERE slug = '${BLOG}' LIMIT 1;" | jq -r '.[0].results[0].id // empty')
             echo "tenant_id=${TID}"
             npx wrangler d1 execute blognice-posts --remote --config wrangler.production.jsonc --json --command "SELECT id, post_id, parent_id, author_name, substr(body,1,120) AS body, status, datetime(created_at,'unixepoch') AS created_utc FROM comments WHERE tenant_id = ${TID} ORDER BY id DESC LIMIT 10;"
+            npx wrangler d1 execute blognice-posts --remote --config wrangler.production.jsonc --json --command "SELECT author_name, verified_at IS NOT NULL AS verified, datetime(token_expires_at,'unixepoch') AS token_expires_utc, datetime(created_at,'unixepoch') AS created_utc FROM comment_identities WHERE tenant_id = ${TID} ORDER BY created_at DESC LIMIT 10;"
+            npx wrangler d1 execute blognice-posts --remote --config wrangler.production.jsonc --json --command "SELECT kind, COUNT(*) AS n, datetime(MAX(created_at),'unixepoch') AS latest_utc FROM comment_attempts WHERE tenant_id = ${TID} GROUP BY kind;"
           fi
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
