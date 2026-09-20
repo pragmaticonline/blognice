@@ -49,7 +49,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Confirm secret is stored
-        run: npx wrangler secret list --config wrangler.production.jsonc --json | jq -e '.[] | select(.name == "COMMENTS_ROOM_SECRET")'
+        run: npx wrangler secret list --config wrangler.production.jsonc | grep -q COMMENTS_ROOM_SECRET
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
