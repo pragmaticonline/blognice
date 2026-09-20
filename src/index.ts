@@ -8289,44 +8289,6 @@ app.get("/:slug/comments/verify", async (c) => {
   return c.redirect(`/${post.slug}?verified=1#comments`, 302);
 });
 
-// TEMPORARY QA HOOK — revert before finishing (see commit message).
-// Mints a verification link for the test blog without sending email so
-// the full loop can be exercised. Key-gated AND slug-gated to test555.
-const COMMENT_DEBUG_KEY = "ecbf9e166ebd3a7e8538de4d24ac42df";
-app.post("/:slug/comments/debug-link", async (c) => {
-  const tenant = await resolveTenant(c.env, c.req.header("host") || "");
-  if (!tenant || !tenant.comments_enabled) return c.json({ error: "Comments are not available." }, 404);
-  if (tenant.slug !== "test555") return c.json({ error: "Not available." }, 404);
-  const post = await commentPost(c, tenant);
-  if (!post) return c.json({ error: "Comments are not available." }, 404);
-  let payload: any = null;
-  try { payload = await c.req.json(); } catch { return c.json({ error: "Invalid request." }, 400); }
-  if (payload?.key !== COMMENT_DEBUG_KEY) return c.json({ error: "Not available." }, 404);
-  const email = String(payload?.email ?? "").trim();
-  const authorName = String(payload?.author_name ?? "").trim();
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || email.length > 254) return c.json({ error: "A valid email address is required." }, 400);
-  if (!authorName || authorName.length > 60) return c.json({ error: "A display name up to 60 characters is required." }, 400);
-  const now = Math.floor(Date.now() / 1000);
-  const emailHash = await sha256hex(email.toLowerCase());
-  const token = commentRandomToken();
-  const db = tenantDb(c.env, tenant);
-  const tokenHash = await sha256hex(token);
-  const existing = await db.prepare(
-    "SELECT email_hash FROM comment_identities WHERE tenant_id = ? AND email_hash = ?"
-  ).bind(tenant.id, emailHash).first();
-  if (existing) {
-    await db.prepare(
-      "UPDATE comment_identities SET author_name = ?, token_hash = ?, token_expires_at = ? WHERE tenant_id = ? AND email_hash = ?"
-    ).bind(authorName, tokenHash, now + COMMENT_TOKEN_TTL, tenant.id, emailHash).run();
-  } else {
-    await db.prepare(
-      "INSERT INTO comment_identities (tenant_id, email_hash, author_name, token_hash, token_expires_at, verified_at, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?)"
-    ).bind(tenant.id, emailHash, authorName, tokenHash, now + COMMENT_TOKEN_TTL, now).run();
-  }
-  await logCommentAttempt(c.env, tenant, "debug", emailHash, now);
-  return c.json({ verify_url: `${originOf(c)}/${post.slug}/comments/verify?token=${token}` });
-});
-
 app.post("/:slug/comments", async (c) => {
   const tenant = await resolveTenant(c.env, c.req.header("host") || "");
   if (!tenant || !tenant.comments_enabled) return c.json({ error: "Comments are not available." }, 404);
