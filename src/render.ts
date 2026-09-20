@@ -511,6 +511,14 @@ const STYLES = /* css */ `
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
   .byline { display: flex; align-items: center; gap: 0.75rem; margin: 0 0 2.6rem; }
   .post-page { padding-top: 1.5rem; }
+  .draft-band {
+    display: flex; align-items: center; justify-content: center; gap: .4rem .9rem; flex-wrap: wrap;
+    background: #b45309; color: #fff;
+    font-family: var(--sans); font-size: .88rem; font-weight: 600; text-align: center;
+    padding: .65rem 1rem;
+  }
+  .draft-band a { color: #fff; text-decoration: underline; text-underline-offset: 2px; }
+  .draft-band a:hover { text-decoration-thickness: 2px; }
   .byline-identity { display: flex; align-items: center; gap: 0.75rem; min-width: 0; color: inherit; text-decoration: none; }
   .avatar {
     width: 2.6rem; height: 2.6rem; border-radius: 50%;
@@ -1113,7 +1121,8 @@ export function renderPost(
   origin: string,
   adminOrigin: string,
   analyticsConsentRequired = false,
-  relatedPosts: Post[] = []
+  relatedPosts: Post[] = [],
+  isDraftPreview = false
 ): string {
   const shareUrl = `${origin}/${post.slug}`;
   const shareTitle = post.title;
@@ -1139,6 +1148,9 @@ export function renderPost(
     ? `<section class="related-posts" aria-label="Related posts"><h2>Related posts</h2><div class="blog-cards">${relatedPosts.map((rp) => `<article class="blog-card"><a class="blog-art" href="/${esc(rp.slug)}">${rp.featured_image_key ? `<img src="/media/${esc(rp.featured_image_key)}" alt="" loading="lazy" width="800" height="450" style="aspect-ratio:16/9;object-fit:cover">` : ""}</a><h3><a href="/${esc(rp.slug)}">${esc(rp.title)}</a></h3><p class="blog-excerpt">${esc(excerpt(rp.body_md, 100))}</p></article>`).join("")}</div></section>`
     : "";
   const proseClass = openingParagraphHasDropCap(htmlBody) ? "prose lead-dropcap" : "prose";
+  const draftBand = isDraftPreview
+    ? `<div class="draft-band" role="note"><span><strong>Draft preview</strong> — only you and your collaborators can see this page. It is not published.</span><a href="${esc(adminOrigin)}/admin/b/${esc(tenant.public_id)}/edit/${post.id}">Edit in admin</a></div>`
+    : "";
   const header = `<hr style="border:none;border-top:1px solid var(--rule);margin:.45rem 0 0">`;
   const article = `<article class="post-page">
     <div class="post-owner-actions"><a class="owner-edit" data-owner-edit hidden href="${esc(adminOrigin)}/admin/b/${esc(tenant.public_id)}/edit/${post.id}" aria-label="Edit post" title="Edit post"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.7 6.3 3 3M4 20l4.2-1 9.9-9.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Z"/><path d="m13.5 7.5 3 3"/></svg><span class="sr-only">Edit post</span></a></div>
@@ -1202,13 +1214,14 @@ export function renderPost(
     homeControl: true,
     ogType: "article",
     analyticsConsentRequired,
+    noindex: isDraftPreview ? true : undefined,
     image: postImage,
     imageAlt: post.featured_image_key ? post.title : tenant.title,
     publishedAt: post.created_at,
     modifiedAt: post.updated_at,
     tags,
     jsonLd: [blogPostingJsonLd, breadcrumbJsonLd],
-    body: header + article + shareScript + (htmlBody.includes("tweet-embed") ? tweetEmbedScript : "") + `<script>(function(){var link=document.querySelector("[data-owner-edit]");if(!link)return;var path="/_blognice/edit-link?tenant=${encodeURIComponent(tenant.public_id)}&post=${post.id}";function check(url){return fetch(url,{credentials:"include",headers:{accept:"application/json"}}).then(function(response){if(!response.ok)throw new Error();return response.json()}).then(function(data){if(data.url){link.href=data.url;link.hidden=false;return true}})}check(path).catch(function(){if(location.origin!==${JSON.stringify(adminOrigin)})check(${JSON.stringify(adminOrigin)}+path).catch(function(){})})})();</script>` + (post.audio_key ? `<script>(function(){var audio=document.querySelector("audio[data-narration]");if(!audio)return;audio.preservesPitch=true;audio.defaultPlaybackRate=.88;audio.playbackRate=.88;var started=false,completed=false;audio.addEventListener("play",function(){if(started)return;started=true;if(window.__blogniceEvent)window.__blogniceEvent("audio_start",location.pathname)});audio.addEventListener("ended",function(){if(completed)return;completed=true;if(window.__blogniceEvent)window.__blogniceEvent("audio_complete",location.pathname)});var btn=document.querySelector("[data-narration-mobile]");if(btn){var label=btn.querySelector(".post-audio-mobile-label");var iconPlay=btn.querySelector(".icon-play");var iconPause=btn.querySelector(".icon-pause");function sync(){var paused=audio.paused||audio.ended;if(label)label.textContent=paused?"Play":"Pause";if(iconPlay)iconPlay.hidden=!paused;if(iconPause)iconPause.hidden=paused;btn.setAttribute("aria-label",paused?"Play narration":"Pause narration");}btn.addEventListener("click",function(){if(audio.paused){audio.play().catch(function(){});}else{audio.pause();}});audio.addEventListener("play",sync);audio.addEventListener("pause",sync);audio.addEventListener("ended",sync);sync();}})();</script>` : ""),
+    body: draftBand + header + article + shareScript + (htmlBody.includes("tweet-embed") ? tweetEmbedScript : "") + `<script>(function(){var link=document.querySelector("[data-owner-edit]");if(!link)return;var path="/_blognice/edit-link?tenant=${encodeURIComponent(tenant.public_id)}&post=${post.id}";function check(url){return fetch(url,{credentials:"include",headers:{accept:"application/json"}}).then(function(response){if(!response.ok)throw new Error();return response.json()}).then(function(data){if(data.url){link.href=data.url;link.hidden=false;return true}})}check(path).catch(function(){if(location.origin!==${JSON.stringify(adminOrigin)})check(${JSON.stringify(adminOrigin)}+path).catch(function(){})})})();</script>` + (post.audio_key ? `<script>(function(){var audio=document.querySelector("audio[data-narration]");if(!audio)return;audio.preservesPitch=true;audio.defaultPlaybackRate=.88;audio.playbackRate=.88;var started=false,completed=false;audio.addEventListener("play",function(){if(started)return;started=true;if(window.__blogniceEvent)window.__blogniceEvent("audio_start",location.pathname)});audio.addEventListener("ended",function(){if(completed)return;completed=true;if(window.__blogniceEvent)window.__blogniceEvent("audio_complete",location.pathname)});var btn=document.querySelector("[data-narration-mobile]");if(btn){var label=btn.querySelector(".post-audio-mobile-label");var iconPlay=btn.querySelector(".icon-play");var iconPause=btn.querySelector(".icon-pause");function sync(){var paused=audio.paused||audio.ended;if(label)label.textContent=paused?"Play":"Pause";if(iconPlay)iconPlay.hidden=!paused;if(iconPause)iconPause.hidden=paused;btn.setAttribute("aria-label",paused?"Play narration":"Pause narration");}btn.addEventListener("click",function(){if(audio.paused){audio.play().catch(function(){});}else{audio.pause();}});audio.addEventListener("play",sync);audio.addEventListener("pause",sync);audio.addEventListener("ended",sync);sync();}})();</script>` : ""),
     showMasthead: false,
   });
 }

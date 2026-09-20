@@ -7885,6 +7885,57 @@ app.get("/", async (c) => {
 });
 
 // A single post: /<slug>. This is the catch-all, so it goes last.
+async function publishedRelatedPosts(env: Bindings, tenant: Tenant, post: Post): Promise<any[]> {
+  try {
+    const tags = (() => { try { const v = JSON.parse(post.tags_json || "[]"); return Array.isArray(v) ? v.slice(0, 3) : []; } catch { return []; } })();
+    if (!tags.length) return [];
+    const { results } = await tenantDb(env, tenant).prepare(
+      `SELECT * FROM posts WHERE tenant_id = ? AND published = 1 AND id != ? ORDER BY created_at DESC LIMIT 20`
+    ).bind(tenant.id, post.id).all<any>();
+    return results
+      .map((r: any) => {
+        let other: string[] = [];
+        try { other = JSON.parse(r.tags_json || "[]"); } catch {}
+        const overlap = tags.filter((tag: string) => other.includes(tag)).length;
+        return { post: r, overlap };
+      })
+      .filter((x: any) => x.overlap > 0)
+      .sort((a: any, b: any) => b.overlap - a.overlap || b.post.created_at - a.post.created_at)
+      .slice(0, 3)
+      .map((x: any) => x.post);
+  } catch { return []; }
+}
+
+// Blog members (any role: owner or delegate) can preview their drafts on the
+// public URL. This runs outside the shared edge cache so draft HTML is never
+// cached for strangers; responses are private, no-store, and noindexed.
+// Strangers and logged-out visitors fall through to the published-only path
+// and see a 404, which reveals nothing about the draft's existence.
+async function serveDraftPreview(c: any): Promise<Response | null> {
+  const tenant = await resolveTenant(c.env, c.req.header("host") || "");
+  if (!tenant) return null;
+  const account = await currentAccount(c);
+  if (!account) return null;
+  const role = await membershipRoleFor(c.env, account.id, tenant.id);
+  if (!role) return null;
+  const post = await tenantDb(c.env, tenant).prepare(
+    "SELECT * FROM posts WHERE tenant_id = ? AND slug = ?"
+  ).bind(tenant.id, c.req.param("slug")).first<Post>();
+  if (!post || post.published) return null;
+  let htmlBody = renderMarkdown(post.body_md);
+  if (htmlBody.includes("twitter-tweet")) htmlBody = await expandTweetEmbeds(htmlBody);
+  if (htmlBody.includes("youtube-embed")) htmlBody = expandYoutubeEmbeds(htmlBody);
+  if (htmlBody.includes("bitchute-embed")) htmlBody = expandBitchuteEmbeds(htmlBody);
+  const relatedPosts = await publishedRelatedPosts(c.env, tenant, post);
+  return new Response(
+    renderPost(tenant, post, htmlBody, originOf(c), adminOriginOf(c), analyticsConsentRequired(c.req.raw.cf?.country), relatedPosts, true),
+    {
+      status: 200,
+      headers: { "content-type": "text/html; charset=utf-8", "cache-control": "private, no-store" },
+    }
+  );
+}
+
 app.get("/pages/:slug", async (c) => {
   const tenant = await resolveTenant(c.env, c.req.header("host") || "");
   if (!tenant) return c.text("Not found", 404);
@@ -7917,6 +7968,8 @@ app.get("/pages/:slug", async (c) => {
 app.get("/:slug", async (c) => {
   const legacy = await legacySlugRedirect(c);
   if (legacy) return legacy;
+  const preview = await serveDraftPreview(c);
+  if (preview) return preview;
   return serveCached(c, async () => {
     const tenant = await resolveTenant(c.env, c.req.header("host") || "");
     if (!tenant)
@@ -7941,27 +7994,7 @@ app.get("/:slug", async (c) => {
     if (htmlBody.includes("twitter-tweet")) htmlBody = await expandTweetEmbeds(htmlBody);
     if (htmlBody.includes("youtube-embed")) htmlBody = expandYoutubeEmbeds(htmlBody);
     if (htmlBody.includes("bitchute-embed")) htmlBody = expandBitchuteEmbeds(htmlBody);
-    let relatedPosts: any[] = [];
-    try {
-      const tags = (() => { try { const v = JSON.parse(post.tags_json || "[]"); return Array.isArray(v) ? v.slice(0, 3) : []; } catch { return []; } })();
-      if (tags.length) {
-        const { results } = await tenantDb(c.env, tenant).prepare(
-          `SELECT * FROM posts WHERE tenant_id = ? AND published = 1 AND id != ? ORDER BY created_at DESC LIMIT 20`
-        ).bind(tenant.id, post.id).all<any>();
-        const scored = results
-          .map((r: any) => {
-            let other: string[] = [];
-            try { other = JSON.parse(r.tags_json || "[]"); } catch {}
-            const overlap = tags.filter((tag: string) => other.includes(tag)).length;
-            return { post: r, overlap };
-          })
-          .filter((x: any) => x.overlap > 0)
-          .sort((a: any, b: any) => b.overlap - a.overlap || b.post.created_at - a.post.created_at)
-          .slice(0, 3)
-          .map((x: any) => x.post);
-        relatedPosts = scored;
-      }
-    } catch {}
+    const relatedPosts = await publishedRelatedPosts(c.env, tenant, post);
     return new Response(renderPost(tenant, post, htmlBody, originOf(c), adminOriginOf(c), analyticsConsentRequired(c.req.raw.cf?.country), relatedPosts), {
       status: 200,
       headers: { "content-type": "text/html; charset=utf-8" },
