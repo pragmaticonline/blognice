@@ -259,3 +259,38 @@ test("verified readers post auto-approved comments; guards hold", async () => {
     else globalThis.caches = originalCaches;
   }
 });
+
+test("failed verification sends are logged with provider detail", async () => {
+  const { blogniceApp } = await import("../src/index.ts");
+  const state = makeState();
+  const db = fakeDb(state);
+  const env = { DB: db, POSTS: db, ROOT_DOMAIN: "blognice.test", EMAIL_FROM: "Blog <hello@blognice.test>", MAILNICE_API_KEY: "test-key" };
+  const background = [];
+  const executionCtx = { waitUntil(p) { background.push(p); }, passThroughOnException() {} };
+  const originalFetch = globalThis.fetch;
+  const originalError = console.error;
+  const errors = [];
+  console.error = (...args) => { errors.push(args.join(" ")); };
+  globalThis.fetch = async (url, init) => {
+    if (String(url).includes("api.mailnice.net")) {
+      return new Response(JSON.stringify({ status: "error", error: "bad-key" }), { status: 401, headers: { "content-type": "application/json" } });
+    }
+    return new Response(JSON.stringify({}), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const start = await blogniceApp.request(new Request("https://commentblog.blognice.test/live-post/comments/start", {
+      method: "POST",
+      headers: { host: "commentblog.blognice.test", "content-type": "application/json" },
+      body: JSON.stringify({ email: "reader@example.com", author_name: "Reader" }),
+    }), undefined, env, executionCtx);
+    assert.equal(start.status, 200);
+    await Promise.all(background);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /not delivered/);
+    assert.match(errors[0], /mailnice/);
+    assert.match(errors[0], /bad-key/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.error = originalError;
+  }
+});

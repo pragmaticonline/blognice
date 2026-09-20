@@ -8262,7 +8262,9 @@ app.post("/:slug/comments/start", async (c) => {
   }
   await logCommentAttempt(c.env, tenant, "start", emailHash, now);
   const verifyUrl = `${originOf(c)}/${post.slug}/comments/verify?token=${token}`;
-  c.executionCtx.waitUntil(sendEmail(c.env, { to: email, ...commentVerificationEmail({ blogTitle: tenant.title, verifyUrl, authorName }) }).then(() => {}));
+  c.executionCtx.waitUntil(sendEmailDetailed(c.env, { to: email, ...commentVerificationEmail({ blogTitle: tenant.title, verifyUrl, authorName }) }).then((result) => {
+    if (!result.ok) console.error(`comment verification email not delivered (tenant=${tenant.id} provider=${result.provider} detail=${result.detail ?? "unknown"})`);
+  }));
   return c.json({ ok: true });
 });
 
