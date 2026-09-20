@@ -1,7 +1,7 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "blognice",
-	"main": "src/index.ts",
+	"main": "src/entry.ts",
 	"compatibility_date": "2026-06-20",
 	"compatibility_flags": ["nodejs_compat"],
 	// Password hashing uses OWASP's native 32 MiB scrypt setting.
@@ -86,6 +86,16 @@
 	"ai": {
 		"binding": "AI"
 	},
+	// Per-post comment rooms (slice 5). Coordination only: sockets and
+	// ephemeral typing state, never comment storage.
+	"durable_objects": {
+		"bindings": [
+			{ "name": "COMMENT_ROOMS", "class_name": "CommentRoom" }
+		]
+	},
+	"migrations": [
+		{ "tag": "v1", "new_classes": ["CommentRoom"] }
+	],
 	"queues": {
 		"producers": [
 			{ "binding": "AUDIO_QUEUE", "queue": "blognice-audio" },
@@ -100,5 +110,6 @@
 	//   API_TOKEN     authorizes the /api routes
 	//   CF_API_TOKEN  a Cloudflare token scoped to edit SSL / custom hostnames
 	//   CF_ANALYTICS_TOKEN  a token with Account Analytics Read permission
+	//   COMMENTS_ROOM_SECRET  signs worker-to-comment-room broadcasts (any long random string)
 	// Set CF_ACCOUNT_ID as a non-secret var in production to enable reports.
 }

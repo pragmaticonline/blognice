@@ -1,7 +1,7 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "blognice",
-	"main": "src/index.ts",
+	"main": "src/entry.ts",
 	"compatibility_date": "2026-06-20",
 	"compatibility_flags": ["nodejs_compat"],
 	"limits": { "cpu_ms": 300000 },

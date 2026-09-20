@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "blognice",
-  "main": "src/index.ts",
+  "main": "src/entry.ts",
   "compatibility_date": "2026-06-20",
   "compatibility_flags": [
     "nodejs_compat"
@@ -99,6 +99,20 @@
   "ai": {
     "binding": "AI"
   },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "COMMENT_ROOMS",
+        "class_name": "CommentRoom"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_classes": ["CommentRoom"]
+    }
+  ],
   "queues": {
     "producers": [
       {
