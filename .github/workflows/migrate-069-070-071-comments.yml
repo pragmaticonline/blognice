@@ -1,0 +1,55 @@
+name: Migrate 069-071 blog comments
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Capture pre-migration Time Travel bookmarks
+        run: |
+          npx wrangler d1 time-travel info blognice --config wrangler.production.jsonc --json
+          npx wrangler d1 time-travel info blognice-posts --config wrangler.production.jsonc --json
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Apply 070 to blognice
+        run: npx wrangler d1 execute blognice --remote --config wrangler.production.jsonc --file ./migrations/070-tenant-comments-enabled.sql --yes
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Apply 069 to blognice-posts
+        run: npx wrangler d1 execute blognice-posts --remote --config wrangler.production.jsonc --file ./migrations/069-comments.sql --yes
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Apply 071 to blognice-posts
+        run: npx wrangler d1 execute blognice-posts --remote --config wrangler.production.jsonc --file ./migrations/071-comment-reports.sql --yes
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Verify comment tables and flag column
+        run: |
+          npx wrangler d1 execute blognice --remote --config wrangler.production.jsonc --json --command "SELECT name FROM pragma_table_info('tenants') WHERE name = 'comments_enabled';"
+          npx wrangler d1 execute blognice-posts --remote --config wrangler.production.jsonc --json --command "SELECT name, type FROM sqlite_master WHERE name IN ('comments','comment_identities','comment_reports') ORDER BY name; PRAGMA foreign_key_check;"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Set COMMENTS_ROOM_SECRET
+        run: openssl rand -hex 32 | npx wrangler secret put COMMENTS_ROOM_SECRET --config wrangler.production.jsonc
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Confirm secret is stored
+        run: npx wrangler secret list --config wrangler.production.jsonc --json | jq -e '.[] | select(.name == "COMMENTS_ROOM_SECRET")'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
