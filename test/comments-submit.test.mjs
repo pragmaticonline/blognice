@@ -166,7 +166,7 @@ test("verified readers post auto-approved comments; guards hold", async () => {
     // Verify: single-use token, cookie set, redirect to the post.
     const verify = await blogniceApp.request(req(`/live-post/comments/verify?token=${token}`), undefined, env, executionCtx);
     assert.equal(verify.status, 302);
-    assert.match(verify.headers.get("location") || "", /\/live-post#/);
+    assert.match(verify.headers.get("location") || "", /\/live-post\?verified=1#/);
     const cookie = cookieFrom(verify);
     assert.ok(cookie, "browser identity cookie set");
     const replay = await blogniceApp.request(req(`/live-post/comments/verify?token=${token}`), undefined, env, executionCtx);

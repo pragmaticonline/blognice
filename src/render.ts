@@ -1261,15 +1261,24 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     var payload={body:bodyField.value};
     if(parentField.value)payload.parent_id=Number(parentField.value);
     fetch(path+"/comments",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)}).then(function(r){
-      if(r.status===201){location.reload();return null;}
+      if(r.status===201){try{localStorage.removeItem("bn_comment_draft");}catch(e){}location.reload();return null;}
       if(r.status===401){
+        try{localStorage.setItem("bn_comment_draft",JSON.stringify({name:nameField.value,email:emailField.value,body:bodyField.value,parent:parentField.value||""}));}catch(e){}
         return fetch(path+"/comments/start",{method:"POST",headers:{"content-type":"application/json"},
           body:JSON.stringify({email:emailField.value,author_name:nameField.value})}).then(function(r2){
-          say(r2.ok?"Check your email for a confirmation link, then post again.":"Could not start verification. Check the name and email.");});
+          say(r2.ok?"Check your email for a confirmation link — your draft is saved, then post again.":"Could not start verification. Check the name and email.");});
       }
       return r.json().catch(function(){return null;}).then(function(j){say((j&&j.error)||"Could not post the comment.");});
     }).catch(function(){say("Network error. Try again.");});
   });
+  try{
+    if(/(^|[?&])verified=1(&|#|$)/.test(location.search+location.hash)){
+      var draft=null;try{draft=JSON.parse(localStorage.getItem("bn_comment_draft")||"null");}catch(e){draft=null;}
+      if(draft){nameField.value=draft.name||"";emailField.value=draft.email||"";bodyField.value=draft.body||"";parentField.value=draft.parent||"";}
+      say("Email confirmed — press Post comment to publish your comment.");
+      try{history.replaceState(null,"",path+"#comments");}catch(e){}
+    }
+  }catch(e){}
   var KEY="bn_comments_closed",closed=[];
   try{closed=JSON.parse(localStorage.getItem(KEY)||"[]");}catch(e){closed=[];}
   section.querySelectorAll("[data-comment]").forEach(function(el){

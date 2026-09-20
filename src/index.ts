@@ -8286,7 +8286,7 @@ app.get("/:slug/comments/verify", async (c) => {
     "UPDATE comment_identities SET cookie_hash = ?, token_hash = NULL, token_expires_at = NULL, verified_at = ? WHERE tenant_id = ? AND email_hash = ?"
   ).bind(await sha256hex(cookieToken), now, tenant.id, identity.email_hash).run();
   setCommentCookie(c, cookieToken);
-  return c.redirect(`/${post.slug}#comments`, 302);
+  return c.redirect(`/${post.slug}?verified=1#comments`, 302);
 });
 
 app.post("/:slug/comments", async (c) => {
