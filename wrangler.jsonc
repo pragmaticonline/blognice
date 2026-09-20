@@ -94,7 +94,7 @@
 		]
 	},
 	"migrations": [
-		{ "tag": "v1", "new_classes": ["CommentRoom"] }
+		{ "tag": "v1", "new_sqlite_classes": ["CommentRoom"] }
 	],
 	"queues": {
 		"producers": [

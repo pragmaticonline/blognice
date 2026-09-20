@@ -110,7 +110,7 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_classes": ["CommentRoom"]
+      "new_sqlite_classes": ["CommentRoom"]
     }
   ],
   "queues": {
