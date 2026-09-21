@@ -21,6 +21,23 @@ export async function readTtsEngineSetting(db: D1Database): Promise<string | nul
 export function selectTtsEngine(stored: string | null | undefined): typeof TTS_MODEL | typeof TTS_FALLBACK_MODEL {
   return stored === TTS_ENGINE_AURA ? TTS_FALLBACK_MODEL : TTS_MODEL;
 }
+
+export const TTS_VOICE_SETTING_KEY = "tts.voice" as const;
+// Aura-1 English voices (Deepgram catalog). Anything unset or unrecognized
+// fails closed to luna.
+export const AURA_VOICES = ["angus", "arcas", "asteria", "athena", "helios", "hera", "luna", "orpheus", "orion", "perseus", "stella", "zeus"] as const;
+export const TTS_DEFAULT_VOICE = "luna" as const;
+export function selectTtsVoice(stored: string | null | undefined): string {
+  return (AURA_VOICES as readonly string[]).includes(stored ?? "") ? (stored as string) : TTS_DEFAULT_VOICE;
+}
+export async function readTtsVoiceSetting(db: D1Database): Promise<string | null> {
+  try {
+    const row = await db.prepare("SELECT value FROM platform_settings WHERE key = ?").bind(TTS_VOICE_SETTING_KEY).first<{ value: string }>();
+    return row?.value ?? null;
+  } catch {
+    return null;
+  }
+}
 export const TTS_RETRY_DELAYS = [250, 500, 1_000, 1_500, 2_000, 2_000, 2_000, 2_000, 2_000, 2_000, 2_000, 2_000] as const;
 // Cut audio that survives the whole normal schedule is usually upstream
 // degradation lasting minutes, not a bad request. One slower second wind

@@ -564,4 +564,31 @@ test("audio jobs record the selected engine and render on it (source checks)", (
   assert.match(src, /generateSpeechWithRecovery\(env\.AI, job\.prompts\[index\]\.text, 0, job\.model/);
   assert.match(src, /checkpointHash = await sha256hex\(`\$\{[^`]*jobModel[^`]*\}`\)/);
   assert.match(src, /generatedBy: job\.model \?\? TTS_MODEL/);
+  assert.match(src, /voice\?: string \| null;/);
+  assert.match(src, /selectTtsVoice\(await readTtsVoiceSetting\((c\.env\.DB|env\.DB)\)\)/);
+  assert.match(src, /job\.model[^)]*job\.voice \?\? null/);
+  assert.match(src, /checkpointHash = await sha256hex\(`\$\{[^`]*jobVoice[^`]*\}`\)/);
+});
+
+test("aura voice selection fails closed to luna and reaches the synthesis input", async () => {
+  const { selectTtsVoice, TTS_FALLBACK_MODEL } = await import("../src/tts.ts");
+  assert.equal(selectTtsVoice("asteria"), "asteria");
+  assert.equal(selectTtsVoice("luna"), "luna");
+  assert.equal(selectTtsVoice(null), "luna");
+  assert.equal(selectTtsVoice("bogus-voice"), "luna");
+  const { generateSpeechForModel } = await import("../src/index.ts");
+  const seen = [];
+  const ok = wav(new Uint8Array([1, 2, 3]));
+  const fakeAi = {
+    run: async (model, input) => {
+      seen.push({ model, input });
+      return new ReadableStream({ start(c) { c.enqueue(ok); c.close(); } });
+    },
+  };
+  await generateSpeechForModel(fakeAi, TTS_FALLBACK_MODEL, "hello", "asteria");
+  assert.equal(seen[0].input.speaker, "asteria");
+  await generateSpeechForModel(fakeAi, TTS_FALLBACK_MODEL, "hello", "luna");
+  assert.equal(seen[1].input.speaker, "luna");
+  await generateSpeechForModel(fakeAi, TTS_FALLBACK_MODEL, "hello", null);
+  assert.ok(!("speaker" in seen[2].input), "null voice keeps the provider default");
 });

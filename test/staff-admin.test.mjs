@@ -540,6 +540,9 @@ test("staff TTS test page shows the active narration engine", async () => {
     await db.prepare("INSERT INTO platform_settings (key, value, updated_at) VALUES ('tts.engine', 'aura-1', ?)").bind(now).run();
     html = await (await page(adminAccess)).text();
     assert.match(html, /<strong id="tts-engine-status">aura-1<\/strong>/);
+    assert.match(html, /<strong id="tts-voice-status">luna<\/strong>/);
+    assert.match(html, /id="tts-voice-form"/);
+    assert.match(html, /<option value="luna" selected>luna<\/option>/);
   } finally {
     globalThis.fetch = originalFetch;
     await mf.dispose();
@@ -601,6 +604,48 @@ test("staff TTS samples render on the active narration engine", async () => {
     assert.equal(calls[1].input.encoding, "linear16");
     res = await sample(aiStub("quota"));
     assert.equal(res.status, 502, "model failures answer 502 without retrying quota errors");
+  } finally {
+    globalThis.fetch = originalFetch;
+    await mf.dispose();
+  }
+});
+
+test("staff TTS voice switch persists and gates by role", async () => {
+  const staffApp = typeof staffModule.request === "function" ? staffModule : staffModule.default;
+  const mf = new Miniflare({ modules: true, script: "export default { fetch() { return new Response('ok') } }", d1Databases: { DB: "staff-tts-voice" } });
+  const originalFetch = globalThis.fetch;
+  try {
+    const db = await mf.getD1Database("DB");
+    const baseSchema = readFileSync(new URL("../schema.sql", import.meta.url), "utf8");
+    for (const s of baseSchema.replace(/^[ \t]*--.*(?:\r?\n|$)/gm, "").split(/;\s*(?=\r?\n|$)/).map((v) => v.trim()).filter(Boolean)) await db.prepare(s).run();
+    const now = Math.floor(Date.now() / 1000);
+    const adminAccess = await accessFixture("staff|voiceadmin", "voiceadmin@blognice.com");
+    const readerAccess = await accessFixture("staff|voicereader", "voicereader@blognice.com");
+    await db.prepare("INSERT INTO staff_users (subject, email, role, active, created_at, updated_at) VALUES ('staff|voiceadmin','voiceadmin@blognice.com','admin',1,?,?),('staff|voicereader','voicereader@blognice.com','read_only',1,?,?)").bind(now, now, now, now).run();
+    globalThis.fetch = async (url) => {
+      if (String(url).endsWith("/cdn-cgi/access/certs")) return new Response(JSON.stringify({ keys: [adminAccess.publicJwk, readerAccess.publicJwk] }), { status: 200 });
+      throw new Error("unexpected " + url);
+    };
+    const env = { DB: db, ACCESS_TEAM_DOMAIN: "team.cloudflareaccess.com", ACCESS_AUD: "staff-audience" };
+    const authed = (access, init = {}) => new Request("https://staff.blognice.test/api/tts-voice", {
+      headers: { "Cf-Access-Jwt-Assertion": access.token, Origin: "https://staff.blognice.test", "content-type": "application/json" },
+      ...init,
+    });
+    // Unset voices fail closed to luna.
+    let res = await staffApp.request(authed(adminAccess), undefined, env);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { voice: "luna" });
+    res = await staffApp.request(authed(adminAccess, { method: "POST", body: JSON.stringify({ voice: "bogus" }) }), undefined, env);
+    assert.equal(res.status, 400);
+    res = await staffApp.request(authed(readerAccess, { method: "POST", body: JSON.stringify({ voice: "asteria" }) }), undefined, env);
+    assert.equal(res.status, 403);
+    res = await staffApp.request(authed(adminAccess, { method: "POST", body: JSON.stringify({ voice: "asteria" }) }), undefined, env);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { voice: "asteria" });
+    res = await staffApp.request(authed(adminAccess), undefined, env);
+    assert.deepEqual(await res.json(), { voice: "asteria" });
+    const stored = await db.prepare("SELECT value FROM platform_settings WHERE key = 'tts.voice'").first();
+    assert.equal(stored.value, "asteria");
   } finally {
     globalThis.fetch = originalFetch;
     await mf.dispose();
