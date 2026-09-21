@@ -111,6 +111,8 @@ test("post pages server-render comment threads with tombstones and depth caps", 
     // Slim entry: teaser button opens the modal dialog holding the form.
     assert.match(html, /data-comment-teaser/);
     assert.match(html, /data-comment-dialog/);
+    // Entry box sits above the thread, YouTube-style.
+    assert.ok(html.indexOf("data-comment-teaser") < html.indexOf('<div class="comment-list"'), "teaser precedes the list");
     // jquery-comments-style identity row: avatar with initial, actions row.
     assert.match(html, /comment-avatar/);
     assert.match(html, /comment-avatar[^>]*>B</); // reply author's initial

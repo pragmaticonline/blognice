@@ -539,7 +539,7 @@ const STYLES = /* css */ `
   .comment .reply-btn { background: none; border: none; padding: 0; color: var(--accent); font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer; }
   .comment .reply-btn:hover { text-decoration: underline; }
   .comment-children { display: flex; flex-direction: column; gap: 1.25rem; margin-top: 1rem; }
-  .comment-teaser { display: block; width: 100%; text-align: left; margin-top: 1.5rem; padding: .8rem 1rem; border: 1px solid var(--rule); border-radius: 8px; background: var(--bg); color: var(--muted); font: inherit; font-size: .95rem; cursor: text; }
+  .comment-teaser { display: block; width: 100%; text-align: left; margin: 0 0 1.25rem; padding: .8rem 1rem; border: 1px solid var(--rule); border-radius: 8px; background: var(--bg); color: var(--muted); font: inherit; font-size: .95rem; cursor: text; }
   .comment-teaser:hover { border-color: var(--accent); color: var(--accent); }
   .comment-dialog { position: fixed; inset: 0; margin: auto; width: min(36rem, calc(100vw - 2rem)); max-height: calc(100vh - 3rem); overflow: auto; border: 1px solid var(--rule); border-radius: 10px; padding: 0; background: var(--bg); color: var(--ink); }
   .comment-dialog::backdrop { background: rgba(0, 0, 0, .45); }
@@ -1425,8 +1425,8 @@ export function renderCommentSection(post: { id: number; slug: string }, rows: C
   return `<section class="comments" id="comments" aria-label="Comments" data-comment-section data-comments-path="/${esc(post.slug)}">`
     + `<h2>Comments (${count})</h2>`
     + `<p class="presence" data-presence hidden></p>`
-    + `<div class="comment-list">${list}</div>`
     + `<button type="button" class="comment-teaser" data-comment-teaser>Leave a comment…</button>`
+    + `<div class="comment-list">${list}</div>`
     + `<dialog class="comment-dialog" data-comment-dialog aria-label="Leave a comment">`
     + `<form class="comment-form" data-comment-form>`
     + `<h3 data-form-title>Leave a comment</h3>`
