@@ -26,4 +26,5 @@ test("served comment scripts parse and keep their regex escapes", async () => {
   assert.ok(client.includes("/\\bd([0-4])\\b/"), "word boundaries survive as backslash-b");
   assert.ok(client.includes("/\\(([0-9]+)\\)/"), "count parens survive escaped");
   assert.ok(client.includes("preventScroll"), "modal focus never scrolls the page");
+  assert.ok(client.includes("settleDialog"), "dialog open restores scroll after top-layer race");
 });

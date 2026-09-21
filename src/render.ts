@@ -1276,7 +1276,14 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     else{parentField.value="";replying.hidden=true;title.textContent="Leave a comment";}
     if(dialog){try{if(dialog.showModal){if(!dialog.open)dialog.showModal();}else dialog.setAttribute("open","");}catch(err){try{dialog.setAttribute("open","");}catch(e2){}}}
     var focusTo=nameField.value?(emailField.value?bodyField:emailField):nameField;
-    try{focusTo.focus({preventScroll:true});}catch(e){try{focusTo.focus();}catch(e2){}}
+    var keepY=(window.scrollY||document.documentElement.scrollTop||0);
+    function settleDialog(){
+      try{focusTo.focus({preventScroll:true});}catch(e){try{focusTo.focus();}catch(e2){}}
+      var moved=(window.scrollY||document.documentElement.scrollTop||0);
+      if(Math.abs(moved-keepY)>2){try{window.scrollTo(0,keepY);}catch(e){}}
+    }
+    if(window.requestAnimationFrame){try{window.requestAnimationFrame(settleDialog);}catch(e){settleDialog();}}
+    else settleDialog();
   }
   function closeDialog(){
     try{if(dialog&&dialog.open)dialog.close();else if(dialog)dialog.removeAttribute("open");}catch(e){}
