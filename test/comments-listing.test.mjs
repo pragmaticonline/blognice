@@ -116,8 +116,8 @@ test("post pages server-render comment threads with tombstones and depth caps", 
     assert.match(html, /\.comment\[hidden\]/);
     // Replies keep text flush: avatar rides inline in the name row.
     assert.match(html, /<summary><span class="comment-avatar"/);
-    // Reply rows break out full-width: avatar under parent avatar.
-    assert.match(html, /\.comment\.d1 \{[^}]*margin-left: calc\(-/);
+    // Reply rows indent to the parent text column, not the avatar column.
+    assert.match(html, /\.comment\.d1 \{[^}]*margin-left: 0;/);
     // Human timestamps: machine time in data-ts, relative text for readers.
     assert.match(html, /data-ts="/);
     assert.match(html, /1 min ago/);

@@ -532,7 +532,7 @@ const STYLES = /* css */ `
   .comment { position: relative; border: none; border-radius: 0; padding: .5em .5em .5em calc(50px + 1rem + .5em); background: none; display: block; }
   .comment-list > .comment { border-top: 1px solid var(--rule); }
   .comment-list > .comment:first-child { border-top: none; }
-  .comment.d1 { margin-left: calc(-50px - 1rem - .5em); margin-right: -.5em; padding-left: .5em; }
+  .comment.d1 { margin-left: 0; margin-right: -.5em; padding-left: .5em; }
   .comment.d1 .comment-head > :last-child { margin-right: 0; }
   .comment.d1 > summary { display: flex; align-items: center; gap: .6rem; }
   .comment.d1 time { float: none; margin-left: auto; }
