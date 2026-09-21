@@ -115,6 +115,7 @@ const privacyPage = privacyPageSource.replaceAll("<li>Resend, only where configu
 const termsPage = termsPageSource.replaceAll("hateful, ", "").replaceAll("Resend, ", "");
 import policiesPage from "../policies.html";
 import faviconSvg from "../favicon.svg";
+import ogImagePng from "../og-image.png";
 import { findMediaUse, mediaKey, mediaUrl, validLibraryFile } from "./media";
 import {
   AI_AUTOPILOT_MODEL,
@@ -1122,6 +1123,10 @@ app.get("/favicon.svg", async (c) => {
   const object = await c.env.MEDIA.get(tenant.favicon_key);
   if (!object) return new Response(faviconSvg, { headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=3600" } });
   return new Response(object.body, { headers: { "content-type": object.httpMetadata?.contentType || "image/svg+xml", "cache-control": "public, max-age=3600" } });
+});
+
+app.get("/og-image.png", (c) => {
+  return new Response(ogImagePng, { headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" } });
 });
 
 app.get("/favicon.ico", async (c) => {

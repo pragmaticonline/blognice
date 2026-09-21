@@ -8,6 +8,11 @@ const homepage = readFileSync(new URL("../homepage.html", import.meta.url), "utf
 test("public blog shell emits complete social metadata", () => {
   assert.match(render, /property=\"og:site_name\"/);
   assert.match(render, /property=\"og:image\"/);
+  // Declared dimensions must match the file: our share images vary
+  // (e.g. 1024x576 AI art), so never hardcode 1200x630 — a mismatch makes
+  // Facebook reject the image and fall back to a site icon.
+  assert.doesNotMatch(render, /og:image:width/);
+  assert.doesNotMatch(render, /og:image:height/);
   assert.match(render, /name=\"twitter:title\"/);
   assert.match(render, /name=\"twitter:description\"/);
   assert.match(render, /twitter:card.*summary_large_image/);
@@ -43,4 +48,13 @@ test("marketing homepage has canonical and social metadata", () => {
   assert.match(homepage, /<link rel="canonical" href="https:\/\/www\.blognice\.com\/"/);
   assert.match(homepage, /property="og:image"/);
   assert.match(homepage, /name="twitter:card" content="summary_large_image"/);
+  // Titles stay within the ~60-char display limit, and share images are
+  // raster files Facebook accepts — never the SVG favicon.
+  assert.match(homepage, /<title>Blognice: Open-Source, Privacy-First Blogging Platform<\/title>/);
+  assert.match(homepage, /property="og:title" content="Blognice: Open-Source, Privacy-First Blogging Platform"/);
+  assert.match(homepage, /name="twitter:title" content="Blognice: Open-Source, Privacy-First Blogging Platform"/);
+  assert.match(homepage, /property="og:image" content="https:\/\/www\.blognice\.com\/og-image\.png"/);
+  assert.match(homepage, /name="twitter:image" content="https:\/\/www\.blognice\.com\/og-image\.png"/);
+  assert.doesNotMatch(homepage, /og:image" content="[^"]*\.svg"/);
+  assert.doesNotMatch(homepage, /twitter:image" content="[^"]*\.svg"/);
 });
