@@ -1451,7 +1451,7 @@ export function renderCommentSection(post: { id: number; slug: string }, rows: C
     + `<h2>Comments (${count})</h2>`
     + `<p class="presence" data-presence hidden></p>`
     + `<button type="button" class="comment-teaser" data-comment-teaser>Leave a comment…</button>`
-    + `<div data-form-home hidden><form class="comment-form slim" data-comment-form hidden>`
+    + `<div data-form-home><form class="comment-form slim" data-comment-form hidden>`
     + `<h3 data-form-title>Leave a comment</h3>`
     + `<p class="replying-to" data-replying-to hidden>Replying to <span data-reply-name></span> <button type="button" data-reply-cancel>Cancel</button></p>`
     + `<div class="id-fields"><label>Display name<input type="text" data-field-name maxlength="60" autocomplete="nickname"></label>`
