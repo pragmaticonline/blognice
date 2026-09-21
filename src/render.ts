@@ -525,55 +525,71 @@ const STYLES = /* css */ `
   .comments .presence { color: var(--muted); font-size: .85rem; margin: -.9rem 0 1rem; }
   .comments .presence[hidden] { display: none; }
   .comment-list { display: flex; flex-direction: column; }
-  .sort-tabs { display: flex; gap: 1.4rem; margin: 1.2rem 0 .2rem; }
-  .sort-tabs button { background: none; border: none; border-bottom: 2px solid transparent; padding: .3rem 0; font: inherit; font-size: .9rem; font-weight: 600; color: var(--muted); cursor: pointer; }
-  .sort-tabs button.active { color: var(--ink); border-bottom-color: var(--accent); }
-  .comment { border: none; border-bottom: 1px solid var(--rule); border-radius: 0; padding: .9rem 0; background: none; }
-  .comment.d1 { margin-left: 3rem; }
-  .comment summary { cursor: pointer; list-style-position: inside; display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
-  .comment-head { display: flex; align-items: center; gap: .55rem; min-width: 0; }
-  .comment-avatar { width: 2.4rem; height: 2.4rem; border-radius: 50%; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: .95rem; font-weight: 700; flex: 0 0 auto; }
-  .comment-author { font-weight: 700; font-size: .9rem; overflow-wrap: anywhere; }
-  .comment time { color: var(--muted); font-size: .8rem; margin-left: auto; }
-  .comment-in-reply { color: var(--muted); font-size: .8rem; font-style: italic; }
-  .comment-body { margin: .6rem 0 .2rem; font-size: .95rem; line-height: 1.6; overflow-wrap: anywhere; }
-  .comment-actions { display: flex; gap: .9rem; margin-top: .5rem; }
-  .comment .reply-btn { background: none; border: none; padding: 0; color: var(--accent); font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer; }
-  .comment .reply-btn:hover { text-decoration: underline; }
-  .comment-children { display: flex; flex-direction: column; gap: 1.25rem; margin-top: 1rem; }
-  .comment-form.slim { padding: .8rem; display: flex; flex-direction: column; }
-  .comment-form.slim textarea { min-height: 2.4rem; }
+  .sort-tabs { display: flex; gap: 0; margin: 1.2rem 0 .5em; color: var(--muted); border-bottom: 2px solid var(--rule); line-height: 2em; font-size: 1em; }
+  .sort-tabs button { background: none; border: none; padding: 0 1em; font: inherit; color: inherit; cursor: pointer; position: relative; }
+  .sort-tabs button.active, .sort-tabs button:hover { color: var(--ink); }
+  .sort-tabs button.active:after { content: " "; display: block; position: absolute; right: 0; left: 0; bottom: -2px; height: 2px; background: var(--ink); }
+  .comment { border: none; border-radius: 0; padding: .5em; background: none; overflow: hidden; }
+  .comment-list > .comment { border-top: 1px solid var(--rule); }
+  .comment-list > .comment:first-child { border-top: none; }
+  .comment.d1 { margin-left: calc(50px + 1rem); }
+  .comment > .comment-avatar { float: left; margin-right: 1rem; }
+  .comment-avatar { width: 3.6rem; height: 3.6rem; max-width: 50px; max-height: 50px; border-radius: 50%; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 700; flex: 0 0 auto; }
+  .comment.d1 .comment-avatar { width: 2.4rem; height: 2.4rem; font-size: 1rem; }
+  .comment summary { cursor: pointer; list-style: none; line-height: 1.4em; overflow: hidden; }
+  .comment summary::-webkit-details-marker { display: none; }
+  .comment summary::marker { content: ""; }
+  .comment-head { display: inline; line-height: 1.4em; overflow-wrap: break-word; }
+  .comment-head > * { margin-right: .5rem; }
+  .comment-author { font-weight: 700; }
+  .comment-in-reply { color: var(--muted); font-size: .8em; font-weight: 400; }
+  .comment time { float: right; line-height: 1.4em; margin-left: .5em; font-size: .8em; color: var(--muted); }
+  .comment-body { margin: .25rem 0; font-size: .95rem; line-height: 1.4em; overflow: hidden; overflow-wrap: break-word; }
+  .comment-actions { margin-top: .25rem; overflow: hidden; }
+  .comment .reply-btn { background: none; border: none; padding: 0; color: var(--muted); font: inherit; font-size: .9em; font-weight: 700; cursor: pointer; margin-left: 1em; margin-right: 1em; line-height: 1.5em; }
+  .comment .reply-btn:first-child { margin-left: 0; }
+  .comment .reply-btn:hover { color: var(--ink); }
+  .comment-children { margin-top: 1rem; }
+  .comment-form.slim { padding: 0; display: flex; flex-direction: column; }
   .comment-form.slim button[type="submit"] { align-self: flex-end; }
-  .comment-form.slim button[type="submit"] { padding: .62rem 1.2rem; font-size: 1rem; }
+  .comment-entry { overflow: hidden; }
+  .comment-entry-avatar { float: left; width: 3.6rem; height: 3.6rem; max-width: 50px; max-height: 50px; border-radius: 50%; background: var(--rule); color: #fff; display: inline-flex; align-items: center; justify-content: center; }
+  .comment-entry-avatar svg { width: 62%; height: 62%; fill: currentColor; }
+  .comment-bubble { overflow: hidden; padding-left: 15px; position: relative; }
+  .comment-bubble:before { content: " "; position: absolute; border: 5px solid var(--rule); left: 5px; top: 0; width: 10px; height: 10px; box-sizing: border-box; border-bottom-color: rgba(0, 0, 0, 0); border-left-color: rgba(0, 0, 0, 0); }
+  .comment-bubble:after { content: " "; position: absolute; border: 7px solid var(--bg); left: 7px; top: 1px; width: 10px; height: 10px; box-sizing: border-box; border-bottom-color: rgba(0, 0, 0, 0); border-left-color: rgba(0, 0, 0, 0); }
   .comment-dialog { position: fixed; inset: 0; margin: auto; width: min(36rem, calc(100vw - 2rem)); max-height: calc(100vh - 3rem); overflow: auto; border: 1px solid var(--rule); border-radius: 10px; padding: 0; background: var(--bg); color: var(--ink); }
   .comment-dialog::backdrop { background: rgba(0, 0, 0, .45); }
   .comment-dialog .comment-form { margin: 0; border: none; }
   .comment-form.slim .id-fields { display: none; }
-  .comment-form.slim h3 { font-size: .95rem; margin-bottom: .7rem; }
   .dialog-close { position: absolute; top: .5rem; right: .7rem; background: none; border: none; font-size: 1.3rem; line-height: 1; color: var(--muted); cursor: pointer; }
   .dialog-close:hover { color: var(--ink); }
   .comment.removed { border-style: dashed; color: var(--muted); font-size: .88rem; }
-  .comment-form { margin-top: 2rem; border: 1px solid var(--rule); border-radius: 8px; padding: 1.2rem; background: var(--bg); }
-  .comment-form h3 { margin: 0 0 1rem; font-size: 1.05rem; }
+  .comment-form { margin: 2rem 0 .75em; border: none; padding: 0; background: none; }
   .comment-form label { display: block; margin: 0 0 .9rem; font-size: .88rem; font-weight: 600; }
-  .comment-form input[type="text"], .comment-form input[type="email"], .comment-form textarea {
+  .comment-form input[type="text"], .comment-form input[type="email"] {
     display: block; width: 100%; margin-top: .3rem; padding: .55rem .65rem;
     border: 1px solid var(--rule); border-radius: 6px; background: var(--bg); color: var(--ink);
     font: inherit; font-weight: 400;
   }
-  .comment-form textarea { min-height: 6rem; resize: vertical; }
+  .comment-bubble textarea {
+    margin: 0; outline: 0; overflow-y: auto; overflow-x: hidden; cursor: text; resize: vertical;
+    border: 1px solid var(--rule); border-radius: 0; background: var(--bg); color: var(--ink);
+    font: inherit; font-size: 1em; line-height: 1.45em; padding: .25em .8em;
+    display: block; width: 100%; min-height: 2.4rem; box-sizing: border-box; font-weight: 400;
+  }
   .comment-form .help { display: block; margin-top: .3rem; font-size: .8rem; font-weight: 400; color: var(--muted); }
   .comment-form button[type="submit"] {
-    background: none; border: 1px solid var(--accent); color: var(--accent); border-radius: 6px;
+    background: var(--accent); border: 1px solid var(--accent); color: #fff; border-radius: 6px;
     padding: .62rem 1.2rem; font: inherit; font-size: 1rem; font-weight: 600; cursor: pointer;
     margin-top: .6rem;
   }
-  .comment-form button[type="submit"]:hover { background: var(--accent); color: var(--bg); }
+  .comment-form button[type="submit"]:hover { filter: brightness(1.05); }
   .comment-form .form-note { margin: .9rem 0 0; font-size: .88rem; }
   .replying-to { font-size: .88rem; color: var(--muted); }
   .replying-to button { background: none; border: none; padding: 0; color: var(--accent); font: inherit; cursor: pointer; }
   .new-comments-btn { margin-top: 1rem; background: none; border: 1px solid var(--accent); color: var(--accent); border-radius: 6px; padding: .5rem 1rem; font: inherit; cursor: pointer; }
-  @media (max-width: 560px) { .comment.d1 { margin-left: .9rem; } }
+  @media (max-width: 560px) { .comment.d1 { margin-left: 1.8rem; } }
   .byline-identity { display: flex; align-items: center; gap: 0.75rem; min-width: 0; color: inherit; text-decoration: none; }
   .avatar {
     width: 2.6rem; height: 2.6rem; border-radius: 50%;
@@ -1255,7 +1271,7 @@ function renderCommentNodes(nodes: CommentNode[], depth: number, parentAuthor: s
   for (const node of nodes) {
     const author = node.tombstone ? parentAuthor : node.author_name;
     const capped = Math.min(depth, 1);
-    const flatLabel = depth > 1 ? `<span class="comment-in-reply">in reply to ${esc(parentAuthor)}</span>` : "";
+    const flatLabel = depth > 1 ? `<span class="comment-in-reply">↩ ${esc(parentAuthor)}</span>` : "";
     const inner = node.children.length ? renderCommentNodes(node.children, depth + 1, author) : "";
     const kids = inner && depth === 0 ? `<div class="comment-children">${inner}</div>` : inner;
     if (node.tombstone) {
@@ -1263,7 +1279,8 @@ function renderCommentNodes(nodes: CommentNode[], depth: number, parentAuthor: s
     } else {
       const iso = new Date(node.created_at * 1000).toISOString();
       out += `<details class="comment d${capped}" data-comment="${node.id}" open>`
-        + `<summary><span class="comment-head">${commentAvatar(node.author_name)}<span class="comment-author">${esc(node.author_name)}</span></span>${flatLabel}<time datetime="${iso}">${esc(formatDate(node.created_at))}</time></summary>`
+        + `${commentAvatar(node.author_name)}`
+        + `<summary><span class="comment-head"><span class="comment-author">${esc(node.author_name)}</span>${flatLabel}</span><time datetime="${iso}">${esc(formatDate(node.created_at))}</time></summary>`
         + `<div class="comment-body">${esc(node.body).replace(/\n/g, "<br>")}</div>`
         + `<div class="comment-actions"><button class="reply-btn" type="button" data-reply-to="${node.id}" data-reply-name="${esc(node.author_name)}">Reply</button></div>${depth === 0 ? kids : ""}</details>${depth === 0 ? "" : kids}`;
     }
@@ -1401,10 +1418,11 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     var parentEl=c.parent_id?section.querySelector('[data-comment="'+c.parent_id+'"]'):null;
     var depth=0,replyTo="";
     if(parentEl){var pd=depthOf(parentEl);depth=Math.min(pd+1,1);if(pd>=1)replyTo=authorOf(parentEl);}
-    var label=replyTo?'<span class="comment-in-reply">in reply to '+escHtml(replyTo)+'</span>':"";
+    var label=replyTo?'<span class="comment-in-reply">↩ '+escHtml(replyTo)+'</span>':"";
     var nm=((c.author_name||"").trim()||"Someone");
     var html='<details class="comment d'+depth+'" data-comment="'+c.id+'" open>'
-      +'<summary><span class="comment-head"><span class="comment-avatar" style="background:hsl('+avatarHue(nm)+',42%,45%)" aria-hidden="true">'+escHtml(nm.charAt(0).toUpperCase())+'</span><span class="comment-author">'+escHtml(nm)+'</span></span>'+label+'<time datetime="'+new Date((c.created_at||0)*1000).toISOString()+'">'+escHtml(isoDay(c.created_at||0))+'</time></summary>'
+      +'<span class="comment-avatar" style="background:hsl('+avatarHue(nm)+',42%,45%)" aria-hidden="true">'+escHtml(nm.charAt(0).toUpperCase())+'</span>'
+      +'<summary><span class="comment-head"><span class="comment-author">'+escHtml(nm)+'</span>'+label+'</span><time datetime="'+new Date((c.created_at||0)*1000).toISOString()+'">'+escHtml(isoDay(c.created_at||0))+'</time></summary>'
       +'<div class="comment-body">'+escHtml(c.body||"").replace(/\\n/g,"<br>")+'</div>'
       +'<div class="comment-actions"><button class="reply-btn" type="button" data-reply-to="'+c.id+'" data-reply-name="'+escHtml(nm)+'">Reply</button></div></details>';
     var host;
@@ -1477,7 +1495,8 @@ export function renderCommentSection(post: { id: number; slug: string }, rows: C
     + `<p class="replying-to" data-replying-to hidden>Replying to <span data-reply-name></span> <button type="button" data-reply-cancel>Cancel</button></p>`
     + `<div class="id-fields"><label>Display name<input type="text" data-field-name maxlength="60" autocomplete="nickname"></label>`
     + `<label>Email<input type="email" data-field-email autocomplete="email"><span class="help">First time? We will email you a confirmation link. Your address is never shown.</span></label></div>`
-    + `<textarea data-field-body maxlength="2000" required aria-label="Comment"></textarea>`
+    + `<div class="comment-entry"><span class="comment-entry-avatar" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4.2"/><path d="M3.5 21c.6-4.3 4-6.6 8.5-6.6s7.9 2.3 8.5 6.6"/></svg></span>`
+    + `<div class="comment-bubble"><textarea data-field-body maxlength="2000" required aria-label="Comment"></textarea></div></div>`
     + `<input type="hidden" data-field-parent value="">`
     + `<button type="submit">Send</button>`
     + `<p class="form-note" data-form-note hidden></p>`

@@ -29,4 +29,5 @@ test("served comment scripts parse and keep their regex escapes", async () => {
   assert.ok(client.includes("settleDialog"), "dialog open restores scroll after top-layer race");
   assert.ok(client.includes("data-sort-tab"), "sort tabs re-order threads without a reload");
   assert.ok(client.includes('closest(".comment-children")'), "live replies flatten into the level-1 container");
+  assert.ok(client.includes("↩"), "live reply-to labels match the server style");
 });

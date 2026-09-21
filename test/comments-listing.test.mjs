@@ -102,13 +102,16 @@ test("post pages server-render comment threads with tombstones and depth caps", 
     // Childless removed comments vanish entirely.
     assert.doesNotMatch(html, /Childless removed\./);
     assert.doesNotMatch(html, /Removed parent\./);
-    // Only two nesting levels: replies past depth 1 flatten to d1 with an
-    // in-reply-to label instead of indenting forever.
-    assert.match(html, /in reply to/);
+    // Only two nesting levels: replies past depth 1 flatten to d1 with a
+    // jquery-comments-style reply-to label instead of indenting forever.
+    assert.match(html, /↩/);
     assert.match(html, /L6 deep\./);
     assert.doesNotMatch(html, /comment d[2-9]/);
-    assert.match(html, /in reply to B/);
-    assert.match(html, /in reply to C/);
+    assert.match(html, /↩ B/);
+    assert.match(html, /↩ C/);
+    // jquery-comments-style entry: avatar beside a tailed bubble box.
+    assert.match(html, /comment-entry-avatar/);
+    assert.match(html, /comment-bubble/);
     // Flattened, not nested: the 1->2->3 chain renders a single
     // comment-children container holding every descendant as a sibling.
     const chain = html.slice(html.indexOf('data-comment="1"'), html.indexOf('data-comment="10"'));
