@@ -556,6 +556,7 @@ const STYLES = /* css */ `
   .comment .reply-btn:hover { color: var(--ink); }
   .comment-children { margin-top: 1rem; }
   .comment[hidden] { display: none; }
+  .comment.pending { opacity: .55; }
   .toggle-replies { background: none; border: none; padding: 0; margin: .5rem 0 0; color: var(--muted); font: inherit; font-size: .9em; font-weight: 700; cursor: pointer; line-height: 1.5em; }
   .toggle-replies:hover { color: var(--ink); }
   .comment-form.slim { padding: 0; display: flex; flex-direction: column; }
@@ -1415,22 +1416,42 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     });
   }
   clampThreads();
+  var sending=false;
+  var sendBtn=form.querySelector('button[type="submit"]');
   form.addEventListener("submit",function(e){
-    e.preventDefault();note.hidden=true;
+    e.preventDefault();if(sending){say("Sending…");return;}note.hidden=true;
+    var bodyText=bodyField.value;
     try{localStorage.setItem("bn_comment_identity",JSON.stringify({name:nameField.value,email:emailField.value}));}catch(err){}
-    var payload={body:bodyField.value};
+    var payload={body:bodyText};
     if(parentField.value)payload.parent_id=Number(parentField.value);
+    var who=(nameField.value||"").trim()||"Someone";
+    var tempId="pending-"+Date.now();
+    var nowSec=Math.floor(Date.now()/1000);
+    insertApproved({id:tempId,parent_id:parentField.value?Number(parentField.value):null,author_name:who,body:bodyText,created_at:nowSec},true);
+    bodyField.value="";
+    sending=true;if(sendBtn)sendBtn.disabled=true;say("Sending…");
+    function done(){sending=false;if(sendBtn)sendBtn.disabled=false;}
+    function dropPending(){var p=section.querySelector('[data-comment="'+tempId+'"]');if(p)p.remove();}
     fetch(path+"/comments",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)}).then(function(r){
-      if(r.status===201){try{localStorage.removeItem("bn_comment_draft");}catch(e){}location.reload();return null;}
+      if(r.status===201){
+        return r.json().catch(function(){return null;}).then(function(j){
+          done();dropPending();
+          try{localStorage.removeItem("bn_comment_draft");}catch(e){}
+          if(j&&j.comment)insertApproved(j.comment);
+          else location.reload();
+          say("Posted.");
+        });
+      }
       if(r.status===401){
-        try{localStorage.setItem("bn_comment_draft",JSON.stringify({name:nameField.value,email:emailField.value,body:bodyField.value,parent:parentField.value||""}));}catch(e){}
+        done();dropPending();bodyField.value=bodyText;
+        try{localStorage.setItem("bn_comment_draft",JSON.stringify({name:nameField.value,email:emailField.value,body:bodyText,parent:parentField.value||""}));}catch(e){}
         openDialog();
         return fetch(path+"/comments/start",{method:"POST",headers:{"content-type":"application/json"},
           body:JSON.stringify({email:emailField.value,author_name:nameField.value})}).then(function(r2){
           say(r2.ok?"Check your email for a confirmation link — your draft is saved, then post again.":"Could not start verification. Check the name and email.");});
       }
-      return r.json().catch(function(){return null;}).then(function(j){say((j&&j.error)||"Could not post the comment.");});
-    }).catch(function(){say("Network error. Try again.");});
+      return r.json().catch(function(){return null;}).then(function(j){done();dropPending();bodyField.value=bodyText;say((j&&j.error)||"Could not post the comment.");});
+    }).catch(function(){done();dropPending();bodyField.value=bodyText;say("Network error. Try again.");});
   });
   try{
     if(/(^|[?&])verified=1(&|#|$)/.test(location.search+location.hash)){
@@ -1472,7 +1493,7 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
   function refreshTimes(){section.querySelectorAll("time[data-ts]").forEach(function(t){t.textContent=agoStr(t.getAttribute("data-ts"));});}
   setInterval(refreshTimes,60000);
   function avatarHue(name){var h=0;for(var i=0;i<name.length;i++){h=(h*31+name.charCodeAt(i))>>>0;}return h%360;}
-  function insertApproved(c){
+  function insertApproved(c,pending){
     if(!c||c.id==null||section.querySelector('[data-comment="'+c.id+'"]'))return;
     var parentEl=c.parent_id?section.querySelector('[data-comment="'+c.parent_id+'"]'):null;
     var depth=0,replyTo="";
@@ -1483,7 +1504,7 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     var avHtml='<span class="comment-avatar" style="background:hsl('+avatarHue(nm)+',42%,45%)" aria-hidden="true">'+escHtml(nm.charAt(0).toUpperCase())+'</span>';
     var headHtml='<span class="comment-head"><span class="comment-author">'+escHtml(nm)+'</span>'+label+'</span>';
     var timeHtml='<time datetime="'+iso+'" data-ts="'+(c.created_at||0)+'" title="'+iso.slice(0,10)+'">'+escHtml(agoStr(c.created_at||0))+'</time>';
-    var html='<details class="comment d'+depth+'" data-comment="'+c.id+'" open>'
+    var html='<details class="comment d'+depth+(pending?' pending':'')+'" data-comment="'+c.id+'"'+(pending?' data-pending="1"':'')+' open>'
       +(depth>0?'<summary><span class="comment-avatar" style="background:hsl('+avatarHue(nm)+',42%,45%)" aria-hidden="true">'+escHtml(nm.charAt(0).toUpperCase())+'</span>'+headHtml+timeHtml+'</summary>':avHtml+'<summary>'+headHtml+timeHtml+'</summary>')
       +'<div class="comment-body">'+escHtml(c.body||"").replace(/\\n/g,"<br>")+'</div>'
       +'<div class="comment-actions"><button class="reply-btn" type="button" data-reply-to="'+c.id+'" data-reply-name="'+escHtml(nm)+'">Reply</button></div></details>';
@@ -1492,7 +1513,7 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     else{host=section.querySelector(".comment-list");host.insertAdjacentHTML(sortMode==="newest"?"afterbegin":"beforeend",html);var empty=section.querySelector(".no-comments");if(empty)empty.remove();}
     var fresh=section.querySelector('[data-comment="'+c.id+'"]');
     if(fresh){var rb=fresh.querySelector("[data-reply-to]");if(rb)wireReply(rb);}
-    bumpCount(1);if(c.id>maxId)maxId=c.id;clampThreads();
+    if(!pending){bumpCount(1);if(Number(c.id)>maxId)maxId=Number(c.id);}clampThreads();
   }
   function tombstone(id){
     var el=section.querySelector('[data-comment="'+id+'"]');
