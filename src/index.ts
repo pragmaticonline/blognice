@@ -4169,7 +4169,7 @@ async function writeAudioJob(env: Bindings, jobKey: string, job: AudioJobManifes
 
 async function processAudioJob(env: Bindings, jobKey: string): Promise<void> {
   const job = await readAudioJob(env, jobKey);
-  if (job.status === "complete" || job.status === "cancelled") return;
+  if (job.status === "complete" || job.status === "cancelled" || job.failedTerminal) return;
   const tenant = await tenantById(env, job.tenantId);
   if (!tenant) throw new Error("Audio job blog no longer exists.");
   const pdb = tenantDb(env, tenant);
@@ -4264,6 +4264,17 @@ async function processAudioJob(env: Bindings, jobKey: string): Promise<void> {
       ? `Segment ${job.completed + 1} of ${job.prompts.length} (${failing.text.length} chars): ${detail}`
       : detail;
     await writeAudioJob(env, jobKey, job);
+    if (!classifyTtsError(error).transient) {
+      // Deterministic failures (bad segment, quota) will never converge by
+      // retrying: release the post claim and refund immediately instead of
+      // holding both through five doomed redeliveries, and ack so the queue
+      // stops. The post is regenerable right away.
+      job.failedTerminal = true;
+      await writeAudioJob(env, jobKey, job);
+      await releaseTerminalAudioGeneration(env, jobKey);
+      await refundTerminalAiJob(env, jobKey, "audio").catch((refundError) => console.error(JSON.stringify({ message: "terminal audio refund failed", jobKey, error: refundError instanceof Error ? refundError.message : String(refundError) })));
+      return;
+    }
     throw error;
   }
 }
@@ -4687,6 +4698,7 @@ type AudioJobManifest = {
   creditsRefunded?: boolean;
   model?: string;
   voice?: string | null;
+  failedTerminal?: boolean;
 };
 type ImageJobManifest = {
   tenantId: number;

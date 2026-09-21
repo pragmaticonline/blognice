@@ -204,3 +204,29 @@ test("a poisoned checkpoint is dropped and resynthesized instead of replayed", a
     await mf.dispose();
   }
 });
+
+test("a deterministic segment failure releases the claim instead of holding it through retries", async () => {
+  const { worker, mf, postsDb, media } = await setup();
+  try {
+    const prompts = [{ text: "Too long for aura. ".repeat(200), pauseAfter: 0 }];
+    const jobKey = await seedJob(postsDb, media, { jobId: "dddddddd-4444-4444-8444-dddddddddddd", postId: 44, prompts, model: "@cf/deepgram/aura-1" });
+    const env = {
+      DB: await mf.getD1Database("DB"), POSTS: postsDb, MEDIA: media, ROOT_DOMAIN: "blognice.com",
+      AI: { run: async () => { throw new Error("8007: Input text exceeds maximum character limit of 2000."); } },
+    };
+    let acked = false;
+    let threw = null;
+    try {
+      await worker.default.queue({ messages: [{ body: { jobKey, tenantId: 1, postId: 44 }, attempts: 1, ack() { acked = true; }, retry() {} }] }, env);
+    } catch (error) { threw = error; }
+    assert.equal(threw, null, "terminal failure is acked, not rethrown for doomed retries");
+    assert.equal(acked, true);
+    const job = JSON.parse(await (await media.get(jobKey)).text());
+    assert.equal(job.status, "failed");
+    assert.match(job.error, /Segment 1 of 1/);
+    const post = await postsDb.prepare("SELECT audio_generation_id FROM posts WHERE id = 44").first();
+    assert.equal(post.audio_generation_id, null, "claim released so generation can restart immediately");
+  } finally {
+    await mf.dispose();
+  }
+});
