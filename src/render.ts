@@ -548,6 +548,12 @@ const STYLES = /* css */ `
   .settings-actions [data-settings-save] { background: var(--accent); border: 1px solid var(--accent); color: #fff; }
   .settings-actions [data-settings-cancel] { background: none; border: 1px solid var(--rule); color: var(--ink); }
   .settings-note { margin: .8rem 0 0; font-size: .85rem; color: var(--muted); }
+  .settings-row { margin: 0 0 .9rem; font-size: .88rem; font-weight: 600; }
+  .settings-label { display: block; margin-bottom: .35rem; }
+  .settings-photo-row { display: flex; align-items: center; gap: .8rem; font-weight: 400; }
+  .settings-photo-row .comment-avatar { width: 3rem; height: 3rem; max-width: 3rem; max-height: 3rem; font-size: 1.2rem; }
+  .settings-photo-row button { border: 1px solid var(--rule); background: none; color: var(--ink); border-radius: 6px; padding: .45rem .9rem; font: inherit; font-size: .9rem; font-weight: 600; cursor: pointer; }
+  .settings-hint { margin: .35rem 0 0; font-size: .85rem; font-weight: 400; color: var(--muted); }
   .comment { position: relative; border: none; border-radius: 0; padding: .5em .5em .5em calc(50px + 1rem + .5em); background: none; display: block; }
   .comment-list > .comment { border-top: 1px solid var(--rule); }
   .comment-list > .comment:first-child { border-top: none; }
@@ -559,6 +565,7 @@ const STYLES = /* css */ `
   .comment > .comment-avatar { position: absolute; left: .5em; top: .5em; margin: 0; }
   .comment.removed { padding-left: .5em; }
   .comment-avatar { width: 3.6rem; height: 3.6rem; max-width: 50px; max-height: 50px; border-radius: 50%; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 700; flex: 0 0 auto; }
+  img.comment-avatar { object-fit: cover; }
   .comment.d1 .comment-avatar { width: 2.4rem; height: 2.4rem; font-size: 1rem; }
   .comment summary { cursor: pointer; list-style: none; display: block; line-height: 1.4em; overflow: hidden; }
   .comment summary::-webkit-details-marker { display: none; }
@@ -1211,12 +1218,12 @@ export function renderPage(
 
 export type CommentRow = {
   id: number; parent_id: number | null; author_name: string; body: string;
-  created_at: number; status: string; avatar_hue?: number | null;
+  created_at: number; status: string; avatar_hue?: number | null; avatar_key?: string | null;
 };
 
 export type CommentNode = {
   id: number; parent_id: number | null; author_name: string; body: string;
-  created_at: number; avatar_hue: number | null; tombstone: boolean; children: CommentNode[];
+  created_at: number; avatar_hue: number | null; avatar_key: string | null; tombstone: boolean; children: CommentNode[];
 };
 
 // Build the visible comment tree: approved nodes plus removed parents that
@@ -1250,6 +1257,7 @@ export function buildCommentTree(rows: CommentRow[]): { roots: CommentNode[]; co
   const toNode = (row: CommentRow): CommentNode => ({
     id: row.id, parent_id: row.parent_id, author_name: row.author_name, body: row.body,
     created_at: row.created_at, avatar_hue: validAvatarHue(row.avatar_hue),
+    avatar_key: validAvatarKey(row.avatar_key),
     tombstone: row.status !== "approved", children: [],
   });
   const nodes = new Map<number, CommentNode>();
@@ -1275,7 +1283,7 @@ export function commentNodeJson(node: CommentNode): unknown {
   return {
     id: node.id, parent_id: node.parent_id, author_name: node.author_name,
     body: node.body, created_at: node.created_at, avatar_hue: node.avatar_hue,
-    replies: node.children.map(commentNodeJson),
+    avatar_key: node.avatar_key, replies: node.children.map(commentNodeJson),
   };
 }
 
@@ -1310,7 +1318,13 @@ function validAvatarHue(hue: unknown): number | null {
   return Number.isInteger(hue) && (hue as number) >= 0 && (hue as number) < 360 ? (hue as number) : null;
 }
 
-function commentAvatar(name: string, hue?: number | null): string {
+function validAvatarKey(key: unknown): string | null {
+  return typeof key === "string" && /^avatars\/[A-Za-z0-9_.-]+$/.test(key) ? key : null;
+}
+
+function commentAvatar(name: string, hue?: number | null, key?: string | null): string {
+  const photo = validAvatarKey(key);
+  if (photo) return `<img class="comment-avatar" src="/media/${esc(photo)}" alt="" loading="lazy">`;
   const clean = (name || "").trim() || "Someone";
   const initial = esc(clean.charAt(0).toUpperCase());
   const h = validAvatarHue(hue) ?? commentAvatarHue(clean);
@@ -1332,7 +1346,7 @@ function renderCommentNodes(nodes: CommentNode[], depth: number, parentAuthor: s
       out += `<div class="comment removed d${capped}" data-comment="${node.id}"><span>Removed by moderator</span>${depth === 0 ? kids : ""}</div>${depth === 0 ? "" : kids}`;
     } else {
       const iso = new Date(node.created_at * 1000).toISOString();
-      const avHtml = commentAvatar(node.author_name, node.avatar_hue);
+      const avHtml = commentAvatar(node.author_name, node.avatar_hue, node.avatar_key);
       const timeHtml = `<time datetime="${iso}" data-ts="${node.created_at}" title="${esc(formatDate(node.created_at))}">${esc(timeAgo(node.created_at))}</time>`;
       const headHtml = `<span class="comment-head"><span class="comment-author">${esc(node.author_name)}</span>${flatLabel}</span>`;
       out += `<details class="comment d${capped}" data-comment="${node.id}" open>`
@@ -1425,18 +1439,47 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
   section.querySelectorAll("[data-sort-tab]").forEach(function(b){
     b.addEventListener("click",function(){sortMode=b.getAttribute("data-sort-tab");try{localStorage.setItem("bn_comment_sort",sortMode);}catch(e){}applySort();});});
   applySort();
-  var HUE_KEY="bn_comment_avatar_hue";
+  var HUE_KEY="bn_comment_avatar_hue",PHOTO_KEY="bn_comment_avatar_key";
   function validHue(h){return (typeof h==="number")&&isFinite(h)&&Math.floor(h)===h&&h>=0&&h<360?h:null;}
   function savedHue(){var h=null;try{h=validHue(JSON.parse(localStorage.getItem(HUE_KEY)));}catch(e){}return h;}
+  function validPhoto(k){return (typeof k==="string")&&/^avatars\\/[A-Za-z0-9_.-]+$/.test(k)?k:null;}
+  function savedPhoto(){var k=null;try{k=validPhoto(localStorage.getItem(PHOTO_KEY));}catch(e){}return k;}
   var cog=section.querySelector("[data-settings-cog]"),settingsDlg=section.querySelector("[data-settings-dialog]");
   if(cog&&settingsDlg){
     var sName=settingsDlg.querySelector("[data-settings-name]"),swatches=settingsDlg.querySelector("[data-settings-swatches]"),
-        preview=settingsDlg.querySelector("[data-settings-preview]"),sNote=settingsDlg.querySelector("[data-settings-note]"),picked=null;
-    function paintPreview(nm,h){var label=((nm||"").trim()||"Someone");preview.innerHTML='<span class="comment-avatar" style="background:hsl('+(h==null?avatarHue(label):h)+',42%,45%)" aria-hidden="true">'+escHtml(label.charAt(0).toUpperCase())+'</span>';}
+        preview=settingsDlg.querySelector("[data-settings-preview]"),sNote=settingsDlg.querySelector("[data-settings-note]"),picked=null,
+        photoBox=settingsDlg.querySelector("[data-settings-photo]"),sFile=settingsDlg.querySelector("[data-settings-file]"),
+        sUpload=settingsDlg.querySelector("[data-settings-upload]"),sRemove=settingsDlg.querySelector("[data-settings-remove]"),photoKey=null;
+    function paintPreview(nm,h,photo){var label=((nm||"").trim()||"Someone");preview.innerHTML=photo?'<img class="comment-avatar" src="/media/'+photo+'" alt="">':'<span class="comment-avatar" style="background:hsl('+(h==null?avatarHue(label):h)+',42%,45%)" aria-hidden="true">'+escHtml(label.charAt(0).toUpperCase())+'</span>';}
+    function paintPhoto(photo){photoBox.innerHTML=photo?'<img class="comment-avatar" src="/media/'+photo+'" alt="">':'';}
     function markSwatches(){swatches.querySelectorAll("[data-settings-hue]").forEach(function(b){b.setAttribute("aria-pressed",Number(b.getAttribute("data-settings-hue"))===picked?"true":"false");});}
-    swatches.addEventListener("click",function(e){var b=e.target.closest?e.target.closest("[data-settings-hue]"):null;if(!b)return;picked=Number(b.getAttribute("data-settings-hue"));markSwatches();paintPreview(sName.value,picked);});
-    sName.addEventListener("input",function(){paintPreview(sName.value,picked);});
-    cog.addEventListener("click",function(){sName.value=nameField.value;picked=savedHue();markSwatches();paintPreview(sName.value,picked);sNote.hidden=true;if(settingsDlg.showModal)settingsDlg.showModal();});
+    swatches.addEventListener("click",function(e){var b=e.target.closest?e.target.closest("[data-settings-hue]"):null;if(!b)return;picked=Number(b.getAttribute("data-settings-hue"));markSwatches();paintPreview(sName.value,picked,photoKey);});
+    sName.addEventListener("input",function(){paintPreview(sName.value,picked,photoKey);});
+    cog.addEventListener("click",function(){sName.value=nameField.value;picked=savedHue();photoKey=savedPhoto();markSwatches();paintPreview(sName.value,picked,photoKey);paintPhoto(photoKey);sNote.hidden=true;if(settingsDlg.showModal)settingsDlg.showModal();});
+    sUpload.addEventListener("click",function(){sFile.click();});
+    sFile.addEventListener("change",function(){
+      if(!sFile.files||!sFile.files[0])return;
+      var form=new FormData();form.append("avatar",sFile.files[0]);
+      sNote.textContent="Uploading…";sNote.hidden=false;
+      fetch(path+"/comments/avatar",{method:"POST",body:form}).then(function(r){
+        if(!r.ok){sNote.textContent=r.status===401?"Confirm your email first, then upload a photo.":r.status===413?"Photos must be 2 MB or smaller.":"That photo could not be used.";sNote.hidden=false;sFile.value="";return null;}
+        return r.json();
+      }).then(function(j){
+        if(!j||!validPhoto(j.key))return;
+        photoKey=j.key;
+        try{localStorage.setItem(PHOTO_KEY,photoKey);}catch(e){}
+        paintPhoto(photoKey);paintPreview(sName.value,picked,photoKey);
+        sNote.textContent="Photo updated.";sNote.hidden=false;sFile.value="";
+      }).catch(function(){sNote.textContent="Network error. Try again.";sNote.hidden=false;});
+    });
+    sRemove.addEventListener("click",function(){
+      fetch(path+"/comments/avatar",{method:"DELETE"}).then(function(){
+        photoKey=null;
+        try{localStorage.removeItem(PHOTO_KEY);}catch(e){}
+        paintPhoto(null);paintPreview(sName.value,picked,null);
+        sNote.textContent="Photo removed.";sNote.hidden=false;
+      }).catch(function(){sNote.textContent="Network error. Try again.";sNote.hidden=false;});
+    });
     function closeSettings(){if(settingsDlg.open)settingsDlg.close();}
     settingsDlg.querySelector("[data-settings-close]").addEventListener("click",closeSettings);
     settingsDlg.querySelector("[data-settings-cancel]").addEventListener("click",closeSettings);
@@ -1484,10 +1527,11 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     var payload={body:bodyText};
     if(parentField.value)payload.parent_id=Number(parentField.value);
     var hueNow=savedHue();if(hueNow!=null)payload.avatar_hue=hueNow;
+    var photoNow=savedPhoto();
     var who=(nameField.value||"").trim()||"Someone";
     var tempId="pending-"+Date.now();
     var nowSec=Math.floor(Date.now()/1000);
-    insertApproved({id:tempId,parent_id:parentField.value?Number(parentField.value):null,author_name:who,body:bodyText,created_at:nowSec,avatar_hue:hueNow},true);
+    insertApproved({id:tempId,parent_id:parentField.value?Number(parentField.value):null,author_name:who,body:bodyText,created_at:nowSec,avatar_hue:hueNow,avatar_key:photoNow},true);
     bodyField.value="";
     sending=true;if(sendBtn)sendBtn.disabled=true;say("Sending…");
     function done(){sending=false;if(sendBtn)sendBtn.disabled=false;}
@@ -1561,12 +1605,13 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     var label=replyTo?'<span class="comment-in-reply">↩ '+escHtml(replyTo)+'</span>':"";
     var nm=((c.author_name||"").trim()||"Someone");
     var hue=(c&&validHue(c.avatar_hue)!=null)?c.avatar_hue:avatarHue(nm);
+    var photo=(c&&typeof c.avatar_key==="string"&&c.avatar_key.indexOf("avatars/")===0)?c.avatar_key:null;
     var iso=new Date((c.created_at||0)*1000).toISOString();
-    var avHtml='<span class="comment-avatar" style="background:hsl('+hue+',42%,45%)" aria-hidden="true">'+escHtml(nm.charAt(0).toUpperCase())+'</span>';
+    var avHtml=photo?'<img class="comment-avatar" src="/media/'+photo+'" alt="">':'<span class="comment-avatar" style="background:hsl('+hue+',42%,45%)" aria-hidden="true">'+escHtml(nm.charAt(0).toUpperCase())+'</span>';
     var headHtml='<span class="comment-head"><span class="comment-author">'+escHtml(nm)+'</span>'+label+'</span>';
     var timeHtml='<time datetime="'+iso+'" data-ts="'+(c.created_at||0)+'" title="'+iso.slice(0,10)+'">'+escHtml(agoStr(c.created_at||0))+'</time>';
     var html='<details class="comment d'+depth+(pending?' pending':' fresh')+'" data-comment="'+c.id+'"'+(pending?' data-pending="1"':'')+' open>'
-      +(depth>0?'<summary><span class="comment-avatar" style="background:hsl('+hue+',42%,45%)" aria-hidden="true">'+escHtml(nm.charAt(0).toUpperCase())+'</span>'+headHtml+timeHtml+'</summary>':avHtml+'<summary>'+headHtml+timeHtml+'</summary>')
+      +(depth>0?'<summary>'+(photo?'<img class="comment-avatar" src="/media/'+photo+'" alt="">':'<span class="comment-avatar" style="background:hsl('+hue+',42%,45%)" aria-hidden="true">'+escHtml(nm.charAt(0).toUpperCase())+'</span>')+headHtml+timeHtml+'</summary>':avHtml+'<summary>'+headHtml+timeHtml+'</summary>')
       +'<div class="comment-body">'+escHtml(c.body||"").replace(/\\n/g,"<br>")+'</div>'
       +'<div class="comment-actions"><button class="reply-btn" type="button" data-reply-to="'+c.id+'" data-reply-name="'+escHtml(nm)+'">Reply</button></div></details>';
     var host;
@@ -1643,7 +1688,7 @@ export function renderCommentSection(post: { id: number; slug: string }, rows: C
     + `<button type="submit">Send</button>`
     + `<p class="form-note" data-form-note hidden></p>`
     + `</form></div>`
-    + `<div class="sort-tabs" data-sort-tabs><button type="button" data-sort-tab="newest">Newest</button><button type="button" data-sort-tab="oldest" class="active">Oldest</button><button type="button" data-settings-cog aria-label="Comment settings" title="Comment settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/><path d="m19.4 15 .1.1a1.8 1.8 0 0 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-3.1 1.3v.2a1.8 1.8 0 0 1-3.6 0v-.2a1.8 1.8 0 0 0-3.1-1.3l-.1.1a1.8 1.8 0 1 1-2.5-2.5l.1-.1A1.8 1.8 0 0 0 5.3 12a1.8 1.8 0 0 0-1.3-3.1h-.2a1.8 1.8 0 0 1 0-3.6H4a1.8 1.8 0 0 0 1.3-3.1l-.1-.1a1.8 1.8 0 1 1 2.5-2.5l.1.1A1.8 1.8 0 0 0 10.9 1.3v-.2a1.8 1.8 0 0 1 3.6 0v.2a1.8 1.8 0 0 0 3.1 1.3l.1-.1a1.8 1.8 0 1 1 2.5 2.5l-.1.1A1.8 1.8 0 0 0 19.4 8h.2a1.8 1.8 0 0 1 0 3.6h-.2a1.8 1.8 0 0 0 0 3.4Z"/></svg></button></div>`
+    + `<div class="sort-tabs" data-sort-tabs><button type="button" data-sort-tab="newest">Newest</button><button type="button" data-sort-tab="oldest" class="active">Oldest</button><button type="button" data-settings-cog aria-label="Comment settings" title="Comment settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.4-2.4c.4-.4.4-1 0-1.4Z"/></svg></button></div>`
     + `<div class="comment-list">${list}</div>`
     + `<dialog class="comment-dialog" data-comment-dialog aria-label="Leave a comment">`
     + `<button type="button" class="dialog-close" data-dialog-close aria-label="Close">×</button>`
@@ -1653,6 +1698,10 @@ export function renderCommentSection(post: { id: number; slug: string }, rows: C
     + `<div class="settings-body"><h3>Comment settings</h3>`
     + `<div class="settings-preview"><span data-settings-preview></span><span>How your avatar looks on new comments.</span></div>`
     + `<label>Display name<input type="text" data-settings-name maxlength="60" autocomplete="nickname"></label>`
+    + `<div class="settings-row"><span class="settings-label">Profile photo</span>`
+    + `<div class="settings-photo-row"><span data-settings-photo></span><span><button type="button" data-settings-upload>Upload photo</button> <button type="button" data-settings-remove>Remove</button></span></div>`
+    + `<input type="file" data-settings-file accept="image/jpeg,image/png,image/webp,image/gif,image/avif" hidden>`
+    + `<p class="settings-hint">JPG, PNG, WebP, GIF or AVIF up to 2 MB. Photos appear instantly.</p></div>`
     + `<div id="comment-hue-label">Avatar colour</div>`
     + `<div class="settings-swatches" role="group" aria-labelledby="comment-hue-label" data-settings-swatches>${AVATAR_HUES.map((h) => `<button type="button" data-settings-hue="${h}" style="background:hsl(${h},42%,45%)" aria-label="Avatar colour ${h}" aria-pressed="false"></button>`).join("")}</div>`
     + `<p class="settings-note" data-settings-note hidden></p>`

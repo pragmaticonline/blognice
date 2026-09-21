@@ -180,6 +180,7 @@ test("comment section carries a settings cog and reader settings dialog", async 
   const { blogniceApp } = await import("../src/index.ts");
   const state = makeState();
   state.comments[12].avatar_hue = 200;
+  state.comments[13].avatar_key = "avatars/1-ab12cd34-ef567890.png";
   const env = { DB: fakeDb(state), POSTS: fakeDb(state), ROOT_DOMAIN: "blognice.test" };
   const executionCtx = { waitUntil() {}, passThroughOnException() {} };
   const originalCaches = globalThis.caches;
@@ -191,6 +192,7 @@ test("comment section carries a settings cog and reader settings dialog", async 
     // Cog sits inside the sort-tabs row, after the sort buttons.
     assert.match(html, /data-sort-tabs[\s\S]*?data-settings-cog/);
     assert.match(html, /data-settings-cog[^>]*aria-label="Comment settings"/);
+    assert.match(html, /M22\.7 19l/, "settings icon is a spanner");
     // Reader settings dialog: display name, avatar colour swatches, save.
     assert.match(html, /data-settings-dialog/);
     assert.match(html, /data-settings-name/);
@@ -199,6 +201,8 @@ test("comment section carries a settings cog and reader settings dialog", async 
     // Stored hues render; rows without one fall back to the name-derived hue.
     assert.match(html, /hsl\(200,42%,45%\)/);
     assert.match(html, /comment-avatar/);
+    // Stored photos render as images; anything else stays an initial circle.
+    assert.match(html, /<img class="comment-avatar" src="\/media\/avatars\/1-ab12cd34-ef567890\.png"/);
   } finally {
     if (originalCaches === undefined) delete globalThis.caches;
     else globalThis.caches = originalCaches;

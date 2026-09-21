@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS comments (
   created_at  INTEGER NOT NULL,
   decided_at  INTEGER,
   avatar_hue  INTEGER,                          -- reader-chosen colour, NULL = name-derived (see 072)
+  avatar_key  TEXT,                             -- R2 profile photo key, NULL = no photo (see 074)
   UNIQUE (tenant_id, post_id, id)
 );
 CREATE INDEX IF NOT EXISTS idx_comments_listing ON comments (tenant_id, post_id, status, id);
@@ -82,6 +83,7 @@ CREATE TABLE IF NOT EXISTS comment_identities (
   token_expires_at INTEGER,                  -- unix seconds; verification links live 24 hours
   cookie_hash TEXT,                          -- sha-256 of the bn_comment browser cookie, set on verify
   verified_at INTEGER,
+  avatar_key  TEXT,                            -- R2 MEDIA key under avatars/, NULL means the initial circle (see 074)
   created_at  INTEGER NOT NULL,
   PRIMARY KEY (tenant_id, email_hash)
 );

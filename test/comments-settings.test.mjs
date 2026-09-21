@@ -52,11 +52,20 @@ test("comments schema ships in fresh installs and migrates existing posts databa
   const migratedCols = migrated.prepare("PRAGMA table_info(comments)").all().map((row) => row.name);
   assert.ok(migratedCols.includes("avatar_hue"), "migration adds avatar_hue");
 
+  // Reader profile photos ride on identity and comment rows.
+  migrated.exec(read("migrations/074-comment-avatar-key.sql"));
+  const photoCols = (table) => migrated.prepare(`PRAGMA table_info(${table})`).all().map((row) => row.name);
+  assert.ok(photoCols("comments").includes("avatar_key"), "migration adds comments.avatar_key");
+  assert.ok(photoCols("comment_identities").includes("avatar_key"), "migration adds identities.avatar_key");
+  assert.ok(fresh.prepare("PRAGMA table_info(comments)").all().map((row) => row.name).includes("avatar_key"), "fresh schema has comments.avatar_key");
+  assert.ok(fresh.prepare("PRAGMA table_info(comment_identities)").all().map((row) => row.name).includes("avatar_key"), "fresh schema has identities.avatar_key");
+
   // Both migrations are recorded in the production runbook.
   const runbook = read("docs/production-operations.md");
   assert.match(runbook, /069-comments\.sql/);
   assert.match(runbook, /070-tenant-comments-enabled\.sql/);
   assert.match(runbook, /072-comment-avatar-hue\.sql/);
+  assert.match(runbook, /074-comment-avatar-key\.sql/);
 });
 
 // Blog settings round-trip for the comments flag, through the admin form.

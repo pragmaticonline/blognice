@@ -36,7 +36,9 @@ test("served comment scripts parse and keep their regex escapes", async () => {
   assert.ok(client.includes("more replies"), "toggle labels the hidden reply count");
   assert.ok(client.includes("data-ts"), "live comments carry machine time for relative stamps");
   assert.ok(client.includes("mins ago"), "client refreshes human timestamps");
-  assert.ok(client.includes('<summary><span class="comment-avatar"'), "live replies use the flush inline-avatar row");
+  assert.ok(client.includes("<summary>"), "live replies use the flush inline-avatar row");
+  assert.ok(client.includes('<span class="comment-avatar"'), "live replies keep the initial-circle avatar");
+  assert.ok(client.includes('<img class="comment-avatar"'), "live replies show photo avatars when set");
   assert.ok(client.includes("data-pending"), "submits render instantly, confirmed in the background");
   assert.ok(client.includes("Sending"), "form shows progress while the post completes");
   assert.ok(client.includes("toggleReply"), "Reply toggles the inline box instead of a caption line");
@@ -49,6 +51,9 @@ test("served comment scripts parse and keep their regex escapes", async () => {
   assert.ok(client.includes("data-settings-save"), "settings save persists identity");
   assert.ok(client.includes("bn_comment_avatar_hue"), "avatar hue persists locally");
   assert.ok(client.includes("avatar_hue"), "submit carries the chosen hue");
+  assert.ok(client.includes("data-settings-upload"), "photo upload is wired");
+  assert.ok(client.includes("data-settings-remove"), "photo removal is wired");
+  assert.ok(client.includes("bn_comment_avatar_key"), "photo key persists locally");
   assert.ok(client.includes("60000"), "fallback poll runs every 60s");
   assert.ok(client.includes("document.hidden"), "fallback poll skips hidden tabs");
   assert.ok(client.includes("visibilitychange"), "returning to the tab catches up immediately");

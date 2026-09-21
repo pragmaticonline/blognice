@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import test from "node:test";
@@ -78,6 +79,12 @@ function fakeDb(state) {
                 const cols = colsOf(sql, "SET", "WHERE");
                 const row = state.identities[args[args.length - 1]];
                 if (row) cols.forEach((col, i) => { row[col] = args[i]; });
+                return { success: true };
+              }
+              if (sql.startsWith("UPDATE comments SET author_name")) {
+                for (const c of state.comments) {
+                  if (c.tenant_id === args[1] && c.email_hash === args[2]) c.author_name = args[0];
+                }
                 return { success: true };
               }
               if (sql.startsWith("INSERT INTO comment_attempts")) {
@@ -347,13 +354,107 @@ test("verified readers rename themselves from comment settings", async () => {
     assert.equal((await blogniceApp.request(authed("/live-post/comments/identity", { author_name: " " }), undefined, env, executionCtx)).status, 400);
     assert.equal((await blogniceApp.request(authed("/live-post/comments/identity", { author_name: "x".repeat(61) }), undefined, env, executionCtx)).status, 400);
 
-    // Rename sticks and future comments carry it.
+    // A comment posted under the old name keeps it stamped until a rename.
+    const emailHash = createHash("sha256").update("renamer@example.com").digest("hex");
+    state.comments.push({ id: 90, tenant_id: 1, post_id: 7, parent_id: null, author_name: "Old Name", email_hash: emailHash, body: "Before rename.", status: "approved", created_at: NOW });
+    // Rename sticks, future comments carry it, and past comments are renamed too.
     const renamed = await blogniceApp.request(authed("/live-post/comments/identity", { author_name: "New Name" }), undefined, env, executionCtx);
     assert.equal(renamed.status, 200);
     assert.equal((await renamed.json()).author_name, "New Name");
+    assert.equal(state.comments.find((c) => c.id === 90).author_name, "New Name");
     const posted = await blogniceApp.request(authed("/live-post/comments", { body: "After rename." }), undefined, env, executionCtx);
     assert.equal(posted.status, 201);
     assert.equal((await posted.json()).comment.author_name, "New Name");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalCaches === undefined) delete globalThis.caches;
+    else globalThis.caches = originalCaches;
+  }
+});
+
+test("verified readers upload and remove profile photos", async () => {
+  const { blogniceApp } = await import("../src/index.ts");
+  const state = makeState();
+  const db = fakeDb(state);
+  const uploads = [];
+  const deleted = [];
+  const env = {
+    DB: db, POSTS: db, ROOT_DOMAIN: "blognice.test",
+    EMAIL_FROM: "Blog <hello@blognice.test>", MAILNICE_API_KEY: "test-key",
+    MEDIA: {
+      put: async (key, body, opts) => { uploads.push({ key, size: body.byteLength, type: opts?.httpMetadata?.contentType }); },
+      delete: async (key) => { deleted.push(key); },
+    },
+  };
+  const executionCtx = { waitUntil() {}, passThroughOnException() {} };
+  const sentEmails = [];
+  const originalFetch = globalThis.fetch;
+  const originalCaches = globalThis.caches;
+  globalThis.fetch = async (url, init) => {
+    sentEmails.push(String(init?.body || ""));
+    return new Response(JSON.stringify({}), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  globalThis.caches = { default: { match: async () => undefined, put: async () => {}, delete: async () => {} } };
+  const png = (size) => {
+    const bytes = new Uint8Array(size);
+    bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    return new File([bytes], "me.png", { type: "image/png" });
+  };
+  const upload = (cookie, file) => {
+    const form = new FormData();
+    if (file) form.append("avatar", file);
+    const headers = { host: "commentblog.blognice.test" };
+    if (cookie) headers.cookie = `bn_comment=${cookie}`;
+    return blogniceApp.request(new Request("https://commentblog.blognice.test/live-post/comments/avatar", {
+      method: "POST", headers, body: form,
+    }), undefined, env, executionCtx);
+  };
+  try {
+    const start = await blogniceApp.request(new Request("https://commentblog.blognice.test/live-post/comments/start", {
+      method: "POST", headers: { host: "commentblog.blognice.test", "content-type": "application/json" },
+      body: JSON.stringify({ email: "photo@example.com", author_name: "Shutter" }),
+    }), undefined, env, executionCtx);
+    assert.equal(start.status, 200);
+    const verify = await blogniceApp.request(new Request(`https://commentblog.blognice.test/live-post/comments/verify?token=${tokenFrom(sentEmails[0])}`, {
+      headers: { host: "commentblog.blognice.test" },
+    }), undefined, env, executionCtx);
+    assert.equal(verify.status, 302);
+    const cookie = cookieFrom(verify);
+
+    // Guards: anonymous, missing file, spoofed type, oversized.
+    assert.equal((await upload(null, png(1024))).status, 401);
+    assert.equal((await upload(cookie, null)).status, 400);
+    const spoof = new File(["hello"], "evil.png", { type: "image/png" });
+    assert.equal((await upload(cookie, spoof)).status, 400);
+    assert.equal((await upload(cookie, png(3 * 1024 * 1024))).status, 413);
+
+    // Valid upload stores the key on the identity and serves it back.
+    const done = await upload(cookie, png(1024));
+    assert.equal(done.status, 201);
+    const { url, key } = await done.json();
+    assert.match(url, /^\/media\/avatars\/1-[0-9a-f]{8}-[0-9a-f]{8}\.png$/);
+    assert.equal(uploads.length, 1);
+    assert.equal(uploads[0].type, "image/png");
+
+    // New comments carry the photo.
+    const posted = await blogniceApp.request(new Request("https://commentblog.blognice.test/live-post/comments", {
+      method: "POST", headers: { host: "commentblog.blognice.test", cookie: `bn_comment=${cookie}`, "content-type": "application/json" },
+      body: JSON.stringify({ body: "With photo." }),
+    }), undefined, env, executionCtx);
+    assert.equal(posted.status, 201);
+    assert.equal((await posted.json()).comment.avatar_key, key);
+
+    // Removal clears the identity and deletes the object.
+    const removed = await blogniceApp.request(new Request("https://commentblog.blognice.test/live-post/comments/avatar", {
+      method: "DELETE", headers: { host: "commentblog.blognice.test", cookie: `bn_comment=${cookie}` },
+    }), undefined, env, executionCtx);
+    assert.equal(removed.status, 200);
+    assert.ok(deleted.includes(key));
+    const reposted = await blogniceApp.request(new Request("https://commentblog.blognice.test/live-post/comments", {
+      method: "POST", headers: { host: "commentblog.blognice.test", cookie: `bn_comment=${cookie}`, "content-type": "application/json" },
+      body: JSON.stringify({ body: "Without photo." }),
+    }), undefined, env, executionCtx);
+    assert.equal((await reposted.json()).comment.avatar_key, null);
   } finally {
     globalThis.fetch = originalFetch;
     if (originalCaches === undefined) delete globalThis.caches;

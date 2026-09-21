@@ -5190,7 +5190,7 @@ async function moderateComment(c: any, status: "removed" | "approved"): Promise<
   const id = Number(c.req.param("commentId"));
   if (!Number.isSafeInteger(id) || id <= 0) return c.text("Invalid comment.", 400);
   const db = tenantDb(c.env, ctx.tenant);
-  const row = await db.prepare("SELECT id, post_id, parent_id, author_name, body, created_at, avatar_hue FROM comments WHERE tenant_id = ? AND id = ?").bind(ctx.tenant.id, id).first<any>();
+  const row = await db.prepare("SELECT id, post_id, parent_id, author_name, body, created_at, avatar_hue, avatar_key FROM comments WHERE tenant_id = ? AND id = ?").bind(ctx.tenant.id, id).first<any>();
   if (!row) return c.redirect(`/admin/b/${ctx.tenant.public_id}/comments`, 303);
   const now = Math.floor(Date.now() / 1000);
   await db.prepare("UPDATE comments SET status = ?, decided_at = ? WHERE tenant_id = ? AND id = ?").bind(status, now, ctx.tenant.id, id).run();
@@ -5201,7 +5201,7 @@ async function moderateComment(c: any, status: "removed" | "approved"): Promise<
     ? { type: "comment-removed", id: row.id }
     : {
       type: "comment-approved",
-      comment: { id: row.id, parent_id: row.parent_id, author_name: row.author_name, body: row.body, created_at: row.created_at, avatar_hue: row.avatar_hue ?? null },
+      comment: { id: row.id, parent_id: row.parent_id, author_name: row.author_name, body: row.body, created_at: row.created_at, avatar_hue: row.avatar_hue ?? null, avatar_key: row.avatar_key ?? null },
     }).catch(() => false));
   return c.redirect(`/admin/b/${ctx.tenant.public_id}/comments`, 303);
 }
@@ -8137,7 +8137,7 @@ app.get("/:slug", async (c) => {
     if (tenant.comments_enabled) {
       try {
         const { results } = await tenantDb(c.env, tenant).prepare(
-          "SELECT id, parent_id, author_name, body, created_at, status, avatar_hue FROM comments WHERE tenant_id = ? AND post_id = ? ORDER BY id ASC LIMIT 2000"
+          "SELECT id, parent_id, author_name, body, created_at, status, avatar_hue, avatar_key FROM comments WHERE tenant_id = ? AND post_id = ? ORDER BY id ASC LIMIT 2000"
         ).bind(tenant.id, post.id).all<any>();
         commentSection = renderCommentSection(post, results);
       } catch {}
@@ -8165,10 +8165,10 @@ app.get("/:slug/comments", async (c) => {
     const sinceId = Number(sinceRaw);
     if (!Number.isSafeInteger(sinceId) || sinceId < 0) return c.json({ error: "Invalid cursor." }, 400);
     const { results } = await db.prepare(
-      "SELECT id, parent_id, author_name, body, created_at, avatar_hue FROM comments WHERE tenant_id = ? AND post_id = ? AND status = 'approved' AND id > ? ORDER BY id ASC LIMIT 100"
+      "SELECT id, parent_id, author_name, body, created_at, avatar_hue, avatar_key FROM comments WHERE tenant_id = ? AND post_id = ? AND status = 'approved' AND id > ? ORDER BY id ASC LIMIT 100"
     ).bind(tenant.id, post.id, sinceId).all<any>();
     return c.json(
-      { comments: results.map((r) => ({ id: r.id, parent_id: r.parent_id, author_name: r.author_name, body: r.body, created_at: r.created_at, avatar_hue: r.avatar_hue ?? null })) },
+      { comments: results.map((r) => ({ id: r.id, parent_id: r.parent_id, author_name: r.author_name, body: r.body, created_at: r.created_at, avatar_hue: r.avatar_hue ?? null, avatar_key: r.avatar_key ?? null })) },
       200,
       { "cache-control": "public, max-age=30" }
     );
@@ -8177,7 +8177,7 @@ app.get("/:slug/comments", async (c) => {
   const cursor = Number(cursorRaw);
   if (!Number.isSafeInteger(cursor) || cursor < 0) return c.json({ error: "Invalid cursor." }, 400);
   const { results } = await db.prepare(
-    "SELECT id, parent_id, author_name, body, created_at, status, avatar_hue FROM comments WHERE tenant_id = ? AND post_id = ? ORDER BY id ASC LIMIT 2000"
+    "SELECT id, parent_id, author_name, body, created_at, status, avatar_hue, avatar_key FROM comments WHERE tenant_id = ? AND post_id = ? ORDER BY id ASC LIMIT 2000"
   ).bind(tenant.id, post.id).all<any>();
   const { roots } = buildCommentTree(results);
   const page = roots.slice(cursor, cursor + COMMENT_PAGE_SIZE);
@@ -8267,7 +8267,7 @@ async function commentIdentityByCookie(env: Bindings, tenant: Tenant, cookie: st
 }
 
 export type CommentRoomEvent =
-  | { type: "comment-approved"; comment: { id: number; parent_id: number | null; author_name: string; body: string; created_at: number; avatar_hue?: number | null } }
+  | { type: "comment-approved"; comment: { id: number; parent_id: number | null; author_name: string; body: string; created_at: number; avatar_hue?: number | null; avatar_key?: string | null } }
   | { type: "comment-removed"; id: number };
 
 // Best-effort broadcast to the post's room. Fails closed (false) when the
@@ -8371,7 +8371,57 @@ app.post("/:slug/comments/identity", async (c) => {
   await tenantDb(c.env, tenant).prepare(
     "UPDATE comment_identities SET author_name = ? WHERE tenant_id = ? AND email_hash = ?"
   ).bind(authorName, tenant.id, identity.email_hash).run();
+  // Renames apply to past comments too: rows are stamped at insert, so
+  // without this the reader's own history would keep the old name forever.
+  await tenantDb(c.env, tenant).prepare(
+    "UPDATE comments SET author_name = ? WHERE tenant_id = ? AND email_hash = ?"
+  ).bind(authorName, tenant.id, identity.email_hash).run();
   return c.json({ author_name: authorName });
+});
+
+// Reader profile photos. Verified readers only; keys are server-minted
+// under avatars/ (never client-supplied) and stamped onto the identity, so
+// future comments carry the photo. Photos appear instantly, matching the
+// blog's auto-approve posture.
+const COMMENT_AVATAR_MAX = 2 * 1024 * 1024;
+app.post("/:slug/comments/avatar", async (c) => {
+  const tenant = await resolveTenant(c.env, c.req.header("host") || "");
+  if (!tenant || !tenant.comments_enabled) return c.json({ error: "Comments are not available." }, 404);
+  const cookie = getCookie(c, COMMENT_COOKIE);
+  if (!cookie) return c.json({ error: "Verify your email address before commenting." }, 401);
+  const identity = await commentIdentityByCookie(c.env, tenant, cookie);
+  if (!identity || !identity.verified_at) return c.json({ error: "Verify your email address before commenting." }, 401);
+  let form: FormData;
+  try { form = await c.req.formData(); } catch { return c.json({ error: "Expected multipart/form-data with an avatar field." }, 400); }
+  const file = form.get("avatar") as unknown as File | null;
+  if (!(file instanceof File)) return c.json({ error: "Choose a photo to upload." }, 400);
+  if (!ALLOWED_IMAGE.has(file.type) || (await detectedImageType(file)) !== file.type) return c.json({ error: "Unsupported image type." }, 400);
+  if (file.size > COMMENT_AVATAR_MAX) return c.json({ error: "Profile photos must be 2 MB or smaller." }, 413);
+  const rand = crypto.randomUUID().slice(0, 8);
+  const key = `avatars/${tenant.id}-${identity.email_hash.slice(0, 8)}-${rand}.${EXT[file.type]}`;
+  const old = typeof identity.avatar_key === "string" && identity.avatar_key.startsWith("avatars/") ? identity.avatar_key : null;
+  await c.env.MEDIA.put(key, await file.arrayBuffer(), { httpMetadata: { contentType: file.type, cacheControl: "public, max-age=31536000, immutable" } });
+  await tenantDb(c.env, tenant).prepare(
+    "UPDATE comment_identities SET avatar_key = ? WHERE tenant_id = ? AND email_hash = ?"
+  ).bind(key, tenant.id, identity.email_hash).run();
+  if (old && old !== key) await c.env.MEDIA.delete(old).catch(() => undefined);
+  return c.json({ url: `/media/${key}`, key }, 201);
+});
+
+app.delete("/:slug/comments/avatar", async (c) => {
+  const tenant = await resolveTenant(c.env, c.req.header("host") || "");
+  if (!tenant || !tenant.comments_enabled) return c.json({ error: "Comments are not available." }, 404);
+  const cookie = getCookie(c, COMMENT_COOKIE);
+  if (!cookie) return c.json({ error: "Verify your email address before commenting." }, 401);
+  const identity = await commentIdentityByCookie(c.env, tenant, cookie);
+  if (!identity || !identity.verified_at) return c.json({ error: "Verify your email address before commenting." }, 401);
+  if (identity.avatar_key) {
+    await c.env.MEDIA.delete(identity.avatar_key).catch(() => undefined);
+    await tenantDb(c.env, tenant).prepare(
+      "UPDATE comment_identities SET avatar_key = NULL WHERE tenant_id = ? AND email_hash = ?"
+    ).bind(tenant.id, identity.email_hash).run();
+  }
+  return c.json({ ok: true });
 });
 
 app.post("/:slug/comments", async (c) => {
@@ -8407,18 +8457,19 @@ app.post("/:slug/comments", async (c) => {
   if (duplicate) return c.json({ error: "Duplicate comment." }, 409);
   const hueRaw = payload?.avatar_hue;
   const avatarHue = Number.isInteger(hueRaw) && hueRaw >= 0 && hueRaw < 360 ? hueRaw : null;
+  const avatarKey = typeof identity.avatar_key === "string" && identity.avatar_key.startsWith("avatars/") ? identity.avatar_key : null;
   const inserted = await db.prepare(
-    "INSERT INTO comments (tenant_id, post_id, parent_id, author_name, email_hash, body, status, created_at, decided_at, avatar_hue) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-  ).bind(tenant.id, post.id, parentId, identity.author_name, identity.email_hash, body, "approved", now, now, avatarHue).run();
+    "INSERT INTO comments (tenant_id, post_id, parent_id, author_name, email_hash, body, status, created_at, decided_at, avatar_hue, avatar_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(tenant.id, post.id, parentId, identity.author_name, identity.email_hash, body, "approved", now, now, avatarHue, avatarKey).run();
   await logCommentAttempt(c.env, tenant, "submit", identity.email_hash, now);
   // Keep the server-rendered section fresh: the post page is edge-cached.
   c.executionCtx.waitUntil(purge(c, [`/${post.slug}`]).catch(() => {}));
   const id = Number((inserted as any)?.meta?.last_row_id ?? 0);
   c.executionCtx.waitUntil(broadcastCommentEvent(c.env, tenant, post.id, {
     type: "comment-approved",
-    comment: { id, parent_id: parentId, author_name: identity.author_name, body, created_at: now, avatar_hue: avatarHue },
+    comment: { id, parent_id: parentId, author_name: identity.author_name, body, created_at: now, avatar_hue: avatarHue, avatar_key: avatarKey },
   }).catch(() => false));
-  return c.json({ comment: { id, parent_id: parentId, author_name: identity.author_name, body, status: "approved", created_at: now, avatar_hue: avatarHue } }, 201);
+  return c.json({ comment: { id, parent_id: parentId, author_name: identity.author_name, body, status: "approved", created_at: now, avatar_hue: avatarHue, avatar_key: avatarKey } }, 201);
 });
 
 // Reader abuse reports on approved comments. Anyone (verified or not) may
