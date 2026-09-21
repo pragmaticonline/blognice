@@ -17,13 +17,6 @@
         "**/*.svg"
       ],
       "fallthrough": false
-    },
-    {
-      "type": "Data",
-      "globs": [
-        "**/*.png"
-      ],
-      "fallthrough": false
     }
   ],
   "vars": {
