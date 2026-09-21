@@ -597,7 +597,7 @@ const STYLES = /* css */ `
   .replying-to { font-size: .88rem; color: var(--muted); }
   .replying-to button { background: none; border: none; padding: 0; color: var(--accent); font: inherit; cursor: pointer; }
   .new-comments-btn { margin-top: 1rem; background: none; border: 1px solid var(--accent); color: var(--accent); border-radius: 6px; padding: .5rem 1rem; font: inherit; cursor: pointer; }
-  @media (max-width: 560px) { .comment.d1 { margin-left: calc(-50px - 1rem - .5em); } }
+  @media (max-width: 560px) { .comment.d1 { margin-left: 0; } }
   .byline-identity { display: flex; align-items: center; gap: 0.75rem; min-width: 0; color: inherit; text-decoration: none; }
   .avatar {
     width: 2.6rem; height: 2.6rem; border-radius: 50%;
