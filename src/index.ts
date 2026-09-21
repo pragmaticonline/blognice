@@ -127,7 +127,7 @@ import {
   type ImageContextMode,
   type ImageStyle,
 } from "./ai-image";
-import { applyPronunciations, assertEnglishText, classifyTtsError, mergeWav, narrationChunks, narrationSections, pronunciationReplacements, readTtsEngineSetting, selectTtsEngine, ttsBytes, ttsStreamToBytes, validWavAudio, wavAssembly, TTS_FALLBACK_MODEL, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_RETRY_DELAYS, TTS_TRUNCATED_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "./tts";
+import { applyPronunciations, assertEnglishText, classifyTtsError, mergeWav, narrationChunks, narrationSections, pronunciationReplacements, readTtsEngineSetting, selectTtsEngine, ttsBytes, ttsChunkMax, ttsStreamToBytes, validWavAudio, wavAssembly, TTS_FALLBACK_MODEL, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_RETRY_DELAYS, TTS_TRUNCATED_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "./tts";
 import {
   archivePreviousDay,
   archivePreviousDayAffiliateEvents,
@@ -4291,12 +4291,16 @@ async function createAudioJob(env: Bindings, tenant: Tenant, post: Pick<Post, "i
   const replacements = await preparePronunciations(env.AI, text.replaceAll(TTS_HARD_PAUSE, "\n\n").replaceAll(TTS_SOFT_PAUSE, " "));
   const preparedTitle = applyPronunciations(sections.title, replacements).replaceAll(TTS_SOFT_PAUSE, " ");
   const preparedBody = applyPronunciations(sections.body, replacements);
+  // Chunk for the engine that will render this job: Aura-1 rejects inputs
+  // over 2000 characters, so engine-sized segments must be fixed here, not
+  // discovered one failed segment at a time by the queue consumer.
+  const jobModel = selectTtsEngine(await readTtsEngineSetting(env.DB));
   const prompts: Array<{ text: string; pauseAfter: number }> = [{ text: preparedTitle, pauseAfter: TTS_TITLE_PAUSE_SECONDS }];
   const structuralParts = preparedBody.split(TTS_HARD_PAUSE);
   for (let partIndex = 0; partIndex < structuralParts.length; partIndex++) {
     const punctuationParts = structuralParts[partIndex].split(TTS_SOFT_PAUSE);
     for (let punctuationIndex = 0; punctuationIndex < punctuationParts.length; punctuationIndex++) {
-      const chunks = narrationChunks(punctuationParts[punctuationIndex].trim());
+      const chunks = narrationChunks(punctuationParts[punctuationIndex].trim(), ttsChunkMax(jobModel));
       for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
         const isLastChunk = chunkIndex === chunks.length - 1;
         const isLastPunctuationPart = punctuationIndex === punctuationParts.length - 1;
@@ -4306,7 +4310,6 @@ async function createAudioJob(env: Bindings, tenant: Tenant, post: Pick<Post, "i
   }
   const jobId = crypto.randomUUID();
   const jobKey = `${tenant.id}/.audio-jobs/${jobId}.json`;
-  const jobModel = selectTtsEngine(await readTtsEngineSetting(env.DB));
   const checkpointHash = await sha256hex(`${jobModel}\n${preparedTitle}\n${preparedBody}`);
   const checkpointPrefix = `${tenant.id}/.audio-checkpoints/${post.id}-${checkpointHash}`;
   const job: AudioJobManifest = { jobId, tenantId: tenant.id, postId: post.id, postSlug: post.slug, prompts, checkpointKeys: prompts.map((_, index) => `${checkpointPrefix}/${index}.wav`), status: "queued", completed: 0, creditCost: audioCost, creditAccountId: audioReservation.accountId, creditPeriod: audioReservation.period, model: jobModel };
@@ -4376,12 +4379,14 @@ app.post("/admin/b/:blogId/audio/:id", async (c) => {
     const replacements = await preparePronunciations(c.env.AI, text.replaceAll(TTS_HARD_PAUSE, "\n\n").replaceAll(TTS_SOFT_PAUSE, " "));
     const preparedTitle = applyPronunciations(sections.title, replacements).replaceAll(TTS_SOFT_PAUSE, " ");
     const preparedBody = applyPronunciations(sections.body, replacements);
+    // Chunk for the engine that will render this job (see createAudioJob).
+    const jobModel = selectTtsEngine(await readTtsEngineSetting(c.env.DB));
     const prompts: Array<{ text: string; pauseAfter: number }> = [{ text: preparedTitle, pauseAfter: TTS_TITLE_PAUSE_SECONDS }];
     const structuralParts = preparedBody.split(TTS_HARD_PAUSE);
     for (let partIndex = 0; partIndex < structuralParts.length; partIndex++) {
       const punctuationParts = structuralParts[partIndex].split(TTS_SOFT_PAUSE);
       for (let punctuationIndex = 0; punctuationIndex < punctuationParts.length; punctuationIndex++) {
-        const chunks = narrationChunks(punctuationParts[punctuationIndex].trim());
+        const chunks = narrationChunks(punctuationParts[punctuationIndex].trim(), ttsChunkMax(jobModel));
         for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
           const isLastChunk = chunkIndex === chunks.length - 1;
           const isLastPunctuationPart = punctuationIndex === punctuationParts.length - 1;
@@ -4397,7 +4402,6 @@ app.post("/admin/b/:blogId/audio/:id", async (c) => {
     }
     jobId = crypto.randomUUID();
     const jobKey = `${ctx.tenant.id}/.audio-jobs/${jobId}.json`;
-    const jobModel = selectTtsEngine(await readTtsEngineSetting(c.env.DB));
     const checkpointHash = await sha256hex(`${jobModel}\n${preparedTitle}\n${preparedBody}`);
     const checkpointPrefix = `${ctx.tenant.id}/.audio-checkpoints/${post.id}-${checkpointHash}`;
     const job: AudioJobManifest = {

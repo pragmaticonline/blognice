@@ -9,7 +9,7 @@ for (const extension of [".html", ".svg"]) {
     module.exports = readFileSync(filename, "utf8");
   };
 }
-import { applyManagedSpokenForms, applyPronunciations, classifyTtsError, mergeWav, narrationChunks, narrationSections, narrationText, pronunciationReplacements, removeCitationClusters, ttsBytes, validWavAudio, wavAssembly, TTS_CHUNK_MAX, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_RETRY_DELAYS, TTS_TRUNCATED_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "../src/tts.ts";
+import { applyManagedSpokenForms, applyPronunciations, classifyTtsError, mergeWav, narrationChunks, narrationSections, narrationText, pronunciationReplacements, removeCitationClusters, ttsBytes, ttsChunkMax, validWavAudio, wavAssembly, TTS_AURA_CHUNK_MAX, TTS_CHUNK_MAX, TTS_FALLBACK_MODEL, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_RETRY_DELAYS, TTS_TRUNCATED_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "../src/tts.ts";
 
 function wav(samples) {
   const bytes = new Uint8Array(44 + samples.length);
@@ -317,6 +317,18 @@ test("long narration splits on sentences and WAV segments merge into one file", 
   assert.equal(view.getUint32(4, true), merged.length - 8);
   assert.equal(view.getUint32(40, true), 6);
   assert.deepEqual([...merged.slice(44)], [1, 2, 3, 4, 5, 6]);
+});
+
+test("engine-sized chunks fit the active TTS engine input cap", () => {
+  // Regression: with Aura-1 active, 3500-char chunks hit its 2000-char input
+  // cap (error 8007) and fail the whole job. Chunking follows the engine.
+  assert.equal(ttsChunkMax(TTS_FALLBACK_MODEL), TTS_AURA_CHUNK_MAX);
+  assert.equal(ttsChunkMax(TTS_MODEL), TTS_CHUNK_MAX);
+  const text = "A complete sentence for narration. ".repeat(220).trim();
+  const chunks = narrationChunks(text, ttsChunkMax(TTS_FALLBACK_MODEL));
+  assert.ok(chunks.length > 1);
+  assert.ok(chunks.every((chunk) => chunk.length <= TTS_AURA_CHUNK_MAX));
+  assert.equal(chunks.join(" "), text);
 });
 
 test("WAV assembly accepts streamed audio with an unknown data size", () => {

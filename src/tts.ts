@@ -27,6 +27,12 @@ export const TTS_RETRY_DELAYS = [250, 500, 1_000, 1_500, 2_000, 2_000, 2_000, 2_
 // outlasts it; anything still failing after that goes to split-recovery.
 export const TTS_TRUNCATED_RETRY_DELAYS = [2_000, 5_000, 10_000, 15_000, 20_000, 30_000] as const;
 export const TTS_CHUNK_MAX = 3_500;
+// Deepgram Aura-1 rejects inputs over 2000 characters (error 8007), so jobs
+// on the fallback engine must pack smaller segments than MeloTTS jobs.
+export const TTS_AURA_CHUNK_MAX = 2_000;
+export function ttsChunkMax(model: string): number {
+  return model === TTS_FALLBACK_MODEL ? TTS_AURA_CHUNK_MAX : TTS_CHUNK_MAX;
+}
 export const TTS_TEXT_MAX = 20_000;
 export const TTS_TITLE_PAUSE_SECONDS = 1.5;
 export const TTS_STRUCTURE_PAUSE_SECONDS = 0.65;
