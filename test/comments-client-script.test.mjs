@@ -39,4 +39,7 @@ test("served comment scripts parse and keep their regex escapes", async () => {
   assert.ok(client.includes('<summary><span class="comment-avatar"'), "live replies use the flush inline-avatar row");
   assert.ok(client.includes("data-pending"), "submits render instantly, confirmed in the background");
   assert.ok(client.includes("Sending"), "form shows progress while the post completes");
+  assert.ok(client.includes("toggleReply"), "Reply toggles the inline box instead of a caption line");
+  assert.ok(!client.includes("data-replying-to"), "no Replying-to caption in the script");
+  assert.ok(!client.includes("data-reply-cancel"), "no Cancel button in the script");
 });

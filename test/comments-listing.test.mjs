@@ -120,6 +120,9 @@ test("post pages server-render comment threads with tombstones and depth caps", 
     assert.match(html, /\.comment\.d1 \{[^}]*margin-left: 0;/);
     // Instant posts render dimmed until the server confirms them.
     assert.match(html, /\.comment\.pending/);
+    // No Replying-to caption: the Reply button itself toggles the box.
+    assert.ok(!html.includes("data-replying-to"), "no replying caption markup");
+    assert.ok(!html.includes("Replying to"), "no replying caption text");
     // Human timestamps: machine time in data-ts, relative text for readers.
     assert.match(html, /data-ts="/);
     assert.match(html, /1 min ago/);

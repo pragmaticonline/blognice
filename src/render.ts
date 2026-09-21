@@ -595,8 +595,6 @@ const STYLES = /* css */ `
   }
   .comment-form button[type="submit"]:hover { filter: brightness(1.05); }
   .comment-form .form-note { margin: .9rem 0 0; font-size: .88rem; }
-  .replying-to { font-size: .88rem; color: var(--muted); }
-  .replying-to button { background: none; border: none; padding: 0; color: var(--accent); font: inherit; cursor: pointer; }
   .new-comments-btn { margin-top: 1rem; background: none; border: 1px solid var(--accent); color: var(--accent); border-radius: 6px; padding: .5rem 1rem; font: inherit; cursor: pointer; }
   @media (max-width: 560px) { .comment.d1 { margin-left: 0; } }
   .byline-identity { display: flex; align-items: center; gap: 0.75rem; min-width: 0; color: inherit; text-decoration: none; }
@@ -1325,16 +1323,14 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
   var form=section.querySelector("[data-comment-form]");
   var nameField=form.querySelector("[data-field-name]"),emailField=form.querySelector("[data-field-email]"),
       bodyField=form.querySelector("[data-field-body]"),parentField=form.querySelector("[data-field-parent]"),
-      note=form.querySelector("[data-form-note]"),
-      replying=form.querySelector("[data-replying-to]"),replyName=form.querySelector("[data-reply-name]");
+      note=form.querySelector("[data-form-note]");
   function say(text){note.textContent=text;note.hidden=false;}
   function escHtml(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
   var dialog=section.querySelector("[data-comment-dialog]");
   try{var savedId=JSON.parse(localStorage.getItem("bn_comment_identity")||"null");if(savedId){if(!nameField.value&&savedId.name)nameField.value=savedId.name;if(!emailField.value&&savedId.email)emailField.value=savedId.email;}}catch(e){}
   var formHome=form.parentNode,formNext=form.nextSibling;
-  function setMode(parentId,replyToName){
-    if(parentId){parentField.value=parentId;replyName.textContent=replyToName||"this comment";replying.hidden=false;}
-    else{parentField.value="";replying.hidden=true;}
+  function setMode(parentId){
+    parentField.value=parentId||"";
   }
   function focusBody(){
     var keepY=(window.scrollY||document.documentElement.scrollTop||0);
@@ -1373,18 +1369,19 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     try{if(dialog&&dialog.open)dialog.close();else if(dialog)dialog.removeAttribute("open");}catch(e){}
     setMode("","");if(formHome)formHome.insertBefore(form,formNext);form.hidden=false;
   }
+  function toggleReply(btn){
+    var id=btn.getAttribute("data-reply-to");
+    if(parentField.value===id&&form.parentNode!==formHome)resetForm();
+    else showInline(id,btn.getAttribute("data-reply-name"));
+  }
   function wireReply(btn){
-    btn.addEventListener("click",function(){
-      showInline(btn.getAttribute("data-reply-to"),btn.getAttribute("data-reply-name"));
-    });
+    btn.addEventListener("click",function(){toggleReply(btn);});
   }
   section.querySelectorAll("[data-reply-to]").forEach(wireReply);
   var dialogClose=section.querySelector("[data-dialog-close]");
   if(dialogClose)dialogClose.addEventListener("click",function(){resetForm();});
   if(dialog)dialog.addEventListener("click",function(e){if(e.target===dialog)resetForm();});
   if(dialog)dialog.addEventListener("close",function(){resetForm();});
-  var cancelBtn=form.querySelector("[data-reply-cancel]");
-  if(cancelBtn)cancelBtn.addEventListener("click",function(){resetForm();});
   var sortMode="oldest";
   try{var savedSort=localStorage.getItem("bn_comment_sort");if(savedSort==="newest"||savedSort==="oldest")sortMode=savedSort;}catch(e){}
   function threadTime(el){var t=el.querySelector(":scope > summary time");var dt=t?t.getAttribute("datetime"):"";var n=Date.parse(dt||"");return isNaN(n)?0:n;}
@@ -1575,7 +1572,6 @@ export function renderCommentSection(post: { id: number; slug: string }, rows: C
     + `<h2>Comments (${count})</h2>`
     + `<p class="presence" data-presence hidden></p>`
     + `<div data-form-home><form class="comment-form slim" data-comment-form>`
-    + `<p class="replying-to" data-replying-to hidden>Replying to <span data-reply-name></span> <button type="button" data-reply-cancel>Cancel</button></p>`
     + `<div class="id-fields"><label>Display name<input type="text" data-field-name maxlength="60" autocomplete="nickname"></label>`
     + `<label>Email<input type="email" data-field-email autocomplete="email"><span class="help">First time? We will email you a confirmation link. Your address is never shown.</span></label></div>`
     + `<div class="comment-entry"><span class="comment-entry-avatar" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4.2"/><path d="M3.5 21c.6-4.3 4-6.6 8.5-6.6s7.9 2.3 8.5 6.6"/></svg></span>`
