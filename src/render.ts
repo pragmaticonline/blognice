@@ -532,8 +532,10 @@ const STYLES = /* css */ `
   .comment { position: relative; border: none; border-radius: 0; padding: .5em .5em .5em calc(50px + 1rem + .5em); background: none; overflow: hidden; display: block; }
   .comment-list > .comment { border-top: 1px solid var(--rule); }
   .comment-list > .comment:first-child { border-top: none; }
-  .comment.d1 { margin-left: 0; padding-left: calc(2.4rem + .5rem); }
-  .comment.d1 > .comment-avatar { left: 0; }
+  .comment.d1 { margin-left: 0; padding-left: .5em; }
+  .comment.d1 > summary { display: flex; align-items: center; gap: .6rem; }
+  .comment.d1 time { float: none; margin-left: auto; }
+  .comment.d1 .comment-avatar { position: static; width: 2rem; height: 2rem; font-size: .85rem; }
   .comment > .comment-avatar { position: absolute; left: .5em; top: .5em; margin: 0; }
   .comment.removed { padding-left: .5em; }
   .comment-avatar { width: 3.6rem; height: 3.6rem; max-width: 50px; max-height: 50px; border-radius: 50%; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 700; flex: 0 0 auto; }
@@ -1301,9 +1303,13 @@ function renderCommentNodes(nodes: CommentNode[], depth: number, parentAuthor: s
       out += `<div class="comment removed d${capped}" data-comment="${node.id}"><span>Removed by moderator</span>${depth === 0 ? kids : ""}</div>${depth === 0 ? "" : kids}`;
     } else {
       const iso = new Date(node.created_at * 1000).toISOString();
+      const avHtml = commentAvatar(node.author_name);
+      const timeHtml = `<time datetime="${iso}" data-ts="${node.created_at}" title="${esc(formatDate(node.created_at))}">${esc(timeAgo(node.created_at))}</time>`;
+      const headHtml = `<span class="comment-head"><span class="comment-author">${esc(node.author_name)}</span>${flatLabel}</span>`;
       out += `<details class="comment d${capped}" data-comment="${node.id}" open>`
-        + `${commentAvatar(node.author_name)}`
-        + `<summary><span class="comment-head"><span class="comment-author">${esc(node.author_name)}</span>${flatLabel}</span><time datetime="${iso}" data-ts="${node.created_at}" title="${esc(formatDate(node.created_at))}">${esc(timeAgo(node.created_at))}</time></summary>`
+        + (depth === 0
+          ? `${avHtml}<summary>${headHtml}${timeHtml}</summary>`
+          : `<summary>${avHtml}${headHtml}${timeHtml}</summary>`)
         + `<div class="comment-body">${esc(node.body).replace(/\n/g, "<br>")}</div>`
         + `<div class="comment-actions"><button class="reply-btn" type="button" data-reply-to="${node.id}" data-reply-name="${esc(node.author_name)}">Reply</button></div>${depth === 0 ? kids : ""}</details>${depth === 0 ? "" : kids}`;
     }
@@ -1473,9 +1479,11 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     var label=replyTo?'<span class="comment-in-reply">↩ '+escHtml(replyTo)+'</span>':"";
     var nm=((c.author_name||"").trim()||"Someone");
     var iso=new Date((c.created_at||0)*1000).toISOString();
+    var avHtml='<span class="comment-avatar" style="background:hsl('+avatarHue(nm)+',42%,45%)" aria-hidden="true">'+escHtml(nm.charAt(0).toUpperCase())+'</span>';
+    var headHtml='<span class="comment-head"><span class="comment-author">'+escHtml(nm)+'</span>'+label+'</span>';
+    var timeHtml='<time datetime="'+iso+'" data-ts="'+(c.created_at||0)+'" title="'+iso.slice(0,10)+'">'+escHtml(agoStr(c.created_at||0))+'</time>';
     var html='<details class="comment d'+depth+'" data-comment="'+c.id+'" open>'
-      +'<span class="comment-avatar" style="background:hsl('+avatarHue(nm)+',42%,45%)" aria-hidden="true">'+escHtml(nm.charAt(0).toUpperCase())+'</span>'
-      +'<summary><span class="comment-head"><span class="comment-author">'+escHtml(nm)+'</span>'+label+'</span><time datetime="'+iso+'" data-ts="'+(c.created_at||0)+'" title="'+iso.slice(0,10)+'">'+escHtml(agoStr(c.created_at||0))+'</time></summary>'
+      +(depth>0?'<summary>'+avHtml+headHtml+timeHtml+'</summary>':avHtml+'<summary>'+headHtml+timeHtml+'</summary>')
       +'<div class="comment-body">'+escHtml(c.body||"").replace(/\\n/g,"<br>")+'</div>'
       +'<div class="comment-actions"><button class="reply-btn" type="button" data-reply-to="'+c.id+'" data-reply-name="'+escHtml(nm)+'">Reply</button></div></details>';
     var host;

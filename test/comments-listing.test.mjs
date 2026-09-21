@@ -114,6 +114,8 @@ test("post pages server-render comment threads with tombstones and depth caps", 
     assert.match(html, /comment-bubble/);
     // Collapsed replies use the hidden attribute, which must beat the row CSS.
     assert.match(html, /\.comment\[hidden\]/);
+    // Replies keep text flush: avatar rides inline in the name row.
+    assert.match(html, /<summary><span class="comment-avatar"/);
     // Human timestamps: machine time in data-ts, relative text for readers.
     assert.match(html, /data-ts="/);
     assert.match(html, /1 min ago/);

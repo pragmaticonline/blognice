@@ -36,4 +36,5 @@ test("served comment scripts parse and keep their regex escapes", async () => {
   assert.ok(client.includes("more replies"), "toggle labels the hidden reply count");
   assert.ok(client.includes("data-ts"), "live comments carry machine time for relative stamps");
   assert.ok(client.includes("mins ago"), "client refreshes human timestamps");
+  assert.ok(client.includes('<summary><span class="comment-avatar"'), "live replies use the flush inline-avatar row");
 });
