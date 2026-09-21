@@ -524,18 +524,28 @@ const STYLES = /* css */ `
   .comments h2 { font-size: 1.25rem; margin: 0 0 1.25rem; }
   .comments .presence { color: var(--muted); font-size: .85rem; margin: -.9rem 0 1rem; }
   .comments .presence[hidden] { display: none; }
-  .comment-list { display: flex; flex-direction: column; gap: 1rem; }
-  .comment { border: 1px solid var(--rule); border-radius: 8px; padding: .8rem 1rem; background: var(--bg); }
+  .comment-list { display: flex; flex-direction: column; gap: 1.25rem; }
+  .comment { border: 1px solid var(--rule); border-radius: 8px; padding: .9rem 1rem; background: var(--bg); }
   .comment.d1 { margin-left: 1.5rem; } .comment.d2 { margin-left: 3rem; }
   .comment.d3, .comment.d4 { margin-left: 4.5rem; }
-  .comment summary { cursor: pointer; list-style-position: inside; display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; }
-  .comment-author { font-weight: 700; font-size: .9rem; }
-  .comment time { color: var(--muted); font-size: .8rem; }
+  .comment summary { cursor: pointer; list-style-position: inside; display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+  .comment-head { display: flex; align-items: center; gap: .55rem; min-width: 0; }
+  .comment-avatar { width: 2rem; height: 2rem; border-radius: 50%; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: .82rem; font-weight: 700; flex: 0 0 auto; }
+  .comment-author { font-weight: 700; font-size: .9rem; overflow-wrap: anywhere; }
+  .comment time { color: var(--muted); font-size: .8rem; margin-left: auto; }
   .comment-in-reply { color: var(--muted); font-size: .8rem; font-style: italic; }
-  .comment-body { margin: .6rem 0; font-size: .95rem; line-height: 1.6; overflow-wrap: anywhere; }
-  .comment .reply-btn { background: none; border: none; padding: 0; color: var(--accent); font: inherit; font-size: .85rem; cursor: pointer; }
+  .comment-body { margin: .6rem 0 .2rem; font-size: .95rem; line-height: 1.6; overflow-wrap: anywhere; }
+  .comment-actions { display: flex; gap: .9rem; margin-top: .5rem; }
+  .comment .reply-btn { background: none; border: none; padding: 0; color: var(--accent); font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer; }
   .comment .reply-btn:hover { text-decoration: underline; }
-  .comment-children { display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem; }
+  .comment-children { display: flex; flex-direction: column; gap: 1.25rem; margin-top: 1rem; }
+  .comment-teaser { display: block; width: 100%; text-align: left; margin-top: 1.5rem; padding: .8rem 1rem; border: 1px solid var(--rule); border-radius: 8px; background: var(--bg); color: var(--muted); font: inherit; font-size: .95rem; cursor: text; }
+  .comment-teaser:hover { border-color: var(--accent); color: var(--accent); }
+  .comment-dialog { position: relative; width: min(36rem, calc(100vw - 2rem)); border: 1px solid var(--rule); border-radius: 10px; padding: 0; background: var(--bg); color: var(--ink); }
+  .comment-dialog::backdrop { background: rgba(0, 0, 0, .45); }
+  .comment-dialog .comment-form { margin: 0; border: none; }
+  .dialog-close { position: absolute; top: .5rem; right: .7rem; background: none; border: none; font-size: 1.3rem; line-height: 1; color: var(--muted); cursor: pointer; }
+  .dialog-close:hover { color: var(--ink); }
   .comment.removed { border-style: dashed; color: var(--muted); font-size: .88rem; }
   .comment-form { margin-top: 2rem; border: 1px solid var(--rule); border-radius: 8px; padding: 1.2rem; background: var(--bg); }
   .comment-form h3 { margin: 0 0 1rem; font-size: 1.05rem; }
@@ -1220,6 +1230,18 @@ export function commentNodeJson(node: CommentNode): unknown {
   };
 }
 
+function commentAvatarHue(name: string): number {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return h % 360;
+}
+
+function commentAvatar(name: string): string {
+  const clean = (name || "").trim() || "Someone";
+  const initial = esc(clean.charAt(0).toUpperCase());
+  return `<span class="comment-avatar" style="background:hsl(${commentAvatarHue(clean)},42%,45%)" aria-hidden="true">${initial}</span>`;
+}
+
 function renderCommentNodes(nodes: CommentNode[], depth: number, parentAuthor: string): string {
   return nodes.map((node) => {
     const capped = Math.min(depth, 4);
@@ -1230,9 +1252,9 @@ function renderCommentNodes(nodes: CommentNode[], depth: number, parentAuthor: s
     }
     const iso = new Date(node.created_at * 1000).toISOString();
     return `<details class="comment d${capped}" data-comment="${node.id}" open>`
-      + `<summary><span class="comment-author">${esc(node.author_name)}</span>${flatLabel}<time datetime="${iso}">${esc(formatDate(node.created_at))}</time></summary>`
+      + `<summary><span class="comment-head">${commentAvatar(node.author_name)}<span class="comment-author">${esc(node.author_name)}</span></span>${flatLabel}<time datetime="${iso}">${esc(formatDate(node.created_at))}</time></summary>`
       + `<div class="comment-body">${esc(node.body).replace(/\n/g, "<br>")}</div>`
-      + `<button class="reply-btn" type="button" data-reply-to="${node.id}" data-reply-name="${esc(node.author_name)}">Reply</button>${kids}</details>`;
+      + `<div class="comment-actions"><button class="reply-btn" type="button" data-reply-to="${node.id}" data-reply-name="${esc(node.author_name)}">Reply</button></div>${kids}</details>`;
   }).join("");
 }
 
@@ -1246,18 +1268,35 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
       replying=form.querySelector("[data-replying-to]"),replyName=form.querySelector("[data-reply-name]");
   function say(text){note.textContent=text;note.hidden=false;}
   function escHtml(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+  var dialog=section.querySelector("[data-comment-dialog]");
+  var teaser=section.querySelector("[data-comment-teaser]");
+  try{var savedId=JSON.parse(localStorage.getItem("bn_comment_identity")||"null");if(savedId){if(!nameField.value&&savedId.name)nameField.value=savedId.name;if(!emailField.value&&savedId.email)emailField.value=savedId.email;}}catch(e){}
+  function openDialog(parentId,replyToName){
+    if(parentId){parentField.value=parentId;replyName.textContent=replyToName||"this comment";replying.hidden=false;title.textContent="Leave a reply";}
+    else{parentField.value="";replying.hidden=true;title.textContent="Leave a comment";}
+    if(dialog){try{if(dialog.showModal){if(!dialog.open)dialog.showModal();}else dialog.setAttribute("open","");}catch(err){try{dialog.setAttribute("open","");}catch(e2){}}}
+    var focusTo=nameField.value?(emailField.value?bodyField:emailField):nameField;
+    try{focusTo.focus();}catch(e){}
+  }
+  function closeDialog(){
+    try{if(dialog&&dialog.open)dialog.close();else if(dialog)dialog.removeAttribute("open");}catch(e){}
+    parentField.value="";replying.hidden=true;title.textContent="Leave a comment";
+  }
   function wireReply(btn){
     btn.addEventListener("click",function(){
-      parentField.value=btn.getAttribute("data-reply-to");
-      replyName.textContent=btn.getAttribute("data-reply-name")||"this comment";
-      replying.hidden=false;title.textContent="Leave a reply";bodyField.focus();
+      openDialog(btn.getAttribute("data-reply-to"),btn.getAttribute("data-reply-name"));
     });
   }
   section.querySelectorAll("[data-reply-to]").forEach(wireReply);
+  if(teaser)teaser.addEventListener("click",function(){openDialog("","");});
+  var dialogClose=section.querySelector("[data-dialog-close]");
+  if(dialogClose)dialogClose.addEventListener("click",function(){closeDialog();});
+  if(dialog)dialog.addEventListener("click",function(e){if(e.target===dialog)closeDialog();});
   var cancelBtn=form.querySelector("[data-reply-cancel]");
-  if(cancelBtn)cancelBtn.addEventListener("click",function(){parentField.value="";replying.hidden=true;title.textContent="Leave a comment";});
+  if(cancelBtn)cancelBtn.addEventListener("click",function(){closeDialog();});
   form.addEventListener("submit",function(e){
     e.preventDefault();note.hidden=true;
+    try{localStorage.setItem("bn_comment_identity",JSON.stringify({name:nameField.value,email:emailField.value}));}catch(err){}
     var payload={body:bodyField.value};
     if(parentField.value)payload.parent_id=Number(parentField.value);
     fetch(path+"/comments",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)}).then(function(r){
@@ -1274,7 +1313,12 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
   try{
     if(/(^|[?&])verified=1(&|#|$)/.test(location.search+location.hash)){
       var draft=null;try{draft=JSON.parse(localStorage.getItem("bn_comment_draft")||"null");}catch(e){draft=null;}
-      if(draft){nameField.value=draft.name||"";emailField.value=draft.email||"";bodyField.value=draft.body||"";parentField.value=draft.parent||"";}
+      if(draft){
+        nameField.value=draft.name||"";emailField.value=draft.email||"";bodyField.value=draft.body||"";
+        var rname="";
+        if(draft.parent){var pa=section.querySelector('[data-comment="'+draft.parent+'"] .comment-author');if(pa)rname=pa.textContent;}
+        openDialog(draft.parent||"",rname);
+      } else openDialog("","");
       say("Email confirmed — press Post comment to publish your comment.");
       try{history.replaceState(null,"",path+"#comments");}catch(e){}
     }
@@ -1296,16 +1340,18 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
   function authorOf(el){var a=el.querySelector(":scope > summary .comment-author");return a?a.textContent:"this comment";}
   function bumpCount(d){var h=section.querySelector("h2");if(!h)return;var m=/\\(([0-9]+)\\)/.exec(h.textContent);if(m)h.textContent=h.textContent.replace(/ \\([0-9]+\\)/," ("+(Number(m[1])+d)+")");}
   function isoDay(ts){try{return new Date(ts*1000).toISOString().slice(0,10);}catch(e){return "";}}
+  function avatarHue(name){var h=0;for(var i=0;i<name.length;i++){h=(h*31+name.charCodeAt(i))>>>0;}return h%360;}
   function insertApproved(c){
     if(!c||c.id==null||section.querySelector('[data-comment="'+c.id+'"]'))return;
     var parentEl=c.parent_id?section.querySelector('[data-comment="'+c.parent_id+'"]'):null;
     var depth=0,replyTo="";
     if(parentEl){var pd=depthOf(parentEl);depth=Math.min(pd+1,4);if(pd>=4)replyTo=authorOf(parentEl);}
     var label=replyTo?'<span class="comment-in-reply">in reply to '+escHtml(replyTo)+'</span>':"";
+    var nm=((c.author_name||"").trim()||"Someone");
     var html='<details class="comment d'+depth+'" data-comment="'+c.id+'" open>'
-      +'<summary><span class="comment-author">'+escHtml(c.author_name||"Someone")+'</span>'+label+'<time datetime="'+new Date((c.created_at||0)*1000).toISOString()+'">'+escHtml(isoDay(c.created_at||0))+'</time></summary>'
+      +'<summary><span class="comment-head"><span class="comment-avatar" style="background:hsl('+avatarHue(nm)+',42%,45%)" aria-hidden="true">'+escHtml(nm.charAt(0).toUpperCase())+'</span><span class="comment-author">'+escHtml(nm)+'</span></span>'+label+'<time datetime="'+new Date((c.created_at||0)*1000).toISOString()+'">'+escHtml(isoDay(c.created_at||0))+'</time></summary>'
       +'<div class="comment-body">'+escHtml(c.body||"").replace(/\\n/g,"<br>")+'</div>'
-      +'<button class="reply-btn" type="button" data-reply-to="'+c.id+'" data-reply-name="'+escHtml(c.author_name||"Someone")+'">Reply</button></details>';
+      +'<div class="comment-actions"><button class="reply-btn" type="button" data-reply-to="'+c.id+'" data-reply-name="'+escHtml(nm)+'">Reply</button></div></details>';
     var host;
     if(parentEl){host=parentEl.querySelector(":scope > .comment-children");if(!host){host=document.createElement("div");host.className="comment-children";parentEl.appendChild(host);}host.insertAdjacentHTML("beforeend",html);}
     else{host=section.querySelector(".comment-list");host.insertAdjacentHTML("beforeend",html);var empty=section.querySelector(".no-comments");if(empty)empty.remove();}
@@ -1319,7 +1365,7 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     el.classList.add("removed");
     var s=el.querySelector(":scope > summary");if(s)s.innerHTML="<span>Removed by moderator</span>";
     var b=el.querySelector(":scope > .comment-body");if(b)b.remove();
-    var r=el.querySelector(":scope > .reply-btn");if(r)r.remove();
+    var r=el.querySelector(":scope > .comment-actions");if(r)r.remove();
     bumpCount(-1);
   }
   var presenceEl=section.querySelector("[data-presence]");
@@ -1373,6 +1419,8 @@ export function renderCommentSection(post: { id: number; slug: string }, rows: C
     + `<h2>Comments (${count})</h2>`
     + `<p class="presence" data-presence hidden></p>`
     + `<div class="comment-list">${list}</div>`
+    + `<button type="button" class="comment-teaser" data-comment-teaser>Leave a comment…</button>`
+    + `<dialog class="comment-dialog" data-comment-dialog aria-label="Leave a comment">`
     + `<form class="comment-form" data-comment-form>`
     + `<h3 data-form-title>Leave a comment</h3>`
     + `<p class="replying-to" data-replying-to hidden>Replying to <span data-reply-name></span> <button type="button" data-reply-cancel>Cancel</button></p>`
@@ -1383,6 +1431,8 @@ export function renderCommentSection(post: { id: number; slug: string }, rows: C
     + `<button type="submit">Post comment</button>`
     + `<p class="form-note" data-form-note hidden></p>`
     + `</form>`
+    + `<button type="button" class="dialog-close" data-dialog-close aria-label="Close">×</button>`
+    + `</dialog>`
     + COMMENT_CLIENT_SCRIPT
     + `</section>`;
 }

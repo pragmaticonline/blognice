@@ -108,6 +108,14 @@ test("post pages server-render comment threads with tombstones and depth caps", 
     // Reply affordance and comment form exist for readers.
     assert.match(html, /data-reply-to="1"/);
     assert.match(html, /data-comment-form/);
+    // Slim entry: teaser button opens the modal dialog holding the form.
+    assert.match(html, /data-comment-teaser/);
+    assert.match(html, /data-comment-dialog/);
+    // jquery-comments-style identity row: avatar with initial, actions row.
+    assert.match(html, /comment-avatar/);
+    assert.match(html, /comment-avatar[^>]*>B</); // reply author's initial
+    assert.match(html, /comment-avatar[^>]*>&lt;</); // markup author's initial is escaped
+    assert.match(html, /comment-actions/);
 
     // Comments disabled: no section at all.
     state.tenant.comments_enabled = 0;
