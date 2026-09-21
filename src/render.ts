@@ -532,7 +532,8 @@ const STYLES = /* css */ `
   .comment { position: relative; border: none; border-radius: 0; padding: .5em .5em .5em calc(50px + 1rem + .5em); background: none; overflow: hidden; display: block; }
   .comment-list > .comment { border-top: 1px solid var(--rule); }
   .comment-list > .comment:first-child { border-top: none; }
-  .comment.d1 { margin-left: 1rem; padding-left: calc(2.4rem + 1rem + .5em); }
+  .comment.d1 { margin-left: 0; padding-left: calc(2.4rem + .5rem); }
+  .comment.d1 > .comment-avatar { left: 0; }
   .comment > .comment-avatar { position: absolute; left: .5em; top: .5em; margin: 0; }
   .comment.removed { padding-left: .5em; }
   .comment-avatar { width: 3.6rem; height: 3.6rem; max-width: 50px; max-height: 50px; border-radius: 50%; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 700; flex: 0 0 auto; }
@@ -593,7 +594,7 @@ const STYLES = /* css */ `
   .replying-to { font-size: .88rem; color: var(--muted); }
   .replying-to button { background: none; border: none; padding: 0; color: var(--accent); font: inherit; cursor: pointer; }
   .new-comments-btn { margin-top: 1rem; background: none; border: 1px solid var(--accent); color: var(--accent); border-radius: 6px; padding: .5rem 1rem; font: inherit; cursor: pointer; }
-  @media (max-width: 560px) { .comment.d1 { margin-left: .5rem; } }
+  @media (max-width: 560px) { .comment.d1 { margin-left: 0; } }
   .byline-identity { display: flex; align-items: center; gap: 0.75rem; min-width: 0; color: inherit; text-decoration: none; }
   .avatar {
     width: 2.6rem; height: 2.6rem; border-radius: 50%;
