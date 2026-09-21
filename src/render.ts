@@ -529,10 +529,10 @@ const STYLES = /* css */ `
   .sort-tabs button { background: none; border: none; padding: 0 1em; font: inherit; color: inherit; cursor: pointer; position: relative; }
   .sort-tabs button.active, .sort-tabs button:hover { color: var(--ink); }
   .sort-tabs button.active:after { content: " "; display: block; position: absolute; right: 0; left: 0; bottom: -2px; height: 2px; background: var(--ink); }
-  .comment { position: relative; border: none; border-radius: 0; padding: .5em .5em .5em calc(50px + 1rem + .5em); background: none; overflow: hidden; display: block; }
+  .comment { position: relative; border: none; border-radius: 0; padding: .5em .5em .5em calc(50px + 1rem + .5em); background: none; display: block; }
   .comment-list > .comment { border-top: 1px solid var(--rule); }
   .comment-list > .comment:first-child { border-top: none; }
-  .comment.d1 { margin-left: 0; margin-right: -.5em; padding-left: .5em; }
+  .comment.d1 { margin-left: calc(-50px - 1rem - .5em); margin-right: -.5em; padding-left: .5em; }
   .comment.d1 .comment-head > :last-child { margin-right: 0; }
   .comment.d1 > summary { display: flex; align-items: center; gap: .6rem; }
   .comment.d1 time { float: none; margin-left: auto; }
@@ -597,7 +597,7 @@ const STYLES = /* css */ `
   .replying-to { font-size: .88rem; color: var(--muted); }
   .replying-to button { background: none; border: none; padding: 0; color: var(--accent); font: inherit; cursor: pointer; }
   .new-comments-btn { margin-top: 1rem; background: none; border: 1px solid var(--accent); color: var(--accent); border-radius: 6px; padding: .5rem 1rem; font: inherit; cursor: pointer; }
-  @media (max-width: 560px) { .comment.d1 { margin-left: 0; } }
+  @media (max-width: 560px) { .comment.d1 { margin-left: calc(-50px - 1rem - .5em); } }
   .byline-identity { display: flex; align-items: center; gap: 0.75rem; min-width: 0; color: inherit; text-decoration: none; }
   .avatar {
     width: 2.6rem; height: 2.6rem; border-radius: 50%;
