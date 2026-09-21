@@ -539,8 +539,7 @@ const STYLES = /* css */ `
   .comment .reply-btn { background: none; border: none; padding: 0; color: var(--accent); font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer; }
   .comment .reply-btn:hover { text-decoration: underline; }
   .comment-children { display: flex; flex-direction: column; gap: 1.25rem; margin-top: 1rem; }
-  .comment-teaser { display: block; width: 100%; text-align: left; margin: 0 0 1.25rem; padding: .8rem 1rem; border: 1px solid var(--rule); border-radius: 8px; background: var(--bg); color: var(--muted); font: inherit; font-size: .95rem; cursor: text; }
-  .comment-teaser:hover { border-color: var(--accent); color: var(--accent); }
+  .comment-form button[type="submit"] { padding: .45rem 1rem; font-size: .88rem; }
   .comment-dialog { position: fixed; inset: 0; margin: auto; width: min(36rem, calc(100vw - 2rem)); max-height: calc(100vh - 3rem); overflow: auto; border: 1px solid var(--rule); border-radius: 10px; padding: 0; background: var(--bg); color: var(--ink); }
   .comment-dialog::backdrop { background: rgba(0, 0, 0, .45); }
   .comment-dialog .comment-form { margin: 0; border: none; }
@@ -1266,17 +1265,16 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
   var form=section.querySelector("[data-comment-form]");
   var nameField=form.querySelector("[data-field-name]"),emailField=form.querySelector("[data-field-email]"),
       bodyField=form.querySelector("[data-field-body]"),parentField=form.querySelector("[data-field-parent]"),
-      note=form.querySelector("[data-form-note]"),title=form.querySelector("[data-form-title]"),
+      note=form.querySelector("[data-form-note]"),
       replying=form.querySelector("[data-replying-to]"),replyName=form.querySelector("[data-reply-name]");
   function say(text){note.textContent=text;note.hidden=false;}
   function escHtml(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
   var dialog=section.querySelector("[data-comment-dialog]");
-  var teaser=section.querySelector("[data-comment-teaser]");
   try{var savedId=JSON.parse(localStorage.getItem("bn_comment_identity")||"null");if(savedId){if(!nameField.value&&savedId.name)nameField.value=savedId.name;if(!emailField.value&&savedId.email)emailField.value=savedId.email;}}catch(e){}
   var formHome=form.parentNode,formNext=form.nextSibling;
   function setMode(parentId,replyToName){
-    if(parentId){parentField.value=parentId;replyName.textContent=replyToName||"this comment";replying.hidden=false;title.textContent="Leave a reply";}
-    else{parentField.value="";replying.hidden=true;title.textContent="Leave a comment";}
+    if(parentId){parentField.value=parentId;replyName.textContent=replyToName||"this comment";replying.hidden=false;}
+    else{parentField.value="";replying.hidden=true;}
   }
   function focusBody(){
     var keepY=(window.scrollY||document.documentElement.scrollTop||0);
@@ -1309,9 +1307,9 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     if(window.requestAnimationFrame){try{window.requestAnimationFrame(settleDialog);}catch(e){settleDialog();}}
     else settleDialog();
   }
-  function hideForm(){
+  function resetForm(){
     try{if(dialog&&dialog.open)dialog.close();else if(dialog)dialog.removeAttribute("open");}catch(e){}
-    setMode("","");if(formHome)formHome.insertBefore(form,formNext);form.hidden=true;
+    setMode("","");if(formHome)formHome.insertBefore(form,formNext);form.hidden=false;
   }
   function wireReply(btn){
     btn.addEventListener("click",function(){
@@ -1319,12 +1317,11 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     });
   }
   section.querySelectorAll("[data-reply-to]").forEach(wireReply);
-  if(teaser)teaser.addEventListener("click",function(){showInline("","");});
   var dialogClose=section.querySelector("[data-dialog-close]");
-  if(dialogClose)dialogClose.addEventListener("click",function(){hideForm();});
-  if(dialog)dialog.addEventListener("click",function(e){if(e.target===dialog)hideForm();});
+  if(dialogClose)dialogClose.addEventListener("click",function(){resetForm();});
+  if(dialog)dialog.addEventListener("click",function(e){if(e.target===dialog)resetForm();});
   var cancelBtn=form.querySelector("[data-reply-cancel]");
-  if(cancelBtn)cancelBtn.addEventListener("click",function(){hideForm();});
+  if(cancelBtn)cancelBtn.addEventListener("click",function(){resetForm();});
   form.addEventListener("submit",function(e){
     e.preventDefault();note.hidden=true;
     try{localStorage.setItem("bn_comment_identity",JSON.stringify({name:nameField.value,email:emailField.value}));}catch(err){}
@@ -1351,7 +1348,7 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
         if(draft.parent){var pa=section.querySelector('[data-comment="'+draft.parent+'"] .comment-author');if(pa)rname=pa.textContent;}
         showInline(draft.parent||"",rname);
       } else showInline("","");
-      say("Email confirmed — press Post comment to publish your comment.");
+      say("Email confirmed — press Send to publish your comment.");
       try{history.replaceState(null,"",path+"#comments");}catch(e){}
     }
   }catch(e){}
@@ -1450,15 +1447,13 @@ export function renderCommentSection(post: { id: number; slug: string }, rows: C
   return `<section class="comments" id="comments" aria-label="Comments" data-comment-section data-comments-path="/${esc(post.slug)}">`
     + `<h2>Comments (${count})</h2>`
     + `<p class="presence" data-presence hidden></p>`
-    + `<button type="button" class="comment-teaser" data-comment-teaser>Leave a comment…</button>`
-    + `<div data-form-home><form class="comment-form slim" data-comment-form hidden>`
-    + `<h3 data-form-title>Leave a comment</h3>`
+    + `<div data-form-home><form class="comment-form slim" data-comment-form>`
     + `<p class="replying-to" data-replying-to hidden>Replying to <span data-reply-name></span> <button type="button" data-reply-cancel>Cancel</button></p>`
     + `<div class="id-fields"><label>Display name<input type="text" data-field-name maxlength="60" autocomplete="nickname"></label>`
     + `<label>Email<input type="email" data-field-email autocomplete="email"><span class="help">First time? We will email you a confirmation link. Your address is never shown.</span></label></div>`
     + `<label>Comment<textarea data-field-body maxlength="2000" required></textarea></label>`
     + `<input type="hidden" data-field-parent value="">`
-    + `<button type="submit">Post comment</button>`
+    + `<button type="submit">Send</button>`
     + `<p class="form-note" data-form-note hidden></p>`
     + `</form></div>`
     + `<div class="comment-list">${list}</div>`

@@ -108,13 +108,14 @@ test("post pages server-render comment threads with tombstones and depth caps", 
     // Reply affordance and comment form exist for readers.
     assert.match(html, /data-reply-to="1"/);
     assert.match(html, /data-comment-form/);
-    // Slim entry: teaser button opens the modal dialog holding the form.
-    assert.match(html, /data-comment-teaser/);
+    // Entry is an always-visible slim box above the thread; the dialog
+    // holds the same form only for first-time verification.
     assert.match(html, /data-comment-dialog/);
-    // One shared form: slim and hidden in its home slot, full fields only in the dialog.
+    assert.ok(!html.includes("data-comment-teaser"), "no teaser gate");
     assert.match(html, /data-form-home/);
     assert.match(html, /id-fields/);
     assert.equal(html.match(/<form class="comment-form/g).length, 1);
+    assert.match(html, />Send</);
     // Entry box sits above the thread, YouTube-style.
     assert.ok(html.indexOf("data-comment-teaser") < html.indexOf('<div class="comment-list"'), "teaser precedes the list");
     // jquery-comments-style identity row: avatar with initial, actions row.
