@@ -539,7 +539,9 @@ const STYLES = /* css */ `
   .comment .reply-btn { background: none; border: none; padding: 0; color: var(--accent); font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer; }
   .comment .reply-btn:hover { text-decoration: underline; }
   .comment-children { display: flex; flex-direction: column; gap: 1.25rem; margin-top: 1rem; }
-  .comment-form button[type="submit"] { padding: .45rem 1rem; font-size: .88rem; }
+  .comment-form.slim { padding: .8rem; }
+  .comment-form.slim textarea { min-height: 2.4rem; }
+  .comment-form.slim button[type="submit"] { padding: .3rem .8rem; font-size: .82rem; }
   .comment-dialog { position: fixed; inset: 0; margin: auto; width: min(36rem, calc(100vw - 2rem)); max-height: calc(100vh - 3rem); overflow: auto; border: 1px solid var(--rule); border-radius: 10px; padding: 0; background: var(--bg); color: var(--ink); }
   .comment-dialog::backdrop { background: rgba(0, 0, 0, .45); }
   .comment-dialog .comment-form { margin: 0; border: none; }
@@ -560,7 +562,7 @@ const STYLES = /* css */ `
   .comment-form .help { display: block; margin-top: .3rem; font-size: .8rem; font-weight: 400; color: var(--muted); }
   .comment-form button[type="submit"] {
     background: none; border: 1px solid var(--accent); color: var(--accent); border-radius: 6px;
-    padding: .6rem 1.2rem; font: inherit; font-weight: 600; cursor: pointer;
+    padding: .45rem 1rem; font: inherit; font-size: .9rem; font-weight: 600; cursor: pointer;
   }
   .comment-form button[type="submit"]:hover { background: var(--accent); color: var(--bg); }
   .comment-form .form-note { margin: .9rem 0 0; font-size: .88rem; }
@@ -1451,7 +1453,7 @@ export function renderCommentSection(post: { id: number; slug: string }, rows: C
     + `<p class="replying-to" data-replying-to hidden>Replying to <span data-reply-name></span> <button type="button" data-reply-cancel>Cancel</button></p>`
     + `<div class="id-fields"><label>Display name<input type="text" data-field-name maxlength="60" autocomplete="nickname"></label>`
     + `<label>Email<input type="email" data-field-email autocomplete="email"><span class="help">First time? We will email you a confirmation link. Your address is never shown.</span></label></div>`
-    + `<label>Comment<textarea data-field-body maxlength="2000" required></textarea></label>`
+    + `<textarea data-field-body maxlength="2000" required aria-label="Comment"></textarea>`
     + `<input type="hidden" data-field-parent value="">`
     + `<button type="submit">Send</button>`
     + `<p class="form-note" data-form-note hidden></p>`

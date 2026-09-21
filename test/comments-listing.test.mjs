@@ -116,6 +116,11 @@ test("post pages server-render comment threads with tombstones and depth caps", 
     assert.match(html, /id-fields/);
     assert.equal(html.match(/<form class="comment-form/g).length, 1);
     assert.match(html, />Send</);
+    // No visible caption text on the entry box: the textarea is bare with
+    // an accessible name, and the submit button gets compact slim styling.
+    assert.ok(!html.includes("<label>Comment<"), "no visible Comment label");
+    assert.match(html, /aria-label="Comment"/);
+    assert.match(html, /\.comment-form\.slim button\[type="submit"\]/);
     // Entry box sits above the thread, YouTube-style.
     assert.ok(html.indexOf("data-comment-teaser") < html.indexOf('<div class="comment-list"'), "teaser precedes the list");
     // jquery-comments-style identity row: avatar with initial, actions row.
