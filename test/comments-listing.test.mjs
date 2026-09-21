@@ -114,6 +114,9 @@ test("post pages server-render comment threads with tombstones and depth caps", 
     assert.match(html, /comment-bubble/);
     // Collapsed replies use the hidden attribute, which must beat the row CSS.
     assert.match(html, /\.comment\[hidden\]/);
+    // Human timestamps: machine time in data-ts, relative text for readers.
+    assert.match(html, /data-ts="/);
+    assert.match(html, /1 min ago/);
     // Flattened, not nested: the 1->2->3 chain renders a single
     // comment-children container holding every descendant as a sibling.
     const chain = html.slice(html.indexOf('data-comment="1"'), html.indexOf('data-comment="10"'));

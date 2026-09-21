@@ -1261,6 +1261,24 @@ function commentAvatarHue(name: string): number {
   return h % 360;
 }
 
+function timeAgo(createdAt: number, now: number = Math.floor(Date.now() / 1000)): string {
+  const s = Math.max(0, now - createdAt);
+  if (s < 15) return "just now";
+  if (s < 60) return `${s} secs ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return m === 1 ? "1 min ago" : `${m} mins ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return h === 1 ? "1 hour ago" : `${h} hours ago`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return d === 1 ? "1 day ago" : `${d} days ago`;
+  const w = Math.floor(d / 7);
+  if (w < 5) return w === 1 ? "1 week ago" : `${w} weeks ago`;
+  const mo = Math.floor(d / 30);
+  if (mo < 12) return mo === 1 ? "1 month ago" : `${mo} months ago`;
+  const y = Math.floor(d / 365);
+  return y === 1 ? "1 year ago" : `${y} years ago`;
+}
+
 function commentAvatar(name: string): string {
   const clean = (name || "").trim() || "Someone";
   const initial = esc(clean.charAt(0).toUpperCase());
@@ -1284,7 +1302,7 @@ function renderCommentNodes(nodes: CommentNode[], depth: number, parentAuthor: s
       const iso = new Date(node.created_at * 1000).toISOString();
       out += `<details class="comment d${capped}" data-comment="${node.id}" open>`
         + `${commentAvatar(node.author_name)}`
-        + `<summary><span class="comment-head"><span class="comment-author">${esc(node.author_name)}</span>${flatLabel}</span><time datetime="${iso}">${esc(formatDate(node.created_at))}</time></summary>`
+        + `<summary><span class="comment-head"><span class="comment-author">${esc(node.author_name)}</span>${flatLabel}</span><time datetime="${iso}" data-ts="${node.created_at}" title="${esc(formatDate(node.created_at))}">${esc(timeAgo(node.created_at))}</time></summary>`
         + `<div class="comment-body">${esc(node.body).replace(/\n/g, "<br>")}</div>`
         + `<div class="comment-actions"><button class="reply-btn" type="button" data-reply-to="${node.id}" data-reply-name="${esc(node.author_name)}">Reply</button></div>${depth === 0 ? kids : ""}</details>${depth === 0 ? "" : kids}`;
     }
@@ -1435,7 +1453,16 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
   function depthOf(el){var m=/\\bd([0-1])\\b/.exec(el.className||"");return m?Number(m[1]):0;}
   function authorOf(el){var a=el.querySelector(":scope > summary .comment-author");return a?a.textContent:"this comment";}
   function bumpCount(d){var h=section.querySelector("h2");if(!h)return;var m=/\\(([0-9]+)\\)/.exec(h.textContent);if(m)h.textContent=h.textContent.replace(/ \\([0-9]+\\)/," ("+(Number(m[1])+d)+")");}
-  function isoDay(ts){try{return new Date(ts*1000).toISOString().slice(0,10);}catch(e){return "";}}
+  function agoStr(ts){var s=Math.max(0,Math.floor(Date.now()/1000)-Number(ts||0));
+    if(s<15)return "just now";if(s<60)return s+" secs ago";
+    var m=Math.floor(s/60);if(m<60)return m===1?"1 min ago":m+" mins ago";
+    var h=Math.floor(m/60);if(h<24)return h===1?"1 hour ago":h+" hours ago";
+    var d=Math.floor(h/24);if(d<7)return d===1?"1 day ago":d+" days ago";
+    var w=Math.floor(d/7);if(w<5)return w===1?"1 week ago":w+" weeks ago";
+    var mo=Math.floor(d/30);if(mo<12)return mo===1?"1 month ago":mo+" months ago";
+    var y=Math.floor(d/365);return y===1?"1 year ago":y+" years ago";}
+  function refreshTimes(){section.querySelectorAll("time[data-ts]").forEach(function(t){t.textContent=agoStr(t.getAttribute("data-ts"));});}
+  setInterval(refreshTimes,60000);
   function avatarHue(name){var h=0;for(var i=0;i<name.length;i++){h=(h*31+name.charCodeAt(i))>>>0;}return h%360;}
   function insertApproved(c){
     if(!c||c.id==null||section.querySelector('[data-comment="'+c.id+'"]'))return;
@@ -1444,9 +1471,10 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     if(parentEl){var pd=depthOf(parentEl);depth=Math.min(pd+1,1);if(pd>=1)replyTo=authorOf(parentEl);}
     var label=replyTo?'<span class="comment-in-reply">↩ '+escHtml(replyTo)+'</span>':"";
     var nm=((c.author_name||"").trim()||"Someone");
+    var iso=new Date((c.created_at||0)*1000).toISOString();
     var html='<details class="comment d'+depth+'" data-comment="'+c.id+'" open>'
       +'<span class="comment-avatar" style="background:hsl('+avatarHue(nm)+',42%,45%)" aria-hidden="true">'+escHtml(nm.charAt(0).toUpperCase())+'</span>'
-      +'<summary><span class="comment-head"><span class="comment-author">'+escHtml(nm)+'</span>'+label+'</span><time datetime="'+new Date((c.created_at||0)*1000).toISOString()+'">'+escHtml(isoDay(c.created_at||0))+'</time></summary>'
+      +'<summary><span class="comment-head"><span class="comment-author">'+escHtml(nm)+'</span>'+label+'</span><time datetime="'+iso+'" data-ts="'+(c.created_at||0)+'" title="'+iso.slice(0,10)+'">'+escHtml(agoStr(c.created_at||0))+'</time></summary>'
       +'<div class="comment-body">'+escHtml(c.body||"").replace(/\\n/g,"<br>")+'</div>'
       +'<div class="comment-actions"><button class="reply-btn" type="button" data-reply-to="'+c.id+'" data-reply-name="'+escHtml(nm)+'">Reply</button></div></details>';
     var host;
