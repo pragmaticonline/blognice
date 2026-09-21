@@ -536,7 +536,7 @@ const STYLES = /* css */ `
   .comment > .comment-avatar { float: left; margin-right: 1rem; }
   .comment-avatar { width: 3.6rem; height: 3.6rem; max-width: 50px; max-height: 50px; border-radius: 50%; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 700; flex: 0 0 auto; }
   .comment.d1 .comment-avatar { width: 2.4rem; height: 2.4rem; font-size: 1rem; }
-  .comment summary { cursor: pointer; list-style: none; line-height: 1.4em; overflow: hidden; }
+  .comment summary { cursor: pointer; list-style: none; display: block; line-height: 1.4em; overflow: hidden; }
   .comment summary::-webkit-details-marker { display: none; }
   .comment summary::marker { content: ""; }
   .comment-head { display: inline; line-height: 1.4em; overflow-wrap: break-word; }
