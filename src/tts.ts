@@ -27,7 +27,7 @@ export const TTS_RETRY_DELAYS = [250, 500, 1_000, 1_500, 2_000, 2_000, 2_000, 2_
 // outlasts it; anything still failing after that goes to split-recovery.
 export const TTS_TRUNCATED_RETRY_DELAYS = [2_000, 5_000, 10_000, 15_000, 20_000, 30_000] as const;
 export const TTS_CHUNK_MAX = 3_500;
-export const TTS_TEXT_MAX = 10_000;
+export const TTS_TEXT_MAX = 20_000;
 export const TTS_TITLE_PAUSE_SECONDS = 1.5;
 export const TTS_STRUCTURE_PAUSE_SECONDS = 0.65;
 export const TTS_PUNCTUATION_PAUSE_SECONDS = 0.35;

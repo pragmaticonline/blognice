@@ -31,7 +31,7 @@ test("narration text keeps readable content and removes markdown plumbing", () =
   assert.match(text, /Read the evidence/);
   assert.match(text, /Chart/);
   assert.doesNotMatch(text, /https:|secret\(\)|```|#/);
-  assert.equal(TTS_TEXT_MAX, 10_000);
+  assert.equal(TTS_TEXT_MAX, 20_000);
 });
 
 test("narration drops trailing citation-link clusters but keeps prose links", () => {
