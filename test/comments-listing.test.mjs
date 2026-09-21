@@ -102,9 +102,12 @@ test("post pages server-render comment threads with tombstones and depth caps", 
     // Childless removed comments vanish entirely.
     assert.doesNotMatch(html, /Childless removed\./);
     assert.doesNotMatch(html, /Removed parent\./);
-    // Depth past 4 flattens with an in-reply-to label.
+    // Only two nesting levels: replies past depth 1 flatten to d1 with an
+    // in-reply-to label instead of indenting forever.
     assert.match(html, /in reply to/);
     assert.match(html, /L6 deep\./);
+    assert.doesNotMatch(html, /comment d[2-9]/);
+    assert.match(html, /in reply to B/);
     // Reply affordance and comment form exist for readers.
     assert.match(html, /data-reply-to="1"/);
     assert.match(html, /data-comment-form/);
@@ -128,6 +131,11 @@ test("post pages server-render comment threads with tombstones and depth caps", 
     assert.match(html, /comment-avatar[^>]*>B</); // reply author's initial
     assert.match(html, /comment-avatar[^>]*>&lt;</); // markup author's initial is escaped
     assert.match(html, /comment-actions/);
+    // jquery-comments-style sort tabs above the thread; oldest matches the
+    // server order, newest re-orders client-side without a reload.
+    assert.match(html, /data-sort-tabs/);
+    assert.match(html, /data-sort-tab="newest"/);
+    assert.match(html, /data-sort-tab="oldest"/);
 
     // Comments disabled: no section at all.
     state.tenant.comments_enabled = 0;

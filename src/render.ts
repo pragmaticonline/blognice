@@ -524,13 +524,15 @@ const STYLES = /* css */ `
   .comments h2 { font-size: 1.25rem; margin: 0 0 1.25rem; }
   .comments .presence { color: var(--muted); font-size: .85rem; margin: -.9rem 0 1rem; }
   .comments .presence[hidden] { display: none; }
-  .comment-list { display: flex; flex-direction: column; gap: 1.25rem; }
-  .comment { border: 1px solid var(--rule); border-radius: 8px; padding: .9rem 1rem; background: var(--bg); }
-  .comment.d1 { margin-left: 1.5rem; } .comment.d2 { margin-left: 3rem; }
-  .comment.d3, .comment.d4 { margin-left: 4.5rem; }
+  .comment-list { display: flex; flex-direction: column; }
+  .sort-tabs { display: flex; gap: 1.4rem; margin: 1.2rem 0 .2rem; }
+  .sort-tabs button { background: none; border: none; border-bottom: 2px solid transparent; padding: .3rem 0; font: inherit; font-size: .9rem; font-weight: 600; color: var(--muted); cursor: pointer; }
+  .sort-tabs button.active { color: var(--ink); border-bottom-color: var(--accent); }
+  .comment { border: none; border-bottom: 1px solid var(--rule); border-radius: 0; padding: .9rem 0; background: none; }
+  .comment.d1 { margin-left: 3rem; }
   .comment summary { cursor: pointer; list-style-position: inside; display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
   .comment-head { display: flex; align-items: center; gap: .55rem; min-width: 0; }
-  .comment-avatar { width: 2rem; height: 2rem; border-radius: 50%; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: .82rem; font-weight: 700; flex: 0 0 auto; }
+  .comment-avatar { width: 2.4rem; height: 2.4rem; border-radius: 50%; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: .95rem; font-weight: 700; flex: 0 0 auto; }
   .comment-author { font-weight: 700; font-size: .9rem; overflow-wrap: anywhere; }
   .comment time { color: var(--muted); font-size: .8rem; margin-left: auto; }
   .comment-in-reply { color: var(--muted); font-size: .8rem; font-style: italic; }
@@ -539,9 +541,10 @@ const STYLES = /* css */ `
   .comment .reply-btn { background: none; border: none; padding: 0; color: var(--accent); font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer; }
   .comment .reply-btn:hover { text-decoration: underline; }
   .comment-children { display: flex; flex-direction: column; gap: 1.25rem; margin-top: 1rem; }
-  .comment-form.slim { padding: .8rem; }
+  .comment-form.slim { padding: .8rem; display: flex; flex-direction: column; }
   .comment-form.slim textarea { min-height: 2.4rem; }
-  .comment-form.slim button[type="submit"] { padding: .3rem .8rem; font-size: .82rem; }
+  .comment-form.slim button[type="submit"] { align-self: flex-end; }
+  .comment-form.slim button[type="submit"] { padding: .62rem 1.2rem; font-size: 1rem; }
   .comment-dialog { position: fixed; inset: 0; margin: auto; width: min(36rem, calc(100vw - 2rem)); max-height: calc(100vh - 3rem); overflow: auto; border: 1px solid var(--rule); border-radius: 10px; padding: 0; background: var(--bg); color: var(--ink); }
   .comment-dialog::backdrop { background: rgba(0, 0, 0, .45); }
   .comment-dialog .comment-form { margin: 0; border: none; }
@@ -562,14 +565,14 @@ const STYLES = /* css */ `
   .comment-form .help { display: block; margin-top: .3rem; font-size: .8rem; font-weight: 400; color: var(--muted); }
   .comment-form button[type="submit"] {
     background: none; border: 1px solid var(--accent); color: var(--accent); border-radius: 6px;
-    padding: .45rem 1rem; font: inherit; font-size: .9rem; font-weight: 600; cursor: pointer;
+    padding: .62rem 1.2rem; font: inherit; font-size: 1rem; font-weight: 600; cursor: pointer;
   }
   .comment-form button[type="submit"]:hover { background: var(--accent); color: var(--bg); }
   .comment-form .form-note { margin: .9rem 0 0; font-size: .88rem; }
   .replying-to { font-size: .88rem; color: var(--muted); }
   .replying-to button { background: none; border: none; padding: 0; color: var(--accent); font: inherit; cursor: pointer; }
   .new-comments-btn { margin-top: 1rem; background: none; border: 1px solid var(--accent); color: var(--accent); border-radius: 6px; padding: .5rem 1rem; font: inherit; cursor: pointer; }
-  @media (max-width: 560px) { .comment.d1 { margin-left: .9rem; } .comment.d2 { margin-left: 1.8rem; } .comment.d3, .comment.d4 { margin-left: 2.7rem; } }
+  @media (max-width: 560px) { .comment.d1 { margin-left: .9rem; } }
   .byline-identity { display: flex; align-items: center; gap: 0.75rem; min-width: 0; color: inherit; text-decoration: none; }
   .avatar {
     width: 2.6rem; height: 2.6rem; border-radius: 50%;
@@ -1247,8 +1250,8 @@ function commentAvatar(name: string): string {
 
 function renderCommentNodes(nodes: CommentNode[], depth: number, parentAuthor: string): string {
   return nodes.map((node) => {
-    const capped = Math.min(depth, 4);
-    const flatLabel = depth > 4 ? `<span class="comment-in-reply">in reply to ${esc(parentAuthor)}</span>` : "";
+    const capped = Math.min(depth, 1);
+    const flatLabel = depth > 1 ? `<span class="comment-in-reply">in reply to ${esc(parentAuthor)}</span>` : "";
     const kids = node.children.length ? `<div class="comment-children">${renderCommentNodes(node.children, depth + 1, node.tombstone ? parentAuthor : node.author_name)}</div>` : "";
     if (node.tombstone) {
       return `<div class="comment removed d${capped}" data-comment="${node.id}"><span>Removed by moderator</span>${kids}</div>`;
@@ -1324,6 +1327,20 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
   if(dialog)dialog.addEventListener("click",function(e){if(e.target===dialog)resetForm();});
   var cancelBtn=form.querySelector("[data-reply-cancel]");
   if(cancelBtn)cancelBtn.addEventListener("click",function(){resetForm();});
+  var sortMode="oldest";
+  try{var savedSort=localStorage.getItem("bn_comment_sort");if(savedSort==="newest"||savedSort==="oldest")sortMode=savedSort;}catch(e){}
+  function threadTime(el){var t=el.querySelector(":scope > summary time");var dt=t?t.getAttribute("datetime"):"";var n=Date.parse(dt||"");return isNaN(n)?0:n;}
+  function applySort(){
+    var list=section.querySelector(".comment-list");if(!list)return;
+    var items=Array.prototype.slice.call(list.querySelectorAll(":scope > [data-comment]"));
+    items.sort(function(a,b){var d=threadTime(a)-threadTime(b);return sortMode==="newest"?-d:d;});
+    for(var i=0;i<items.length;i++)list.appendChild(items[i]);
+    section.querySelectorAll("[data-sort-tab]").forEach(function(b){
+      if(b.getAttribute("data-sort-tab")===sortMode)b.classList.add("active");else b.classList.remove("active");});
+  }
+  section.querySelectorAll("[data-sort-tab]").forEach(function(b){
+    b.addEventListener("click",function(){sortMode=b.getAttribute("data-sort-tab");try{localStorage.setItem("bn_comment_sort",sortMode);}catch(e){}applySort();});});
+  applySort();
   form.addEventListener("submit",function(e){
     e.preventDefault();note.hidden=true;
     try{localStorage.setItem("bn_comment_identity",JSON.stringify({name:nameField.value,email:emailField.value}));}catch(err){}
@@ -1367,7 +1384,7 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
   });
   var maxId=0;
   section.querySelectorAll("[data-comment]").forEach(function(el){var id=Number(el.getAttribute("data-comment"));if(id>maxId)maxId=id;});
-  function depthOf(el){var m=/\\bd([0-4])\\b/.exec(el.className||"");return m?Number(m[1]):0;}
+  function depthOf(el){var m=/\\bd([0-1])\\b/.exec(el.className||"");return m?Number(m[1]):0;}
   function authorOf(el){var a=el.querySelector(":scope > summary .comment-author");return a?a.textContent:"this comment";}
   function bumpCount(d){var h=section.querySelector("h2");if(!h)return;var m=/\\(([0-9]+)\\)/.exec(h.textContent);if(m)h.textContent=h.textContent.replace(/ \\([0-9]+\\)/," ("+(Number(m[1])+d)+")");}
   function isoDay(ts){try{return new Date(ts*1000).toISOString().slice(0,10);}catch(e){return "";}}
@@ -1376,7 +1393,7 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     if(!c||c.id==null||section.querySelector('[data-comment="'+c.id+'"]'))return;
     var parentEl=c.parent_id?section.querySelector('[data-comment="'+c.parent_id+'"]'):null;
     var depth=0,replyTo="";
-    if(parentEl){var pd=depthOf(parentEl);depth=Math.min(pd+1,4);if(pd>=4)replyTo=authorOf(parentEl);}
+    if(parentEl){var pd=depthOf(parentEl);depth=Math.min(pd+1,1);if(pd>=1)replyTo=authorOf(parentEl);}
     var label=replyTo?'<span class="comment-in-reply">in reply to '+escHtml(replyTo)+'</span>':"";
     var nm=((c.author_name||"").trim()||"Someone");
     var html='<details class="comment d'+depth+'" data-comment="'+c.id+'" open>'
@@ -1385,7 +1402,7 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
       +'<div class="comment-actions"><button class="reply-btn" type="button" data-reply-to="'+c.id+'" data-reply-name="'+escHtml(nm)+'">Reply</button></div></details>';
     var host;
     if(parentEl){host=parentEl.querySelector(":scope > .comment-children");if(!host){host=document.createElement("div");host.className="comment-children";parentEl.appendChild(host);}host.insertAdjacentHTML("beforeend",html);}
-    else{host=section.querySelector(".comment-list");host.insertAdjacentHTML("beforeend",html);var empty=section.querySelector(".no-comments");if(empty)empty.remove();}
+    else{host=section.querySelector(".comment-list");host.insertAdjacentHTML(sortMode==="newest"?"afterbegin":"beforeend",html);var empty=section.querySelector(".no-comments");if(empty)empty.remove();}
     var fresh=section.querySelector('[data-comment="'+c.id+'"]');
     if(fresh){var rb=fresh.querySelector("[data-reply-to]");if(rb)wireReply(rb);}
     bumpCount(1);if(c.id>maxId)maxId=c.id;
@@ -1458,6 +1475,7 @@ export function renderCommentSection(post: { id: number; slug: string }, rows: C
     + `<button type="submit">Send</button>`
     + `<p class="form-note" data-form-note hidden></p>`
     + `</form></div>`
+    + `<div class="sort-tabs" data-sort-tabs><button type="button" data-sort-tab="newest">Newest</button><button type="button" data-sort-tab="oldest" class="active">Oldest</button></div>`
     + `<div class="comment-list">${list}</div>`
     + `<dialog class="comment-dialog" data-comment-dialog aria-label="Leave a comment">`
     + `<button type="button" class="dialog-close" data-dialog-close aria-label="Close">×</button>`
