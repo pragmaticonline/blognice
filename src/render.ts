@@ -529,11 +529,12 @@ const STYLES = /* css */ `
   .sort-tabs button { background: none; border: none; padding: 0 1em; font: inherit; color: inherit; cursor: pointer; position: relative; }
   .sort-tabs button.active, .sort-tabs button:hover { color: var(--ink); }
   .sort-tabs button.active:after { content: " "; display: block; position: absolute; right: 0; left: 0; bottom: -2px; height: 2px; background: var(--ink); }
-  .comment { border: none; border-radius: 0; padding: .5em; background: none; overflow: hidden; }
+  .comment { position: relative; border: none; border-radius: 0; padding: .5em .5em .5em calc(50px + 1rem + .5em); background: none; overflow: hidden; display: block; }
   .comment-list > .comment { border-top: 1px solid var(--rule); }
   .comment-list > .comment:first-child { border-top: none; }
   .comment.d1 { margin-left: calc(50px + 1rem); }
-  .comment > .comment-avatar { float: left; margin-right: 1rem; }
+  .comment > .comment-avatar { position: absolute; left: .5em; top: .5em; margin: 0; }
+  .comment.removed { padding-left: .5em; }
   .comment-avatar { width: 3.6rem; height: 3.6rem; max-width: 50px; max-height: 50px; border-radius: 50%; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 700; flex: 0 0 auto; }
   .comment.d1 .comment-avatar { width: 2.4rem; height: 2.4rem; font-size: 1rem; }
   .comment summary { cursor: pointer; list-style: none; display: block; line-height: 1.4em; overflow: hidden; }
