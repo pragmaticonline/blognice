@@ -108,6 +108,11 @@ test("post pages server-render comment threads with tombstones and depth caps", 
     assert.match(html, /L6 deep\./);
     assert.doesNotMatch(html, /comment d[2-9]/);
     assert.match(html, /in reply to B/);
+    assert.match(html, /in reply to C/);
+    // Flattened, not nested: the 1->2->3 chain renders a single
+    // comment-children container holding every descendant as a sibling.
+    const chain = html.slice(html.indexOf('data-comment="1"'), html.indexOf('data-comment="10"'));
+    assert.equal(chain.match(/<div class="comment-children">/g).length, 1);
     // Reply affordance and comment form exist for readers.
     assert.match(html, /data-reply-to="1"/);
     assert.match(html, /data-comment-form/);
