@@ -112,6 +112,8 @@ test("post pages server-render comment threads with tombstones and depth caps", 
     // jquery-comments-style entry: avatar beside a tailed bubble box.
     assert.match(html, /comment-entry-avatar/);
     assert.match(html, /comment-bubble/);
+    // Collapsed replies use the hidden attribute, which must beat the row CSS.
+    assert.match(html, /\.comment\[hidden\]/);
     // Flattened, not nested: the 1->2->3 chain renders a single
     // comment-children container holding every descendant as a sibling.
     const chain = html.slice(html.indexOf('data-comment="1"'), html.indexOf('data-comment="10"'));
