@@ -1316,9 +1316,11 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     if(window.requestAnimationFrame){try{window.requestAnimationFrame(settle);}catch(e){settle();}}
     else settle();
   }
+  function openThread(el){while(el){if(el.tagName==="DETAILS"&&!el.open)el.open=true;el=el.parentNode;}}
   function showInline(parentId,replyToName){
     setMode(parentId,replyToName);
     var target=parentId?section.querySelector('[data-comment="'+parentId+'"]'):null;
+    if(target)openThread(target);
     if(target){var kids=target.querySelector(":scope > .comment-children");if(kids)target.insertBefore(form,kids);else target.appendChild(form);}
     else if(formHome)formHome.insertBefore(form,formNext);
     form.classList.add("slim");form.hidden=false;focusBody();

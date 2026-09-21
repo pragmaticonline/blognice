@@ -31,4 +31,5 @@ test("served comment scripts parse and keep their regex escapes", async () => {
   assert.ok(client.includes('closest(".comment-children")'), "live replies flatten into the level-1 container");
   assert.ok(client.includes("↩"), "live reply-to labels match the server style");
   assert.ok(client.includes('addEventListener("close"'), "dialog Escape returns the form to the thread");
+  assert.ok(client.includes("openThread"), "replying opens a collapsed thread so the form stays visible");
 });
