@@ -3781,6 +3781,31 @@ app.get("/admin/b/:blogId/edit/:id", async (c) => {
   return c.html(editorPage(ctx.account, ctx.tenant, c.env.ROOT_DOMAIN, post, undefined, can(ctx.role, "posts.edit.any") ? await postAuthors(c.env, ctx.tenant) : []));
 });
 
+// Shareable draft preview links. Custom domains never carry the owner
+// session, so drafts there need a token link. Tokens are random, hashed at
+// rest, expire after 7 days, and only open drafts — wrong tokens 404 exactly
+// like missing posts, leaking neither the draft nor its existence.
+const PREVIEW_TOKEN_TTL = 60 * 60 * 24 * 7;
+app.post("/admin/b/:blogId/posts/:id/preview-link", async (c) => {
+  const ctx = await blogContext(c);
+  if ("redirect" in ctx) return c.json({ error: "Signed out." }, 401);
+  if ("suspended" in ctx) return c.json({ error: "Suspended." }, 403);
+  const post = await tenantDb(c.env, ctx.tenant).prepare(
+    "SELECT id, slug, published, author_account_id FROM posts WHERE id = ? AND tenant_id = ?"
+  ).bind(c.req.param("id"), ctx.tenant.id).first<any>();
+  if (!post) return c.json({ error: "Post not found." }, 404);
+  if (!can(ctx.role, "posts.edit.any") &&
+      !(can(ctx.role, "posts.edit.own") && post.author_account_id === ctx.account.id))
+    return c.json({ error: "You do not have permission to edit this post." }, 403);
+  if (post.published) return c.json({ error: "Only drafts need preview links." }, 400);
+  const token = commentRandomToken();
+  const now = Math.floor(Date.now() / 1000);
+  await tenantDb(c.env, ctx.tenant).prepare(
+    "UPDATE posts SET preview_token_hash = ?, preview_token_expires_at = ? WHERE id = ? AND tenant_id = ?"
+  ).bind(await sha256hex(token), now + PREVIEW_TOKEN_TTL, post.id, ctx.tenant.id).run();
+  return c.json({ url: `${publicOrigin(c.env, ctx.tenant)}/${post.slug}?preview=${token}`, expires_at: now + PREVIEW_TOKEN_TTL });
+});
+
 // Create or update a post. Scoped to the blog (which is ownership-checked).
 app.post("/admin/b/:blogId/save", async (c) => {
   const ctx = await blogContext(c);
@@ -8005,14 +8030,24 @@ async function publishedRelatedPosts(env: Bindings, tenant: Tenant, post: Post):
 async function serveDraftPreview(c: any): Promise<Response | null> {
   const tenant = await resolveTenant(c.env, c.req.header("host") || "");
   if (!tenant) return null;
-  const account = await currentAccount(c);
-  if (!account) return null;
-  const role = await membershipRoleFor(c.env, account.id, tenant.id);
-  if (!role) return null;
   const post = await tenantDb(c.env, tenant).prepare(
     "SELECT * FROM posts WHERE tenant_id = ? AND slug = ?"
   ).bind(tenant.id, c.req.param("slug")).first<Post>();
   if (!post || post.published) return null;
+  const account = await currentAccount(c);
+  const role = account ? await membershipRoleFor(c.env, account.id, tenant.id) : null;
+  let allowed = !!role;
+  // Shareable token link: works on any host with no session, so drafts open
+  // on custom domains too. Hashed comparison, expiry enforced.
+  if (!allowed) {
+    const token = String(c.req.query("preview") ?? "");
+    if (token.length >= 32 && post.preview_token_hash) {
+      const now = Math.floor(Date.now() / 1000);
+      allowed = (await sha256hex(token)) === post.preview_token_hash
+        && (post.preview_token_expires_at ?? 0) > now;
+    }
+  }
+  if (!allowed) return null;
   let htmlBody = renderMarkdown(post.body_md);
   if (htmlBody.includes("twitter-tweet")) htmlBody = await expandTweetEmbeds(htmlBody);
   if (htmlBody.includes("youtube-embed")) htmlBody = expandYoutubeEmbeds(htmlBody);

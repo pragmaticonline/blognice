@@ -28,6 +28,8 @@ CREATE TABLE posts (
   author_name TEXT,
   author_visible INTEGER NOT NULL DEFAULT 1,
   meta_description TEXT,
+  preview_token_hash TEXT,                       -- sha-256 of a draft preview token (see 073)
+  preview_token_expires_at INTEGER,              -- unix seconds; NULL means no link minted
   UNIQUE (tenant_id, slug)
 );
 

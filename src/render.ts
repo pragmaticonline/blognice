@@ -102,6 +102,8 @@ export type Post = {
   created_at: number;
   updated_at: number;
   meta_description?: string | null;
+  preview_token_hash?: string | null;
+  preview_token_expires_at?: number | null;
 };
 
 export type Page = {

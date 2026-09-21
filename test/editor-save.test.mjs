@@ -45,6 +45,23 @@ test("editor teaches Markdown and provides accessible formatting shortcuts", () 
   assert.match(admin, /Use the Preview tab/);
 });
 
+test("drafts offer a preview-link button; published posts keep View", () => {
+  const draft = editorPage(
+    { id: 1, email: "writer@example.com", billing_status: "active" },
+    { id: 2, public_id: "blog-public", slug: "notes", title: "Notes", membership_role: "owner" },
+    "blognice.test", { id: 3, title: "Draft", slug: "draft", body_md: "Body", tags_json: "[]", published: 0 },
+  );
+  assert.match(draft, /id="copy-preview-link" data-preview-link="\/admin\/b\/blog-public\/posts\/3\/preview-link"/);
+  assert.match(draft, /Copy preview link/);
+  const live = editorPage(
+    { id: 1, email: "writer@example.com", billing_status: "active" },
+    { id: 2, public_id: "blog-public", slug: "notes", title: "Notes", membership_role: "owner" },
+    "blognice.test", { id: 3, title: "Live", slug: "live", body_md: "Body", tags_json: "[]", published: 1 },
+  );
+  assert.doesNotMatch(live, /id="copy-preview-link"/);
+  assert.match(live, />View</);
+});
+
 test("generated editor scripts compile in the browser", () => {
   const html = editorPage(
     { id: 1, email: "writer@example.com", billing_status: "active" },

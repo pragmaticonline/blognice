@@ -1459,7 +1459,7 @@ export function editorPage(
           <button class="btn ghost" type="button" id="save-continue">Save &amp; continue</button>
           <a class="btn ghost" href="${base}">Cancel</a>
           <span class="spacer"></span>
-          ${isEdit ? `<a class="btn ghost" href="${viewUrl}" target="_blank">View</a>` : ""}
+          ${isEdit ? (published ? `<a class="btn ghost" href="${viewUrl}" target="_blank">View</a>` : `<button class="btn ghost" type="button" id="copy-preview-link" data-preview-link="${base}/posts/${post!.id}/preview-link">Copy preview link</button>`) : ""}
         </div>
       </form>
       <div class="save-toast" id="save-status" role="status" aria-live="polite" hidden></div>
@@ -1601,6 +1601,28 @@ export function editorPage(
         var editorForm = document.getElementById("post-editor-form");
         var saveContinue = document.getElementById("save-continue");
         var saveStatus = document.getElementById("save-status");
+        var previewLinkBtn = document.getElementById("copy-preview-link");
+        if (previewLinkBtn) {
+          previewLinkBtn.addEventListener("click", function () {
+            var originalLabel = previewLinkBtn.textContent;
+            previewLinkBtn.disabled = true;
+            previewLinkBtn.textContent = "Copying…";
+            fetch(previewLinkBtn.getAttribute("data-preview-link"), { method: "POST", headers: { "accept": "application/json" } }).then(function (response) {
+              if (!response.ok) throw new Error("Could not mint a preview link.");
+              return response.json();
+            }).then(function (data) {
+              var done = function () {
+                previewLinkBtn.textContent = "Copied — valid 7 days";
+                setTimeout(function () { previewLinkBtn.textContent = originalLabel; previewLinkBtn.disabled = false; }, 3000);
+              };
+              if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(data.url).then(done, done);
+              else { window.prompt("Copy the preview link:", data.url); done(); }
+            }).catch(function () {
+              previewLinkBtn.textContent = "Could not copy — try again";
+              previewLinkBtn.disabled = false;
+            });
+          });
+        }
         var featuredSavePending = false;
         var saveStatusTimer = null;
 
