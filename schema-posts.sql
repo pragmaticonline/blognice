@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS comments (
   status      TEXT    NOT NULL DEFAULT 'approved',
   created_at  INTEGER NOT NULL,
   decided_at  INTEGER,
+  avatar_hue  INTEGER,                          -- reader-chosen colour, NULL = name-derived (see 072)
   UNIQUE (tenant_id, post_id, id)
 );
 CREATE INDEX IF NOT EXISTS idx_comments_listing ON comments (tenant_id, post_id, status, id);

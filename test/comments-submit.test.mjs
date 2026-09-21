@@ -196,6 +196,15 @@ test("verified readers post auto-approved comments; guards hold", async () => {
     assert.equal(reply.status, 201);
     assert.equal((await reply.json()).comment.parent_id, 1);
 
+    // Chosen avatar hues stick to the comment; junk hues are ignored.
+    const hued = await blogniceApp.request(withCookie({ body: "Colourful.", avatar_hue: 200 }), undefined, env, executionCtx);
+    assert.equal(hued.status, 201);
+    assert.equal((await hued.json()).comment.avatar_hue, 200);
+    assert.equal(state.comments[state.comments.length - 1].avatar_hue, 200);
+    const junk = await blogniceApp.request(withCookie({ body: "No hue.", avatar_hue: 999 }), undefined, env, executionCtx);
+    assert.equal(junk.status, 201);
+    assert.equal((await junk.json()).comment.avatar_hue, null);
+
     // Draft posts and disabled blogs accept nothing.
     assert.equal((await blogniceApp.request(req("/unfinished/comments", {
       method: "POST", headers: { "content-type": "application/json", cookie: `bn_comment=${cookie}` },
@@ -226,8 +235,8 @@ test("verified readers post auto-approved comments; guards hold", async () => {
     }), undefined, env, executionCtx);
     assert.equal(afterRecovery.status, 201);
 
-    // Submit rate limit: 20 per 10 minutes per identity (3 posted above).
-    for (let i = 0; i < 17; i++) {
+    // Submit rate limit: 20 per 10 minutes per identity (5 posted above).
+    for (let i = 0; i < 15; i++) {
       const res = await blogniceApp.request(req("/live-post/comments", {
         method: "POST", headers: { "content-type": "application/json", cookie: `bn_comment=${cookie2}` },
         body: JSON.stringify({ body: `Filler ${i}.` }),
@@ -292,5 +301,62 @@ test("failed verification sends are logged with provider detail", async () => {
   } finally {
     globalThis.fetch = originalFetch;
     console.error = originalError;
+  }
+});
+
+test("verified readers rename themselves from comment settings", async () => {
+  const { blogniceApp } = await import("../src/index.ts");
+  const state = makeState();
+  const db = fakeDb(state);
+  const env = { DB: db, POSTS: db, ROOT_DOMAIN: "blognice.test", EMAIL_FROM: "Blog <hello@blognice.test>", MAILNICE_API_KEY: "test-key" };
+  const executionCtx = { waitUntil() {}, passThroughOnException() {} };
+  const sentEmails = [];
+  const originalFetch = globalThis.fetch;
+  const originalCaches = globalThis.caches;
+  globalThis.fetch = async (url, init) => {
+    sentEmails.push(String(init?.body || ""));
+    return new Response(JSON.stringify({}), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  globalThis.caches = { default: { match: async () => undefined, put: async () => {}, delete: async () => {} } };
+  const req = (path, opts = {}) => new Request(`https://commentblog.blognice.test${path}`, {
+    ...opts,
+    headers: { host: "commentblog.blognice.test", ...(opts.headers || {}) },
+  });
+  try {
+    const start = await blogniceApp.request(req("/live-post/comments/start", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "renamer@example.com", author_name: "Old Name" }),
+    }), undefined, env, executionCtx);
+    assert.equal(start.status, 200);
+    const verify = await blogniceApp.request(req(`/live-post/comments/verify?token=${tokenFrom(sentEmails[0])}`), undefined, env, executionCtx);
+    assert.equal(verify.status, 302);
+    const cookie = cookieFrom(verify);
+    assert.ok(cookie, "browser identity cookie set");
+    const authed = (path, body) => req(path, {
+      method: "POST", headers: { "content-type": "application/json", cookie: `bn_comment=${cookie}` },
+      body: JSON.stringify(body),
+    });
+
+    // Anonymous renames are rejected.
+    assert.equal((await blogniceApp.request(req("/live-post/comments/identity", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ author_name: "Nobody" }),
+    }), undefined, env, executionCtx)).status, 401);
+
+    // Guards: empty and over-long names.
+    assert.equal((await blogniceApp.request(authed("/live-post/comments/identity", { author_name: " " }), undefined, env, executionCtx)).status, 400);
+    assert.equal((await blogniceApp.request(authed("/live-post/comments/identity", { author_name: "x".repeat(61) }), undefined, env, executionCtx)).status, 400);
+
+    // Rename sticks and future comments carry it.
+    const renamed = await blogniceApp.request(authed("/live-post/comments/identity", { author_name: "New Name" }), undefined, env, executionCtx);
+    assert.equal(renamed.status, 200);
+    assert.equal((await renamed.json()).author_name, "New Name");
+    const posted = await blogniceApp.request(authed("/live-post/comments", { body: "After rename." }), undefined, env, executionCtx);
+    assert.equal(posted.status, 201);
+    assert.equal((await posted.json()).comment.author_name, "New Name");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalCaches === undefined) delete globalThis.caches;
+    else globalThis.caches = originalCaches;
   }
 });

@@ -176,6 +176,35 @@ test("post pages server-render comment threads with tombstones and depth caps", 
   }
 });
 
+test("comment section carries a settings cog and reader settings dialog", async () => {
+  const { blogniceApp } = await import("../src/index.ts");
+  const state = makeState();
+  state.comments[12].avatar_hue = 200;
+  const env = { DB: fakeDb(state), POSTS: fakeDb(state), ROOT_DOMAIN: "blognice.test" };
+  const executionCtx = { waitUntil() {}, passThroughOnException() {} };
+  const originalCaches = globalThis.caches;
+  globalThis.caches = { default: { match: async () => undefined, put: async () => {} } };
+  try {
+    const res = await blogniceApp.request(req("/live-post"), undefined, env, executionCtx);
+    assert.equal(res.status, 200);
+    const html = await res.text();
+    // Cog sits inside the sort-tabs row, after the sort buttons.
+    assert.match(html, /data-sort-tabs[\s\S]*?data-settings-cog/);
+    assert.match(html, /data-settings-cog[^>]*aria-label="Comment settings"/);
+    // Reader settings dialog: display name, avatar colour swatches, save.
+    assert.match(html, /data-settings-dialog/);
+    assert.match(html, /data-settings-name/);
+    assert.equal((html.match(/data-settings-hue="\d+"/g) || []).length, 8, "eight avatar colour swatches");
+    assert.match(html, /data-settings-save/);
+    // Stored hues render; rows without one fall back to the name-derived hue.
+    assert.match(html, /hsl\(200,42%,45%\)/);
+    assert.match(html, /comment-avatar/);
+  } finally {
+    if (originalCaches === undefined) delete globalThis.caches;
+    else globalThis.caches = originalCaches;
+  }
+});
+
 test("comment cursor endpoint pages top-level threads and catches up", async () => {
   const { blogniceApp } = await import("../src/index.ts");
   const state = makeState();

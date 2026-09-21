@@ -44,4 +44,12 @@ test("served comment scripts parse and keep their regex escapes", async () => {
   assert.ok(client.includes("' fresh'"), "new arrivals highlight briefly");
   assert.ok(!client.includes("data-replying-to"), "no Replying-to caption in the script");
   assert.ok(!client.includes("data-reply-cancel"), "no Cancel button in the script");
+  assert.ok(client.includes("data-settings-cog"), "cog opens reader settings");
+  assert.ok(client.includes("data-settings-dialog"), "settings dialog is wired");
+  assert.ok(client.includes("data-settings-save"), "settings save persists identity");
+  assert.ok(client.includes("bn_comment_avatar_hue"), "avatar hue persists locally");
+  assert.ok(client.includes("avatar_hue"), "submit carries the chosen hue");
+  assert.ok(client.includes("60000"), "fallback poll runs every 60s");
+  assert.ok(client.includes("document.hidden"), "fallback poll skips hidden tabs");
+  assert.ok(client.includes("visibilitychange"), "returning to the tab catches up immediately");
 });

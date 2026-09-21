@@ -44,10 +44,19 @@ test("comments schema ships in fresh installs and migrates existing posts databa
   const tenantCols = tenants.prepare("PRAGMA table_info(tenants)").all().map((row) => row.name);
   assert.ok(tenantCols.includes("comments_enabled"), "migration adds comments_enabled");
 
+  // Reader-chosen avatar hues ride on the comment row: fresh schemas carry
+  // the column and migration 072 adds it idempotently to existing tables.
+  const freshCols = fresh.prepare("PRAGMA table_info(comments)").all().map((row) => row.name);
+  assert.ok(freshCols.includes("avatar_hue"), "fresh schema has avatar_hue");
+  migrated.exec(read("migrations/072-comment-avatar-hue.sql"));
+  const migratedCols = migrated.prepare("PRAGMA table_info(comments)").all().map((row) => row.name);
+  assert.ok(migratedCols.includes("avatar_hue"), "migration adds avatar_hue");
+
   // Both migrations are recorded in the production runbook.
   const runbook = read("docs/production-operations.md");
   assert.match(runbook, /069-comments\.sql/);
   assert.match(runbook, /070-tenant-comments-enabled\.sql/);
+  assert.match(runbook, /072-comment-avatar-hue\.sql/);
 });
 
 // Blog settings round-trip for the comments flag, through the admin form.
