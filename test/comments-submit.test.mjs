@@ -66,7 +66,17 @@ function fakeDb(state) {
           };
           return {
             first,
-            all: async () => ({ results: [] }),
+            all: async () => {
+              if (sql.includes("SELECT DISTINCT post_id")) {
+                const seen = [...new Set(state.comments.filter((c) => c.tenant_id === args[0] && c.email_hash === args[1]).map((c) => c.post_id))];
+                return { results: seen.map((post_id) => ({ post_id })) };
+              }
+              if (sql.includes("SELECT slug FROM posts")) {
+                const ids = args.slice(1);
+                return { results: Object.values(state.posts).filter((p) => ids.includes(p.id)).map((p) => ({ slug: p.slug })) };
+              }
+              return { results: [] };
+            },
             run: async () => {
               if (sql.startsWith("INSERT INTO comment_identities")) {
                 const cols = colsOf(sql, "comment_identities (", ") VALUES");
@@ -316,7 +326,9 @@ test("verified readers rename themselves from comment settings", async () => {
   const state = makeState();
   const db = fakeDb(state);
   const env = { DB: db, POSTS: db, ROOT_DOMAIN: "blognice.test", EMAIL_FROM: "Blog <hello@blognice.test>", MAILNICE_API_KEY: "test-key" };
-  const executionCtx = { waitUntil() {}, passThroughOnException() {} };
+  const pending = [];
+  const purged = [];
+  const executionCtx = { waitUntil(p) { pending.push(Promise.resolve(p)); }, passThroughOnException() {} };
   const sentEmails = [];
   const originalFetch = globalThis.fetch;
   const originalCaches = globalThis.caches;
@@ -324,7 +336,7 @@ test("verified readers rename themselves from comment settings", async () => {
     sentEmails.push(String(init?.body || ""));
     return new Response(JSON.stringify({}), { status: 200, headers: { "content-type": "application/json" } });
   };
-  globalThis.caches = { default: { match: async () => undefined, put: async () => {}, delete: async () => {} } };
+  globalThis.caches = { default: { match: async () => undefined, put: async () => {}, delete: async (req) => { purged.push(String(req.url || req)); } } };
   const req = (path, opts = {}) => new Request(`https://commentblog.blognice.test${path}`, {
     ...opts,
     headers: { host: "commentblog.blognice.test", ...(opts.headers || {}) },
@@ -362,6 +374,8 @@ test("verified readers rename themselves from comment settings", async () => {
     assert.equal(renamed.status, 200);
     assert.equal((await renamed.json()).author_name, "New Name");
     assert.equal(state.comments.find((c) => c.id === 90).author_name, "New Name");
+    await Promise.allSettled(pending);
+    assert.ok(purged.some((url) => url.includes("/live-post")), "rename purges pages carrying the reader's comments");
     const posted = await blogniceApp.request(authed("/live-post/comments", { body: "After rename." }), undefined, env, executionCtx);
     assert.equal(posted.status, 201);
     assert.equal((await posted.json()).comment.author_name, "New Name");

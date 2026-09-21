@@ -8376,8 +8376,25 @@ app.post("/:slug/comments/identity", async (c) => {
   await tenantDb(c.env, tenant).prepare(
     "UPDATE comments SET author_name = ? WHERE tenant_id = ? AND email_hash = ?"
   ).bind(authorName, tenant.id, identity.email_hash).run();
+  // Names render server-side and pages are edge-cached: without this the
+  // renamed reader keeps seeing the old name until the cache expires.
+  c.executionCtx.waitUntil(purgeCommenterPosts(c, tenant, identity.email_hash).catch(() => undefined));
   return c.json({ author_name: authorName });
 });
+
+// Best-effort edge purge for every post page carrying this reader's
+// comments. Callers never await it; failures only leave stale cache behind.
+async function purgeCommenterPosts(c: any, tenant: any, emailHash: string): Promise<void> {
+  const db = tenantDb(c.env, tenant);
+  const commented = (await db.prepare(
+    "SELECT DISTINCT post_id FROM comments WHERE tenant_id = ? AND email_hash = ? LIMIT 100"
+  ).bind(tenant.id, emailHash).all<{ post_id: number }>()).results;
+  if (!commented.length) return;
+  const slugs = (await db.prepare(
+    `SELECT slug FROM posts WHERE tenant_id = ? AND id IN (${commented.map(() => "?").join(",")})`
+  ).bind(tenant.id, ...commented.map((r) => r.post_id)).all<{ slug: string }>()).results;
+  if (slugs.length) await purge(c, slugs.map((s) => `/${s.slug}`));
+}
 
 // Reader profile photos. Verified readers only; keys are server-minted
 // under avatars/ (never client-supplied) and stamped onto the identity, so
@@ -8405,6 +8422,7 @@ app.post("/:slug/comments/avatar", async (c) => {
     "UPDATE comment_identities SET avatar_key = ? WHERE tenant_id = ? AND email_hash = ?"
   ).bind(key, tenant.id, identity.email_hash).run();
   if (old && old !== key) await c.env.MEDIA.delete(old).catch(() => undefined);
+  c.executionCtx.waitUntil(purgeCommenterPosts(c, tenant, identity.email_hash).catch(() => undefined));
   return c.json({ url: `/media/${key}`, key }, 201);
 });
 
@@ -8420,6 +8438,7 @@ app.delete("/:slug/comments/avatar", async (c) => {
     await tenantDb(c.env, tenant).prepare(
       "UPDATE comment_identities SET avatar_key = NULL WHERE tenant_id = ? AND email_hash = ?"
     ).bind(tenant.id, identity.email_hash).run();
+    c.executionCtx.waitUntil(purgeCommenterPosts(c, tenant, identity.email_hash).catch(() => undefined));
   }
   return c.json({ ok: true });
 });
