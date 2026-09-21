@@ -113,6 +113,10 @@ test("post pages server-render comment threads with tombstones and depth caps", 
     // comment-children container holding every descendant as a sibling.
     const chain = html.slice(html.indexOf('data-comment="1"'), html.indexOf('data-comment="10"'));
     assert.equal(chain.match(/<div class="comment-children">/g).length, 1);
+    // The container opens before the root closes: sorting a thread moves its
+    // replies with it instead of stranding them above their parent.
+    assert.ok(chain.indexOf('<div class="comment-children">') < chain.indexOf("</details>"),
+      "children container grouped inside the root");
     // Reply affordance and comment form exist for readers.
     assert.match(html, /data-reply-to="1"/);
     assert.match(html, /data-comment-form/);

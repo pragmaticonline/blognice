@@ -1258,18 +1258,16 @@ function renderCommentNodes(nodes: CommentNode[], depth: number, parentAuthor: s
     const author = node.tombstone ? parentAuthor : node.author_name;
     const capped = Math.min(depth, 1);
     const flatLabel = depth > 1 ? `<span class="comment-in-reply">in reply to ${esc(parentAuthor)}</span>` : "";
+    const inner = node.children.length ? renderCommentNodes(node.children, depth + 1, author) : "";
+    const kids = inner && depth === 0 ? `<div class="comment-children">${inner}</div>` : inner;
     if (node.tombstone) {
-      out += `<div class="comment removed d${capped}" data-comment="${node.id}"><span>Removed by moderator</span></div>`;
+      out += `<div class="comment removed d${capped}" data-comment="${node.id}"><span>Removed by moderator</span>${depth === 0 ? kids : ""}</div>${depth === 0 ? "" : kids}`;
     } else {
       const iso = new Date(node.created_at * 1000).toISOString();
       out += `<details class="comment d${capped}" data-comment="${node.id}" open>`
         + `<summary><span class="comment-head">${commentAvatar(node.author_name)}<span class="comment-author">${esc(node.author_name)}</span></span>${flatLabel}<time datetime="${iso}">${esc(formatDate(node.created_at))}</time></summary>`
         + `<div class="comment-body">${esc(node.body).replace(/\n/g, "<br>")}</div>`
-        + `<div class="comment-actions"><button class="reply-btn" type="button" data-reply-to="${node.id}" data-reply-name="${esc(node.author_name)}">Reply</button></div></details>`;
-    }
-    if (node.children.length) {
-      const kids = renderCommentNodes(node.children, depth + 1, author);
-      out += depth === 0 ? `<div class="comment-children">${kids}</div>` : kids;
+        + `<div class="comment-actions"><button class="reply-btn" type="button" data-reply-to="${node.id}" data-reply-name="${esc(node.author_name)}">Reply</button></div>${depth === 0 ? kids : ""}</details>${depth === 0 ? "" : kids}`;
     }
   }
   return out;
@@ -1412,7 +1410,7 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
       +'<div class="comment-body">'+escHtml(c.body||"").replace(/\\n/g,"<br>")+'</div>'
       +'<div class="comment-actions"><button class="reply-btn" type="button" data-reply-to="'+c.id+'" data-reply-name="'+escHtml(nm)+'">Reply</button></div></details>';
     var host;
-    if(parentEl){host=parentEl.closest(".comment-children");if(!host){host=document.createElement("div");host.className="comment-children";parentEl.appendChild(host);}host.insertAdjacentHTML("beforeend",html);}
+    if(parentEl){host=parentEl.querySelector(":scope > .comment-children")||parentEl.closest(".comment-children");if(!host){host=document.createElement("div");host.className="comment-children";parentEl.appendChild(host);}host.insertAdjacentHTML("beforeend",html);}
     else{host=section.querySelector(".comment-list");host.insertAdjacentHTML(sortMode==="newest"?"afterbegin":"beforeend",html);var empty=section.querySelector(".no-comments");if(empty)empty.remove();}
     var fresh=section.querySelector('[data-comment="'+c.id+'"]');
     if(fresh){var rb=fresh.querySelector("[data-reply-to]");if(rb)wireReply(rb);}
