@@ -1350,6 +1350,7 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
   var dialogClose=section.querySelector("[data-dialog-close]");
   if(dialogClose)dialogClose.addEventListener("click",function(){resetForm();});
   if(dialog)dialog.addEventListener("click",function(e){if(e.target===dialog)resetForm();});
+  if(dialog)dialog.addEventListener("close",function(){resetForm();});
   var cancelBtn=form.querySelector("[data-reply-cancel]");
   if(cancelBtn)cancelBtn.addEventListener("click",function(){resetForm();});
   var sortMode="oldest";
