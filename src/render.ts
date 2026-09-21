@@ -544,6 +544,8 @@ const STYLES = /* css */ `
   .comment-dialog { position: fixed; inset: 0; margin: auto; width: min(36rem, calc(100vw - 2rem)); max-height: calc(100vh - 3rem); overflow: auto; border: 1px solid var(--rule); border-radius: 10px; padding: 0; background: var(--bg); color: var(--ink); }
   .comment-dialog::backdrop { background: rgba(0, 0, 0, .45); }
   .comment-dialog .comment-form { margin: 0; border: none; }
+  .comment-form.slim .id-fields { display: none; }
+  .comment-form.slim h3 { font-size: .95rem; margin-bottom: .7rem; }
   .dialog-close { position: absolute; top: .5rem; right: .7rem; background: none; border: none; font-size: 1.3rem; line-height: 1; color: var(--muted); cursor: pointer; }
   .dialog-close:hover { color: var(--ink); }
   .comment.removed { border-style: dashed; color: var(--muted); font-size: .88rem; }
@@ -1271,9 +1273,31 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
   var dialog=section.querySelector("[data-comment-dialog]");
   var teaser=section.querySelector("[data-comment-teaser]");
   try{var savedId=JSON.parse(localStorage.getItem("bn_comment_identity")||"null");if(savedId){if(!nameField.value&&savedId.name)nameField.value=savedId.name;if(!emailField.value&&savedId.email)emailField.value=savedId.email;}}catch(e){}
-  function openDialog(parentId,replyToName){
+  var formHome=form.parentNode,formNext=form.nextSibling;
+  function setMode(parentId,replyToName){
     if(parentId){parentField.value=parentId;replyName.textContent=replyToName||"this comment";replying.hidden=false;title.textContent="Leave a reply";}
     else{parentField.value="";replying.hidden=true;title.textContent="Leave a comment";}
+  }
+  function focusBody(){
+    var keepY=(window.scrollY||document.documentElement.scrollTop||0);
+    function settle(){
+      try{bodyField.focus({preventScroll:true});}catch(e){try{bodyField.focus();}catch(e2){}}
+      var moved=(window.scrollY||document.documentElement.scrollTop||0);
+      if(Math.abs(moved-keepY)>2){try{window.scrollTo(0,keepY);}catch(e){}}
+    }
+    if(window.requestAnimationFrame){try{window.requestAnimationFrame(settle);}catch(e){settle();}}
+    else settle();
+  }
+  function showInline(parentId,replyToName){
+    setMode(parentId,replyToName);
+    var target=parentId?section.querySelector('[data-comment="'+parentId+'"]'):null;
+    if(target){var kids=target.querySelector(":scope > .comment-children");if(kids)target.insertBefore(form,kids);else target.appendChild(form);}
+    else if(formHome)formHome.insertBefore(form,formNext);
+    form.classList.add("slim");form.hidden=false;focusBody();
+  }
+  function openDialog(){
+    if(dialog){try{dialog.appendChild(form);}catch(e){}}
+    form.classList.remove("slim");form.hidden=false;
     if(dialog){try{if(dialog.showModal){if(!dialog.open)dialog.showModal();}else dialog.setAttribute("open","");}catch(err){try{dialog.setAttribute("open","");}catch(e2){}}}
     var focusTo=nameField.value?(emailField.value?bodyField:emailField):nameField;
     var keepY=(window.scrollY||document.documentElement.scrollTop||0);
@@ -1285,22 +1309,22 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     if(window.requestAnimationFrame){try{window.requestAnimationFrame(settleDialog);}catch(e){settleDialog();}}
     else settleDialog();
   }
-  function closeDialog(){
+  function hideForm(){
     try{if(dialog&&dialog.open)dialog.close();else if(dialog)dialog.removeAttribute("open");}catch(e){}
-    parentField.value="";replying.hidden=true;title.textContent="Leave a comment";
+    setMode("","");if(formHome)formHome.insertBefore(form,formNext);form.hidden=true;
   }
   function wireReply(btn){
     btn.addEventListener("click",function(){
-      openDialog(btn.getAttribute("data-reply-to"),btn.getAttribute("data-reply-name"));
+      showInline(btn.getAttribute("data-reply-to"),btn.getAttribute("data-reply-name"));
     });
   }
   section.querySelectorAll("[data-reply-to]").forEach(wireReply);
-  if(teaser)teaser.addEventListener("click",function(){openDialog("","");});
+  if(teaser)teaser.addEventListener("click",function(){showInline("","");});
   var dialogClose=section.querySelector("[data-dialog-close]");
-  if(dialogClose)dialogClose.addEventListener("click",function(){closeDialog();});
-  if(dialog)dialog.addEventListener("click",function(e){if(e.target===dialog)closeDialog();});
+  if(dialogClose)dialogClose.addEventListener("click",function(){hideForm();});
+  if(dialog)dialog.addEventListener("click",function(e){if(e.target===dialog)hideForm();});
   var cancelBtn=form.querySelector("[data-reply-cancel]");
-  if(cancelBtn)cancelBtn.addEventListener("click",function(){closeDialog();});
+  if(cancelBtn)cancelBtn.addEventListener("click",function(){hideForm();});
   form.addEventListener("submit",function(e){
     e.preventDefault();note.hidden=true;
     try{localStorage.setItem("bn_comment_identity",JSON.stringify({name:nameField.value,email:emailField.value}));}catch(err){}
@@ -1310,6 +1334,7 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
       if(r.status===201){try{localStorage.removeItem("bn_comment_draft");}catch(e){}location.reload();return null;}
       if(r.status===401){
         try{localStorage.setItem("bn_comment_draft",JSON.stringify({name:nameField.value,email:emailField.value,body:bodyField.value,parent:parentField.value||""}));}catch(e){}
+        openDialog();
         return fetch(path+"/comments/start",{method:"POST",headers:{"content-type":"application/json"},
           body:JSON.stringify({email:emailField.value,author_name:nameField.value})}).then(function(r2){
           say(r2.ok?"Check your email for a confirmation link — your draft is saved, then post again.":"Could not start verification. Check the name and email.");});
@@ -1324,8 +1349,8 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
         nameField.value=draft.name||"";emailField.value=draft.email||"";bodyField.value=draft.body||"";
         var rname="";
         if(draft.parent){var pa=section.querySelector('[data-comment="'+draft.parent+'"] .comment-author');if(pa)rname=pa.textContent;}
-        openDialog(draft.parent||"",rname);
-      } else openDialog("","");
+        showInline(draft.parent||"",rname);
+      } else showInline("","");
       say("Email confirmed — press Post comment to publish your comment.");
       try{history.replaceState(null,"",path+"#comments");}catch(e){}
     }
@@ -1426,18 +1451,18 @@ export function renderCommentSection(post: { id: number; slug: string }, rows: C
     + `<h2>Comments (${count})</h2>`
     + `<p class="presence" data-presence hidden></p>`
     + `<button type="button" class="comment-teaser" data-comment-teaser>Leave a comment…</button>`
-    + `<div class="comment-list">${list}</div>`
-    + `<dialog class="comment-dialog" data-comment-dialog aria-label="Leave a comment">`
-    + `<form class="comment-form" data-comment-form>`
+    + `<div data-form-home hidden><form class="comment-form slim" data-comment-form hidden>`
     + `<h3 data-form-title>Leave a comment</h3>`
     + `<p class="replying-to" data-replying-to hidden>Replying to <span data-reply-name></span> <button type="button" data-reply-cancel>Cancel</button></p>`
-    + `<label>Display name<input type="text" data-field-name maxlength="60" required autocomplete="nickname"></label>`
-    + `<label>Email<input type="email" data-field-email required autocomplete="email"><span class="help">First time? We will email you a confirmation link. Your address is never shown.</span></label>`
+    + `<div class="id-fields"><label>Display name<input type="text" data-field-name maxlength="60" autocomplete="nickname"></label>`
+    + `<label>Email<input type="email" data-field-email autocomplete="email"><span class="help">First time? We will email you a confirmation link. Your address is never shown.</span></label></div>`
     + `<label>Comment<textarea data-field-body maxlength="2000" required></textarea></label>`
     + `<input type="hidden" data-field-parent value="">`
     + `<button type="submit">Post comment</button>`
     + `<p class="form-note" data-form-note hidden></p>`
-    + `</form>`
+    + `</form></div>`
+    + `<div class="comment-list">${list}</div>`
+    + `<dialog class="comment-dialog" data-comment-dialog aria-label="Leave a comment">`
     + `<button type="button" class="dialog-close" data-dialog-close aria-label="Close">×</button>`
     + `</dialog>`
     + COMMENT_CLIENT_SCRIPT
