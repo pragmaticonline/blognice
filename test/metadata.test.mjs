@@ -53,8 +53,8 @@ test("marketing homepage has canonical and social metadata", () => {
   assert.match(homepage, /<title>Blognice: Open-Source, Privacy-First Blogging Platform<\/title>/);
   assert.match(homepage, /property="og:title" content="Blognice: Open-Source, Privacy-First Blogging Platform"/);
   assert.match(homepage, /name="twitter:title" content="Blognice: Open-Source, Privacy-First Blogging Platform"/);
-  assert.match(homepage, /property="og:image" content="https:\/\/www\.blognice\.com\/og-image\.png"/);
-  assert.match(homepage, /name="twitter:image" content="https:\/\/www\.blognice\.com\/og-image\.png"/);
+  assert.match(homepage, /property="og:image" content="https:\/\/www\.blognice\.com\/og-image\.jpg"/);
+  assert.match(homepage, /name="twitter:image" content="https:\/\/www\.blognice\.com\/og-image\.jpg"/);
   assert.doesNotMatch(homepage, /og:image" content="[^"]*\.svg"/);
   assert.doesNotMatch(homepage, /twitter:image" content="[^"]*\.svg"/);
 });
