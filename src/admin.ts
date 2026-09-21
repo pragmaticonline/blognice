@@ -988,9 +988,11 @@ export function postListPage(
                 <a class="btn ghost icon-btn" href="${base}/edit/${p.id}" aria-label="Edit ${esc(p.title)}" title="Edit">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>
                 </a>
-                <a class="btn ghost icon-btn" href="https://${esc(publicHost)}/${esc(p.slug)}" target="_blank" rel="noopener noreferrer" aria-label="View ${esc(p.title)}" title="View">
+                ${p.published ? `<a class="btn ghost icon-btn" href="https://${esc(publicHost)}/${esc(p.slug)}" target="_blank" rel="noopener noreferrer" aria-label="View ${esc(p.title)}" title="View">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg>
-                </a>
+                </a>` : `<button class="btn ghost icon-btn" type="button" data-preview-open="${base}/posts/${p.id}/preview-link" aria-label="View ${esc(p.title)}" title="View">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg>
+                </button>`}
                 <form method="post" action="${base}/delete/${p.id}" onsubmit="return confirm('Delete this post?')">
                   <button class="btn danger icon-btn" type="submit" aria-label="Delete ${esc(p.title)}" title="Delete">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 14h10l1-14"/><path d="M9 7V4h6v3"/></svg>
@@ -1009,7 +1011,8 @@ export function postListPage(
         <a class="btn" href="${base}/new">New post</a>
       </div>
       ${rows}
-    </div>`,
+    </div>
+    <script>(function(){document.querySelectorAll("[data-preview-open]").forEach(function(btn){btn.addEventListener("click",function(){if(btn.disabled)return;btn.disabled=true;fetch(btn.getAttribute("data-preview-open"),{method:"POST",headers:{"accept":"application/json"}}).then(function(r){if(!r.ok)throw new Error();return r.json();}).then(function(d){btn.disabled=false;window.open(d.url,"_blank","noopener");}).catch(function(){btn.disabled=false;});});});})();</script>`,
     account,
     tenant
   );

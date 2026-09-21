@@ -218,3 +218,15 @@ test("preview token columns ship in fresh installs, migrations, and the runbook"
   assert.ok(migratedCols.includes("preview_token_expires_at"), "migration adds preview_token_expires_at");
   assert.match(read("docs/production-operations.md"), /073-post-preview-links\.sql/);
 });
+
+test("dashboard draft eye opens through a preview link; live eye links directly", async () => {
+  const { postListPage } = await import("../src/admin.ts");
+  const account = { id: 1, email: "owner@example.com" };
+  const tenant = { ...TENANT, public_id: "b_draftblog", custom_domain: "rayreport.com" };
+  const draftPost = { ...DRAFT, id: 9, title: "Draft Nine", slug: "draft-nine", published: 0, created_at: NOW };
+  const livePost = { ...DRAFT, id: 10, title: "Live Ten", slug: "live-ten", published: 1, created_at: NOW };
+  const html = postListPage(account, tenant, [draftPost, livePost], "blognice.test");
+  assert.match(html, /data-preview-open="\/admin\/b\/b_draftblog\/posts\/9\/preview-link"/);
+  assert.doesNotMatch(html, /href="https:\/\/rayreport\.com\/draft-nine"/);
+  assert.match(html, /href="https:\/\/rayreport\.com\/live-ten"/);
+});
