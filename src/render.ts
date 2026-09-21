@@ -1276,7 +1276,7 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     else{parentField.value="";replying.hidden=true;title.textContent="Leave a comment";}
     if(dialog){try{if(dialog.showModal){if(!dialog.open)dialog.showModal();}else dialog.setAttribute("open","");}catch(err){try{dialog.setAttribute("open","");}catch(e2){}}}
     var focusTo=nameField.value?(emailField.value?bodyField:emailField):nameField;
-    try{focusTo.focus();}catch(e){}
+    try{focusTo.focus({preventScroll:true});}catch(e){try{focusTo.focus();}catch(e2){}}
   }
   function closeDialog(){
     try{if(dialog&&dialog.open)dialog.close();else if(dialog)dialog.removeAttribute("open");}catch(e){}
