@@ -103,6 +103,9 @@ const ADMIN_STYLES = /* css */ `
   .topbar-menu a:hover, .topbar-menu .linkbtn:hover { background:color-mix(in srgb, var(--accent) 10%, transparent); color:var(--accent); }
   @media (max-width: 700px) { .topbar .right { display:none; } .topbar-menu-open { display:inline-flex; margin-left:auto; } }
   .plan-badge { display:inline-flex; align-items:center; gap:.35rem; padding:.2rem .55rem; border:1px solid var(--rule); border-radius:999px; color:var(--ink); text-decoration:none; font-size:.78rem; font-weight:600; }
+  .status-pill { display:inline-block; padding:.15rem .6rem; border-radius:999px; font-size:.78rem; font-weight:600; white-space:nowrap; }
+  .status-approved { background:color-mix(in srgb, var(--accent) 14%, transparent); color:var(--accent); }
+  .status-removed { background:color-mix(in srgb, var(--danger) 12%, transparent); color:var(--danger); }
   .plan-badge.free { color:var(--muted); }
   .plan-badge.paid { color:#fff; background:var(--accent); border-color:var(--accent); box-shadow:0 2px 7px color-mix(in srgb, var(--accent) 28%, transparent); }
   .topbar form { margin: 0; }
@@ -2418,9 +2421,15 @@ export function commentsPage(
   account: Account,
   tenant: Tenant,
   items: AdminCommentItem[],
-  opts?: { postFilter?: number; posts?: Array<{ id: number; title: string }>; notice?: string; error?: string }
+  opts?: { postFilter?: number; posts?: Array<{ id: number; title: string }>; notice?: string; error?: string; page?: number; hasMore?: boolean; total?: number }
 ): string {
   const base = `/admin/b/${esc(tenant.public_id)}/comments`;
+  const page = Number.isSafeInteger(opts?.page as number) && (opts?.page as number) >= 1 ? (opts!.page as number) : 1;
+  const hasMore = !!opts?.hasMore;
+  const total = typeof opts?.total === "number" ? opts.total as number : items.length;
+  const pageQs = (p: number) => `${base}?${opts?.postFilter ? `post=${opts.postFilter}&` : ""}page=${p}`;
+  const pagination = `<nav class="pagination" style="display:flex;align-items:center;gap:10px;justify-content:flex-end;margin-top:12px"><span>Page ${page}</span>${page > 1 ? `<a class="btn" href="${pageQs(page - 1)}">← Previous</a>` : ""}${hasMore ? `<a class="btn" href="${pageQs(page + 1)}">Next →</a>` : ""}</nav>`;
+  const showPagination = items.length > 0 || page > 1 || hasMore;
   const banner = opts?.error
     ? `<div class="error">${esc(opts.error)}</div>`
     : opts?.notice
@@ -2442,7 +2451,7 @@ export function commentsPage(
       + `<td><a href="/admin/b/${esc(tenant.public_id)}/edit/${item.post_id}">${esc(item.post_title || `Post #${item.post_id}`)}</a></td>`
       + `<td>${esc(item.author_name)}</td>`
       + `<td>${esc(item.body.length > 160 ? item.body.slice(0, 160) + "…" : item.body)}</td>`
-      + `<td>${item.status === "removed" ? "Removed" : "Approved"}</td>`
+      + `<td>${item.status === "removed" ? `<span class="status-pill status-removed">Removed</span>` : `<span class="status-pill status-approved">Approved</span>`}</td>`
       + `<td>${action}</td></tr>`;
   }).join("");
   const content = items.length
@@ -2450,9 +2459,9 @@ export function commentsPage(
     : `<p style="color:var(--muted)">No comments yet.</p>`;
   return shell(
     `Comments — ${tenant.title}`,
-    `<div class="page"><div class="row"><h1 style="margin:0">Comments</h1></div>`
+    `<div class="page"><div class="row"><h1 style="margin:0">Comments <span style="color:var(--muted);font-weight:400">(${total})</span></h1></div>`
     + `<p style="color:var(--muted);margin-top:-.8rem">Reader comments on this blog. Removing hides a comment everywhere immediately; restoring brings it back.</p>`
-    + `${banner}${filter}<div class="panel-block">${content}</div></div>`,
+    + `${banner}${filter}<div class="panel-block">${content}</div>${showPagination ? pagination : ""}</div>`,
     account,
     tenant
   );

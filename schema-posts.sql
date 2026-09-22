@@ -93,13 +93,21 @@ CREATE TABLE IF NOT EXISTS comment_identities (
   author_name TEXT    NOT NULL,
   token_hash  TEXT,                          -- pending verification/recovery token (sha-256 hex), NULL when none
   token_expires_at INTEGER,                  -- unix seconds; verification links live 24 hours
-  cookie_hash TEXT,                          -- sha-256 of the bn_comment browser cookie, set on verify
+  cookie_hash TEXT,                          -- legacy single-device cookie, superseded by comment_sessions (see 078)
   verified_at INTEGER,
   avatar_key  TEXT,                            -- R2 MEDIA key under avatars/, NULL means the initial circle (see 074)
   website     TEXT,                            -- normalized http(s) URL, NULL = no profile link (see 075)
   created_at  INTEGER NOT NULL,
   PRIMARY KEY (tenant_id, email_hash)
 );
+CREATE TABLE IF NOT EXISTS comment_sessions (
+  tenant_id   INTEGER NOT NULL,
+  email_hash  TEXT    NOT NULL,
+  cookie_hash TEXT    NOT NULL,                   -- sha-256 of one bn_comment browser cookie
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (tenant_id, cookie_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_comment_sessions_identity ON comment_sessions (tenant_id, email_hash);
 CREATE TABLE IF NOT EXISTS comment_attempts (
   tenant_id   INTEGER NOT NULL,
   email_hash  TEXT    NOT NULL,

@@ -30,6 +30,11 @@ function fakeDb(state) {
               const slug = args[args.length - 1];
               return state.posts[slug] ?? null;
             }
+            if (sql.includes("comment_sessions")) {
+              const session = state.sessions.find((s) => s.tenant_id === args[0] && s.cookie_hash === args[args.length - 1]);
+              if (!session) return null;
+              return Object.values(state.identities).find((r) => r.tenant_id === session.tenant_id && r.email_hash === session.email_hash) ?? null;
+            }
             if (sql.includes("FROM comment_identities")) {
               const rows = Object.values(state.identities);
               if (sql.includes("token_hash")) {
@@ -104,6 +109,10 @@ function fakeDb(state) {
                 }
                 return { success: true };
               }
+              if (sql.startsWith("INSERT OR IGNORE INTO comment_sessions")) {
+                state.sessions.push({ tenant_id: args[0], email_hash: args[1], cookie_hash: args[2], created_at: args[3] });
+                return { success: true };
+              }
               if (sql.startsWith("INSERT INTO comment_attempts")) {
                 state.attempts.push({ tenant_id: args[0], email_hash: args[1], kind: args[2], created_at: args[3] });
                 return { success: true };
@@ -140,6 +149,7 @@ function makeState() {
       "unfinished": { id: 8, tenant_id: 1, slug: "unfinished", title: "Draft", body_md: "x", tags_json: "[]", published: 0, created_at: NOW, updated_at: NOW },
     },
     identities: {},
+    sessions: [],
     attempts: [],
     comments: [],
   };
@@ -386,6 +396,56 @@ test("verified readers rename themselves from comment settings", async () => {
     const posted = await blogniceApp.request(authed("/live-post/comments", { body: "After rename." }), undefined, env, executionCtx);
     assert.equal(posted.status, 201);
     assert.equal((await posted.json()).comment.author_name, "New Name");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalCaches === undefined) delete globalThis.caches;
+    else globalThis.caches = originalCaches;
+  }
+});
+
+test("same email stays signed in on multiple devices", async () => {
+  const { blogniceApp } = await import("../src/index.ts");
+  const state = makeState();
+  const db = fakeDb(state);
+  const env = { DB: db, POSTS: db, ROOT_DOMAIN: "blognice.test", EMAIL_FROM: "Blog <hello@blognice.test>", MAILNICE_API_KEY: "test-key" };
+  const executionCtx = { waitUntil() {}, passThroughOnException() {} };
+  const sentEmails = [];
+  const originalFetch = globalThis.fetch;
+  const originalCaches = globalThis.caches;
+  globalThis.fetch = async (url, init) => {
+    sentEmails.push(String(init?.body || ""));
+    return new Response(JSON.stringify({}), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  globalThis.caches = { default: { match: async () => undefined, put: async () => {}, delete: async () => {} } };
+  const start = () => blogniceApp.request(new Request("https://commentblog.blognice.test/live-post/comments/start", {
+    method: "POST", headers: { host: "commentblog.blognice.test", "content-type": "application/json" },
+    body: JSON.stringify({ email: "multi@example.com", author_name: "Multi" }),
+  }), undefined, env, executionCtx);
+  const verify = (token) => blogniceApp.request(new Request(`https://commentblog.blognice.test/live-post/comments/verify?token=${token}`, {
+    headers: { host: "commentblog.blognice.test" },
+  }), undefined, env, executionCtx);
+  const postAs = (cookie, body) => blogniceApp.request(new Request("https://commentblog.blognice.test/live-post/comments", {
+    method: "POST", headers: { host: "commentblog.blognice.test", cookie: `bn_comment=${cookie}`, "content-type": "application/json" },
+    body: JSON.stringify({ body }),
+  }), undefined, env, executionCtx);
+  try {
+    // Phone verifies first.
+    assert.equal((await start()).status, 200);
+    const phone = await verify(tokenFrom(sentEmails[0]));
+    assert.equal(phone.status, 302);
+    const cookieA = cookieFrom(phone);
+
+    // Laptop verifies the same email afterwards.
+    assert.equal((await start()).status, 200);
+    const laptop = await verify(tokenFrom(sentEmails[1]));
+    assert.equal(laptop.status, 302);
+    const cookieB = cookieFrom(laptop);
+    assert.notEqual(cookieA, cookieB);
+
+    // Both devices still post.
+    assert.equal((await postAs(cookieA, "From the phone.")).status, 201);
+    assert.equal((await postAs(cookieB, "From the laptop.")).status, 201);
+    assert.equal(state.sessions.length, 2);
   } finally {
     globalThis.fetch = originalFetch;
     if (originalCaches === undefined) delete globalThis.caches;

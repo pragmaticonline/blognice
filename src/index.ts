@@ -22,7 +22,7 @@ import {
   commentNodeJson,
   renderCommentSection,
 } from "./render";
-import { sendEmail, sendEmailDetailed, emailEnabled, registrationWelcomeEmail, invitationWelcomeEmail, emailVerificationEmail, subscriptionActiveEmail, subscriberConfirmationEmail, commentVerificationEmail, passwordResetEmail, subscriberWelcomeEmail, postNotificationEmail } from "./email";
+import { sendEmail, sendEmailDetailed, emailEnabled, registrationWelcomeEmail, invitationWelcomeEmail, emailVerificationEmail, subscriptionActiveEmail, subscriberConfirmationEmail, commentVerificationEmail, passwordResetEmail, subscriberWelcomeEmail, postNotificationEmail, commentReplyEmail } from "./email";
 import { getCookie, setCookie } from "hono/cookie";
 import { commentRoomName, signRoomRequest } from "./comment-room-protocol";
 import {
@@ -4670,7 +4670,7 @@ type EmailJobMessage = {
   kind: "email-delivery";
   idempotencyKey: string;
   subscriberId?: number;
-  emailKind?: "post-notification" | "subscription-welcome" | "subscription-active" | "password-reset" | "subscriber-confirmation" | "affiliate-enrolled" | "affiliate-terms-required" | "affiliate-connect-ready" | "affiliate-connect-restricted" | "affiliate-payout-sent" | "affiliate-payout-cancelled";
+  emailKind?: "post-notification" | "comment-reply" | "subscription-welcome" | "subscription-active" | "password-reset" | "subscriber-confirmation" | "affiliate-enrolled" | "affiliate-terms-required" | "affiliate-connect-ready" | "affiliate-connect-restricted" | "affiliate-payout-sent" | "affiliate-payout-cancelled";
   to: string;
   subject: string;
   tag?: string;
@@ -5158,21 +5158,34 @@ app.get("/admin/b/:blogId/comments", async (c) => {
   if (denied) return denied;
   if (!ctx.tenant.comments_enabled) return c.text("Comments are not available.", 404);
   const postFilter = Number(c.req.query("post") ?? "");
+  const filtered = Number.isSafeInteger(postFilter) && postFilter > 0;
+  const raw = String(c.req.query("page") || "1");
+  const parsed = Number(raw);
+  const page = Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 10_000_000 ? parsed : 1;
+  const limit = 50;
+  const offset = (page - 1) * limit;
   const db = tenantDb(c.env, ctx.tenant);
-  const { results } = await db.prepare(
-    `SELECT c.id, c.post_id, c.author_name, c.body, c.status, c.created_at, p.slug AS post_slug, p.title AS post_title
-     FROM comments c JOIN posts p ON p.id = c.post_id AND p.tenant_id = c.tenant_id
-     WHERE c.tenant_id = ? ORDER BY c.id DESC LIMIT 100`
-  ).bind(ctx.tenant.id).all<any>();
+  const where = filtered ? "WHERE c.tenant_id = ? AND c.post_id = ?" : "WHERE c.tenant_id = ?";
+  const [paged, counted] = await Promise.all([
+    db.prepare(
+      `SELECT c.id, c.post_id, c.author_name, c.body, c.status, c.created_at, p.slug AS post_slug, p.title AS post_title
+       FROM comments c JOIN posts p ON p.id = c.post_id AND p.tenant_id = c.tenant_id
+       ${where} ORDER BY c.id DESC LIMIT ? OFFSET ?`
+    ).bind(...(filtered ? [ctx.tenant.id, postFilter, limit + 1, offset] : [ctx.tenant.id, limit + 1, offset])).all<any>(),
+    db.prepare(
+      `SELECT COUNT(*) as count FROM comments c ${where}`
+    ).bind(...(filtered ? [ctx.tenant.id, postFilter] : [ctx.tenant.id])).first<{ count: number }>(),
+  ]);
   const { results: postRows } = await db.prepare(
     "SELECT id, title FROM posts WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 100"
   ).bind(ctx.tenant.id).all<{ id: number; title: string }>();
-  const items = (Number.isSafeInteger(postFilter) && postFilter > 0
-    ? results.filter((r) => r.post_id === postFilter)
-    : results) as any;
+  const hasMore = paged.results.length > limit;
+  const items = (hasMore ? paged.results.slice(0, limit) : paged.results) as any;
+  const total = Number(counted?.count ?? items.length);
   return c.html(commentsPage(ctx.account, ctx.tenant, items, {
-    postFilter: Number.isSafeInteger(postFilter) && postFilter > 0 ? postFilter : undefined,
+    postFilter: filtered ? postFilter : undefined,
     posts: postRows,
+    page, hasMore, total,
   }));
 });
 
@@ -8279,7 +8292,7 @@ async function logCommentAttempt(env: Bindings, tenant: Tenant, kind: string, em
 async function commentIdentityByCookie(env: Bindings, tenant: Tenant, cookie: string): Promise<any | null> {
   const cookieHash = await sha256hex(cookie);
   return tenantDb(env, tenant).prepare(
-    "SELECT * FROM comment_identities WHERE tenant_id = ? AND cookie_hash = ?"
+    "SELECT i.* FROM comment_identities i JOIN comment_sessions s ON s.tenant_id = i.tenant_id AND s.email_hash = i.email_hash WHERE i.tenant_id = ? AND s.cookie_hash = ?"
   ).bind(tenant.id, cookieHash).first();
 }
 
@@ -8367,8 +8380,12 @@ app.get("/:slug/comments/verify", async (c) => {
   if (!identity) return c.text("This verification link is invalid or expired.", 400);
   const cookieToken = commentRandomToken();
   await db.prepare(
-    "UPDATE comment_identities SET cookie_hash = ?, token_hash = NULL, token_expires_at = NULL, verified_at = ? WHERE tenant_id = ? AND email_hash = ?"
-  ).bind(await sha256hex(cookieToken), now, tenant.id, identity.email_hash).run();
+    "UPDATE comment_identities SET token_hash = NULL, token_expires_at = NULL, verified_at = ? WHERE tenant_id = ? AND email_hash = ?"
+  ).bind(now, tenant.id, identity.email_hash).run();
+  // One row per device: verifying here never signs out other devices.
+  await db.prepare(
+    "INSERT OR IGNORE INTO comment_sessions (tenant_id, email_hash, cookie_hash, created_at) VALUES (?, ?, ?, ?)"
+  ).bind(tenant.id, identity.email_hash, await sha256hex(cookieToken), now).run();
   setCommentCookie(c, cookieToken);
   return c.redirect(`/${post.slug}?verified=1#comments`, 302);
 });
@@ -8543,6 +8560,45 @@ async function enrollCommentSubscriber(
   return result === "delivery-failed" ? false : "pending";
 }
 
+// Comment reply notifications. A direct reply emails the parent author when
+// they are a confirmed updates subscriber, matched by email hash (the only
+// address on file for commenters). Best-effort: never fails the comment;
+// the queued job revalidates subscription and suppression at send time.
+async function notifyCommentReply(
+  env: Bindings, tenant: Tenant, post: { slug: string; title: string },
+  reply: { id: number; body: string }, replierName: string, parentEmailHash: string,
+): Promise<boolean> {
+  if (!emailEnabled(env)) return false;
+  const subs = await env.DB.prepare(
+    "SELECT id, email, token FROM subscribers WHERE tenant_id = ? AND confirmed_at IS NOT NULL"
+  ).bind(tenant.id).all<{ id: number; email: string; token: string }>();
+  let match: { id: number; email: string; token: string } | null = null;
+  for (const s of subs.results) {
+    if (await sha256hex(String(s.email).toLowerCase()) === parentEmailHash) { match = s; break; }
+  }
+  if (!match) return false;
+  const origin = publicOrigin(env, tenant);
+  const postUrl = `${origin}/${post.slug}#comments`;
+  const excerpt = reply.body.length > 220 ? reply.body.slice(0, 220) + "…" : reply.body;
+  const job: EmailJobMessage = {
+    kind: "email-delivery",
+    idempotencyKey: `comment-reply:${tenant.id}:${reply.id}`,
+    subscriberId: match.id,
+    emailKind: "comment-reply",
+    to: match.email,
+    senderName: tenant.title,
+    ...commentReplyEmail({
+      blogTitle: tenant.title, postTitle: post.title, postUrl,
+      replyAuthor: replierName, replyExcerpt: excerpt,
+      unsubscribeUrl: `${origin}/unsubscribe/${match.token}`,
+      manageUrl: subscriptionManageUrl(env, await subscriptionManageToken(env, match.email)),
+    }),
+  };
+  if (env.EMAIL_QUEUE) await env.EMAIL_QUEUE.send(job);
+  else await sendEmail(env, job);
+  return true;
+}
+
 app.post("/:slug/comments", async (c) => {
   const tenant = await resolveTenant(c.env, c.req.header("host") || "");
   if (!tenant || !tenant.comments_enabled) return c.json({ error: "Comments are not available." }, 404);
@@ -8559,9 +8615,10 @@ app.post("/:slug/comments", async (c) => {
   if (/[<>]/.test(body)) return c.json({ error: "Comments are plain text." }, 400);
   const db = tenantDb(c.env, tenant);
   let parentId: number | null = null;
+  let parent: any = null;
   if (payload?.parent_id != null) {
     if (!Number.isInteger(payload.parent_id)) return c.json({ error: "Invalid parent comment." }, 400);
-    const parent = await db.prepare("SELECT * FROM comments WHERE tenant_id = ? AND id = ?").bind(tenant.id, payload.parent_id).first<any>();
+    parent = await db.prepare("SELECT * FROM comments WHERE tenant_id = ? AND id = ?").bind(tenant.id, payload.parent_id).first<any>();
     if (!parent || parent.post_id !== post.id || parent.status !== "approved") return c.json({ error: "Invalid parent comment." }, 400);
     parentId = parent.id;
   }
@@ -8591,6 +8648,9 @@ app.post("/:slug/comments", async (c) => {
     if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(subEmail) && subEmail.length <= 254) {
       subscribed = await enrollCommentSubscriber(c.env, tenant, subEmail, `/${post.slug}`);
     }
+  }
+  if (parentId && parent && parent.email_hash !== identity.email_hash) {
+    c.executionCtx.waitUntil(notifyCommentReply(c.env, tenant, post, { id, body }, identity.author_name, parent.email_hash).catch(() => false));
   }
   c.executionCtx.waitUntil(broadcastCommentEvent(c.env, tenant, post.id, {
     type: "comment-approved",

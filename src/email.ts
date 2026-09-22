@@ -154,6 +154,21 @@ export function postNotificationEmail(input: { blogTitle: string; postTitle: str
   };
 }
 
+export function commentReplyEmail(input: { blogTitle: string; postTitle: string; postUrl: string; replyAuthor: string; replyExcerpt: string; unsubscribeUrl: string; manageUrl: string }) {
+  const blogTitle = htmlEscape(input.blogTitle);
+  const title = htmlEscape(input.postTitle);
+  const postUrl = htmlEscape(input.postUrl);
+  const author = htmlEscape(input.replyAuthor);
+  const unsub = htmlEscape(input.unsubscribeUrl);
+  const manage = htmlEscape(input.manageUrl);
+  return {
+    subject: `${safeSubjectText(input.replyAuthor, "Someone")} replied to your comment on ${safeSubjectText(input.blogTitle, "this blog")}`,
+    plainText: `${input.replyAuthor} replied to your comment on "${input.postTitle}" (${input.blogTitle}):\n\n${input.replyExcerpt}\n\nRead it: ${input.postUrl}\n\nUnsubscribe: ${input.unsubscribeUrl}\nManage subscriptions: ${input.manageUrl}`,
+    headers: { "List-Unsubscribe": `<${safeHeaderUrl(input.unsubscribeUrl)}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
+    html: `<p style="text-align:center;color:#0e5a0c;font-size:12.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;margin:0 0 18px">New reply on ${blogTitle}</p><p><strong>${author}</strong> replied to your comment on <a href="${postUrl}" style="color:#181a12">${title}</a>:</p><p style="border-left:3px solid #dfe4da;padding-left:12px;color:#3c4238">${htmlEscape(input.replyExcerpt)}</p><p style="text-align:center;margin:26px 0 8px"><a href="${postUrl}" style="display:inline-block;background:#1a8917;color:#fff;text-decoration:none;padding:13px 28px;border-radius:9px;font-weight:700">Read the reply →</a></p><hr><p style="color:#5c6455;font-size:12px;text-align:center">You're subscribed to ${blogTitle}. <a href="${unsub}" style="color:#5c6455">Unsubscribe</a> · <a href="${manage}" style="color:#5c6455">Manage subscriptions</a>.</p>`,
+  };
+}
+
 export function affiliatePayoutSentEmail(input: { amountMinor: number; currency: string; transferId: string }) {
   const amount = new Intl.NumberFormat("en-US", { style: "currency", currency: input.currency.toUpperCase() }).format(input.amountMinor / 100);
   const transferId = htmlEscape(input.transferId);

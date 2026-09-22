@@ -84,6 +84,43 @@ test("comments schema ships in fresh installs and migrates existing posts databa
   assert.match(runbook, /074-comment-avatar-key\.sql/);
   assert.match(runbook, /075-comment-website\.sql/);
   assert.match(runbook, /076-comment-votes\.sql/);
+  assert.match(runbook, /077-comment-avatar-resync\.sql/);
+  assert.match(runbook, /078-comment-sessions\.sql/);
+});
+
+test("migration 078 creates reader sessions and preserves the signed-in cookie", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec(read("migrations/069-comments.sql"));
+  db.exec("INSERT INTO comment_identities (tenant_id, email_hash, author_name, cookie_hash, verified_at, created_at) VALUES (1, 'h1', 'Multi', 'deadbeef', 7, 1)");
+  db.exec(read("migrations/078-comment-sessions.sql"));
+  assert.ok(tables(db).includes("comment_sessions"), "migration creates comment_sessions");
+  const rows = db.prepare("SELECT tenant_id, email_hash, cookie_hash FROM comment_sessions").all();
+  assert.equal(rows.length, 1);
+  assert.deepEqual({ ...rows[0] }, { tenant_id: 1, email_hash: "h1", cookie_hash: "deadbeef" });
+  // Idempotent: re-running keeps the single preserved row.
+  db.exec(read("migrations/078-comment-sessions.sql"));
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM comment_sessions").get().n, 1);
+  const fresh = new DatabaseSync(":memory:");
+  fresh.exec(read("schema-posts.sql"));
+  assert.ok(tables(fresh).includes("comment_sessions"), "fresh schema ships comment_sessions");
+});
+
+test("migration 077 resyncs past comment photos to current identity keys", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec(read("migrations/069-comments.sql"));
+  db.exec(read("migrations/074-comment-avatar-key.sql"));
+  db.exec("INSERT INTO comment_identities (tenant_id, email_hash, author_name, verified_at, created_at, avatar_key) VALUES (1, 'h1', 'Photo', 1, 1, 'avatars/1-new.png')");
+  db.exec("INSERT INTO comment_identities (tenant_id, email_hash, author_name, verified_at, created_at, avatar_key) VALUES (1, 'h2', 'Plain', 1, 1, NULL)");
+  db.exec("INSERT INTO comments (tenant_id, post_id, author_name, email_hash, body, status, created_at, avatar_key) VALUES (1, 7, 'Photo', 'h1', 'missing photo', 'approved', 1, NULL)");
+  db.exec("INSERT INTO comments (tenant_id, post_id, author_name, email_hash, body, status, created_at, avatar_key) VALUES (1, 7, 'Photo', 'h1', 'stale photo', 'approved', 2, 'avatars/1-old.png')");
+  db.exec("INSERT INTO comments (tenant_id, post_id, author_name, email_hash, body, status, created_at, avatar_key) VALUES (1, 7, 'Photo', 'h1', 'current photo', 'approved', 3, 'avatars/1-new.png')");
+  db.exec("INSERT INTO comments (tenant_id, post_id, author_name, email_hash, body, status, created_at, avatar_key) VALUES (1, 7, 'Plain', 'h2', 'no photo anywhere', 'approved', 4, NULL)");
+  db.exec(read("migrations/077-comment-avatar-resync.sql"));
+  const key = (body) => db.prepare("SELECT avatar_key AS k FROM comments WHERE body = ?").get(body).k;
+  assert.equal(key("missing photo"), "avatars/1-new.png");
+  assert.equal(key("stale photo"), "avatars/1-new.png");
+  assert.equal(key("current photo"), "avatars/1-new.png");
+  assert.equal(key("no photo anywhere"), null);
 });
 
 // Blog settings round-trip for the comments flag, through the admin form.

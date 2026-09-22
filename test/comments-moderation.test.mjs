@@ -54,6 +54,12 @@ function fakeDb(state) {
                 return { ...state.tenant, membership_role: state.roles[args[1]] ?? null };
               }
               if (sql.includes("FROM tenants")) return state.tenant;
+              if (sql.includes("COUNT(*)") && sql.includes("comments")) {
+                const rows = args.length > 1
+                  ? state.comments.filter((c) => c.tenant_id === args[0] && c.post_id === args[1])
+                  : state.comments.filter((c) => c.tenant_id === args[0]);
+                return { count: rows.length };
+              }
               if (sql.includes("FROM comments")) {
                 return state.comments.find((c) => c.tenant_id === args[0] && c.id === args[1]) ?? null;
               }
@@ -64,10 +70,14 @@ function fakeDb(state) {
             },
             all: async () => {
               if (sql.includes("FROM comments")) {
-                const rows = state.comments
-                  .filter((c) => c.tenant_id === args[0])
+                // List binds end with (limit, offset); a post filter adds one bind after the tenant.
+                let rows = state.comments.filter((c) => c.tenant_id === args[0]);
+                if (args.length === 4) rows = rows.filter((c) => c.post_id === args[1]);
+                rows = rows
                   .map((c) => ({ ...c, post_slug: state.posts[c.post_id]?.slug, post_title: state.posts[c.post_id]?.title }))
                   .sort((a, b) => b.id - a.id);
+                const limit = args[args.length - 2], offset = args[args.length - 1];
+                if (typeof limit === "number" && typeof offset === "number") rows = rows.slice(offset, offset + limit);
                 return { results: rows };
               }
               return { results: [] };
@@ -122,6 +132,7 @@ test("owners and editors moderate comments; authors cannot", async () => {
     assert.match(listHtml, /Hello\./);
     assert.match(listHtml, /Buy now\./);
     assert.match(listHtml, />Comments</);
+    assert.match(listHtml, /status-approved/, "approved rows read green");
 
     // Authors cannot moderate.
     const authorForm = new FormData();
@@ -146,6 +157,7 @@ test("owners and editors moderate comments; authors cannot", async () => {
     const relist = await blogniceApp.request(adminReq(state, "/admin/b/b_comments/comments", "owner-session"), undefined, env, executionCtx);
     const relistHtml = await relist.text();
     assert.match(relistHtml, /Restore/);
+    assert.match(relistHtml, /status-removed/, "removed rows read red");
 
     // Restore brings it back.
     const restoreForm = new FormData();
@@ -160,6 +172,54 @@ test("owners and editors moderate comments; authors cannot", async () => {
     state.tenant.comments_enabled = 0;
     assert.equal((await blogniceApp.request(adminReq(state, "/admin/b/b_comments/comments", "owner-session"), undefined, env, executionCtx)).status, 404);
     state.tenant.comments_enabled = 1;
+  } finally {
+    if (originalCaches === undefined) delete globalThis.caches;
+    else globalThis.caches = originalCaches;
+  }
+});
+
+test("comment queue paginates and keeps the post filter", async () => {
+  const { blogniceApp } = await import("../src/index.ts");
+  const state = makeState();
+  state.posts[8] = { id: 8, tenant_id: 1, slug: "other-post", title: "Other", published: 1 };
+  state.comments = [];
+  for (let i = 1; i <= 55; i++) {
+    state.comments.push({ id: i, tenant_id: 1, post_id: 7, parent_id: null, author_name: "Reader", email_hash: "e", body: `Comment number ${String(i).padStart(2, "0")}.`, status: "approved", created_at: NOW - 100 + i, decided_at: NOW - 100 + i });
+  }
+  state.comments.push({ id: 56, tenant_id: 1, post_id: 8, parent_id: null, author_name: "Other", email_hash: "e", body: "Elsewhere.", status: "approved", created_at: NOW, decided_at: NOW });
+  const db = fakeDb(state);
+  const env = { DB: db, POSTS: db, ROOT_DOMAIN: "blognice.test" };
+  const executionCtx = { waitUntil() {}, passThroughOnException() {} };
+  const originalCaches = globalThis.caches;
+  globalThis.caches = { default: { match: async () => undefined, put: async () => {}, delete: async () => {} } };
+  try {
+    const page1 = await blogniceApp.request(adminReq(state, "/admin/b/b_comments/comments", "owner-session"), undefined, env, executionCtx);
+    assert.equal(page1.status, 200);
+    const page1Html = await page1.text();
+    assert.match(page1Html, /Comment number 55\./);
+    assert.doesNotMatch(page1Html, /Comment number 01\./);
+    assert.match(page1Html, /Page 1/);
+    assert.match(page1Html, /page=2/, "next page link");
+
+    const page2 = await blogniceApp.request(adminReq(state, "/admin/b/b_comments/comments?page=2", "owner-session"), undefined, env, executionCtx);
+    const page2Html = await page2.text();
+    assert.match(page2Html, /Comment number 01\./);
+    assert.doesNotMatch(page2Html, /Comment number 55\./);
+    assert.match(page2Html, /Page 2/);
+
+    // A bad page falls back to the first.
+    const bad = await blogniceApp.request(adminReq(state, "/admin/b/b_comments/comments?page=nope", "owner-session"), undefined, env, executionCtx);
+    assert.match(await bad.text(), /Comment number 55\./);
+
+    // The post filter narrows server-side and survives paging.
+    const filtered = await blogniceApp.request(adminReq(state, "/admin/b/b_comments/comments?post=8", "owner-session"), undefined, env, executionCtx);
+    const filteredHtml = await filtered.text();
+    assert.match(filteredHtml, /Elsewhere\./);
+    assert.doesNotMatch(filteredHtml, /Comment number 55\./);
+    const filteredPaged = await blogniceApp.request(adminReq(state, "/admin/b/b_comments/comments?post=7&page=2", "owner-session"), undefined, env, executionCtx);
+    const filteredPagedHtml = await filteredPaged.text();
+    assert.match(filteredPagedHtml, /Comment number 01\./);
+    assert.match(filteredPagedHtml, /href="[^"]*post=7[^"]*page=1[^"]*"/, "previous keeps the filter");
   } finally {
     if (originalCaches === undefined) delete globalThis.caches;
     else globalThis.caches = originalCaches;

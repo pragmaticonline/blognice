@@ -39,6 +39,11 @@ function fakeDb(state) {
             first: async () => {
               if (sql.includes("FROM tenants")) return state.tenant;
               if (sql.includes("FROM posts")) return state.posts["live-post"] ?? null;
+              if (sql.includes("comment_sessions")) {
+                const session = state.sessions.find((s) => s.tenant_id === args[0] && s.cookie_hash === args[args.length - 1]);
+                if (!session) return null;
+                return Object.values(state.identities).find((r) => r.tenant_id === session.tenant_id && r.email_hash === session.email_hash) ?? null;
+              }
               if (sql.includes("FROM comment_identities")) {
                 const rows = Object.values(state.identities);
                 if (sql.includes("token_hash")) {
@@ -78,6 +83,10 @@ function fakeDb(state) {
                 }
                 return { success: true };
               }
+              if (sql.startsWith("INSERT OR IGNORE INTO comment_sessions")) {
+                state.sessions.push({ tenant_id: args[0], email_hash: args[1], cookie_hash: args[2], created_at: args[3] });
+                return { success: true };
+              }
               if (sql.startsWith("INSERT INTO comment_attempts")) {
                 state.attempts.push({ tenant_id: args[0], email_hash: args[1], kind: args[2], created_at: args[3] });
                 return { success: true };
@@ -109,6 +118,7 @@ function makeState() {
       "live-post": { id: 7, tenant_id: 1, slug: "live-post", title: "Live", body_md: "x", tags_json: "[]", published: 1, created_at: NOW, updated_at: NOW },
     },
     identities: {},
+    sessions: [],
     attempts: [],
     comments: [],
   };
