@@ -575,7 +575,7 @@ export const STYLES = /* css */ `
   .comment-in-reply { color: var(--muted); font-size: .8em; font-weight: 400; }
   .comment time { float: right; line-height: 1.4em; margin-left: .5em; font-size: .8em; color: var(--muted); }
   .comment-body { margin: .25rem 0; font-size: .95rem; line-height: 1.4em; overflow: hidden; overflow-wrap: break-word; }
-  .comment-actions { margin-top: .25rem; overflow: hidden; display: flex; align-items: baseline; }
+  .comment-actions { margin-top: .25rem; overflow: hidden; }
   .comment .reply-btn { background: none; border: none; padding: 0; color: var(--muted); font: inherit; font-size: .9em; font-weight: 700; cursor: pointer; margin-left: 1em; margin-right: 1em; line-height: 1.5em; }
   .comment .reply-btn:first-child { margin-left: 0; }
   .comment .reply-btn:hover { color: var(--ink); }
@@ -583,7 +583,8 @@ export const STYLES = /* css */ `
   .comment .vote-btn:hover { color: var(--ink); }
   .comment .vote-like[aria-pressed="true"] { color: #16a34a; }
   .comment .vote-dislike[aria-pressed="true"] { color: #dc2626; }
-  .comment .more-btn { background: none; border: none; padding: 0; color: var(--muted); font: inherit; font-size: .9em; font-weight: 700; cursor: pointer; line-height: 1.5em; margin-left: auto; }
+  .comment .more-btn { background: none; border: none; padding: 0; color: var(--muted); font: inherit; font-size: .9em; font-weight: 700; cursor: pointer; line-height: 1.5em; }
+  .comment-body .more-btn { display: inline; margin-left: .4em; }
   .comment .more-btn:hover { color: var(--ink); }
   .comment-children { margin-top: 1rem; }
   .comment[hidden] { display: none; }
@@ -627,6 +628,8 @@ export const STYLES = /* css */ `
   }
   .comment-form button[type="submit"]:hover { filter: brightness(1.05); }
   .comment-form .form-note { margin: .9rem 0 0; font-size: .88rem; }
+  .comment-form .subscribe-row { display: flex; gap: .5rem; align-items: center; font-size: .88rem; font-weight: 400; margin: .6rem 0 0; cursor: pointer; }
+  .comment-form .subscribe-row input { accent-color: var(--accent); width: 1rem; height: 1rem; }
   @media (max-width: 560px) { .comment.d1 { margin-left: 0; } }
   .byline-identity { display: flex; align-items: center; gap: 0.75rem; min-width: 0; color: inherit; text-decoration: none; }
   .avatar {
@@ -1355,8 +1358,8 @@ function commentExcerpt(body: string): string {
 function commentBody(body: string): string {
   const full = `<div class="comment-body">${esc(body).replace(/\n/g, "<br>")}</div>`;
   if (!isLongComment(body)) return full;
-  return `<div class="comment-body" data-full-body hidden>${esc(body).replace(/\n/g, "<br>")}</div>`
-    + `<div class="comment-body" data-excerpt-body>${esc(commentExcerpt(body)).replace(/\n/g, "<br>")}…</div>`;
+  return `<div class="comment-body" data-full-body hidden>${esc(body).replace(/\n/g, "<br>")} <button class="more-btn" type="button" data-comment-more>Show less</button></div>`
+    + `<div class="comment-body" data-excerpt-body>${esc(commentExcerpt(body)).replace(/\n/g, "<br>")}… <button class="more-btn" type="button" data-comment-more>Show more</button></div>`;
 }
 
 function commentAvatar(name: string, hue?: number | null, key?: string | null): string {
@@ -1401,7 +1404,7 @@ function renderCommentNodes(nodes: CommentNode[], depth: number, parentAuthor: s
           ? `${avHtml}<summary>${headHtml}${timeHtml}</summary>`
           : `<summary>${avHtml}${headHtml}${timeHtml}</summary>`)
         + commentBody(node.body)
-        + `<div class="comment-actions"><button class="reply-btn" type="button" data-reply-to="${node.id}" data-reply-name="${esc(node.author_name)}">Reply</button>${voteHtml}${isLongComment(node.body) ? `<button class="more-btn" type="button" data-comment-more>Show more</button>` : ""}</div>${depth === 0 ? kids : ""}</details>${depth === 0 ? "" : kids}`;
+        + `<div class="comment-actions"><button class="reply-btn" type="button" data-reply-to="${node.id}" data-reply-name="${esc(node.author_name)}">Reply</button>${voteHtml}</div>${depth === 0 ? kids : ""}</details>${depth === 0 ? "" : kids}`;
     }
   }
   return out;
@@ -1413,7 +1416,8 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
   var form=section.querySelector("[data-comment-form]");
   var nameField=form.querySelector("[data-field-name]"),emailField=form.querySelector("[data-field-email]"),
       bodyField=form.querySelector("[data-field-body]"),parentField=form.querySelector("[data-field-parent]"),
-      siteField=form.querySelector("[data-field-site]"),note=form.querySelector("[data-form-note]");
+      siteField=form.querySelector("[data-field-site]"),note=form.querySelector("[data-form-note]"),
+      subField=form.querySelector("[data-field-subscribe]");
   function say(text){note.textContent=text;note.hidden=false;}
   function escHtml(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
   function escAttr(s){return escHtml(s).replace(/'/g,"&#39;");}
@@ -1473,6 +1477,7 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
   }
   function openThread(el){while(el){if(el.tagName==="DETAILS"&&!el.open)el.open=true;el=el.parentNode;}}
   function showInline(parentId,replyToName){
+    if(parentId&&!/^\\d+$/.test(parentId))parentId="";
     setMode(parentId,replyToName);
     var target=parentId?section.querySelector('[data-comment="'+parentId+'"]'):null;
     if(target)openThread(target);
@@ -1512,7 +1517,8 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     var box=b.closest("[data-comment]");if(!box)return;
     var full=box.querySelector(":scope > [data-full-body]"),ex=box.querySelector(":scope > [data-excerpt-body]");
     if(!full||!ex)return;
-    var show=full.hidden;full.hidden=!show;ex.hidden=show;b.textContent=show?"Show less":"Show more";
+    var show=full.hidden;full.hidden=!show;ex.hidden=show;
+    box.querySelectorAll("[data-comment-more]").forEach(function(x){x.textContent=show?"Show less":"Show more";});
   });
   var dialogClose=section.querySelector("[data-dialog-close]");
   if(dialogClose)dialogClose.addEventListener("click",function(){resetForm();});
@@ -1624,6 +1630,8 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     try{localStorage.setItem("bn_comment_identity",JSON.stringify({name:nameField.value,email:emailField.value,website:siteNow||""}));}catch(err){}
     var payload={body:bodyText};
     if(parentField.value)payload.parent_id=Number(parentField.value);
+    var wantSub=subField&&subField.checked;
+    if(wantSub){payload.subscribe=true;payload.email=emailField.value;}
     var photoNow=savedPhoto();
     var who=(nameField.value||"").trim()||"Someone";
     var tempId="pending-"+Date.now();
@@ -1636,16 +1644,16 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     fetch(path+"/comments",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)}).then(function(r){
       if(r.status===201){
         return r.json().catch(function(){return null;}).then(function(j){
-          done();dropPending();
+          done();dropPending();showInline("","");
           try{localStorage.removeItem("bn_comment_draft");}catch(e){}
           if(j&&j.comment)insertApproved(j.comment);
           else location.reload();
-          say("Posted.");
+          say(j&&j.comment&&j.comment.subscribed==="pending"?"Posted. Check your inbox to confirm your subscription.":"Posted.");
         });
       }
       if(r.status===401){
         done();dropPending();bodyField.value=bodyText;
-        try{localStorage.setItem("bn_comment_draft",JSON.stringify({name:nameField.value,email:emailField.value,website:siteNow||"",body:bodyText,parent:parentField.value||""}));}catch(e){}
+        try{localStorage.setItem("bn_comment_draft",JSON.stringify({name:nameField.value,email:emailField.value,website:siteNow||"",subscribe:!!wantSub,body:bodyText,parent:parentField.value||""}));}catch(e){}
         openDialog();
         var startBody={email:emailField.value,author_name:nameField.value};
         if(siteNow)startBody.website=siteNow;
@@ -1659,8 +1667,8 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
   try{
     if(/(^|[?&])verified=1(&|#|$)/.test(location.search+location.hash)){
       var draft=null;try{draft=JSON.parse(localStorage.getItem("bn_comment_draft")||"null");}catch(e){draft=null;}
-      if(draft){
-        nameField.value=draft.name||"";emailField.value=draft.email||"";if(siteField)siteField.value=draft.website||"";bodyField.value=draft.body||"";
+      if(draft){if(draft.parent&&!/^\\d+$/.test(draft.parent))draft.parent="";
+        nameField.value=draft.name||"";emailField.value=draft.email||"";if(siteField)siteField.value=draft.website||"";if(subField)subField.checked=draft.subscribe!==false;bodyField.value=draft.body||"";
         var rname="";
         if(draft.parent){var pa=section.querySelector('[data-comment="'+draft.parent+'"] .comment-author');if(pa)rname=pa.textContent;}
         showInline(draft.parent||"",rname);
@@ -1720,14 +1728,14 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     var long=raw.length>400||rawLines.length>8,cut=raw.slice(0,400),sp=cut.lastIndexOf(" ");
     if(raw.length>400&&sp>340)cut=cut.slice(0,sp);
     var cutLines=cut.split("\\n");if(cutLines.length>8)cut=cutLines.slice(0,8).join("\\n");
-    var bodyHtml=long?'<div class="comment-body" data-full-body hidden>'+escHtml(raw).replace(/\\n/g,"<br>")+'</div><div class="comment-body" data-excerpt-body>'+escHtml(cut).replace(/\\n/g,"<br>")+'…</div>':'<div class="comment-body">'+escHtml(raw).replace(/\\n/g,"<br>")+'</div>';
+    var bodyHtml=long?'<div class="comment-body" data-full-body hidden>'+escHtml(raw).replace(/\\n/g,"<br>")+' <button class="more-btn" type="button" data-comment-more>Show less</button></div><div class="comment-body" data-excerpt-body>'+escHtml(cut).replace(/\\n/g,"<br>")+'… <button class="more-btn" type="button" data-comment-more>Show more</button></div>':'<div class="comment-body">'+escHtml(raw).replace(/\\n/g,"<br>")+'</div>';
     var likes=typeof c.likes==="number"?c.likes:0,dislikes=typeof c.dislikes==="number"?c.dislikes:0;
     var voteHtml='<button class="vote-btn vote-like" type="button" data-vote-btn="1" aria-pressed="false" aria-label="Like this comment">▲ <span data-like-count>'+likes+'</span></button>'
       +'<button class="vote-btn vote-dislike" type="button" data-vote-btn="-1" aria-pressed="false" aria-label="Dislike this comment">▼ <span data-dislike-count>'+dislikes+'</span></button>';
     var html='<details class="comment d'+depth+(pending?' pending':' fresh')+'" data-comment="'+c.id+'"'+(pending?' data-pending="1"':'')+' open>'
       +(depth>0?'<summary>'+avHtml+headHtml+timeHtml+'</summary>':avHtml+'<summary>'+headHtml+timeHtml+'</summary>')
       +bodyHtml
-      +'<div class="comment-actions"><button class="reply-btn" type="button" data-reply-to="'+c.id+'" data-reply-name="'+escHtml(nm)+'">Reply</button>'+voteHtml+(long?'<button class="more-btn" type="button" data-comment-more>Show more</button>':"")+'</div></details>';
+      +'<div class="comment-actions"><button class="reply-btn" type="button" data-reply-to="'+c.id+'" data-reply-name="'+escHtml(nm)+'">Reply</button>'+voteHtml+'</div></details>';
     var host;
     if(parentEl){host=parentEl.querySelector(":scope > .comment-children")||parentEl.closest(".comment-children");if(!host){host=document.createElement("div");host.className="comment-children";parentEl.appendChild(host);}host.insertAdjacentHTML("beforeend",html);}
     else{host=section.querySelector(".comment-list");host.insertAdjacentHTML(sortMode==="newest"?"afterbegin":"beforeend",html);var empty=section.querySelector(".no-comments");if(empty)empty.remove();}
@@ -1801,6 +1809,7 @@ export function renderCommentSection(post: { id: number; slug: string }, rows: C
     + `<div class="comment-entry"><span class="comment-entry-avatar" data-entry-avatar aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4.2"/><path d="M3.5 21c.6-4.3 4-6.6 8.5-6.6s7.9 2.3 8.5 6.6"/></svg></span>`
     + `<div class="comment-bubble"><textarea data-field-body maxlength="2000" required aria-label="Comment"></textarea></div></div>`
     + `<input type="hidden" data-field-parent value="">`
+    + `<label class="subscribe-row"><input type="checkbox" data-field-subscribe checked> Email me new posts from this blog</label>`
     + `<button type="submit">Send</button>`
     + `<p class="form-note" data-form-note hidden></p>`
     + `</form></div>`

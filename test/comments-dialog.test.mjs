@@ -11,14 +11,11 @@ test("linked profiles keep the avatar pinned like plain ones", async () => {
   assert.ok(pinned[1].includes("position: absolute"), "linked avatar stays out of flow");
 });
 
-test("show-more sits at the far right of the actions row", async () => {
+test("show-more sits inline after the last excerpt word", async () => {
   const { STYLES } = await import("../src/render.ts");
-  const actions = STYLES.match(/\.comment-actions \{([^}]*)\}/);
-  assert.ok(actions, "actions row rule exists");
-  assert.ok(actions[1].includes("display: flex"), "actions row lays out with flex");
-  const more = STYLES.match(/\.comment \.more-btn \{([^}]*)\}/);
-  assert.ok(more, "show-more rule exists");
-  assert.ok(more[1].includes("margin-left: auto"), "show-more pushes to the far right");
+  const inline = STYLES.match(/\.comment-body \.more-btn \{([^}]*)\}/);
+  assert.ok(inline, "inline show-more rule exists");
+  assert.ok(inline[1].includes("margin-left"), "a space separates the last word from show-more");
 });
 
 test("comment dialog form has breathing room and contained inputs", async () => {

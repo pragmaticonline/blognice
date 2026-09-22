@@ -311,8 +311,8 @@ test("long comments render an excerpt with a show-more toggle", async () => {
     const html = await res.text();
     assert.match(html, /data-excerpt-body/);
     assert.match(html, /data-full-body hidden/);
-    assert.match(html, /data-comment-more[^>]*>Show more</);
-    assert.match(html, /…<\/div>/, "excerpt ends mid-sentence with an ellipsis");
+    assert.match(html, /… <button class="more-btn" type="button" data-comment-more>Show more<\/button><\/div>/, "show-more sits inline after the excerpt ellipsis");
+    assert.match(html, /<button class="more-btn" type="button" data-comment-more>Show less<\/button><\/div>/, "expanded text carries its own show-less");
     assert.match(html, /<div class="comment-body">Flat 0\.<\/div>/, "short comments render whole with no toggle");
   } finally {
     if (originalCaches === undefined) delete globalThis.caches;

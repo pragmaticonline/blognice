@@ -53,7 +53,7 @@ function fakeDb(state) {
             if (sql.includes("COUNT(*)")) {
               if (sql.includes("comment_attempts")) {
                 const hasEmail = sql.includes("email_hash");
-                const kind = args.find((a) => a === "start" || a === "submit");
+                const kind = args.find((a) => a === "start" || a === "submit" || a === "identity");
                 const since = args[args.length - 1];
                 const scoped = state.attempts.filter((a) => a.tenant_id === args[0] && a.kind === kind && a.created_at > since);
                 if (!hasEmail) return { count: scoped.length };
@@ -469,6 +469,44 @@ test("verified readers upload and remove profile photos", async () => {
       body: JSON.stringify({ body: "Without photo." }),
     }), undefined, env, executionCtx);
     assert.equal((await reposted.json()).comment.avatar_key, null);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalCaches === undefined) delete globalThis.caches;
+    else globalThis.caches = originalCaches;
+  }
+});
+
+test("settings saves are rate-limited per reader", async () => {
+  const { blogniceApp } = await import("../src/index.ts");
+  const state = makeState();
+  const db = fakeDb(state);
+  const env = { DB: db, POSTS: db, ROOT_DOMAIN: "blognice.test", EMAIL_FROM: "Blog <hello@blognice.test>", MAILNICE_API_KEY: "test-key" };
+  const executionCtx = { waitUntil() {}, passThroughOnException() {} };
+  const sentEmails = [];
+  const originalFetch = globalThis.fetch;
+  const originalCaches = globalThis.caches;
+  globalThis.fetch = async (url, init) => {
+    sentEmails.push(String(init?.body || ""));
+    return new Response(JSON.stringify({}), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  globalThis.caches = { default: { match: async () => undefined, put: async () => {}, delete: async () => {} } };
+  const req = (path, opts = {}) => new Request(`https://commentblog.blognice.test${path}`, {
+    ...opts,
+    headers: { host: "commentblog.blognice.test", ...(opts.headers || {}) },
+  });
+  try {
+    await blogniceApp.request(req("/live-post/comments/start", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "limited@example.com", author_name: "Limited" }),
+    }), undefined, env, executionCtx);
+    const verify = await blogniceApp.request(req(`/live-post/comments/verify?token=${tokenFrom(sentEmails[0])}`), undefined, env, executionCtx);
+    const cookie = cookieFrom(verify);
+    const save = (name) => blogniceApp.request(req("/live-post/comments/identity", {
+      method: "POST", headers: { "content-type": "application/json", cookie: `bn_comment=${cookie}` },
+      body: JSON.stringify({ author_name: name, website: "https://limited.example.com" }),
+    }), undefined, env, executionCtx);
+    for (let i = 0; i < 10; i++) assert.equal((await save(`Limited ${i}`)).status, 200);
+    assert.equal((await save("Limited 11")).status, 429);
   } finally {
     globalThis.fetch = originalFetch;
     if (originalCaches === undefined) delete globalThis.caches;

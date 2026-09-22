@@ -8211,6 +8211,8 @@ const COMMENT_TENANT_MAX = 200;
 const COMMENT_DUPLICATE_WINDOW = 600;
 const COMMENT_VOTE_WINDOW = 60;
 const COMMENT_VOTE_MAX = 30;
+const COMMENT_IDENTITY_WINDOW = 3600;
+const COMMENT_IDENTITY_MAX = 10;
 const COMMENT_REPORT_REASONS = ["spam", "harassment", "other"];
 const COMMENT_REPORT_WINDOW = 3600;
 const COMMENT_REPORT_MAX = 10; // per (tenant, reporter) per hour
@@ -8389,6 +8391,10 @@ app.post("/:slug/comments/identity", async (c) => {
   if (!authorName || authorName.length > 60) return c.json({ error: "A display name up to 60 characters is required." }, 400);
   const website = normalizeCommentWebsite(payload?.website);
   if (!website) return c.json({ error: "A website address is required in settings." }, 400);
+  const now = Math.floor(Date.now() / 1000);
+  const recent = await commentAttemptCount(c.env, tenant.id, "identity", identity.email_hash, now - COMMENT_IDENTITY_WINDOW);
+  if (recent >= COMMENT_IDENTITY_MAX) return c.json({ error: "Too many settings saves. Try again later." }, 429);
+  await logCommentAttempt(c.env, tenant, "identity", identity.email_hash, now);
   await tenantDb(c.env, tenant).prepare(
     "UPDATE comment_identities SET author_name = ?, website = ? WHERE tenant_id = ? AND email_hash = ?"
   ).bind(authorName, website, tenant.id, identity.email_hash).run();
@@ -8467,6 +8473,60 @@ app.delete("/:slug/comments/avatar", async (c) => {
   return c.json({ ok: true });
 });
 
+// Comment-form subscribe taps reuse the blog's double opt-in flow: a checked
+// box on a verified submit queues a confirmation email, never a direct
+// subscription. Returns the state for the submit response.
+async function enrollCommentSubscriber(
+  env: Bindings, tenant: Tenant, email: string, sourcePath: string
+): Promise<"pending" | "active" | false> {
+  const now = Math.floor(Date.now() / 1000);
+  const existing = await env.DB.prepare(
+    "SELECT 1 FROM subscribers WHERE tenant_id = ? AND email = ? AND confirmed_at IS NOT NULL"
+  ).bind(tenant.id, email).first();
+  if (existing) return "active";
+  await env.DB.prepare("DELETE FROM subscriber_confirmations WHERE expires_at <= ? AND sent_at <= ?")
+    .bind(now - 86400, now - 86400).run();
+  const pending = await env.DB.prepare(
+    "SELECT sent_at FROM subscriber_confirmations WHERE tenant_id = ? AND email = ?"
+  ).bind(tenant.id, email).first<{ sent_at: number }>();
+  if (pending) return "pending";
+  const rawToken = crypto.randomUUID();
+  const tokenHash = await sha256hex(rawToken);
+  const origin = publicOrigin(env, tenant);
+  const confirmUrl = `${origin}/subscribe/confirm?token=${encodeURIComponent(rawToken)}`;
+  const job: EmailJobMessage = {
+    kind: "email-delivery",
+    emailKind: "subscriber-confirmation",
+    idempotencyKey: `subscriber-confirmation:${tokenHash}`,
+    to: email,
+    ...subscriberConfirmationEmail({ blogTitle: tenant.title, confirmUrl }),
+    senderName: tenant.title,
+  };
+  const result = await requestSubscriberConfirmation({
+    isConfirmed: async () => false,
+    hasPending: async () => false,
+    insert: async () => {
+      const inserted = await env.DB.prepare(
+        "INSERT OR IGNORE INTO subscriber_confirmations (tenant_id, email, token_hash, expires_at, sent_at, source_path, utm_source, utm_medium, utm_campaign) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ).bind(tenant.id, email, tokenHash, now + 86400, now, sourcePath, null, null, null).run();
+      return inserted.meta.changes === 1;
+    },
+    deliver: async () => {
+      if (!emailEnabled(env)) return true;
+      if (env.EMAIL_QUEUE) {
+        await env.EMAIL_QUEUE.send(job);
+        return true;
+      }
+      return sendEmail(env, job);
+    },
+    remove: async () => {
+      await env.DB.prepare("DELETE FROM subscriber_confirmations WHERE token_hash = ?").bind(tokenHash).run();
+    },
+  });
+  try { recordCustomEvent(env, tenant.id, { name: "email_subscribe_requested", path: "/", visitor: "", country: "", device: "", browser: "" }); } catch {}
+  return result === "delivery-failed" ? false : "pending";
+}
+
 app.post("/:slug/comments", async (c) => {
   const tenant = await resolveTenant(c.env, c.req.header("host") || "");
   if (!tenant || !tenant.comments_enabled) return c.json({ error: "Comments are not available." }, 404);
@@ -8509,11 +8569,18 @@ app.post("/:slug/comments", async (c) => {
   // Keep the server-rendered section fresh: the post page is edge-cached.
   c.executionCtx.waitUntil(purge(c, [`/${post.slug}`]).catch(() => {}));
   const id = Number((inserted as any)?.meta?.last_row_id ?? 0);
+  let subscribed: "pending" | "active" | false = false;
+  if (payload?.subscribe === true) {
+    const subEmail = String(payload?.email ?? "").trim().toLowerCase();
+    if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(subEmail) && subEmail.length <= 254) {
+      subscribed = await enrollCommentSubscriber(c.env, tenant, subEmail, `/${post.slug}`);
+    }
+  }
   c.executionCtx.waitUntil(broadcastCommentEvent(c.env, tenant, post.id, {
     type: "comment-approved",
     comment: { id, parent_id: parentId, author_name: identity.author_name, body, created_at: now, avatar_hue: avatarHue, avatar_key: avatarKey, website },
   }).catch(() => false));
-  return c.json({ comment: { id, parent_id: parentId, author_name: identity.author_name, body, status: "approved", created_at: now, avatar_hue: avatarHue, avatar_key: avatarKey, website, likes: 0, dislikes: 0, my_vote: 0 } }, 201);
+  return c.json({ comment: { id, parent_id: parentId, author_name: identity.author_name, body, status: "approved", created_at: now, avatar_hue: avatarHue, avatar_key: avatarKey, website, likes: 0, dislikes: 0, my_vote: 0, subscribed } }, 201);
 });
 
 // Comment likes/dislikes. Verified readers only; one vote each. Tapping the
