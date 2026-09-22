@@ -1615,7 +1615,7 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
       if(!btn){btn=document.createElement("button");btn.type="button";btn.className="toggle-replies";btn.setAttribute("data-toggle-replies","");
         btn.addEventListener("click",function(){if(btn.getAttribute("data-expanded")==="1")btn.removeAttribute("data-expanded");else btn.setAttribute("data-expanded","1");clampThreads();});
         box.parentNode.insertBefore(btn,box.nextSibling);}
-      btn.textContent=expanded?"Show fewer replies":"Show "+hidden+" more replies";
+      btn.textContent=expanded?"Show fewer replies":(hidden===1?"Show 1 more reply":"Show "+hidden+" more replies");
     });
   }
   clampThreads();
