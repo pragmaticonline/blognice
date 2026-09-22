@@ -8458,6 +8458,12 @@ app.post("/:slug/comments/avatar", async (c) => {
   await tenantDb(c.env, tenant).prepare(
     "UPDATE comment_identities SET avatar_key = ? WHERE tenant_id = ? AND email_hash = ?"
   ).bind(key, tenant.id, identity.email_hash).run();
+  // Photo changes apply to past comments too: rows are stamped at insert,
+  // so without this the reader's own history would keep the old photo
+  // (whose object is deleted below) forever.
+  await tenantDb(c.env, tenant).prepare(
+    "UPDATE comments SET avatar_key = ? WHERE tenant_id = ? AND email_hash = ?"
+  ).bind(key, tenant.id, identity.email_hash).run();
   if (old && old !== key) await c.env.MEDIA.delete(old).catch(() => undefined);
   c.executionCtx.waitUntil(purgeCommenterPosts(c, tenant, identity.email_hash).catch(() => undefined));
   return c.json({ url: `/media/${key}`, key }, 201);
@@ -8474,6 +8480,9 @@ app.delete("/:slug/comments/avatar", async (c) => {
     await c.env.MEDIA.delete(identity.avatar_key).catch(() => undefined);
     await tenantDb(c.env, tenant).prepare(
       "UPDATE comment_identities SET avatar_key = NULL WHERE tenant_id = ? AND email_hash = ?"
+    ).bind(tenant.id, identity.email_hash).run();
+    await tenantDb(c.env, tenant).prepare(
+      "UPDATE comments SET avatar_key = NULL WHERE tenant_id = ? AND email_hash = ?"
     ).bind(tenant.id, identity.email_hash).run();
     c.executionCtx.waitUntil(purgeCommenterPosts(c, tenant, identity.email_hash).catch(() => undefined));
   }

@@ -97,6 +97,13 @@ function fakeDb(state) {
                 }
                 return { success: true };
               }
+              if (sql.startsWith("UPDATE comments SET avatar_key")) {
+                const value = sql.includes("= NULL") ? null : args[0];
+                for (const c of state.comments) {
+                  if (c.tenant_id === args[args.length - 2] && c.email_hash === args[args.length - 1]) c.avatar_key = value;
+                }
+                return { success: true };
+              }
               if (sql.startsWith("INSERT INTO comment_attempts")) {
                 state.attempts.push({ tenant_id: args[0], email_hash: args[1], kind: args[2], created_at: args[3] });
                 return { success: true };
@@ -458,12 +465,22 @@ test("verified readers upload and remove profile photos", async () => {
     assert.equal(posted.status, 201);
     assert.equal((await posted.json()).comment.avatar_key, key);
 
+    // A photo change restamps past comments too, not just future ones.
+    const postedRow = state.comments.find((c) => c.body === "With photo.");
+    const done2 = await upload(cookie, png(2048));
+    assert.equal(done2.status, 201);
+    const { key: key2 } = await done2.json();
+    assert.notEqual(key2, key);
+    assert.equal(postedRow.avatar_key, key2);
+    assert.ok(deleted.includes(key), "replaced photo object is deleted");
+
     // Removal clears the identity and deletes the object.
     const removed = await blogniceApp.request(new Request("https://commentblog.blognice.test/live-post/comments/avatar", {
       method: "DELETE", headers: { host: "commentblog.blognice.test", cookie: `bn_comment=${cookie}` },
     }), undefined, env, executionCtx);
     assert.equal(removed.status, 200);
-    assert.ok(deleted.includes(key));
+    assert.ok(deleted.includes(key2));
+    assert.equal(postedRow.avatar_key, null, "removal clears past comments");
     const reposted = await blogniceApp.request(new Request("https://commentblog.blognice.test/live-post/comments", {
       method: "POST", headers: { host: "commentblog.blognice.test", cookie: `bn_comment=${cookie}`, "content-type": "application/json" },
       body: JSON.stringify({ body: "Without photo." }),
