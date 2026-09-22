@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildQuestions, rankCandidates, scoreCandidates } from "../scripts/rerank.mjs";
+import { MODEL, assessRanking, buildQuestions, rankCandidates, scoreCandidates } from "../scripts/rerank.mjs";
 
 const CANDIDATES = [
   { id: "a", path: "src/a.ts", snippet: "upload endpoint here" },
@@ -44,11 +44,43 @@ test("scoreCandidates posts one batched request and returns ranked + usage", asy
     apiKey: "k",
     fetchImpl: stubFetch,
   });
-  assert.equal(seenBody.model, "jev-latest");
+  assert.equal(seenBody.model, MODEL);
+  assert.notEqual(MODEL, "jev-latest", "model version is pinned, aliases move");
   assert.equal(Object.keys(seenBody.questions).length, 2);
   assert.deepEqual(ranked.map((c) => c.id), ["b", "a"]);
   assert.deepEqual(usage, { input_tokens: 100, output_tokens: 10 });
   assert.ok(ms >= 0);
+});
+
+test("buildQuestions carries the shortlist evidence, not just the excerpt", () => {
+  const q = buildQuestions("where is upload?", [
+    { id: "a", path: "src/a.ts", snippet: "app.post upload", why: "grep hit: comments/avatar on line 422" },
+    { id: "b", path: "src/b.ts", snippet: "unrelated styles" },
+  ]);
+  const cand = q.rel_0.instructions.candidate;
+  assert.equal(cand.path, "src/a.ts");
+  assert.match(JSON.stringify(cand), /grep hit/);
+  assert.equal(q.rel_1.instructions.candidate.path, "src/b.ts");
+});
+
+test("assessRanking floors trust at 0.5 top probability", () => {
+  assert.deepEqual(assessRanking([{ id: "a", p: 0.9 }, { id: "b", p: 0.1 }]), {
+    trustworthy: true, top: 0.9,
+  });
+  const flat = assessRanking([{ id: "a", p: 0.46 }, { id: "b", p: 0.41 }]);
+  assert.equal(flat.trustworthy, false);
+  assert.match(flat.reason, /grep/);
+  assert.equal(assessRanking([{ id: "a", p: null }]).trustworthy, false);
+  assert.equal(assessRanking([]).trustworthy, false);
+});
+
+test("scoreCandidates returns the answering model for the log", async () => {
+  const stubFetch = async () => ({
+    ok: true,
+    json: async () => ({ answers: {}, usage: null }),
+  });
+  const out = await scoreCandidates("q?", CANDIDATES.slice(0, 1), { apiKey: "k", fetchImpl: stubFetch });
+  assert.equal(out.model, MODEL);
 });
 
 test("scoreCandidates throws a short error on HTTP failure", async () => {
