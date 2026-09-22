@@ -3993,7 +3993,7 @@ async function detectedImageType(file: File): Promise<string | null> {
   return null;
 }
 
-async function listMedia(env: Bindings, tenantId: number): Promise<MediaItem[]> {
+export async function listMedia(env: Bindings, tenantId: number): Promise<MediaItem[]> {
   const prefix = `${tenantId}/`;
   const objects: R2Object[] = [];
   let cursor: string | undefined;
@@ -4008,6 +4008,7 @@ async function listMedia(env: Bindings, tenantId: number): Promise<MediaItem[]> 
     .filter((obj) => !obj.key.slice(prefix.length).startsWith(".audio-checkpoints/"))
     .filter((obj) => !obj.key.slice(prefix.length).startsWith(".audio-jobs/"))
     .filter((obj) => !obj.key.slice(prefix.length).startsWith(".image-jobs/"))
+    .filter((obj) => !obj.key.slice(prefix.length).startsWith(".autopilot-image/"))
     .filter((obj) => !obj.key.endsWith("-tts.mp3") && !obj.key.endsWith("-tts.wav"))
     .sort((a, b) => b.uploaded.getTime() - a.uploaded.getTime())
     .map((obj) => ({
