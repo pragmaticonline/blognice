@@ -61,8 +61,9 @@ test("served comment scripts parse and keep their regex escapes", async () => {
   assert.ok(client.includes(".comment-avatar,.comment-author"), "every profile click skips the collapse toggle");
   assert.ok(client.includes('/^\\d+$/.test(parentId)'), "restored reply targets must be numeric ids");
   assert.ok(client.includes("data-field-subscribe"), "subscribe box state rides the submit");
+  assert.ok(client.includes("paintSubRow"), "subscribe box hides once the reader is set");
   assert.ok(client.includes("Show 1 more reply"), "single hidden reply uses the singular");
-  assert.ok(client.includes('dropPending();showInline("","")'), "posting resets the reply box to top-level");
+  assert.ok(client.includes('showInline("","");\n    insertApproved({id:tempId'), "the box resets the instant Send is tapped");
   assert.ok(client.includes("confirm your subscription"), "pending subscriptions surface the inbox step");
   assert.ok(client.includes("data-entry-avatar"), "entry avatar slot is addressable");
   assert.ok(client.includes("paintEntry"), "entry box shows the profile photo when set");

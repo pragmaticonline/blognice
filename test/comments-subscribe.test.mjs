@@ -115,6 +115,7 @@ test("comment form offers a checked-by-default subscribe box", async () => {
     assert.equal(res.status, 200);
     const html = await res.text();
     assert.match(html, /data-field-subscribe[^>]*checked|checked[^>]*data-field-subscribe/, "subscribe box is checked by default");
+  assert.match(html, /Email me updates/, "subscribe box promises updates");
   } finally {
     if (originalCaches === undefined) delete globalThis.caches;
     else globalThis.caches = originalCaches;

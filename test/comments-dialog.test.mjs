@@ -11,6 +11,15 @@ test("linked profiles keep the avatar pinned like plain ones", async () => {
   assert.ok(pinned[1].includes("position: absolute"), "linked avatar stays out of flow");
 });
 
+test("comment text leads, the action line recedes", async () => {
+  const { STYLES } = await import("../src/render.ts");
+  const body = STYLES.match(/\.comment-body \{([^}]*)\}/);
+  assert.ok(body, "body rule exists");
+  assert.ok(body[1].includes("font-size: 1.06rem"), "comment text steps up");
+  const reply = STYLES.match(/\.comment \.reply-btn \{([^}]*)\}/);
+  assert.ok(reply && reply[1].includes("font-size: .78em"), "reply line steps down");
+});
+
 test("show-more sits inline after the last excerpt word", async () => {
   const { STYLES } = await import("../src/render.ts");
   const inline = STYLES.match(/\.comment-body \.more-btn \{([^}]*)\}/);

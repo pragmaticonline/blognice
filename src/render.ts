@@ -574,16 +574,16 @@ export const STYLES = /* css */ `
   .comment-profile:hover .comment-author { text-decoration: underline; }
   .comment-in-reply { color: var(--muted); font-size: .8em; font-weight: 400; }
   .comment time { float: right; line-height: 1.4em; margin-left: .5em; font-size: .8em; color: var(--muted); }
-  .comment-body { margin: .25rem 0; font-size: .95rem; line-height: 1.4em; overflow: hidden; overflow-wrap: break-word; }
+  .comment-body { margin: .25rem 0; font-size: 1.06rem; line-height: 1.45em; overflow: hidden; overflow-wrap: break-word; }
   .comment-actions { margin-top: .25rem; overflow: hidden; }
-  .comment .reply-btn { background: none; border: none; padding: 0; color: var(--muted); font: inherit; font-size: .9em; font-weight: 700; cursor: pointer; margin-left: 1em; margin-right: 1em; line-height: 1.5em; }
+  .comment .reply-btn { background: none; border: none; padding: 0; color: var(--muted); font: inherit; font-size: .78em; font-weight: 700; cursor: pointer; margin-left: 1em; margin-right: 1em; line-height: 1.5em; }
   .comment .reply-btn:first-child { margin-left: 0; }
   .comment .reply-btn:hover { color: var(--ink); }
-  .comment .vote-btn { background: none; border: none; padding: 0; color: var(--muted); font: inherit; font-size: .9em; font-weight: 700; cursor: pointer; margin-left: 1em; line-height: 1.5em; }
+  .comment .vote-btn { background: none; border: none; padding: 0; color: var(--muted); font: inherit; font-size: .78em; font-weight: 700; cursor: pointer; margin-left: 1em; line-height: 1.5em; }
   .comment .vote-btn:hover { color: var(--ink); }
   .comment .vote-like[aria-pressed="true"] { color: #16a34a; }
   .comment .vote-dislike[aria-pressed="true"] { color: #dc2626; }
-  .comment .more-btn { background: none; border: none; padding: 0; color: var(--muted); font: inherit; font-size: .9em; font-weight: 700; cursor: pointer; line-height: 1.5em; }
+  .comment .more-btn { background: none; border: none; padding: 0; color: var(--muted); font: inherit; font-size: .78em; font-weight: 700; cursor: pointer; line-height: 1.5em; }
   .comment-body .more-btn { display: inline; margin-left: .4em; }
   .comment .more-btn:hover { color: var(--ink); }
   .comment-children { margin-top: 1rem; }
@@ -1417,7 +1417,12 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
   var nameField=form.querySelector("[data-field-name]"),emailField=form.querySelector("[data-field-email]"),
       bodyField=form.querySelector("[data-field-body]"),parentField=form.querySelector("[data-field-parent]"),
       siteField=form.querySelector("[data-field-site]"),note=form.querySelector("[data-form-note]"),
-      subField=form.querySelector("[data-field-subscribe]");
+      subField=form.querySelector("[data-field-subscribe]"),
+      subRow=form.querySelector("[data-subscribe-row]");
+  // The subscribe box is a first-comment question only: once the reader's
+  // identity is set they have answered it, and the blog's own subscribe
+  // form remains for late joiners.
+  function paintSubRow(){if(subRow)subRow.hidden=!!(savedIdentity().email);};
   function say(text){note.textContent=text;note.hidden=false;}
   function escHtml(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
   function escAttr(s){return escHtml(s).replace(/'/g,"&#39;");}
@@ -1620,6 +1625,7 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
   }
   clampThreads();
   paintEntry();
+  paintSubRow();
   section.querySelectorAll("[data-comment]").forEach(function(el){paintVotes(el);});
   var sending=false;
   var sendBtn=form.querySelector('button[type="submit"]');
@@ -1627,16 +1633,20 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     e.preventDefault();if(sending){say("Sending…");return;}note.hidden=true;
     var bodyText=bodyField.value;
     var siteNow=(siteField&&siteField.value||"").trim()||savedIdentity().website||null;
-    try{localStorage.setItem("bn_comment_identity",JSON.stringify({name:nameField.value,email:emailField.value,website:siteNow||""}));}catch(err){}
+    try{localStorage.setItem("bn_comment_identity",JSON.stringify({name:nameField.value,email:emailField.value,website:siteNow||""}));paintSubRow();}catch(err){}
     var payload={body:bodyText};
-    if(parentField.value)payload.parent_id=Number(parentField.value);
+    var replyParent=parentField.value||"";
+    if(replyParent)payload.parent_id=Number(replyParent);
     var wantSub=subField&&subField.checked;
     if(wantSub){payload.subscribe=true;payload.email=emailField.value;}
     var photoNow=savedPhoto();
     var who=(nameField.value||"").trim()||"Someone";
     var tempId="pending-"+Date.now();
     var nowSec=Math.floor(Date.now()/1000);
-    insertApproved({id:tempId,parent_id:parentField.value?Number(parentField.value):null,author_name:who,body:bodyText,created_at:nowSec,avatar_key:photoNow,website:siteNow},true);
+    // The box resets the instant Send is tapped: no waiting on the API.
+    // The reply target is captured above so drafts still repost correctly.
+    showInline("","");
+    insertApproved({id:tempId,parent_id:replyParent?Number(replyParent):null,author_name:who,body:bodyText,created_at:nowSec,avatar_key:photoNow,website:siteNow},true);
     bodyField.value="";
     sending=true;if(sendBtn)sendBtn.disabled=true;say("Sending…");
     function done(){sending=false;if(sendBtn)sendBtn.disabled=false;}
@@ -1644,7 +1654,7 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     fetch(path+"/comments",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)}).then(function(r){
       if(r.status===201){
         return r.json().catch(function(){return null;}).then(function(j){
-          done();dropPending();showInline("","");
+          done();dropPending();
           try{localStorage.removeItem("bn_comment_draft");}catch(e){}
           if(j&&j.comment)insertApproved(j.comment);
           else location.reload();
@@ -1653,7 +1663,7 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
       }
       if(r.status===401){
         done();dropPending();bodyField.value=bodyText;
-        try{localStorage.setItem("bn_comment_draft",JSON.stringify({name:nameField.value,email:emailField.value,website:siteNow||"",subscribe:!!wantSub,body:bodyText,parent:parentField.value||""}));}catch(e){}
+        try{localStorage.setItem("bn_comment_draft",JSON.stringify({name:nameField.value,email:emailField.value,website:siteNow||"",subscribe:!!wantSub,body:bodyText,parent:replyParent}));}catch(e){}
         openDialog();
         var startBody={email:emailField.value,author_name:nameField.value};
         if(siteNow)startBody.website=siteNow;
@@ -1661,8 +1671,8 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
           body:JSON.stringify(startBody)}).then(function(r2){
           say(r2.ok?"Check your email for a confirmation link — your draft is saved, then post again.":"Could not start verification. Check the name and email.");});
       }
-      return r.json().catch(function(){return null;}).then(function(j){done();dropPending();bodyField.value=bodyText;say((j&&j.error)||"Could not post the comment.");});
-    }).catch(function(){done();dropPending();bodyField.value=bodyText;say("Network error. Try again.");});
+      return r.json().catch(function(){return null;}).then(function(j){done();dropPending();bodyField.value=bodyText;showInline(replyParent,"");say((j&&j.error)||"Could not post the comment.");});
+    }).catch(function(){done();dropPending();bodyField.value=bodyText;showInline(replyParent,"");say("Network error. Try again.");});
   });
   try{
     if(/(^|[?&])verified=1(&|#|$)/.test(location.search+location.hash)){
@@ -1809,7 +1819,7 @@ export function renderCommentSection(post: { id: number; slug: string }, rows: C
     + `<div class="comment-entry"><span class="comment-entry-avatar" data-entry-avatar aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4.2"/><path d="M3.5 21c.6-4.3 4-6.6 8.5-6.6s7.9 2.3 8.5 6.6"/></svg></span>`
     + `<div class="comment-bubble"><textarea data-field-body maxlength="2000" required aria-label="Comment"></textarea></div></div>`
     + `<input type="hidden" data-field-parent value="">`
-    + `<label class="subscribe-row"><input type="checkbox" data-field-subscribe checked> Email me new posts from this blog</label>`
+    + `<label class="subscribe-row" data-subscribe-row><input type="checkbox" data-field-subscribe checked> Email me updates</label>`
     + `<button type="submit">Send</button>`
     + `<p class="form-note" data-form-note hidden></p>`
     + `</form></div>`
