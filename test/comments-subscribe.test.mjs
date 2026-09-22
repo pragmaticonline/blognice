@@ -117,6 +117,8 @@ test("comment form offers a checked-by-default subscribe box", async () => {
     const html = await res.text();
     assert.match(html, /data-field-subscribe[^>]*checked|checked[^>]*data-field-subscribe/, "subscribe box is checked by default");
   assert.match(html, /Email me updates/, "subscribe box promises updates");
+  assert.match(html, /\.comment-form \.subscribe-row\[hidden\][^}]*display:\s*none/, "ask-once hiding beats the flex row");
+  assert.match(html, /data-subscribe-row hidden/, "page form ships the box hidden before placement");
   } finally {
     if (originalCaches === undefined) delete globalThis.caches;
     else globalThis.caches = originalCaches;

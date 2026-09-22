@@ -631,6 +631,7 @@ export const STYLES = /* css */ `
   .comment-form button[type="submit"]:hover { filter: brightness(1.05); }
   .comment-form .form-note { margin: .9rem 0 0; font-size: .88rem; }
   .comment-form .subscribe-row { display: flex; gap: .5rem; align-items: center; font-size: .88rem; font-weight: 400; margin: .6rem 0 0; cursor: pointer; }
+  .comment-form .subscribe-row[hidden] { display: none; }
   .comment-form .subscribe-row input { accent-color: var(--accent); width: 1rem; height: 1rem; }
   @media (max-width: 560px) { .comment.d1 { margin-left: 0; } }
   .byline-identity { display: flex; align-items: center; gap: 0.75rem; min-width: 0; color: inherit; text-decoration: none; }
@@ -1421,13 +1422,15 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
       siteField=form.querySelector("[data-field-site]"),note=form.querySelector("[data-form-note]"),
       subField=form.querySelector("[data-field-subscribe]"),
       subRow=form.querySelector("[data-subscribe-row]");
-  // The subscribe box is a first-comment question only: once the reader's
-  // identity is set they have answered it, and the blog's own subscribe
-  // form remains for late joiners.
+  // The subscribe box lives in two places only: the first-comment modal
+  // (checked by default, remembered after) and reader settings. It never
+  // shows on the inline page form: the form moves between page and modal,
+  // so visibility follows the form, not the page.
   var SUB_ASKED_KEY="bn_comment_subscribe_asked",SUB_KEY="bn_comment_subscribed";
   function subAsked(){try{return localStorage.getItem(SUB_ASKED_KEY)==="1";}catch(e){return false;}}
   function subbed(){try{return localStorage.getItem(SUB_KEY)==="1";}catch(e){return false;}}
-  function paintSubRow(){if(subRow)subRow.hidden=subAsked()||!!(savedIdentity().email);};
+  function inDialog(){return !!(typeof dialog!=="undefined"&&dialog&&dialog.contains(form));}
+  function paintSubRow(){if(subRow)subRow.hidden=subAsked()||subbed()||!inDialog();};
   function say(text){note.textContent=text;note.hidden=false;}
   function escHtml(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
   function escAttr(s){return escHtml(s).replace(/'/g,"&#39;");}
@@ -1493,7 +1496,7 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     if(target)openThread(target);
     if(target){var kids=target.querySelector(":scope > .comment-children");if(kids)target.insertBefore(form,kids);else target.appendChild(form);}
     else if(formHome)formHome.insertBefore(form,formNext);
-    form.classList.add("slim");form.hidden=false;focusBody();
+    form.classList.add("slim");form.hidden=false;paintSubRow();focusBody();
   }
   function openDialog(){
     if(dialog){try{dialog.appendChild(form);}catch(e){}}
@@ -1508,10 +1511,11 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     }
     if(window.requestAnimationFrame){try{window.requestAnimationFrame(settleDialog);}catch(e){settleDialog();}}
     else settleDialog();
+    paintSubRow();
   }
   function resetForm(){
     try{if(dialog&&dialog.open)dialog.close();else if(dialog)dialog.removeAttribute("open");}catch(e){}
-    setMode("","");if(formHome)formHome.insertBefore(form,formNext);form.hidden=false;
+    setMode("","");if(formHome)formHome.insertBefore(form,formNext);form.hidden=false;paintSubRow();
   }
   function toggleReply(btn){
     var id=btn.getAttribute("data-reply-to");
@@ -1616,7 +1620,7 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
       }).then(function(j){
         if(!j){done();return;}
         var st=j.subscribed;
-        if(st==="pending"||st==="active"){try{localStorage.setItem(SUB_KEY,"1");}catch(e){}}
+        if(st==="pending"||st==="active"){try{localStorage.setItem(SUB_KEY,"1");localStorage.setItem(SUB_ASKED_KEY,"1");}catch(e){}}
         done();
         if(st==="pending")say("Settings saved. Check your inbox to confirm your subscription.");
       }).catch(function(){sNote.textContent="Network error. Try again.";sNote.hidden=false;});
@@ -1642,17 +1646,21 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
   paintEntry();
   paintSubRow();
   section.querySelectorAll("[data-comment]").forEach(function(el){paintVotes(el);});
-  var sending=false;
+  var sending=false,draftSub=false;
   var sendBtn=form.querySelector('button[type="submit"]');
   form.addEventListener("submit",function(e){
     e.preventDefault();if(sending){say("Sending…");return;}note.hidden=true;
     var bodyText=bodyField.value;
     var siteNow=(siteField&&siteField.value||"").trim()||savedIdentity().website||null;
-    try{localStorage.setItem("bn_comment_identity",JSON.stringify({name:nameField.value,email:emailField.value,website:siteNow||""}));localStorage.setItem(SUB_ASKED_KEY,"1");paintSubRow();}catch(err){}
+    // The decision counts only where the box is shown (the modal): an
+    // inline submit must never subscribe a reader who never saw the box.
+    // draftSub carries a modal decision across email verification.
+    var boxShown=!!(subRow&&!subRow.hidden);
+    try{localStorage.setItem("bn_comment_identity",JSON.stringify({name:nameField.value,email:emailField.value,website:siteNow||""}));if(boxShown)localStorage.setItem(SUB_ASKED_KEY,"1");paintSubRow();}catch(err){}
     var payload={body:bodyText};
     var replyParent=parentField.value||"";
     if(replyParent)payload.parent_id=Number(replyParent);
-    var wantSub=subField&&subField.checked;
+    var wantSub=subField&&subField.checked&&(boxShown||draftSub);
     if(wantSub){payload.subscribe=true;payload.email=emailField.value;}
     var photoNow=savedPhoto();
     var who=(nameField.value||"").trim()||"Someone";
@@ -1671,6 +1679,8 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
         return r.json().catch(function(){return null;}).then(function(j){
           done();dropPending();
           try{localStorage.removeItem("bn_comment_draft");}catch(e){}
+          draftSub=false;
+          try{localStorage.setItem(SUB_ASKED_KEY,"1");}catch(e){}
           if(j&&j.comment)insertApproved(j.comment);
           else location.reload();
           var subState=j&&j.comment?j.comment.subscribed:false;
@@ -1695,7 +1705,7 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     if(/(^|[?&])verified=1(&|#|$)/.test(location.search+location.hash)){
       var draft=null;try{draft=JSON.parse(localStorage.getItem("bn_comment_draft")||"null");}catch(e){draft=null;}
       if(draft){if(draft.parent&&!/^\\d+$/.test(draft.parent))draft.parent="";
-        nameField.value=draft.name||"";emailField.value=draft.email||"";if(siteField)siteField.value=draft.website||"";if(subField)subField.checked=draft.subscribe!==false;bodyField.value=draft.body||"";
+        nameField.value=draft.name||"";emailField.value=draft.email||"";if(siteField)siteField.value=draft.website||"";if(subField)subField.checked=draft.subscribe!==false;draftSub=!!draft.subscribe;bodyField.value=draft.body||"";
         var rname="";
         if(draft.parent){var pa=section.querySelector('[data-comment="'+draft.parent+'"] .comment-author');if(pa)rname=pa.textContent;}
         showInline(draft.parent||"",rname);
@@ -1836,7 +1846,7 @@ export function renderCommentSection(post: { id: number; slug: string }, rows: C
     + `<div class="comment-entry"><span class="comment-entry-avatar" data-entry-avatar aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4.2"/><path d="M3.5 21c.6-4.3 4-6.6 8.5-6.6s7.9 2.3 8.5 6.6"/></svg></span>`
     + `<div class="comment-bubble"><textarea data-field-body maxlength="2000" required aria-label="Comment"></textarea></div></div>`
     + `<input type="hidden" data-field-parent value="">`
-    + `<label class="subscribe-row" data-subscribe-row><input type="checkbox" data-field-subscribe checked> Email me updates</label>`
+    + `<label class="subscribe-row" data-subscribe-row hidden><input type="checkbox" data-field-subscribe checked> Email me updates</label>`
     + `<button type="submit">Send</button>`
     + `<p class="form-note" data-form-note hidden></p>`
     + `</form></div>`
