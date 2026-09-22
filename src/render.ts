@@ -580,6 +580,8 @@ const STYLES = /* css */ `
   .comment .reply-btn { background: none; border: none; padding: 0; color: var(--muted); font: inherit; font-size: .9em; font-weight: 700; cursor: pointer; margin-left: 1em; margin-right: 1em; line-height: 1.5em; }
   .comment .reply-btn:first-child { margin-left: 0; }
   .comment .reply-btn:hover { color: var(--ink); }
+  .comment .more-btn { background: none; border: none; padding: 0; color: var(--muted); font: inherit; font-size: .9em; font-weight: 700; cursor: pointer; line-height: 1.5em; }
+  .comment .more-btn:hover { color: var(--ink); }
   .comment-children { margin-top: 1rem; }
   .comment[hidden] { display: none; }
   .comment.pending { opacity: .55; }
@@ -1322,6 +1324,21 @@ function validAvatarKey(key: unknown): string | null {
   return typeof key === "string" && /^avatars\/[A-Za-z0-9_.-]+$/.test(key) ? key : null;
 }
 
+// Long comments collapse to a word-boundary excerpt with a toggle; the
+// full text stays in the page so expanding never reloads.
+const COMMENT_EXCERPT = 400;
+function commentExcerpt(body: string): string {
+  const cut = body.slice(0, COMMENT_EXCERPT);
+  const space = cut.lastIndexOf(" ");
+  return space > COMMENT_EXCERPT - 60 ? cut.slice(0, space) : cut;
+}
+function commentBody(body: string): string {
+  const full = `<div class="comment-body">${esc(body).replace(/\n/g, "<br>")}</div>`;
+  if (body.length <= COMMENT_EXCERPT) return full;
+  return `<div class="comment-body" data-full-body hidden>${esc(body).replace(/\n/g, "<br>")}</div>`
+    + `<div class="comment-body" data-excerpt-body>${esc(commentExcerpt(body)).replace(/\n/g, "<br>")}…</div>`;
+}
+
 function commentAvatar(name: string, hue?: number | null, key?: string | null): string {
   const photo = validAvatarKey(key);
   if (photo) return `<img class="comment-avatar" src="/media/${esc(photo)}" alt="" loading="lazy">`;
@@ -1353,8 +1370,8 @@ function renderCommentNodes(nodes: CommentNode[], depth: number, parentAuthor: s
         + (depth === 0
           ? `${avHtml}<summary>${headHtml}${timeHtml}</summary>`
           : `<summary>${avHtml}${headHtml}${timeHtml}</summary>`)
-        + `<div class="comment-body">${esc(node.body).replace(/\n/g, "<br>")}</div>`
-        + `<div class="comment-actions"><button class="reply-btn" type="button" data-reply-to="${node.id}" data-reply-name="${esc(node.author_name)}">Reply</button></div>${depth === 0 ? kids : ""}</details>${depth === 0 ? "" : kids}`;
+        + commentBody(node.body)
+        + `<div class="comment-actions"><button class="reply-btn" type="button" data-reply-to="${node.id}" data-reply-name="${esc(node.author_name)}">Reply</button>${node.body.length > COMMENT_EXCERPT ? `<button class="more-btn" type="button" data-comment-more>Show more</button>` : ""}</div>${depth === 0 ? kids : ""}</details>${depth === 0 ? "" : kids}`;
     }
   }
   return out;
@@ -1421,6 +1438,13 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     btn.addEventListener("click",function(){toggleReply(btn);});
   }
   section.querySelectorAll("[data-reply-to]").forEach(wireReply);
+  section.addEventListener("click",function(e){
+    var b=e.target.closest?e.target.closest("[data-comment-more]"):null;if(!b)return;
+    var box=b.closest("[data-comment]");if(!box)return;
+    var full=box.querySelector(":scope > [data-full-body]"),ex=box.querySelector(":scope > [data-excerpt-body]");
+    if(!full||!ex)return;
+    var show=full.hidden;full.hidden=!show;ex.hidden=show;b.textContent=show?"Show less":"Show more";
+  });
   var dialogClose=section.querySelector("[data-dialog-close]");
   if(dialogClose)dialogClose.addEventListener("click",function(){resetForm();});
   if(dialog)dialog.addEventListener("click",function(e){if(e.target===dialog)resetForm();});
@@ -1610,10 +1634,14 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     var avHtml=photo?'<img class="comment-avatar" src="/media/'+photo+'" alt="">':'<span class="comment-avatar" style="background:hsl('+hue+',42%,45%)" aria-hidden="true">'+escHtml(nm.charAt(0).toUpperCase())+'</span>';
     var headHtml='<span class="comment-head"><span class="comment-author">'+escHtml(nm)+'</span>'+label+'</span>';
     var timeHtml='<time datetime="'+iso+'" data-ts="'+(c.created_at||0)+'" title="'+iso.slice(0,10)+'">'+escHtml(agoStr(c.created_at||0))+'</time>';
+    var raw=c.body||"";
+    var long=raw.length>400,cut=raw.slice(0,400),sp=cut.lastIndexOf(" ");
+    if(long&&sp>340)cut=cut.slice(0,sp);
+    var bodyHtml=long?'<div class="comment-body" data-full-body hidden>'+escHtml(raw).replace(/\\n/g,"<br>")+'</div><div class="comment-body" data-excerpt-body>'+escHtml(cut).replace(/\\n/g,"<br>")+'…</div>':'<div class="comment-body">'+escHtml(raw).replace(/\\n/g,"<br>")+'</div>';
     var html='<details class="comment d'+depth+(pending?' pending':' fresh')+'" data-comment="'+c.id+'"'+(pending?' data-pending="1"':'')+' open>'
       +(depth>0?'<summary>'+(photo?'<img class="comment-avatar" src="/media/'+photo+'" alt="">':'<span class="comment-avatar" style="background:hsl('+hue+',42%,45%)" aria-hidden="true">'+escHtml(nm.charAt(0).toUpperCase())+'</span>')+headHtml+timeHtml+'</summary>':avHtml+'<summary>'+headHtml+timeHtml+'</summary>')
-      +'<div class="comment-body">'+escHtml(c.body||"").replace(/\\n/g,"<br>")+'</div>'
-      +'<div class="comment-actions"><button class="reply-btn" type="button" data-reply-to="'+c.id+'" data-reply-name="'+escHtml(nm)+'">Reply</button></div></details>';
+      +bodyHtml
+      +'<div class="comment-actions"><button class="reply-btn" type="button" data-reply-to="'+c.id+'" data-reply-name="'+escHtml(nm)+'">Reply</button>'+(long?'<button class="more-btn" type="button" data-comment-more>Show more</button>':"")+'</div></details>';
     var host;
     if(parentEl){host=parentEl.querySelector(":scope > .comment-children")||parentEl.closest(".comment-children");if(!host){host=document.createElement("div");host.className="comment-children";parentEl.appendChild(host);}host.insertAdjacentHTML("beforeend",html);}
     else{host=section.querySelector(".comment-list");host.insertAdjacentHTML(sortMode==="newest"?"afterbegin":"beforeend",html);var empty=section.querySelector(".no-comments");if(empty)empty.remove();}
@@ -1627,7 +1655,7 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     if(!el||el.tagName!=="DETAILS"||el.classList.contains("removed"))return;
     el.classList.add("removed");
     var s=el.querySelector(":scope > summary");if(s)s.innerHTML="<span>Removed by moderator</span>";
-    var b=el.querySelector(":scope > .comment-body");if(b)b.remove();
+    var bb=el.querySelectorAll(":scope > .comment-body");for(var bi=0;bi<bb.length;bi++)bb[bi].remove();
     var r=el.querySelector(":scope > .comment-actions");if(r)r.remove();
     bumpCount(-1);
   }

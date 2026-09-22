@@ -252,3 +252,26 @@ test("comment cursor endpoint pages top-level threads and catches up", async () 
     else globalThis.caches = originalCaches;
   }
 });
+
+test("long comments render an excerpt with a show-more toggle", async () => {
+  const { blogniceApp } = await import("../src/index.ts");
+  const state = makeState();
+  state.comments.push({ id: 200, tenant_id: 1, post_id: 7, parent_id: null, author_name: "Verbose", email_hash: "v1", body: "Long. ".repeat(100), status: "approved", created_at: NOW + 50 });
+  const env = { DB: fakeDb(state), POSTS: fakeDb(state), ROOT_DOMAIN: "blognice.test" };
+  const executionCtx = { waitUntil() {}, passThroughOnException() {} };
+  const originalCaches = globalThis.caches;
+  globalThis.caches = { default: { match: async () => undefined, put: async () => {} } };
+  try {
+    const res = await blogniceApp.request(req("/live-post"), undefined, env, executionCtx);
+    assert.equal(res.status, 200);
+    const html = await res.text();
+    assert.match(html, /data-excerpt-body/);
+    assert.match(html, /data-full-body hidden/);
+    assert.match(html, /data-comment-more[^>]*>Show more</);
+    assert.match(html, /…<\/div>/, "excerpt ends mid-sentence with an ellipsis");
+    assert.match(html, /<div class="comment-body">Flat 0\.<\/div>/, "short comments render whole with no toggle");
+  } finally {
+    if (originalCaches === undefined) delete globalThis.caches;
+    else globalThis.caches = originalCaches;
+  }
+});
