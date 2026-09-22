@@ -62,6 +62,8 @@ test("served comment scripts parse and keep their regex escapes", async () => {
   assert.ok(client.includes('/^\\d+$/.test(parentId)'), "restored reply targets must be numeric ids");
   assert.ok(client.includes("data-field-subscribe"), "subscribe box state rides the submit");
   assert.ok(client.includes("paintSubRow"), "subscribe box hides once the reader is set");
+  assert.ok(client.includes("data-settings-subscribe"), "settings offers the updates box");
+  assert.ok(client.includes("bn_comment_subscribe_asked"), "the ask-once decision is remembered");
   assert.ok(client.includes("Show 1 more reply"), "single hidden reply uses the singular");
   assert.ok(client.includes('showInline("","");\n    insertApproved({id:tempId'), "the box resets the instant Send is tapped");
   assert.ok(client.includes("confirm your subscription"), "pending subscriptions surface the inbox step");

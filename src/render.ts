@@ -541,6 +541,8 @@ export const STYLES = /* css */ `
   .settings-body label { display: block; margin: 0 0 .9rem; font-size: .88rem; font-weight: 600; }
   .settings-body input[type="text"], .settings-body input[type="url"] { display: block; width: 100%; box-sizing: border-box; margin-top: .3rem; padding: .55rem .65rem; border: 1px solid var(--rule); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; font-weight: 400; }
   .settings-actions { display: flex; gap: .6rem; justify-content: flex-end; margin-top: 1rem; }
+  .settings-body .subscribe-row { display: flex; gap: .5rem; align-items: center; font-size: .88rem; font-weight: 400; margin: 0 0 .9rem; cursor: pointer; }
+  .settings-body .subscribe-row input { accent-color: var(--accent); width: 1rem; height: 1rem; }
   .settings-actions button { border-radius: 6px; padding: .55rem 1.1rem; font: inherit; font-size: .95rem; font-weight: 600; cursor: pointer; }
   .settings-actions [data-settings-save] { background: var(--accent); border: 1px solid var(--accent); color: #fff; }
   .settings-actions [data-settings-cancel] { background: none; border: 1px solid var(--rule); color: var(--ink); }
@@ -1422,7 +1424,10 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
   // The subscribe box is a first-comment question only: once the reader's
   // identity is set they have answered it, and the blog's own subscribe
   // form remains for late joiners.
-  function paintSubRow(){if(subRow)subRow.hidden=!!(savedIdentity().email);};
+  var SUB_ASKED_KEY="bn_comment_subscribe_asked",SUB_KEY="bn_comment_subscribed";
+  function subAsked(){try{return localStorage.getItem(SUB_ASKED_KEY)==="1";}catch(e){return false;}}
+  function subbed(){try{return localStorage.getItem(SUB_KEY)==="1";}catch(e){return false;}}
+  function paintSubRow(){if(subRow)subRow.hidden=subAsked()||!!(savedIdentity().email);};
   function say(text){note.textContent=text;note.hidden=false;}
   function escHtml(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
   function escAttr(s){return escHtml(s).replace(/'/g,"&#39;");}
@@ -1554,13 +1559,14 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
   var cog=section.querySelector("[data-settings-cog]"),settingsDlg=section.querySelector("[data-settings-dialog]");
   if(cog&&settingsDlg){
     var sName=settingsDlg.querySelector("[data-settings-name]"),sSite=settingsDlg.querySelector("[data-settings-site]"),
+        sSub=settingsDlg.querySelector("[data-settings-subscribe]"),
         preview=settingsDlg.querySelector("[data-settings-preview]"),sNote=settingsDlg.querySelector("[data-settings-note]"),
         photoBox=settingsDlg.querySelector("[data-settings-photo]"),sFile=settingsDlg.querySelector("[data-settings-file]"),
         sUpload=settingsDlg.querySelector("[data-settings-upload]"),sRemove=settingsDlg.querySelector("[data-settings-remove]"),photoKey=null;
     function paintPreview(nm,photo){var label=((nm||"").trim()||"Someone");preview.innerHTML=photo?'<img class="comment-avatar" src="/media/'+photo+'" alt="">':'<span class="comment-avatar" style="background:hsl('+avatarHue(label)+',42%,45%)" aria-hidden="true">'+escHtml(label.charAt(0).toUpperCase())+'</span>';}
     function paintPhoto(photo){photoBox.innerHTML=photo?'<img class="comment-avatar" src="/media/'+photo+'" alt="">':'';}
     sName.addEventListener("input",function(){paintPreview(sName.value,photoKey);});
-    cog.addEventListener("click",function(){var id=savedIdentity();sName.value=nameField.value;if(sSite)sSite.value=id.website||"";photoKey=savedPhoto();paintPreview(sName.value,photoKey);paintPhoto(photoKey);sNote.hidden=true;if(settingsDlg.showModal)settingsDlg.showModal();});
+    cog.addEventListener("click",function(){var id=savedIdentity();sName.value=nameField.value;if(sSite)sSite.value=id.website||"";if(sSub)sSub.checked=subbed();photoKey=savedPhoto();paintPreview(sName.value,photoKey);paintPhoto(photoKey);sNote.hidden=true;if(settingsDlg.showModal)settingsDlg.showModal();});
     sUpload.addEventListener("click",function(){sFile.click();});
     sFile.addEventListener("change",function(){
       if(!sFile.files||!sFile.files[0])return;
@@ -1600,10 +1606,19 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
         closeSettings();say("Settings saved.");
       };
       var prev=savedIdentity();
-      if(nm===((nameField.value||"").trim())&&site===(prev.website||null)){done();return;}
-      fetch(path+"/comments/identity",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({author_name:nm,website:site})}).then(function(r){
+      var wantSub=sSub&&sSub.checked,wasSub=subbed();
+      if(nm===((nameField.value||"").trim())&&site===(prev.website||null)&&(!wantSub||wasSub)){done();return;}
+      var idBody={author_name:nm,website:site};
+      if(wantSub&&!wasSub){idBody.subscribe=true;idBody.email=emailField.value;}
+      fetch(path+"/comments/identity",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(idBody)}).then(function(r){
         if(!r.ok){sNote.textContent=r.status===401?"Confirm your email first, then save settings.":r.status===400?"That website address was not accepted.":"Could not save settings.";sNote.hidden=false;return;}
+        return r.json().catch(function(){return null;});
+      }).then(function(j){
+        if(!j){done();return;}
+        var st=j.subscribed;
+        if(st==="pending"||st==="active"){try{localStorage.setItem(SUB_KEY,"1");}catch(e){}}
         done();
+        if(st==="pending")say("Settings saved. Check your inbox to confirm your subscription.");
       }).catch(function(){sNote.textContent="Network error. Try again.";sNote.hidden=false;});
     });
   }
@@ -1633,7 +1648,7 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     e.preventDefault();if(sending){say("Sending…");return;}note.hidden=true;
     var bodyText=bodyField.value;
     var siteNow=(siteField&&siteField.value||"").trim()||savedIdentity().website||null;
-    try{localStorage.setItem("bn_comment_identity",JSON.stringify({name:nameField.value,email:emailField.value,website:siteNow||""}));paintSubRow();}catch(err){}
+    try{localStorage.setItem("bn_comment_identity",JSON.stringify({name:nameField.value,email:emailField.value,website:siteNow||""}));localStorage.setItem(SUB_ASKED_KEY,"1");paintSubRow();}catch(err){}
     var payload={body:bodyText};
     var replyParent=parentField.value||"";
     if(replyParent)payload.parent_id=Number(replyParent);
@@ -1658,7 +1673,9 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
           try{localStorage.removeItem("bn_comment_draft");}catch(e){}
           if(j&&j.comment)insertApproved(j.comment);
           else location.reload();
-          say(j&&j.comment&&j.comment.subscribed==="pending"?"Posted. Check your inbox to confirm your subscription.":"Posted.");
+          var subState=j&&j.comment?j.comment.subscribed:false;
+          if(subState==="pending"||subState==="active"){try{localStorage.setItem(SUB_KEY,"1");}catch(e){}}
+          say(subState==="pending"?"Posted. Check your inbox to confirm your subscription.":"Posted.");
         });
       }
       if(r.status===401){
@@ -1834,6 +1851,7 @@ export function renderCommentSection(post: { id: number; slug: string }, rows: C
     + `<div class="settings-preview"><span data-settings-preview></span><span>How your avatar looks on new comments.</span></div>`
     + `<label>Display name<input type="text" data-settings-name maxlength="60" autocomplete="nickname"></label>`
     + `<label>Website address<input type="url" data-settings-site maxlength="200" autocomplete="url" required></label>`
+    + `<label class="subscribe-row"><input type="checkbox" data-settings-subscribe> Email me updates</label>`
     + `<div class="settings-row"><span class="settings-label">Profile photo</span>`
     + `<div class="settings-photo-row"><span data-settings-photo></span><span><button type="button" data-settings-upload>Upload photo</button> <button type="button" data-settings-remove>Remove</button></span></div>`
     + `<input type="file" data-settings-file accept="image/jpeg,image/png,image/webp,image/gif,image/avif" hidden>`

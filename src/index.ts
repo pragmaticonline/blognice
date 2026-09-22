@@ -8406,10 +8406,17 @@ app.post("/:slug/comments/identity", async (c) => {
   await tenantDb(c.env, tenant).prepare(
     "UPDATE comments SET website = ? WHERE tenant_id = ? AND email_hash = ?"
   ).bind(website, tenant.id, identity.email_hash).run();
+  let subscribed: "pending" | "active" | false = false;
+  if (payload?.subscribe === true) {
+    const subEmail = String(payload?.email ?? "").trim().toLowerCase();
+    if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(subEmail) && subEmail.length <= 254) {
+      subscribed = await enrollCommentSubscriber(c.env, tenant, subEmail, "settings");
+    }
+  }
   // Names render server-side and pages are edge-cached: without this the
   // renamed reader keeps seeing the old name until the cache expires.
   c.executionCtx.waitUntil(purgeCommenterPosts(c, tenant, identity.email_hash).catch(() => undefined));
-  return c.json({ author_name: authorName, website });
+  return c.json({ author_name: authorName, website, subscribed });
 });
 
 // Best-effort edge purge for every post page carrying this reader's
