@@ -44,6 +44,24 @@ test("comments schema ships in fresh installs and migrates existing posts databa
   const tenantCols = tenants.prepare("PRAGMA table_info(tenants)").all().map((row) => row.name);
   assert.ok(tenantCols.includes("comments_enabled"), "migration adds comments_enabled");
 
+  // Comments are on by default: fresh schemas default the flag to 1, both
+  // blog-creation inserts set it explicitly (existing installs keep a 0
+  // column default), and migration 080 flips every blog that lacks it.
+  assert.match(read("schema.sql"), /comments_enabled INTEGER NOT NULL DEFAULT 1/);
+  const src = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
+  assert.equal(
+    (src.match(/INSERT INTO tenants \(public_id, slug, title, description, shard, browser_push_enabled, comments_enabled, created_at\)/g) || []).length,
+    2, "both tenant inserts enable comments",
+  );
+  const indexDb = new DatabaseSync(":memory:");
+  indexDb.exec("CREATE TABLE tenants (id INTEGER PRIMARY KEY, slug TEXT, comments_enabled INTEGER NOT NULL DEFAULT 0)");
+  indexDb.exec("INSERT INTO tenants (id, slug, comments_enabled) VALUES (1, 'off', 0), (2, 'on', 1)");
+  indexDb.exec(read("migrations/080-comments-default-on.sql"));
+  assert.deepEqual(
+    indexDb.prepare("SELECT id, comments_enabled AS enabled FROM tenants ORDER BY id").all().map((r) => ({ ...r })),
+    [{ id: 1, enabled: 1 }, { id: 2, enabled: 1 }],
+  );
+
   // Reader-chosen avatar hues ride on the comment row: fresh schemas carry
   // the column and migration 072 adds it idempotently to existing tables.
   const freshCols = fresh.prepare("PRAGMA table_info(comments)").all().map((row) => row.name);
@@ -87,6 +105,7 @@ test("comments schema ships in fresh installs and migrates existing posts databa
   assert.match(runbook, /077-comment-avatar-resync\.sql/);
   assert.match(runbook, /078-comment-sessions\.sql/);
   assert.match(runbook, /079-comment-identity-resync\.sql/);
+  assert.match(runbook, /080-comments-default-on\.sql/);
 });
 
 test("migration 078 creates reader sessions and preserves the signed-in cookie", () => {

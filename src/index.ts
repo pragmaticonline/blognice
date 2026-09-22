@@ -2290,7 +2290,7 @@ app.post("/api/v1/blogs", async (c) => {
   const publicId = newPublicId();
   let blogId: number;
   try {
-    const res = await c.env.DB.prepare("INSERT INTO tenants (public_id, slug, title, description, shard, browser_push_enabled, created_at) VALUES (?, ?, ?, '', 'primary', 1, ?)").bind(publicId, slug, title, now).run();
+    const res = await c.env.DB.prepare("INSERT INTO tenants (public_id, slug, title, description, shard, browser_push_enabled, comments_enabled, created_at) VALUES (?, ?, ?, '', 'primary', 1, 1, ?)").bind(publicId, slug, title, now).run();
     blogId = res.meta.last_row_id as number;
   } catch {
     return c.json({ error: "That address is already taken." }, 409);
@@ -3344,7 +3344,7 @@ app.post("/admin/new-blog", async (c) => {
   const publicId = newPublicId();
   try {
     const res = await c.env.DB.prepare(
-      "INSERT INTO tenants (public_id, slug, title, description, shard, browser_push_enabled, created_at) VALUES (?, ?, ?, '', 'primary', 1, ?)"
+      "INSERT INTO tenants (public_id, slug, title, description, shard, browser_push_enabled, comments_enabled, created_at) VALUES (?, ?, ?, '', 'primary', 1, 1, ?)"
     )
       .bind(publicId, slug, title, now)
       .run();
