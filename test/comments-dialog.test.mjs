@@ -4,6 +4,23 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+test("linked profiles keep the avatar pinned like plain ones", async () => {
+  const { STYLES } = await import("../src/render.ts");
+  const pinned = STYLES.match(/\.comment > \.comment-avatar, \.comment > \.comment-profile \{([^}]*)\}/);
+  assert.ok(pinned, "direct-child avatars and profile links share the pin rule");
+  assert.ok(pinned[1].includes("position: absolute"), "linked avatar stays out of flow");
+});
+
+test("show-more sits at the far right of the actions row", async () => {
+  const { STYLES } = await import("../src/render.ts");
+  const actions = STYLES.match(/\.comment-actions \{([^}]*)\}/);
+  assert.ok(actions, "actions row rule exists");
+  assert.ok(actions[1].includes("display: flex"), "actions row lays out with flex");
+  const more = STYLES.match(/\.comment \.more-btn \{([^}]*)\}/);
+  assert.ok(more, "show-more rule exists");
+  assert.ok(more[1].includes("margin-left: auto"), "show-more pushes to the far right");
+});
+
 test("comment dialog form has breathing room and contained inputs", async () => {
   const { STYLES } = await import("../src/render.ts");
   const dialogForm = STYLES.match(/\.comment-dialog \.comment-form \{([^}]*)\}/);

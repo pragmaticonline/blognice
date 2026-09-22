@@ -58,6 +58,7 @@ test("served comment scripts parse and keep their regex escapes", async () => {
   assert.ok(client.includes("data-field-site"), "first-time modal asks for the website address");
   assert.ok(client.includes("data-profile-link"), "profiles with a site render as links");
   assert.ok(client.includes("window.open"), "profile clicks open a new tab");
+  assert.ok(client.includes(".comment-avatar,.comment-author"), "every profile click skips the collapse toggle");
   assert.ok(client.includes("data-entry-avatar"), "entry avatar slot is addressable");
   assert.ok(client.includes("paintEntry"), "entry box shows the profile photo when set");
   assert.ok(client.includes("data-vote-btn"), "like and dislike buttons are wired");

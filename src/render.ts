@@ -559,7 +559,7 @@ export const STYLES = /* css */ `
   .comment.d1 > summary { display: flex; align-items: center; gap: .6rem; }
   .comment.d1 time { float: none; margin-left: auto; }
   .comment.d1 .comment-avatar { position: static; width: 2rem; height: 2rem; font-size: .85rem; }
-  .comment > .comment-avatar { position: absolute; left: .5em; top: .5em; margin: 0; }
+  .comment > .comment-avatar, .comment > .comment-profile { position: absolute; left: .5em; top: .5em; margin: 0; }
   .comment.removed { padding-left: .5em; }
   .comment-avatar { width: 3.6rem; height: 3.6rem; max-width: 50px; max-height: 50px; border-radius: 50%; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 700; flex: 0 0 auto; }
   img.comment-avatar { object-fit: cover; }
@@ -575,7 +575,7 @@ export const STYLES = /* css */ `
   .comment-in-reply { color: var(--muted); font-size: .8em; font-weight: 400; }
   .comment time { float: right; line-height: 1.4em; margin-left: .5em; font-size: .8em; color: var(--muted); }
   .comment-body { margin: .25rem 0; font-size: .95rem; line-height: 1.4em; overflow: hidden; overflow-wrap: break-word; }
-  .comment-actions { margin-top: .25rem; overflow: hidden; }
+  .comment-actions { margin-top: .25rem; overflow: hidden; display: flex; align-items: baseline; }
   .comment .reply-btn { background: none; border: none; padding: 0; color: var(--muted); font: inherit; font-size: .9em; font-weight: 700; cursor: pointer; margin-left: 1em; margin-right: 1em; line-height: 1.5em; }
   .comment .reply-btn:first-child { margin-left: 0; }
   .comment .reply-btn:hover { color: var(--ink); }
@@ -583,7 +583,7 @@ export const STYLES = /* css */ `
   .comment .vote-btn:hover { color: var(--ink); }
   .comment .vote-like[aria-pressed="true"] { color: #16a34a; }
   .comment .vote-dislike[aria-pressed="true"] { color: #dc2626; }
-  .comment .more-btn { background: none; border: none; padding: 0; color: var(--muted); font: inherit; font-size: .9em; font-weight: 700; cursor: pointer; line-height: 1.5em; }
+  .comment .more-btn { background: none; border: none; padding: 0; color: var(--muted); font: inherit; font-size: .9em; font-weight: 700; cursor: pointer; line-height: 1.5em; margin-left: auto; }
   .comment .more-btn:hover { color: var(--ink); }
   .comment-children { margin-top: 1rem; }
   .comment[hidden] { display: none; }
@@ -1421,7 +1421,9 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
   // Profile clicks open the reader site in a new tab and must not collapse
   // the thread: preventDefault stops the native summary toggle, and an
   // explicit open keeps the new-tab navigation the link promises.
-  section.addEventListener("click",function(e){var a=e.target&&e.target.closest?e.target.closest("a[data-profile-link]"):null;if(!a)return;e.preventDefault();try{window.open(a.getAttribute("href"),"_blank","noopener");}catch(err){}});
+  // Profile clicks never collapse the thread, with or without a website:
+  // preventDefault stops the native summary toggle, then links open.
+  section.addEventListener("click",function(e){var t=e.target&&e.target.closest?e.target.closest("a[data-profile-link],.comment-avatar,.comment-author"):null;if(!t)return;e.preventDefault();var a=e.target.closest("a[data-profile-link]");if(!a)return;try{window.open(a.getAttribute("href"),"_blank","noopener");}catch(err){}});
   // Likes/dislikes paint instantly (optimistic) and reconcile against the
   // server echo. Each tap carries an op; a lagging response whose op no
   // longer matches the latest tap for that comment is ignored, so rapid
