@@ -196,3 +196,46 @@ test("website flows from verification to stamped comments and settings backfill"
     else globalThis.caches = originalCaches;
   }
 });
+
+test("re-verification restamps past names and sites", async () => {
+  const { blogniceApp } = await import("../src/index.ts");
+  const state = makeState();
+  const db = fakeDb(state);
+  const env = { DB: db, POSTS: db, ROOT_DOMAIN: "blognice.test", EMAIL_FROM: "Blog <hello@blognice.test>", MAILNICE_API_KEY: "test-key" };
+  const executionCtx = { waitUntil() {}, passThroughOnException() {} };
+  const sentEmails = [];
+  const originalFetch = globalThis.fetch;
+  const originalCaches = globalThis.caches;
+  globalThis.fetch = async (url, init) => {
+    sentEmails.push(String(init?.body || ""));
+    return new Response(JSON.stringify({}), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  globalThis.caches = { default: { match: async () => undefined, put: async () => {}, delete: async () => {} } };
+  const req = (path, opts = {}) => new Request(`https://commentblog.blognice.test${path}`, {
+    ...opts,
+    headers: { host: "commentblog.blognice.test", ...(opts.headers || {}) },
+  });
+  try {
+    const emailHash = createHash("sha256").update("restamp@example.com").digest("hex");
+    const cookie = await verified(blogniceApp, state, env, executionCtx, req, sentEmails, "restamp@example.com", "Old Name", "old.example.com");
+    const posted = await blogniceApp.request(req("/live-post/comments", {
+      method: "POST", headers: { "content-type": "application/json", cookie: `bn_comment=${cookie}` },
+      body: JSON.stringify({ body: "First." }),
+    }), undefined, env, executionCtx);
+    assert.equal(posted.status, 201);
+    assert.equal(state.comments[0].author_name, "Old Name");
+    assert.equal(state.comments[0].website, "https://old.example.com");
+
+    // The same email re-verifies (new device) with a new name and site:
+    // identity and past rows move together, like a settings save.
+    await verified(blogniceApp, state, env, executionCtx, req, sentEmails, "restamp@example.com", "New Name", "new.example.com");
+    assert.equal(state.identities[emailHash].author_name, "New Name");
+    assert.equal(state.identities[emailHash].website, "https://new.example.com");
+    assert.equal(state.comments[0].author_name, "New Name");
+    assert.equal(state.comments[0].website, "https://new.example.com");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalCaches === undefined) delete globalThis.caches;
+    else globalThis.caches = originalCaches;
+  }
+});

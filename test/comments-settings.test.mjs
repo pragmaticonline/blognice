@@ -86,6 +86,7 @@ test("comments schema ships in fresh installs and migrates existing posts databa
   assert.match(runbook, /076-comment-votes\.sql/);
   assert.match(runbook, /077-comment-avatar-resync\.sql/);
   assert.match(runbook, /078-comment-sessions\.sql/);
+  assert.match(runbook, /079-comment-identity-resync\.sql/);
 });
 
 test("migration 078 creates reader sessions and preserves the signed-in cookie", () => {
@@ -121,6 +122,24 @@ test("migration 077 resyncs past comment photos to current identity keys", () =>
   assert.equal(key("stale photo"), "avatars/1-new.png");
   assert.equal(key("current photo"), "avatars/1-new.png");
   assert.equal(key("no photo anywhere"), null);
+});
+
+test("migration 079 resyncs past comment names and sites", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec(read("migrations/069-comments.sql"));
+  db.exec(read("migrations/075-comment-website.sql"));
+  db.exec("INSERT INTO comment_identities (tenant_id, email_hash, author_name, verified_at, created_at, website) VALUES (1, 'h1', 'New Name', 1, 1, 'https://new.example.com')");
+  db.exec("INSERT INTO comment_identities (tenant_id, email_hash, author_name, verified_at, created_at, website) VALUES (1, 'h2', 'Plain', 1, 1, NULL)");
+  db.exec("INSERT INTO comments (tenant_id, post_id, author_name, email_hash, body, status, created_at, website) VALUES (1, 7, 'Old Name', 'h1', 'stale row', 'approved', 1, 'https://old.example.com')");
+  db.exec("INSERT INTO comments (tenant_id, post_id, author_name, email_hash, body, status, created_at, website) VALUES (1, 7, 'New Name', 'h1', 'half-synced row', 'approved', 2, NULL)");
+  db.exec("INSERT INTO comments (tenant_id, post_id, author_name, email_hash, body, status, created_at, website) VALUES (1, 7, 'New Name', 'h1', 'current row', 'approved', 3, 'https://new.example.com')");
+  db.exec("INSERT INTO comments (tenant_id, post_id, author_name, email_hash, body, status, created_at, website) VALUES (1, 7, 'Plain', 'h2', 'siteless row', 'approved', 4, NULL)");
+  db.exec(read("migrations/079-comment-identity-resync.sql"));
+  const row = (body) => db.prepare("SELECT author_name AS n, website AS w FROM comments WHERE body = ?").get(body);
+  assert.deepEqual({ ...row("stale row") }, { n: "New Name", w: "https://new.example.com" });
+  assert.deepEqual({ ...row("half-synced row") }, { n: "New Name", w: "https://new.example.com" });
+  assert.deepEqual({ ...row("current row") }, { n: "New Name", w: "https://new.example.com" });
+  assert.deepEqual({ ...row("siteless row") }, { n: "Plain", w: null });
 });
 
 // Blog settings round-trip for the comments flag, through the admin form.

@@ -8357,6 +8357,14 @@ app.post("/:slug/comments/start", async (c) => {
       "INSERT INTO comment_identities (tenant_id, email_hash, author_name, website, token_hash, token_expires_at, verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)"
     ).bind(tenant.id, emailHash, authorName, website, tokenHash, now + COMMENT_TOKEN_TTL, now).run();
   }
+  // Re-verification carries a new name/site (new device): restamp past rows
+  // like a settings save, or history diverges by device.
+  await db.prepare(
+    "UPDATE comments SET author_name = ? WHERE tenant_id = ? AND email_hash = ?"
+  ).bind(authorName, tenant.id, emailHash).run();
+  await db.prepare(
+    "UPDATE comments SET website = ? WHERE tenant_id = ? AND email_hash = ?"
+  ).bind(website, tenant.id, emailHash).run();
   await logCommentAttempt(c.env, tenant, "start", emailHash, now);
   const verifyUrl = `${originOf(c)}/${post.slug}/comments/verify?token=${token}`;
   c.executionCtx.waitUntil(sendEmailDetailed(c.env, { to: email, ...commentVerificationEmail({ blogTitle: tenant.title, verifyUrl, authorName }) }).then((result) => {
