@@ -291,7 +291,7 @@ export function renderSimplePage(
   });
 }
 
-const STYLES = /* css */ `
+export const STYLES = /* css */ `
   :root {
     --bg: #ffffff;
     --ink: #242424;
@@ -598,7 +598,7 @@ const STYLES = /* css */ `
   .comment-bubble:after { content: " "; position: absolute; border: 7px solid var(--bg); left: 7px; top: 1px; width: 10px; height: 10px; box-sizing: border-box; border-bottom-color: rgba(0, 0, 0, 0); border-left-color: rgba(0, 0, 0, 0); }
   .comment-dialog { position: fixed; inset: 0; margin: auto; width: min(36rem, calc(100vw - 2rem)); max-height: calc(100vh - 3rem); overflow: auto; border: 1px solid var(--rule); border-radius: 10px; padding: 0; background: var(--bg); color: var(--ink); }
   .comment-dialog::backdrop { background: rgba(0, 0, 0, .45); }
-  .comment-dialog .comment-form { margin: 0; border: none; }
+  .comment-dialog .comment-form { margin: 0; border: none; padding: 1.4rem 1.5rem 1.5rem; }
   .comment-form.slim .id-fields { display: none; }
   .dialog-close { position: absolute; top: .5rem; right: .7rem; background: none; border: none; font-size: 1.3rem; line-height: 1; color: var(--muted); cursor: pointer; }
   .dialog-close:hover { color: var(--ink); }
@@ -606,7 +606,7 @@ const STYLES = /* css */ `
   .comment-form { margin: 2rem 0 .75em; border: none; padding: 0; background: none; }
   .comment-form label { display: block; margin: 0 0 .9rem; font-size: .88rem; font-weight: 600; }
   .comment-form input[type="text"], .comment-form input[type="email"] {
-    display: block; width: 100%; margin-top: .3rem; padding: .55rem .65rem;
+    display: block; width: 100%; box-sizing: border-box; margin-top: .3rem; padding: .55rem .65rem;
     border: 1px solid var(--rule); border-radius: 6px; background: var(--bg); color: var(--ink);
     font: inherit; font-weight: 400;
   }
