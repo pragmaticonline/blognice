@@ -44,6 +44,8 @@ export type MetricPage = MetricSummary & { path: string };
 export type MetricReferrer = { referrer: string; views: number };
 export type MetricBreakdown = { name: string; views: number };
 export type AudioMetric = { path: string; starts: number; completions: number };
+export type CommentMetric = { path: string; posted: number; votes: number };
+export type CommentDay = { date: string; posted: number; votes: number };
 export type AuditEntry = { occurredAt: string; action: string; target: string; actor: string; events: number };
 
 export type MetricsReport = {
@@ -59,6 +61,7 @@ export type MetricsReport = {
   utmMediums: MetricBreakdown[];
   utmCampaigns: MetricBreakdown[];
   audio: { starts: number; completions: number; pages: AudioMetric[] };
+  comments: { posted: number; votes: number; pages: CommentMetric[]; daily: CommentDay[] };
   subscribers: { emailSubscribed: number; emailUnsubscribed: number; pushSubscribed: number; pushUnsubscribed: number; emailBounced: number; emailComplained: number; emailOpened: number; emailClicked: number; pushDelivered: number; pushClicked: number; emailDelivered: number; emailDelayed: number; emailDeliveryFailed: number; emailHeld: number; domainDnsError: number; emailTotal: number; pushTotal: number; daily: Array<{ date: string; emailSubscribed: number; emailUnsubscribed: number; pushSubscribed: number; pushUnsubscribed: number; emailBounced: number; emailComplained: number; emailOpened: number; emailClicked: number; pushDelivered: number; pushClicked: number; emailDelivered: number; emailDelayed: number; emailDeliveryFailed: number; emailHeld: number; domainDnsError: number }> };
 };
 
@@ -143,6 +146,9 @@ export function reportQueries(tenantId: number, days: number) {
     audioSummary: `SELECT sumIf(_sample_interval, blob1 = 'audio_start') AS starts, sumIf(_sample_interval, blob1 = 'audio_complete') AS completions FROM ${EVENTS_DATASET} WHERE ${where}`,
     audioPages: `SELECT blob2 AS path, sumIf(_sample_interval, blob1 = 'audio_start') AS starts, sumIf(_sample_interval, blob1 = 'audio_complete') AS completions FROM ${EVENTS_DATASET} WHERE ${where} AND blob1 IN ('audio_start', 'audio_complete') GROUP BY path ORDER BY starts DESC LIMIT 25`,
     subscriberSummary: `SELECT sumIf(_sample_interval, blob1 = 'email_subscribed') AS email_subscribed, sumIf(_sample_interval, blob1 = 'email_unsubscribed') AS email_unsubscribed, sumIf(_sample_interval, blob1 = 'push_subscribed') AS push_subscribed, sumIf(_sample_interval, blob1 = 'push_unsubscribed') AS push_unsubscribed, sumIf(_sample_interval, blob1 = 'email_bounced') AS email_bounced, sumIf(_sample_interval, blob1 = 'email_complained') AS email_complained, sumIf(_sample_interval, blob1 = 'email_opened') AS email_opened, sumIf(_sample_interval, blob1 = 'email_clicked') AS email_clicked, sumIf(_sample_interval, blob1 = 'push_delivered') AS push_delivered, sumIf(_sample_interval, blob1 = 'push_clicked') AS push_clicked, sumIf(_sample_interval, blob1 = 'email_delivered') AS email_delivered, sumIf(_sample_interval, blob1 = 'email_delayed') AS email_delayed, sumIf(_sample_interval, blob1 = 'email_delivery_failed') AS email_delivery_failed, sumIf(_sample_interval, blob1 = 'email_held') AS email_held, sumIf(_sample_interval, blob1 = 'domain_dns_error') AS domain_dns_error FROM ${EVENTS_DATASET} WHERE ${where} AND blob1 IN ('email_subscribe_requested', 'email_subscribed', 'email_unsubscribed', 'push_subscribed', 'push_unsubscribed', 'email_bounced', 'email_complained', 'email_opened', 'email_clicked', 'email_delivered', 'email_delayed', 'email_delivery_failed', 'email_held', 'domain_dns_error', 'push_delivered', 'push_clicked')`,
+    commentSummary: `SELECT sumIf(_sample_interval, blob1 = 'comment_posted') AS posted, sumIf(_sample_interval, blob1 = 'comment_voted') AS votes FROM ${EVENTS_DATASET} WHERE ${where} AND blob1 IN ('comment_posted', 'comment_voted')`,
+    commentPages: `SELECT blob2 AS path, sumIf(_sample_interval, blob1 = 'comment_posted') AS posted, sumIf(_sample_interval, blob1 = 'comment_voted') AS votes FROM ${EVENTS_DATASET} WHERE ${where} AND blob1 IN ('comment_posted', 'comment_voted') GROUP BY path ORDER BY posted DESC LIMIT 25`,
+    commentDaily: `SELECT formatDateTime(timestamp, '%Y-%m-%d') AS date, sumIf(_sample_interval, blob1 = 'comment_posted') AS posted, sumIf(_sample_interval, blob1 = 'comment_voted') AS votes FROM ${EVENTS_DATASET} WHERE ${where} AND blob1 IN ('comment_posted', 'comment_voted') GROUP BY date ORDER BY date`,
     subscriberDaily: `SELECT formatDateTime(timestamp, '%Y-%m-%d') AS date, sumIf(_sample_interval, blob1 = 'email_subscribed') AS email_subscribed, sumIf(_sample_interval, blob1 = 'email_unsubscribed') AS email_unsubscribed, sumIf(_sample_interval, blob1 = 'push_subscribed') AS push_subscribed, sumIf(_sample_interval, blob1 = 'push_unsubscribed') AS push_unsubscribed, sumIf(_sample_interval, blob1 = 'email_bounced') AS email_bounced, sumIf(_sample_interval, blob1 = 'email_complained') AS email_complained, sumIf(_sample_interval, blob1 = 'email_opened') AS email_opened, sumIf(_sample_interval, blob1 = 'email_clicked') AS email_clicked, sumIf(_sample_interval, blob1 = 'push_delivered') AS push_delivered, sumIf(_sample_interval, blob1 = 'push_clicked') AS push_clicked, sumIf(_sample_interval, blob1 = 'email_delivered') AS email_delivered, sumIf(_sample_interval, blob1 = 'email_delayed') AS email_delayed, sumIf(_sample_interval, blob1 = 'email_delivery_failed') AS email_delivery_failed, sumIf(_sample_interval, blob1 = 'email_held') AS email_held, sumIf(_sample_interval, blob1 = 'domain_dns_error') AS domain_dns_error FROM ${EVENTS_DATASET} WHERE ${where} AND blob1 IN ('email_subscribe_requested', 'email_subscribed', 'email_unsubscribed', 'push_subscribed', 'push_unsubscribed', 'email_bounced', 'email_complained', 'email_opened', 'email_clicked', 'email_delivered', 'email_delayed', 'email_delivery_failed', 'email_held', 'domain_dns_error', 'push_delivered', 'push_clicked') GROUP BY date ORDER BY date`,
   };
 }
@@ -166,7 +172,7 @@ export async function metricsReport(
       }));
       return [];
     });
-  const [dailyRows, pageRows, referrerRows, countryRows, deviceRows, browserRows, utmSourceRows, utmMediumRows, utmCampaignRows, audioSummaryRows, audioPageRows, subscriberSummaryRows, subscriberDailyRows] = await Promise.all([
+  const [dailyRows, pageRows, referrerRows, countryRows, deviceRows, browserRows, utmSourceRows, utmMediumRows, utmCampaignRows, audioSummaryRows, audioPageRows, subscriberSummaryRows, subscriberDailyRows, commentSummaryRows, commentPageRows, commentDailyRows] = await Promise.all([
     optionalQuery("daily", queries.daily),
     optionalQuery("pages", queries.pages),
     optionalQuery("referrers", queries.referrers),
@@ -180,10 +186,14 @@ export async function metricsReport(
     optionalQuery("audio pages", queries.audioPages),
     optionalQuery("subscriber summary", (queries as any).subscriberSummary ?? ""),
     optionalQuery("subscriber daily", (queries as any).subscriberDaily ?? ""),
+    optionalQuery("comment summary", (queries as any).commentSummary ?? ""),
+    optionalQuery("comment pages", (queries as any).commentPages ?? ""),
+    optionalQuery("comment daily", (queries as any).commentDaily ?? ""),
   ]);
   const summary = summaryRows[0] ?? {};
   const audioSummary = audioSummaryRows[0] ?? {};
   const subscriberSummary = subscriberSummaryRows[0] ?? {};
+  const commentSummary = commentSummaryRows[0] ?? {};
   let emailTotal = 0;
   let pushTotal = 0;
   if (env.DB) {
@@ -229,6 +239,20 @@ export async function metricsReport(
         path: String(row.path ?? "/"),
         starts: numberValue(row.starts),
         completions: numberValue(row.completions),
+      })),
+    },
+    comments: {
+      posted: numberValue((commentSummary as any).posted),
+      votes: numberValue((commentSummary as any).votes),
+      pages: commentPageRows.map((row) => ({
+        path: String(row.path ?? "/"),
+        posted: numberValue((row as any).posted),
+        votes: numberValue((row as any).votes),
+      })),
+      daily: commentDailyRows.map((row: any) => ({
+        date: String(row.date ?? ""),
+        posted: numberValue(row.posted),
+        votes: numberValue(row.votes),
       })),
     },
     subscribers: {
@@ -341,7 +365,7 @@ export function recordPageView(
 export function recordCustomEvent(
   env: MetricsEnv,
   tenantId: number,
-  event: { name: "audio_start" | "audio_complete" | "engaged_read" | "email_subscribe_requested" | "email_subscribed" | "email_unsubscribed" | "push_subscribed" | "push_unsubscribed" | "email_bounced" | "email_complained" | "email_opened" | "email_clicked" | "email_delivered" | "email_delayed" | "email_delivery_failed" | "email_held" | "domain_dns_error" | "push_delivered" | "push_clicked"; path: string; visitor: string; country: string; device: string; browser: string }
+  event: { name: "audio_start" | "audio_complete" | "engaged_read" | "email_subscribe_requested" | "email_subscribed" | "email_unsubscribed" | "push_subscribed" | "push_unsubscribed" | "email_bounced" | "email_complained" | "email_opened" | "email_clicked" | "email_delivered" | "email_delayed" | "email_delivery_failed" | "email_held" | "domain_dns_error" | "push_delivered" | "push_clicked" | "comment_posted" | "comment_voted"; path: string; visitor: string; country: string; device: string; browser: string }
 ): void {
   env.EVENTS.writeDataPoint({
     indexes: [String(tenantId)],

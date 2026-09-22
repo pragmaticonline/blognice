@@ -262,6 +262,61 @@ test("report queries include aggregate audience and audio breakdowns", () => {
   assert.match(queries.audioPages, /blob1 IN \('audio_start', 'audio_complete'\)/);
 });
 
+test("comment engagement uses the shared dataset and contains no PII", () => {
+  for (const name of ["comment_posted", "comment_voted"]) {
+    let point;
+    const env = { EVENTS: { writeDataPoint(value) { point = value; } } };
+    recordCustomEvent(env, 7, {
+      name,
+      path: "/hello",
+      visitor: "",
+      country: "",
+      device: "",
+      browser: "",
+    });
+    assert.deepEqual(point.indexes, ["7"]);
+    assert.deepEqual(point.blobs, [name, "/hello", "", "", "", ""]);
+    assert.deepEqual(point.doubles, [1]);
+    assert.doesNotMatch(point.blobs.join("|"), /@/);
+  }
+});
+
+test("report queries include comment engagement breakdowns", () => {
+  const queries = reportQueries(7, 30);
+  assert.match(queries.commentSummary, /FROM blognice_events/);
+  assert.match(queries.commentSummary, /comment_posted/);
+  assert.match(queries.commentSummary, /comment_voted/);
+  assert.match(queries.commentSummary, /index1 = '7'/);
+  assert.match(queries.commentPages, /blob1 IN \('comment_posted', 'comment_voted'\)/);
+  assert.match(queries.commentPages, /GROUP BY path/);
+  assert.match(queries.commentDaily, /GROUP BY date/);
+});
+
+test("metrics report aggregates comment engagement daily and summary", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    const q = String(init?.body || "");
+    if (q.includes("comment_posted") && q.includes("GROUP BY date")) {
+      return new Response(JSON.stringify({ data: [{ date: "2026-09-01", posted: 3, votes: 5 }] }), { status: 200 });
+    }
+    if (q.includes("comment_posted") && q.includes("GROUP BY path")) {
+      return new Response(JSON.stringify({ data: [{ path: "/hello", posted: 3, votes: 5 }] }), { status: 200 });
+    }
+    if (q.includes("comment_posted")) {
+      return new Response(JSON.stringify({ data: [{ posted: 9, votes: 12 }] }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ data: [] }), { status: 200 });
+  };
+  try {
+    const { metricsReport } = await import("../src/metrics.ts");
+    const report = await metricsReport({ CF_ACCOUNT_ID: "a", CF_ANALYTICS_TOKEN: "t" }, 7, 30);
+    assert.equal(report.comments.posted, 9);
+    assert.equal(report.comments.votes, 12);
+    assert.deepEqual(report.comments.pages, [{ path: "/hello", posted: 3, votes: 5 }]);
+    assert.deepEqual(report.comments.daily, [{ date: "2026-09-01", posted: 3, votes: 5 }]);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test("report queries include subscriber lifecycle breakdowns", () => {
   const queries = reportQueries(7, 30);
   assert.match(queries.subscriberSummary, /FROM blognice_events/);

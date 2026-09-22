@@ -8699,6 +8699,7 @@ app.post("/:slug/comments", async (c) => {
     "INSERT INTO comments (tenant_id, post_id, parent_id, author_name, email_hash, body, status, created_at, decided_at, avatar_hue, avatar_key, website) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
   ).bind(tenant.id, post.id, parentId, identity.author_name, identity.email_hash, body, "approved", now, now, avatarHue, avatarKey, website).run();
   await logCommentAttempt(c.env, tenant, "submit", identity.email_hash, now);
+  try { recordCustomEvent(c.env, tenant.id, { name: "comment_posted", path: `/${post.slug}`, visitor: "", country: "", device: "", browser: "" }); } catch {}
   // Keep the server-rendered section fresh: the post page is edge-cached.
   c.executionCtx.waitUntil(purge(c, [`/${post.slug}`]).catch(() => {}));
   const id = Number((inserted as any)?.meta?.last_row_id ?? 0);
@@ -8773,6 +8774,9 @@ app.post("/:slug/comments/:commentId/vote", async (c) => {
     "UPDATE comments SET likes = MAX(0, likes + ?), dislikes = MAX(0, dislikes + ?) WHERE tenant_id = ? AND id = ?"
   ).bind(likeDelta, dislikeDelta, tenant.id, target.id).run();
   await logCommentAttempt(c.env, tenant, "vote", identity.email_hash, now);
+  if (next !== old) {
+    try { recordCustomEvent(c.env, tenant.id, { name: "comment_voted", path: `/${post.slug}`, visitor: "", country: "", device: "", browser: "" }); } catch {}
+  }
   c.executionCtx.waitUntil(broadcastCommentEvent(c.env, tenant, post.id, {
     type: "comment-votes",
     comment: { id: target.id, likes, dislikes },

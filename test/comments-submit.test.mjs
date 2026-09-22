@@ -590,3 +590,49 @@ test("settings saves are rate-limited per reader", async () => {
     else globalThis.caches = originalCaches;
   }
 });
+
+test("successful submits emit one comment_posted point; rejects emit none", async () => {
+  const { blogniceApp } = await import("../src/index.ts");
+  const state = makeState();
+  const db = fakeDb(state);
+  const points = [];
+  const env = { DB: db, POSTS: db, ROOT_DOMAIN: "blognice.test", EMAIL_FROM: "Blog <hello@blognice.test>", MAILNICE_API_KEY: "test-key", EVENTS: { writeDataPoint(p) { points.push(p); } } };
+  const executionCtx = { waitUntil() {}, passThroughOnException() {} };
+  const sentEmails = [];
+  const originalFetch = globalThis.fetch;
+  const originalCaches = globalThis.caches;
+  globalThis.fetch = async (url, init) => {
+    sentEmails.push(String(init?.body || ""));
+    return new Response(JSON.stringify({}), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  globalThis.caches = { default: { match: async () => undefined, put: async () => {}, delete: async () => {} } };
+  const req = (path, opts = {}) => new Request(`https://commentblog.blognice.test${path}`, {
+    ...opts,
+    headers: { host: "commentblog.blognice.test", ...(opts.headers || {}) },
+  });
+  try {
+    await blogniceApp.request(req("/live-post/comments/start", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "metered@example.com", author_name: "Metered" }),
+    }), undefined, env, executionCtx);
+    const verify = await blogniceApp.request(req(`/live-post/comments/verify?token=${tokenFrom(sentEmails[0])}`), undefined, env, executionCtx);
+    const cookie = cookieFrom(verify);
+    const postAs = (body) => blogniceApp.request(req("/live-post/comments", {
+      method: "POST", headers: { "content-type": "application/json", cookie: `bn_comment=${cookie}` },
+      body: JSON.stringify(body),
+    }), undefined, env, executionCtx);
+    assert.equal((await postAs({ body: "Count me." })).status, 201);
+    assert.equal(points.length, 1);
+    assert.deepEqual(points[0].indexes, ["1"]);
+    assert.deepEqual(points[0].blobs, ["comment_posted", "/live-post", "", "", "", ""]);
+    assert.deepEqual(points[0].doubles, [1]);
+    // Rejects change nothing and emit nothing.
+    assert.equal((await postAs({ body: "Count me." })).status, 409);
+    assert.equal((await postAs({ body: "<b>no</b>" })).status, 400);
+    assert.equal(points.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalCaches === undefined) delete globalThis.caches;
+    else globalThis.caches = originalCaches;
+  }
+});

@@ -155,3 +155,40 @@ test("comment votes toggle, flip, clear, and broadcast counts", async () => {
     else globalThis.caches = originalCaches;
   }
 });
+
+test("effective votes emit one comment_voted point; no-ops and rejects do not", async () => {
+  const { blogniceApp } = await import("../src/index.ts");
+  const state = makeState();
+  state.identities = { reader: { email_hash: "r1", author_name: "Reader", cookie_hash: cookieHash("reader-cookie"), verified_at: NOW } };
+  const points = [];
+  const db = fakeDb(state);
+  const env = { DB: db, POSTS: db, ROOT_DOMAIN: "blognice.test", EVENTS: { writeDataPoint(p) { points.push(p); } } };
+  const executionCtx = { waitUntil() {}, passThroughOnException() {} };
+  const originalCaches = globalThis.caches;
+  globalThis.caches = { default: { match: async () => undefined, put: async () => {}, delete: async () => {} } };
+  const req = (path, opts = {}) => new Request(`https://commentblog.blognice.test${path}`, {
+    ...opts,
+    headers: { host: "commentblog.blognice.test", ...(opts.headers || {}) },
+  });
+  const vote = (id, body, cookie = "reader-cookie") => blogniceApp.request(req(`/live-post/comments/${id}/vote`, {
+    method: "POST", headers: { "content-type": "application/json", cookie: `bn_comment=${cookie}` },
+    body: JSON.stringify(body),
+  }), undefined, env, executionCtx);
+  try {
+    assert.equal((await vote(5, { vote: 1 })).status, 200);
+    assert.equal(points.length, 1);
+    assert.deepEqual(points[0].indexes, ["1"]);
+    assert.deepEqual(points[0].blobs, ["comment_voted", "/live-post", "", "", "", ""]);
+    // Clearing is an effective change too.
+    assert.equal((await vote(5, { vote: 1 })).status, 200);
+    assert.equal(points.length, 2);
+    // Explicit no-op and rejects emit nothing.
+    assert.equal((await vote(5, { vote: 0 })).status, 200);
+    assert.equal((await vote(6, { vote: 1 })).status, 404);
+    assert.equal((await vote(5, { vote: 1 }, "nobody-cookie")).status, 401);
+    assert.equal(points.length, 2);
+  } finally {
+    if (originalCaches === undefined) delete globalThis.caches;
+    else globalThis.caches = originalCaches;
+  }
+});
