@@ -72,8 +72,19 @@ CREATE TABLE IF NOT EXISTS comments (
   avatar_hue  INTEGER,                          -- reader-chosen colour, NULL = name-derived (see 072)
   avatar_key  TEXT,                             -- R2 profile photo key, NULL = no photo (see 074)
   website     TEXT,                             -- reader site, NULL = no profile link (see 075)
+  likes       INTEGER NOT NULL DEFAULT 0,       -- like count, adjusted with comment_votes (see 076)
+  dislikes    INTEGER NOT NULL DEFAULT 0,       -- dislike count, adjusted with comment_votes (see 076)
   UNIQUE (tenant_id, post_id, id)
 );
+CREATE TABLE IF NOT EXISTS comment_votes (
+  tenant_id   INTEGER NOT NULL,
+  comment_id  INTEGER NOT NULL,
+  email_hash  TEXT    NOT NULL,
+  vote        INTEGER NOT NULL,                  -- 1 like, -1 dislike
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (tenant_id, comment_id, email_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_comment_votes_comment ON comment_votes (tenant_id, comment_id);
 CREATE INDEX IF NOT EXISTS idx_comments_listing ON comments (tenant_id, post_id, status, id);
 CREATE INDEX IF NOT EXISTS idx_comments_moderation ON comments (tenant_id, status, created_at);
 CREATE TABLE IF NOT EXISTS comment_identities (

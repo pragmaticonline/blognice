@@ -60,6 +60,10 @@ test("served comment scripts parse and keep their regex escapes", async () => {
   assert.ok(client.includes("window.open"), "profile clicks open a new tab");
   assert.ok(client.includes("data-entry-avatar"), "entry avatar slot is addressable");
   assert.ok(client.includes("paintEntry"), "entry box shows the profile photo when set");
+  assert.ok(client.includes("data-vote-btn"), "like and dislike buttons are wired");
+  assert.ok(client.includes("bn_comment_votes"), "my votes persist locally");
+  assert.ok(client.includes("comment-votes"), "vote broadcasts converge without reload");
+  assert.ok(client.includes("aria-pressed"), "active vote highlights");
   assert.ok(client.includes("data-settings-upload"), "photo upload is wired");
   assert.ok(client.includes("data-settings-remove"), "photo removal is wired");
   assert.ok(client.includes("bn_comment_avatar_key"), "photo key persists locally");

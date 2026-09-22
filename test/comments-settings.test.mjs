@@ -67,6 +67,15 @@ test("comments schema ships in fresh installs and migrates existing posts databa
   assert.ok(fresh.prepare("PRAGMA table_info(comments)").all().map((row) => row.name).includes("website"), "fresh schema has comments.website");
   assert.ok(fresh.prepare("PRAGMA table_info(comment_identities)").all().map((row) => row.name).includes("website"), "fresh schema has identities.website");
 
+  // Comment likes/dislikes: counters on the row, one vote per reader.
+  migrated.exec(read("migrations/076-comment-votes.sql"));
+  const migratedVoteCols = (table) => migrated.prepare(`PRAGMA table_info(${table})`).all().map((row) => row.name);
+  assert.ok(migratedVoteCols("comments").includes("likes"), "migration adds comments.likes");
+  assert.ok(migratedVoteCols("comments").includes("dislikes"), "migration adds comments.dislikes");
+  assert.ok(migratedVoteCols("comment_votes").includes("vote"), "migration creates comment_votes");
+  assert.ok(fresh.prepare("PRAGMA table_info(comments)").all().map((row) => row.name).includes("likes"), "fresh schema has comments.likes");
+  assert.ok(fresh.prepare("PRAGMA table_info(comment_votes)").all().map((row) => row.name).includes("vote"), "fresh schema has comment_votes");
+
   // Both migrations are recorded in the production runbook.
   const runbook = read("docs/production-operations.md");
   assert.match(runbook, /069-comments\.sql/);
@@ -74,6 +83,7 @@ test("comments schema ships in fresh installs and migrates existing posts databa
   assert.match(runbook, /072-comment-avatar-hue\.sql/);
   assert.match(runbook, /074-comment-avatar-key\.sql/);
   assert.match(runbook, /075-comment-website\.sql/);
+  assert.match(runbook, /076-comment-votes\.sql/);
 });
 
 // Blog settings round-trip for the comments flag, through the admin form.

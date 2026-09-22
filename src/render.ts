@@ -579,6 +579,10 @@ export const STYLES = /* css */ `
   .comment .reply-btn { background: none; border: none; padding: 0; color: var(--muted); font: inherit; font-size: .9em; font-weight: 700; cursor: pointer; margin-left: 1em; margin-right: 1em; line-height: 1.5em; }
   .comment .reply-btn:first-child { margin-left: 0; }
   .comment .reply-btn:hover { color: var(--ink); }
+  .comment .vote-btn { background: none; border: none; padding: 0; color: var(--muted); font: inherit; font-size: .9em; font-weight: 700; cursor: pointer; margin-left: 1em; line-height: 1.5em; }
+  .comment .vote-btn:hover { color: var(--ink); }
+  .comment .vote-like[aria-pressed="true"] { color: #16a34a; }
+  .comment .vote-dislike[aria-pressed="true"] { color: #dc2626; }
   .comment .more-btn { background: none; border: none; padding: 0; color: var(--muted); font: inherit; font-size: .9em; font-weight: 700; cursor: pointer; line-height: 1.5em; }
   .comment .more-btn:hover { color: var(--ink); }
   .comment-children { margin-top: 1rem; }
@@ -1220,11 +1224,13 @@ export function renderPage(
 export type CommentRow = {
   id: number; parent_id: number | null; author_name: string; body: string;
   created_at: number; status: string; avatar_hue?: number | null; avatar_key?: string | null; website?: string | null;
+  likes?: number | null; dislikes?: number | null;
 };
 
 export type CommentNode = {
   id: number; parent_id: number | null; author_name: string; body: string;
-  created_at: number; avatar_hue: number | null; avatar_key: string | null; website: string | null; tombstone: boolean; children: CommentNode[];
+  created_at: number; avatar_hue: number | null; avatar_key: string | null; website: string | null;
+  likes: number; dislikes: number; tombstone: boolean; children: CommentNode[];
 };
 
 // Websites are normalized server-side at write time; this second gate keeps
@@ -1266,6 +1272,7 @@ export function buildCommentTree(rows: CommentRow[]): { roots: CommentNode[]; co
     id: row.id, parent_id: row.parent_id, author_name: row.author_name, body: row.body,
     created_at: row.created_at, avatar_hue: validAvatarHue(row.avatar_hue),
     avatar_key: validAvatarKey(row.avatar_key), website: validWebsite(row.website),
+    likes: Math.max(0, Math.floor(Number(row.likes) || 0)), dislikes: Math.max(0, Math.floor(Number(row.dislikes) || 0)),
     tombstone: row.status !== "approved", children: [],
   });
   const nodes = new Map<number, CommentNode>();
@@ -1291,7 +1298,8 @@ export function commentNodeJson(node: CommentNode): unknown {
   return {
     id: node.id, parent_id: node.parent_id, author_name: node.author_name,
     body: node.body, created_at: node.created_at, avatar_hue: node.avatar_hue,
-    avatar_key: node.avatar_key, website: node.website, replies: node.children.map(commentNodeJson),
+    avatar_key: node.avatar_key, website: node.website, likes: node.likes, dislikes: node.dislikes,
+    replies: node.children.map(commentNodeJson),
   };
 }
 
@@ -1386,12 +1394,14 @@ function renderCommentNodes(nodes: CommentNode[], depth: number, parentAuthor: s
       const avHtml = profileLink(commentAvatar(node.author_name, node.avatar_hue, node.avatar_key), node.website);
       const timeHtml = `<time datetime="${iso}" data-ts="${node.created_at}" title="${esc(formatDate(node.created_at))}">${esc(timeAgo(node.created_at))}</time>`;
       const headHtml = profileLink(`<span class="comment-head"><span class="comment-author">${esc(node.author_name)}</span>${flatLabel}</span>`, node.website);
+      const voteHtml = `<button class="vote-btn vote-like" type="button" data-vote-btn="1" aria-pressed="false" aria-label="Like this comment">▲ <span data-like-count>${node.likes}</span></button>`
+        + `<button class="vote-btn vote-dislike" type="button" data-vote-btn="-1" aria-pressed="false" aria-label="Dislike this comment">▼ <span data-dislike-count>${node.dislikes}</span></button>`;
       out += `<details class="comment d${capped}" data-comment="${node.id}" open>`
         + (depth === 0
           ? `${avHtml}<summary>${headHtml}${timeHtml}</summary>`
           : `<summary>${avHtml}${headHtml}${timeHtml}</summary>`)
         + commentBody(node.body)
-        + `<div class="comment-actions"><button class="reply-btn" type="button" data-reply-to="${node.id}" data-reply-name="${esc(node.author_name)}">Reply</button>${isLongComment(node.body) ? `<button class="more-btn" type="button" data-comment-more>Show more</button>` : ""}</div>${depth === 0 ? kids : ""}</details>${depth === 0 ? "" : kids}`;
+        + `<div class="comment-actions"><button class="reply-btn" type="button" data-reply-to="${node.id}" data-reply-name="${esc(node.author_name)}">Reply</button>${voteHtml}${isLongComment(node.body) ? `<button class="more-btn" type="button" data-comment-more>Show more</button>` : ""}</div>${depth === 0 ? kids : ""}</details>${depth === 0 ? "" : kids}`;
     }
   }
   return out;
@@ -1412,6 +1422,37 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
   // the thread: preventDefault stops the native summary toggle, and an
   // explicit open keeps the new-tab navigation the link promises.
   section.addEventListener("click",function(e){var a=e.target&&e.target.closest?e.target.closest("a[data-profile-link]"):null;if(!a)return;e.preventDefault();try{window.open(a.getAttribute("href"),"_blank","noopener");}catch(err){}});
+  // Likes/dislikes paint instantly (optimistic) and reconcile against the
+  // server echo. Each tap carries an op; a lagging response whose op no
+  // longer matches the latest tap for that comment is ignored, so rapid
+  // like-then-dislike can never settle on the stale answer. Failures revert
+  // to the pre-tap snapshot instead of stranding a wrong count.
+  var VOTES_KEY="bn_comment_votes",voteOps={};
+  function myVotes(){try{return JSON.parse(localStorage.getItem(VOTES_KEY)||"{}")||{};}catch(e){return{};}}
+  function setMyVote(id,v){try{var m=myVotes();if(v)m[id]=v;else delete m[id];localStorage.setItem(VOTES_KEY,JSON.stringify(m));}catch(e){}}
+  function voteCounts(box){var l=box.querySelector("[data-like-count]"),d=box.querySelector("[data-dislike-count]");
+    return {likes:l?parseInt(l.textContent||"0",10)||0:0,dislikes:d?parseInt(d.textContent||"0",10)||0:0};}
+  function paintVotes(box){var mine=myVotes()[box.getAttribute("data-comment")]||0;
+    box.querySelectorAll("[data-vote-btn]").forEach(function(b){
+      b.setAttribute("aria-pressed",Number(b.getAttribute("data-vote-btn"))===mine?"true":"false");});}
+  function setVoteCounts(box,likes,dislikes){var l=box.querySelector("[data-like-count]"),d=box.querySelector("[data-dislike-count]");
+    if(l)l.textContent=likes;if(d)d.textContent=dislikes;}
+  section.addEventListener("click",function(e){
+    var b=e.target&&e.target.closest?e.target.closest("[data-vote-btn]"):null;if(!b)return;
+    var box=b.closest("[data-comment]");if(!box)return;
+    var id=box.getAttribute("data-comment"),want=Number(b.getAttribute("data-vote-btn"));
+    var mine=myVotes()[id]||0,desired=want===mine?0:want,before=voteCounts(box),beforeMine=mine;
+    var likes=before.likes+((desired===1)?1:0)-((mine===1)?1:0);
+    var dislikes=before.dislikes+((desired===-1)?1:0)-((mine===-1)?1:0);
+    var op=Date.now().toString(36)+Math.floor(Math.random()*1296).toString(36);
+    voteOps[id]=op;setMyVote(id,desired);paintVotes(box);setVoteCounts(box,likes,dislikes);
+    fetch(path+"/comments/"+id+"/vote",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({vote:desired,op:op})}).then(function(r){
+      if(!r.ok)throw new Error("vote "+r.status);return r.json();
+    }).then(function(j){
+      if(!j||!j.comment||j.op!==voteOps[id])return;
+      setMyVote(id,j.comment.my_vote);paintVotes(box);setVoteCounts(box,j.comment.likes,j.comment.dislikes);
+    }).catch(function(){if(voteOps[id]!==op)return;setMyVote(id,beforeMine);paintVotes(box);setVoteCounts(box,before.likes,before.dislikes);});
+  });
   var dialog=section.querySelector("[data-comment-dialog]");
   try{var savedId=JSON.parse(localStorage.getItem("bn_comment_identity")||"null");if(savedId){if(!nameField.value&&savedId.name)nameField.value=savedId.name;if(!emailField.value&&savedId.email)emailField.value=savedId.email;if(siteField&&!siteField.value&&savedId.website)siteField.value=savedId.website;}}catch(e){}
   var formHome=form.parentNode,formNext=form.nextSibling;
@@ -1571,6 +1612,7 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
   }
   clampThreads();
   paintEntry();
+  section.querySelectorAll("[data-comment]").forEach(function(el){paintVotes(el);});
   var sending=false;
   var sendBtn=form.querySelector('button[type="submit"]');
   form.addEventListener("submit",function(e){
@@ -1652,8 +1694,12 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
   function refreshTimes(){section.querySelectorAll("time[data-ts]").forEach(function(t){t.textContent=agoStr(t.getAttribute("data-ts"));});}
   setInterval(refreshTimes,60000);
   function avatarHue(name){var h=0;for(var i=0;i<name.length;i++){h=(h*31+name.charCodeAt(i))>>>0;}return h%360;}
+  function applyVoteCounts(id,likes,dislikes){var box=section.querySelector('[data-comment="'+id+'"]');
+    if(box&&typeof likes==="number")setVoteCounts(box,likes,typeof dislikes==="number"?dislikes:0);}
   function insertApproved(c,pending){
-    if(!c||c.id==null||section.querySelector('[data-comment="'+c.id+'"]'))return;
+    if(!c||c.id==null)return;
+    var dup=section.querySelector('[data-comment="'+c.id+'"]');
+    if(dup){applyVoteCounts(c.id,c.likes,c.dislikes);return;}
     var parentEl=c.parent_id?section.querySelector('[data-comment="'+c.parent_id+'"]'):null;
     var depth=0,replyTo="";
     if(parentEl){var pd=depthOf(parentEl);depth=Math.min(pd+1,1);if(pd>=1)replyTo=authorOf(parentEl);}
@@ -1673,15 +1719,18 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     if(raw.length>400&&sp>340)cut=cut.slice(0,sp);
     var cutLines=cut.split("\\n");if(cutLines.length>8)cut=cutLines.slice(0,8).join("\\n");
     var bodyHtml=long?'<div class="comment-body" data-full-body hidden>'+escHtml(raw).replace(/\\n/g,"<br>")+'</div><div class="comment-body" data-excerpt-body>'+escHtml(cut).replace(/\\n/g,"<br>")+'…</div>':'<div class="comment-body">'+escHtml(raw).replace(/\\n/g,"<br>")+'</div>';
+    var likes=typeof c.likes==="number"?c.likes:0,dislikes=typeof c.dislikes==="number"?c.dislikes:0;
+    var voteHtml='<button class="vote-btn vote-like" type="button" data-vote-btn="1" aria-pressed="false" aria-label="Like this comment">▲ <span data-like-count>'+likes+'</span></button>'
+      +'<button class="vote-btn vote-dislike" type="button" data-vote-btn="-1" aria-pressed="false" aria-label="Dislike this comment">▼ <span data-dislike-count>'+dislikes+'</span></button>';
     var html='<details class="comment d'+depth+(pending?' pending':' fresh')+'" data-comment="'+c.id+'"'+(pending?' data-pending="1"':'')+' open>'
       +(depth>0?'<summary>'+avHtml+headHtml+timeHtml+'</summary>':avHtml+'<summary>'+headHtml+timeHtml+'</summary>')
       +bodyHtml
-      +'<div class="comment-actions"><button class="reply-btn" type="button" data-reply-to="'+c.id+'" data-reply-name="'+escHtml(nm)+'">Reply</button>'+(long?'<button class="more-btn" type="button" data-comment-more>Show more</button>':"")+'</div></details>';
+      +'<div class="comment-actions"><button class="reply-btn" type="button" data-reply-to="'+c.id+'" data-reply-name="'+escHtml(nm)+'">Reply</button>'+voteHtml+(long?'<button class="more-btn" type="button" data-comment-more>Show more</button>':"")+'</div></details>';
     var host;
     if(parentEl){host=parentEl.querySelector(":scope > .comment-children")||parentEl.closest(".comment-children");if(!host){host=document.createElement("div");host.className="comment-children";parentEl.appendChild(host);}host.insertAdjacentHTML("beforeend",html);}
     else{host=section.querySelector(".comment-list");host.insertAdjacentHTML(sortMode==="newest"?"afterbegin":"beforeend",html);var empty=section.querySelector(".no-comments");if(empty)empty.remove();}
     var fresh=section.querySelector('[data-comment="'+c.id+'"]');
-    if(fresh){var rb=fresh.querySelector("[data-reply-to]");if(rb)wireReply(rb);}
+    if(fresh){var rb=fresh.querySelector("[data-reply-to]");if(rb)wireReply(rb);paintVotes(fresh);}
     if(fresh&&!pending)setTimeout(function(){fresh.classList.remove("fresh");},10000);
     if(!pending){bumpCount(1);if(Number(c.id)>maxId)maxId=Number(c.id);}clampThreads();
   }
@@ -1711,6 +1760,7 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
       if(!msg||!msg.type)return;
       if(msg.type==="comment-approved"&&msg.comment)insertApproved(msg.comment);
       else if(msg.type==="comment-removed"&&msg.id!=null)tombstone(msg.id);
+      else if(msg.type==="comment-votes"&&msg.comment)applyVoteCounts(msg.comment.id,msg.comment.likes,msg.comment.dislikes);
       else if(msg.type==="presence")showPresence(msg.viewers,msg.writers);
     };
     setInterval(function(){

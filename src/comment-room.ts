@@ -117,7 +117,7 @@ export class CommentRoom extends DurableObject<Env> {
     } catch {
       return new Response("Invalid event.", { status: 400 });
     }
-    if (event.type !== "comment-approved" && event.type !== "comment-removed") {
+    if (event.type !== "comment-approved" && event.type !== "comment-removed" && event.type !== "comment-votes") {
       return new Response("Unknown event.", { status: 400 });
     }
     this.sendAll(JSON.stringify(event));

@@ -198,6 +198,27 @@ test("supplied websites turn profiles into new-tab links", async () => {
   }
 });
 
+test("comments render like and dislike buttons with both counts", async () => {
+  const { blogniceApp } = await import("../src/index.ts");
+  const state = makeState();
+  state.comments[0].likes = 3;
+  state.comments[0].dislikes = 1;
+  const env = { DB: fakeDb(state), POSTS: fakeDb(state), ROOT_DOMAIN: "blognice.test" };
+  const executionCtx = { waitUntil() {}, passThroughOnException() {} };
+  const originalCaches = globalThis.caches;
+  globalThis.caches = { default: { match: async () => undefined, put: async () => {} } };
+  try {
+    const res = await blogniceApp.request(req("/live-post"), undefined, env, executionCtx);
+    assert.equal(res.status, 200);
+    const html = await res.text();
+    assert.match(html, /data-vote-btn="1"[^>]*aria-pressed="false"[^>]*>▲ <span data-like-count>3<\/span>/);
+    assert.match(html, /data-vote-btn="-1"[^>]*aria-pressed="false"[^>]*>▼ <span data-dislike-count>1<\/span>/);
+  } finally {
+    if (originalCaches === undefined) delete globalThis.caches;
+    else globalThis.caches = originalCaches;
+  }
+});
+
 test("comment section carries a settings cog and reader settings dialog", async () => {
   const { blogniceApp } = await import("../src/index.ts");
   const state = makeState();

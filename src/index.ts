@@ -5190,7 +5190,7 @@ async function moderateComment(c: any, status: "removed" | "approved"): Promise<
   const id = Number(c.req.param("commentId"));
   if (!Number.isSafeInteger(id) || id <= 0) return c.text("Invalid comment.", 400);
   const db = tenantDb(c.env, ctx.tenant);
-  const row = await db.prepare("SELECT id, post_id, parent_id, author_name, body, created_at, avatar_hue, avatar_key, website FROM comments WHERE tenant_id = ? AND id = ?").bind(ctx.tenant.id, id).first<any>();
+  const row = await db.prepare("SELECT id, post_id, parent_id, author_name, body, created_at, avatar_hue, avatar_key, website, likes, dislikes FROM comments WHERE tenant_id = ? AND id = ?").bind(ctx.tenant.id, id).first<any>();
   if (!row) return c.redirect(`/admin/b/${ctx.tenant.public_id}/comments`, 303);
   const now = Math.floor(Date.now() / 1000);
   await db.prepare("UPDATE comments SET status = ?, decided_at = ? WHERE tenant_id = ? AND id = ?").bind(status, now, ctx.tenant.id, id).run();
@@ -5201,7 +5201,7 @@ async function moderateComment(c: any, status: "removed" | "approved"): Promise<
     ? { type: "comment-removed", id: row.id }
     : {
       type: "comment-approved",
-      comment: { id: row.id, parent_id: row.parent_id, author_name: row.author_name, body: row.body, created_at: row.created_at, avatar_hue: row.avatar_hue ?? null, avatar_key: row.avatar_key ?? null, website: row.website ?? null },
+      comment: { id: row.id, parent_id: row.parent_id, author_name: row.author_name, body: row.body, created_at: row.created_at, avatar_hue: row.avatar_hue ?? null, avatar_key: row.avatar_key ?? null, website: row.website ?? null, likes: row.likes ?? 0, dislikes: row.dislikes ?? 0 },
     }).catch(() => false));
   return c.redirect(`/admin/b/${ctx.tenant.public_id}/comments`, 303);
 }
@@ -8137,7 +8137,7 @@ app.get("/:slug", async (c) => {
     if (tenant.comments_enabled) {
       try {
         const { results } = await tenantDb(c.env, tenant).prepare(
-          "SELECT id, parent_id, author_name, body, created_at, status, avatar_hue, avatar_key, website FROM comments WHERE tenant_id = ? AND post_id = ? ORDER BY id ASC LIMIT 2000"
+          "SELECT id, parent_id, author_name, body, created_at, status, avatar_hue, avatar_key, website, likes, dislikes FROM comments WHERE tenant_id = ? AND post_id = ? ORDER BY id ASC LIMIT 2000"
         ).bind(tenant.id, post.id).all<any>();
         commentSection = renderCommentSection(post, results);
       } catch {}
@@ -8165,10 +8165,10 @@ app.get("/:slug/comments", async (c) => {
     const sinceId = Number(sinceRaw);
     if (!Number.isSafeInteger(sinceId) || sinceId < 0) return c.json({ error: "Invalid cursor." }, 400);
     const { results } = await db.prepare(
-      "SELECT id, parent_id, author_name, body, created_at, avatar_hue, avatar_key, website FROM comments WHERE tenant_id = ? AND post_id = ? AND status = 'approved' AND id > ? ORDER BY id ASC LIMIT 100"
+      "SELECT id, parent_id, author_name, body, created_at, avatar_hue, avatar_key, website, likes, dislikes FROM comments WHERE tenant_id = ? AND post_id = ? AND status = 'approved' AND id > ? ORDER BY id ASC LIMIT 100"
     ).bind(tenant.id, post.id, sinceId).all<any>();
     return c.json(
-      { comments: results.map((r) => ({ id: r.id, parent_id: r.parent_id, author_name: r.author_name, body: r.body, created_at: r.created_at, avatar_hue: r.avatar_hue ?? null, avatar_key: r.avatar_key ?? null, website: r.website ?? null })) },
+      { comments: results.map((r) => ({ id: r.id, parent_id: r.parent_id, author_name: r.author_name, body: r.body, created_at: r.created_at, avatar_hue: r.avatar_hue ?? null, avatar_key: r.avatar_key ?? null, website: r.website ?? null, likes: r.likes ?? 0, dislikes: r.dislikes ?? 0 })) },
       200,
       { "cache-control": "public, max-age=30" }
     );
@@ -8177,7 +8177,7 @@ app.get("/:slug/comments", async (c) => {
   const cursor = Number(cursorRaw);
   if (!Number.isSafeInteger(cursor) || cursor < 0) return c.json({ error: "Invalid cursor." }, 400);
   const { results } = await db.prepare(
-    "SELECT id, parent_id, author_name, body, created_at, status, avatar_hue, avatar_key, website FROM comments WHERE tenant_id = ? AND post_id = ? ORDER BY id ASC LIMIT 2000"
+    "SELECT id, parent_id, author_name, body, created_at, status, avatar_hue, avatar_key, website, likes, dislikes FROM comments WHERE tenant_id = ? AND post_id = ? ORDER BY id ASC LIMIT 2000"
   ).bind(tenant.id, post.id).all<any>();
   const { roots } = buildCommentTree(results);
   const page = roots.slice(cursor, cursor + COMMENT_PAGE_SIZE);
@@ -8209,6 +8209,8 @@ const COMMENT_SUBMIT_MAX = 20;
 const COMMENT_TENANT_WINDOW = 3600;
 const COMMENT_TENANT_MAX = 200;
 const COMMENT_DUPLICATE_WINDOW = 600;
+const COMMENT_VOTE_WINDOW = 60;
+const COMMENT_VOTE_MAX = 30;
 const COMMENT_REPORT_REASONS = ["spam", "harassment", "other"];
 const COMMENT_REPORT_WINDOW = 3600;
 const COMMENT_REPORT_MAX = 10; // per (tenant, reporter) per hour
@@ -8280,8 +8282,9 @@ async function commentIdentityByCookie(env: Bindings, tenant: Tenant, cookie: st
 }
 
 export type CommentRoomEvent =
-  | { type: "comment-approved"; comment: { id: number; parent_id: number | null; author_name: string; body: string; created_at: number; avatar_hue?: number | null; avatar_key?: string | null; website?: string | null } }
-  | { type: "comment-removed"; id: number };
+  | { type: "comment-approved"; comment: { id: number; parent_id: number | null; author_name: string; body: string; created_at: number; avatar_hue?: number | null; avatar_key?: string | null; website?: string | null; likes?: number | null; dislikes?: number | null } }
+  | { type: "comment-removed"; id: number }
+  | { type: "comment-votes"; comment: { id: number; likes: number; dislikes: number } };
 
 // Best-effort broadcast to the post's room. Fails closed (false) when the
 // room is unconfigured or unreachable; the comment stays stored and visible
@@ -8510,7 +8513,68 @@ app.post("/:slug/comments", async (c) => {
     type: "comment-approved",
     comment: { id, parent_id: parentId, author_name: identity.author_name, body, created_at: now, avatar_hue: avatarHue, avatar_key: avatarKey, website },
   }).catch(() => false));
-  return c.json({ comment: { id, parent_id: parentId, author_name: identity.author_name, body, status: "approved", created_at: now, avatar_hue: avatarHue, avatar_key: avatarKey, website } }, 201);
+  return c.json({ comment: { id, parent_id: parentId, author_name: identity.author_name, body, status: "approved", created_at: now, avatar_hue: avatarHue, avatar_key: avatarKey, website, likes: 0, dislikes: 0, my_vote: 0 } }, 201);
+});
+
+// Comment likes/dislikes. Verified readers only; one vote each. Tapping the
+// active vote clears it, tapping the other side flips. Counters move by
+// atomic deltas so concurrent voters never lose updates, and the response
+// echoes the client's op so lagging responses can't overwrite newer taps.
+app.post("/:slug/comments/:commentId/vote", async (c) => {
+  const tenant = await resolveTenant(c.env, c.req.header("host") || "");
+  if (!tenant || !tenant.comments_enabled) return c.json({ error: "Comments are not available." }, 404);
+  const post = await commentPost(c, tenant);
+  if (!post) return c.json({ error: "Comments are not available." }, 404);
+  const cookie = getCookie(c, COMMENT_COOKIE);
+  if (!cookie) return c.json({ error: "Verify your email address before voting." }, 401);
+  const identity = await commentIdentityByCookie(c.env, tenant, cookie);
+  if (!identity || !identity.verified_at) return c.json({ error: "Verify your email address before voting." }, 401);
+  let payload: any = null;
+  try { payload = await c.req.json(); } catch { return c.json({ error: "Invalid request." }, 400); }
+  const want = payload?.vote;
+  if (want !== 1 && want !== -1 && want !== 0) return c.json({ error: "Vote must be 1, -1, or 0." }, 400);
+  const op = typeof payload?.op === "string" && payload.op.length <= 64 ? payload.op : null;
+  const commentId = Number(c.req.param("commentId"));
+  if (!Number.isSafeInteger(commentId)) return c.json({ error: "Comment not found." }, 404);
+  const db = tenantDb(c.env, tenant);
+  const target = await db.prepare(
+    "SELECT id, post_id, status, likes, dislikes FROM comments WHERE tenant_id = ? AND id = ?"
+  ).bind(tenant.id, commentId).first<any>();
+  if (!target || target.post_id !== post.id || target.status !== "approved") return c.json({ error: "Comment not found." }, 404);
+  const now = Math.floor(Date.now() / 1000);
+  const recent = await commentAttemptCount(c.env, tenant.id, "vote", identity.email_hash, now - COMMENT_VOTE_WINDOW);
+  if (recent >= COMMENT_VOTE_MAX) return c.json({ error: "Too many votes. Try again later." }, 429);
+  const existing = await db.prepare(
+    "SELECT vote FROM comment_votes WHERE tenant_id = ? AND comment_id = ? AND email_hash = ?"
+  ).bind(tenant.id, target.id, identity.email_hash).first<{ vote: number }>();
+  const old = existing ? existing.vote : 0;
+  const next = want === old ? 0 : want;
+  const likeDelta = (next === 1 ? 1 : 0) - (old === 1 ? 1 : 0);
+  const dislikeDelta = (next === -1 ? 1 : 0) - (old === -1 ? 1 : 0);
+  const likes = Math.max(0, (target.likes ?? 0) + likeDelta);
+  const dislikes = Math.max(0, (target.dislikes ?? 0) + dislikeDelta);
+  if (next === 0) {
+    await db.prepare(
+      "DELETE FROM comment_votes WHERE tenant_id = ? AND comment_id = ? AND email_hash = ?"
+    ).bind(tenant.id, target.id, identity.email_hash).run();
+  } else if (existing) {
+    await db.prepare(
+      "UPDATE comment_votes SET vote = ?, created_at = ? WHERE tenant_id = ? AND comment_id = ? AND email_hash = ?"
+    ).bind(next, now, tenant.id, target.id, identity.email_hash).run();
+  } else {
+    await db.prepare(
+      "INSERT INTO comment_votes (tenant_id, comment_id, email_hash, vote, created_at) VALUES (?, ?, ?, ?, ?)"
+    ).bind(tenant.id, target.id, identity.email_hash, next, now).run();
+  }
+  await db.prepare(
+    "UPDATE comments SET likes = MAX(0, likes + ?), dislikes = MAX(0, dislikes + ?) WHERE tenant_id = ? AND id = ?"
+  ).bind(likeDelta, dislikeDelta, tenant.id, target.id).run();
+  await logCommentAttempt(c.env, tenant, "vote", identity.email_hash, now);
+  c.executionCtx.waitUntil(broadcastCommentEvent(c.env, tenant, post.id, {
+    type: "comment-votes",
+    comment: { id: target.id, likes, dislikes },
+  }).catch(() => false));
+  return c.json({ comment: { id: target.id, likes, dislikes, my_vote: next }, op });
 });
 
 // Reader abuse reports on approved comments. Anyone (verified or not) may
