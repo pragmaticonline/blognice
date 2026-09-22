@@ -58,6 +58,29 @@ test("metrics Comments panel explains an empty period", () => {
   assert.match(html, /No comments yet\./);
 });
 
+test("metrics Comments panel charts engagements per day", () => {
+  const html = metricsPage(account, tenant, reportWith({
+    posted: 4,
+    votes: 8,
+    pages: [{ path: "/hello", posted: 4, votes: 8 }],
+    daily: [
+      { date: "2026-09-01", posted: 1, votes: 2 },
+      { date: "2026-09-02", posted: 3, votes: 6 },
+    ],
+  }));
+  assert.match(html, /Daily engagement/);
+  assert.match(html, /2026-09-02: 9 engagements/);
+  assert.match(html, /3 comments/);
+  assert.match(html, /6 votes/);
+});
+
+test("metrics Comments panel explains an empty engagement chart", () => {
+  const html = metricsPage(account, tenant, reportWith({
+    posted: 0, votes: 0, pages: [], daily: [],
+  }));
+  assert.match(html, /No engagement yet\./);
+});
+
 test("metrics error path is unaffected by the Comments panel", () => {
   const html = metricsPage(account, tenant, null, { error: "boom" });
   assert.match(html, /boom/);
