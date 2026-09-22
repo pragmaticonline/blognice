@@ -105,15 +105,17 @@ export function subscriberConfirmationEmail(input: { blogTitle: string; confirmU
   };
 }
 
-export function commentVerificationEmail(input: { blogTitle: string; verifyUrl: string; authorName: string }) {
+export function commentVerificationEmail(input: { blogTitle: string; verifyUrl: string; authorName: string; alsoSubscribing?: boolean }) {
   const title = htmlEscape(input.blogTitle);
   const subjectTitle = input.blogTitle.replace(/[\r\n]+/g, " ").trim().slice(0, 200);
   const url = htmlEscape(input.verifyUrl);
   const name = htmlEscape(input.authorName);
+  const subPlain = input.alsoSubscribing ? `\n\nConfirming also subscribes you to updates from ${input.blogTitle}. Unsubscribe anytime.` : "";
+  const subHtml = input.alsoSubscribing ? `<p style="color:#5c6455;font-size:12.5px">Confirming also subscribes you to updates from <strong>${title}</strong>. Unsubscribe anytime.</p>` : "";
   return {
     subject: `Confirm your comment on ${safeSubjectText(subjectTitle, "this blog")}`,
-    plainText: `Hi ${input.authorName},\n\nClick to confirm your comment on ${input.blogTitle}:\n\n${input.verifyUrl}\n\nThis link expires in 24 hours. If you did not request this, you can ignore this email — nothing will be posted.`,
-    html: `<div style="text-align:center"><h2 style="font-family:Arial,sans-serif;margin:0 0 14px;color:#181a12">Confirm your comment</h2><p>Hi ${name} — confirm below to post your comment on <strong>${title}</strong>.</p><p style="margin:28px 0"><a href="${url}" style="display:inline-block;background:#1a8917;color:#fff;text-decoration:none;font-weight:700;padding:13px 30px;border-radius:9px">Confirm comment</a></p><p style="color:#5c6455;font-size:12.5px">This link expires in 24 hours. If you did not request this, you can ignore this email — nothing will be posted.</p></div>`,
+    plainText: `Hi ${input.authorName},\n\nClick to confirm your comment on ${input.blogTitle}:\n\n${input.verifyUrl}\n\nThis link expires in 24 hours. If you did not request this, you can ignore this email — nothing will be posted.${subPlain}`,
+    html: `<div style="text-align:center"><h2 style="font-family:Arial,sans-serif;margin:0 0 14px;color:#181a12">Confirm your comment</h2><p>Hi ${name} — confirm below to post your comment on <strong>${title}</strong>.</p><p style="margin:28px 0"><a href="${url}" style="display:inline-block;background:#1a8917;color:#fff;text-decoration:none;font-weight:700;padding:13px 30px;border-radius:9px">Confirm comment</a></p><p style="color:#5c6455;font-size:12.5px">This link expires in 24 hours. If you did not request this, you can ignore this email — nothing will be posted.</p>${subHtml}</div>`,
   };
 }
 

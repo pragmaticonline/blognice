@@ -43,6 +43,9 @@ function fakeDb(state) {
               if (sql.includes("FROM subscriber_confirmations")) {
                 return state.confirmations.find((s) => s.tenant_id === args[0] && s.email === args[1]) ?? null;
               }
+              if (sql.includes("FROM subscription_manage_tokens")) {
+                return state.manageTokens[args[0]] ? { token: state.manageTokens[args[0]] } : null;
+              }
               if (sql.includes("UPDATE comments SET")) return { success: true };
               if (sql.includes("FROM comments")) return null;
               if (sql.includes("COUNT(*)")) return { count: 0 };
@@ -76,6 +79,15 @@ function fakeDb(state) {
                 if (!exists) state.confirmations.push({ tenant_id: args[0], email: args[1] });
                 return { success: true, meta: { changes: exists ? 0 : 1 } };
               }
+              if (sql.startsWith("INSERT OR IGNORE INTO subscribers")) {
+                const exists = state.subscribers.some((s) => s.tenant_id === args[0] && s.email === args[1]);
+                if (!exists) state.subscribers.push({ tenant_id: args[0], email: args[1], token: args[2], created_at: args[3], confirmed_at: args[4] });
+                return { success: true, meta: { changes: exists ? 0 : 1 } };
+              }
+              if (sql.startsWith("INSERT INTO subscription_manage_tokens")) {
+                state.manageTokens[args[0]] = args[1];
+                return { success: true };
+              }
               if (sql.startsWith("DELETE FROM subscriber_confirmations")) return { success: true };
               if (sql.startsWith("INSERT INTO comment_attempts")) {
                 state.attempts.push({ tenant_id: args[0], email_hash: args[1], kind: args[2], created_at: args[3] });
@@ -106,6 +118,7 @@ function makeState() {
     comments: [],
     subscribers: [],
     confirmations: [],
+    manageTokens: {},
   };
 }
 
@@ -190,6 +203,107 @@ test("verified subscribe taps enter double opt-in; others do nothing", async () 
     const bad = await post({ body: "Bad addr.", subscribe: true, email: "not-an-email" });
     assert.equal(bad.status, 201);
     assert.equal((await bad.json()).comment.subscribed, false);
+    assert.equal(state.confirmations.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalCaches === undefined) delete globalThis.caches;
+    else globalThis.caches = originalCaches;
+  }
+});
+
+test("comment verification also confirms the subscription", async () => {
+  const { blogniceApp } = await import("../src/index.ts");
+  const state = makeState();
+  const queued = [];
+  const db = fakeDb(state);
+  const env = { DB: db, POSTS: db, ROOT_DOMAIN: "blognice.test", EMAIL_FROM: "Blog <hello@blognice.test>", MAILNICE_API_KEY: "test-key", EMAIL_QUEUE: { send: async (job) => { queued.push(job); } } };
+  const executionCtx = { waitUntil() {}, passThroughOnException() {} };
+  const sentEmails = [];
+  const originalFetch = globalThis.fetch;
+  const originalCaches = globalThis.caches;
+  globalThis.fetch = async (url, init) => {
+    sentEmails.push(String(init?.body || ""));
+    return new Response(JSON.stringify({}), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  globalThis.caches = { default: { match: async () => undefined, put: async () => {}, delete: async () => {} } };
+  const req = (path, opts = {}) => new Request(`https://commentblog.blognice.test${path}`, {
+    ...opts,
+    headers: { host: "commentblog.blognice.test", ...(opts.headers || {}) },
+  });
+  try {
+    // Ticked box rides verification: one email discloses both effects.
+    const start = await blogniceApp.request(req("/live-post/comments/start", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "one@example.com", author_name: "One", subscribe: true, subscribe_email: "one@example.com" }),
+    }), undefined, env, executionCtx);
+    assert.equal(start.status, 200);
+    assert.match(sentEmails[0], /also subscribes you to updates/, "verification mail discloses the subscription");
+
+    // Clicking it verifies the identity AND confirms the subscription:
+    // no second confirmation mail, welcome queued instead.
+    const verify = await blogniceApp.request(req(`/live-post/comments/verify?token=${tokenFrom(sentEmails[0])}`), undefined, env, executionCtx);
+    assert.equal(verify.status, 302);
+    const sub = state.subscribers.find((s) => s.email === "one@example.com");
+    assert.ok(sub && sub.confirmed_at, "subscriber confirmed on verify");
+    assert.equal(state.confirmations.length, 0);
+    assert.equal(queued.length, 1);
+    assert.equal(queued[0].emailKind, "subscription-welcome");
+    assert.equal(queued[0].to, "one@example.com");
+
+    // Posting afterwards reports active with no new mail.
+    const cookie = cookieFrom(verify);
+    const posted = await blogniceApp.request(req("/live-post/comments", {
+      method: "POST", headers: { "content-type": "application/json", cookie: `bn_comment=${cookie}` },
+      body: JSON.stringify({ body: "Hello.", subscribe: true, email: "one@example.com" }),
+    }), undefined, env, executionCtx);
+    assert.equal(posted.status, 201);
+    assert.equal((await posted.json()).comment.subscribed, "active");
+    assert.equal(state.confirmations.length, 0);
+    assert.equal(queued.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalCaches === undefined) delete globalThis.caches;
+    else globalThis.caches = originalCaches;
+  }
+});
+
+test("verification skips auto-subscribe for a different address", async () => {
+  const { blogniceApp } = await import("../src/index.ts");
+  const state = makeState();
+  const queued = [];
+  const db = fakeDb(state);
+  const env = { DB: db, POSTS: db, ROOT_DOMAIN: "blognice.test", EMAIL_FROM: "Blog <hello@blognice.test>", MAILNICE_API_KEY: "test-key", EMAIL_QUEUE: { send: async (job) => { queued.push(job); } } };
+  const executionCtx = { waitUntil() {}, passThroughOnException() {} };
+  const sentEmails = [];
+  const originalFetch = globalThis.fetch;
+  const originalCaches = globalThis.caches;
+  globalThis.fetch = async (url, init) => {
+    sentEmails.push(String(init?.body || ""));
+    return new Response(JSON.stringify({}), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  globalThis.caches = { default: { match: async () => undefined, put: async () => {}, delete: async () => {} } };
+  const req = (path, opts = {}) => new Request(`https://commentblog.blognice.test${path}`, {
+    ...opts,
+    headers: { host: "commentblog.blognice.test", ...(opts.headers || {}) },
+  });
+  try {
+    const start = await blogniceApp.request(req("/live-post/comments/start", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "x@example.com", author_name: "X", subscribe: true, subscribe_email: "y@example.com" }),
+    }), undefined, env, executionCtx);
+    assert.equal(start.status, 200);
+    const verify = await blogniceApp.request(req(`/live-post/comments/verify?token=${tokenFrom(sentEmails[0])}`), undefined, env, executionCtx);
+    assert.equal(verify.status, 302);
+    assert.equal(state.subscribers.length, 0, "unproven address subscribes nothing");
+
+    // The normal confirmation-mail path still works on submit.
+    const cookie = cookieFrom(verify);
+    const posted = await blogniceApp.request(req("/live-post/comments", {
+      method: "POST", headers: { "content-type": "application/json", cookie: `bn_comment=${cookie}` },
+      body: JSON.stringify({ body: "Hello.", subscribe: true, email: "y@example.com" }),
+    }), undefined, env, executionCtx);
+    assert.equal(posted.status, 201);
+    assert.equal((await posted.json()).comment.subscribed, "pending");
     assert.equal(state.confirmations.length, 1);
   } finally {
     globalThis.fetch = originalFetch;

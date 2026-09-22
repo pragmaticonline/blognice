@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS comment_identities (
   token_hash  TEXT,                          -- pending verification/recovery token (sha-256 hex), NULL when none
   token_expires_at INTEGER,                  -- unix seconds; verification links live 24 hours
   cookie_hash TEXT,                          -- legacy single-device cookie, superseded by comment_sessions (see 078)
+  pending_subscribe_email TEXT,              -- updates address awaiting verification-click confirm (see 081)
   verified_at INTEGER,
   avatar_key  TEXT,                            -- R2 MEDIA key under avatars/, NULL means the initial circle (see 074)
   website     TEXT,                            -- normalized http(s) URL, NULL = no profile link (see 075)

@@ -8349,14 +8349,19 @@ app.post("/:slug/comments/start", async (c) => {
   const rawSite = payload?.website;
   const website = rawSite == null || rawSite === "" ? null : normalizeCommentWebsite(rawSite);
   if (rawSite != null && rawSite !== "" && !website) return c.json({ error: "A website address must be a valid http(s) URL." }, 400);
+  // A ticked updates box rides verification: the address is stored as pending
+  // and confirmed on click, so there is no second confirmation mail.
+  const rawSubEmail = payload?.subscribe === true ? String(payload?.subscribe_email ?? "") : "";
+  const subEmail = rawSubEmail.trim().toLowerCase();
+  const pendingSubscribe = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(subEmail) && subEmail.length <= 254 ? subEmail : null;
   if (existing) {
     await db.prepare(
-      "UPDATE comment_identities SET author_name = ?, website = ?, token_hash = ?, token_expires_at = ? WHERE tenant_id = ? AND email_hash = ?"
-    ).bind(authorName, website, tokenHash, now + COMMENT_TOKEN_TTL, tenant.id, emailHash).run();
+      "UPDATE comment_identities SET author_name = ?, website = ?, pending_subscribe_email = ?, token_hash = ?, token_expires_at = ? WHERE tenant_id = ? AND email_hash = ?"
+    ).bind(authorName, website, pendingSubscribe, tokenHash, now + COMMENT_TOKEN_TTL, tenant.id, emailHash).run();
   } else {
     await db.prepare(
-      "INSERT INTO comment_identities (tenant_id, email_hash, author_name, website, token_hash, token_expires_at, verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)"
-    ).bind(tenant.id, emailHash, authorName, website, tokenHash, now + COMMENT_TOKEN_TTL, now).run();
+      "INSERT INTO comment_identities (tenant_id, email_hash, author_name, website, pending_subscribe_email, token_hash, token_expires_at, verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)"
+    ).bind(tenant.id, emailHash, authorName, website, pendingSubscribe, tokenHash, now + COMMENT_TOKEN_TTL, now).run();
   }
   // Re-verification carries a new name/site (new device): restamp past rows
   // like a settings save, or history diverges by device.
@@ -8368,7 +8373,7 @@ app.post("/:slug/comments/start", async (c) => {
   ).bind(website, tenant.id, emailHash).run();
   await logCommentAttempt(c.env, tenant, "start", emailHash, now);
   const verifyUrl = `${originOf(c)}/${post.slug}/comments/verify?token=${token}`;
-  c.executionCtx.waitUntil(sendEmailDetailed(c.env, { to: email, ...commentVerificationEmail({ blogTitle: tenant.title, verifyUrl, authorName }) }).then((result) => {
+  c.executionCtx.waitUntil(sendEmailDetailed(c.env, { to: email, ...commentVerificationEmail({ blogTitle: tenant.title, verifyUrl, authorName, alsoSubscribing: pendingSubscribe != null }) }).then((result) => {
     if (!result.ok) console.error(`comment verification email not delivered (tenant=${tenant.id} provider=${result.provider} detail=${result.detail ?? "unknown"})`);
   }));
   return c.json({ ok: true });
@@ -8395,6 +8400,52 @@ app.get("/:slug/comments/verify", async (c) => {
   await db.prepare(
     "INSERT OR IGNORE INTO comment_sessions (tenant_id, email_hash, cookie_hash, created_at) VALUES (?, ?, ?, ?)"
   ).bind(tenant.id, identity.email_hash, await sha256hex(cookieToken), now).run();
+  // A ticked updates box rides verification: the click proves ownership of
+  // the address and the tick proves intent, so the subscription confirms
+  // here with a welcome mail instead of a second confirmation mail. A
+  // different address (or any failure) falls back to double opt-in later.
+  const pendingSub = typeof identity.pending_subscribe_email === "string" ? identity.pending_subscribe_email.trim().toLowerCase() : "";
+  if (pendingSub) {
+    try {
+      if (await sha256hex(pendingSub) === identity.email_hash) {
+        const existingSub = await c.env.DB.prepare(
+          "SELECT token, confirmed_at FROM subscribers WHERE tenant_id = ? AND email = ?"
+        ).bind(tenant.id, pendingSub).first<{ token: string; confirmed_at: number | null }>();
+        let subToken = existingSub?.token;
+        let welcomed = false;
+        if (!existingSub) {
+          subToken = crypto.randomUUID();
+          const inserted = await c.env.DB.prepare(
+            "INSERT OR IGNORE INTO subscribers (tenant_id, email, token, created_at, confirmed_at, source_path, utm_source, utm_medium, utm_campaign) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+          ).bind(tenant.id, pendingSub, subToken, now, now, `/${post.slug}`, null, null, null).run();
+          welcomed = inserted.meta.changes === 1;
+        } else if (!existingSub.confirmed_at) {
+          await c.env.DB.prepare(
+            "UPDATE subscribers SET confirmed_at = ? WHERE tenant_id = ? AND email = ?"
+          ).bind(now, tenant.id, pendingSub).run();
+          welcomed = true;
+        }
+        if (welcomed && subToken) {
+          const origin = publicOrigin(c.env, tenant);
+          const welcome: EmailJobMessage = {
+            kind: "email-delivery",
+            emailKind: "subscription-welcome",
+            idempotencyKey: `subscriber-welcome:${tenant.id}:${pendingSub}`,
+            to: pendingSub,
+            tag: String(tenant.id),
+            senderName: tenant.title,
+            ...subscriberWelcomeEmail({ blogTitle: tenant.title, unsubscribeUrl: `${origin}/unsubscribe/${subToken}`, manageUrl: subscriptionManageUrl(c.env, await subscriptionManageToken(c.env, pendingSub)) }),
+          };
+          if (emailEnabled(c.env) && c.env.EMAIL_QUEUE) c.executionCtx.waitUntil(c.env.EMAIL_QUEUE.send(welcome));
+          else if (emailEnabled(c.env)) c.executionCtx.waitUntil(sendEmail(c.env, welcome).then(() => {}));
+          try { recordCustomEvent(c.env, tenant.id, { name: "email_subscribed", path: "/", visitor: "", country: "", device: "", browser: "" }); } catch {}
+        }
+      }
+    } catch { /* fall back to double opt-in on submit */ }
+    await db.prepare(
+      "UPDATE comment_identities SET pending_subscribe_email = NULL WHERE tenant_id = ? AND email_hash = ?"
+    ).bind(tenant.id, identity.email_hash).run();
+  }
   setCommentCookie(c, cookieToken);
   return c.redirect(`/${post.slug}?verified=1#comments`, 302);
 });

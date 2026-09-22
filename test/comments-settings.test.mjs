@@ -106,6 +106,14 @@ test("comments schema ships in fresh installs and migrates existing posts databa
   assert.match(runbook, /078-comment-sessions\.sql/);
   assert.match(runbook, /079-comment-identity-resync\.sql/);
   assert.match(runbook, /080-comments-default-on\.sql/);
+  assert.match(runbook, /081-comment-pending-subscribe\.sql/);
+  // A ticked updates box waits on the identity until the verification click.
+  const pendingCols = (table) => fresh.prepare(`PRAGMA table_info(${table})`).all().map((row) => row.name);
+  assert.ok(pendingCols("comment_identities").includes("pending_subscribe_email"), "fresh schema has identities.pending_subscribe_email");
+  const pendingDb = new DatabaseSync(":memory:");
+  pendingDb.exec(read("migrations/069-comments.sql"));
+  pendingDb.exec(read("migrations/081-comment-pending-subscribe.sql"));
+  assert.ok(pendingDb.prepare("PRAGMA table_info(comment_identities)").all().map((row) => row.name).includes("pending_subscribe_email"), "migration adds identities.pending_subscribe_email");
 });
 
 test("migration 078 creates reader sessions and preserves the signed-in cookie", () => {

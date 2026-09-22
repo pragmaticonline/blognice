@@ -1694,6 +1694,7 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
         openDialog();
         var startBody={email:emailField.value,author_name:nameField.value};
         if(siteNow)startBody.website=siteNow;
+        if(wantSub){startBody.subscribe=true;startBody.subscribe_email=emailField.value;}
         return fetch(path+"/comments/start",{method:"POST",headers:{"content-type":"application/json"},
           body:JSON.stringify(startBody)}).then(function(r2){
           say(r2.ok?"Check your email for a confirmation link — your draft is saved, then post again.":"Could not start verification. Check the name and email.");});
