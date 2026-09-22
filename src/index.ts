@@ -5190,7 +5190,7 @@ async function moderateComment(c: any, status: "removed" | "approved"): Promise<
   const id = Number(c.req.param("commentId"));
   if (!Number.isSafeInteger(id) || id <= 0) return c.text("Invalid comment.", 400);
   const db = tenantDb(c.env, ctx.tenant);
-  const row = await db.prepare("SELECT id, post_id, parent_id, author_name, body, created_at, avatar_hue, avatar_key FROM comments WHERE tenant_id = ? AND id = ?").bind(ctx.tenant.id, id).first<any>();
+  const row = await db.prepare("SELECT id, post_id, parent_id, author_name, body, created_at, avatar_hue, avatar_key, website FROM comments WHERE tenant_id = ? AND id = ?").bind(ctx.tenant.id, id).first<any>();
   if (!row) return c.redirect(`/admin/b/${ctx.tenant.public_id}/comments`, 303);
   const now = Math.floor(Date.now() / 1000);
   await db.prepare("UPDATE comments SET status = ?, decided_at = ? WHERE tenant_id = ? AND id = ?").bind(status, now, ctx.tenant.id, id).run();
@@ -5201,7 +5201,7 @@ async function moderateComment(c: any, status: "removed" | "approved"): Promise<
     ? { type: "comment-removed", id: row.id }
     : {
       type: "comment-approved",
-      comment: { id: row.id, parent_id: row.parent_id, author_name: row.author_name, body: row.body, created_at: row.created_at, avatar_hue: row.avatar_hue ?? null, avatar_key: row.avatar_key ?? null },
+      comment: { id: row.id, parent_id: row.parent_id, author_name: row.author_name, body: row.body, created_at: row.created_at, avatar_hue: row.avatar_hue ?? null, avatar_key: row.avatar_key ?? null, website: row.website ?? null },
     }).catch(() => false));
   return c.redirect(`/admin/b/${ctx.tenant.public_id}/comments`, 303);
 }
@@ -8137,7 +8137,7 @@ app.get("/:slug", async (c) => {
     if (tenant.comments_enabled) {
       try {
         const { results } = await tenantDb(c.env, tenant).prepare(
-          "SELECT id, parent_id, author_name, body, created_at, status, avatar_hue, avatar_key FROM comments WHERE tenant_id = ? AND post_id = ? ORDER BY id ASC LIMIT 2000"
+          "SELECT id, parent_id, author_name, body, created_at, status, avatar_hue, avatar_key, website FROM comments WHERE tenant_id = ? AND post_id = ? ORDER BY id ASC LIMIT 2000"
         ).bind(tenant.id, post.id).all<any>();
         commentSection = renderCommentSection(post, results);
       } catch {}
@@ -8165,10 +8165,10 @@ app.get("/:slug/comments", async (c) => {
     const sinceId = Number(sinceRaw);
     if (!Number.isSafeInteger(sinceId) || sinceId < 0) return c.json({ error: "Invalid cursor." }, 400);
     const { results } = await db.prepare(
-      "SELECT id, parent_id, author_name, body, created_at, avatar_hue, avatar_key FROM comments WHERE tenant_id = ? AND post_id = ? AND status = 'approved' AND id > ? ORDER BY id ASC LIMIT 100"
+      "SELECT id, parent_id, author_name, body, created_at, avatar_hue, avatar_key, website FROM comments WHERE tenant_id = ? AND post_id = ? AND status = 'approved' AND id > ? ORDER BY id ASC LIMIT 100"
     ).bind(tenant.id, post.id, sinceId).all<any>();
     return c.json(
-      { comments: results.map((r) => ({ id: r.id, parent_id: r.parent_id, author_name: r.author_name, body: r.body, created_at: r.created_at, avatar_hue: r.avatar_hue ?? null, avatar_key: r.avatar_key ?? null })) },
+      { comments: results.map((r) => ({ id: r.id, parent_id: r.parent_id, author_name: r.author_name, body: r.body, created_at: r.created_at, avatar_hue: r.avatar_hue ?? null, avatar_key: r.avatar_key ?? null, website: r.website ?? null })) },
       200,
       { "cache-control": "public, max-age=30" }
     );
@@ -8177,7 +8177,7 @@ app.get("/:slug/comments", async (c) => {
   const cursor = Number(cursorRaw);
   if (!Number.isSafeInteger(cursor) || cursor < 0) return c.json({ error: "Invalid cursor." }, 400);
   const { results } = await db.prepare(
-    "SELECT id, parent_id, author_name, body, created_at, status, avatar_hue, avatar_key FROM comments WHERE tenant_id = ? AND post_id = ? ORDER BY id ASC LIMIT 2000"
+    "SELECT id, parent_id, author_name, body, created_at, status, avatar_hue, avatar_key, website FROM comments WHERE tenant_id = ? AND post_id = ? ORDER BY id ASC LIMIT 2000"
   ).bind(tenant.id, post.id).all<any>();
   const { roots } = buildCommentTree(results);
   const page = roots.slice(cursor, cursor + COMMENT_PAGE_SIZE);
@@ -8213,6 +8213,19 @@ const COMMENT_REPORT_REASONS = ["spam", "harassment", "other"];
 const COMMENT_REPORT_WINDOW = 3600;
 const COMMENT_REPORT_MAX = 10; // per (tenant, reporter) per hour
 const COMMENT_REPORT_TENANT_MAX = 100; // per tenant per hour
+const COMMENT_WEBSITE_MAX = 200;
+
+// Reader website addresses are optional everywhere except settings save.
+// Normalizes bare domains to https and rejects non-http(s) schemes,
+// spaces, and markup so profile links are safe to render as-is.
+export function normalizeCommentWebsite(raw: unknown): string | null {
+  const trimmed = String(raw ?? "").trim();
+  if (!trimmed) return null;
+  if (trimmed.length > COMMENT_WEBSITE_MAX || /[<>\"\s]/.test(trimmed)) return null;
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  if (!/^https?:\/\/[^/]+\.[^/]+/i.test(withScheme)) return null;
+  return withScheme;
+}
 
 function commentRandomToken(): string {
   const bytes = new Uint8Array(16);
@@ -8267,7 +8280,7 @@ async function commentIdentityByCookie(env: Bindings, tenant: Tenant, cookie: st
 }
 
 export type CommentRoomEvent =
-  | { type: "comment-approved"; comment: { id: number; parent_id: number | null; author_name: string; body: string; created_at: number; avatar_hue?: number | null; avatar_key?: string | null } }
+  | { type: "comment-approved"; comment: { id: number; parent_id: number | null; author_name: string; body: string; created_at: number; avatar_hue?: number | null; avatar_key?: string | null; website?: string | null } }
   | { type: "comment-removed"; id: number };
 
 // Best-effort broadcast to the post's room. Fails closed (false) when the
@@ -8314,14 +8327,17 @@ app.post("/:slug/comments/start", async (c) => {
   const existing = await db.prepare(
     "SELECT email_hash FROM comment_identities WHERE tenant_id = ? AND email_hash = ?"
   ).bind(tenant.id, emailHash).first();
+  const rawSite = payload?.website;
+  const website = rawSite == null || rawSite === "" ? null : normalizeCommentWebsite(rawSite);
+  if (rawSite != null && rawSite !== "" && !website) return c.json({ error: "A website address must be a valid http(s) URL." }, 400);
   if (existing) {
     await db.prepare(
-      "UPDATE comment_identities SET author_name = ?, token_hash = ?, token_expires_at = ? WHERE tenant_id = ? AND email_hash = ?"
-    ).bind(authorName, tokenHash, now + COMMENT_TOKEN_TTL, tenant.id, emailHash).run();
+      "UPDATE comment_identities SET author_name = ?, website = ?, token_hash = ?, token_expires_at = ? WHERE tenant_id = ? AND email_hash = ?"
+    ).bind(authorName, website, tokenHash, now + COMMENT_TOKEN_TTL, tenant.id, emailHash).run();
   } else {
     await db.prepare(
-      "INSERT INTO comment_identities (tenant_id, email_hash, author_name, token_hash, token_expires_at, verified_at, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?)"
-    ).bind(tenant.id, emailHash, authorName, tokenHash, now + COMMENT_TOKEN_TTL, now).run();
+      "INSERT INTO comment_identities (tenant_id, email_hash, author_name, website, token_hash, token_expires_at, verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)"
+    ).bind(tenant.id, emailHash, authorName, website, tokenHash, now + COMMENT_TOKEN_TTL, now).run();
   }
   await logCommentAttempt(c.env, tenant, "start", emailHash, now);
   const verifyUrl = `${originOf(c)}/${post.slug}/comments/verify?token=${token}`;
@@ -8368,18 +8384,23 @@ app.post("/:slug/comments/identity", async (c) => {
   try { payload = await c.req.json(); } catch { return c.json({ error: "Invalid request." }, 400); }
   const authorName = String(payload?.author_name ?? "").trim();
   if (!authorName || authorName.length > 60) return c.json({ error: "A display name up to 60 characters is required." }, 400);
+  const website = normalizeCommentWebsite(payload?.website);
+  if (!website) return c.json({ error: "A website address is required in settings." }, 400);
   await tenantDb(c.env, tenant).prepare(
-    "UPDATE comment_identities SET author_name = ? WHERE tenant_id = ? AND email_hash = ?"
-  ).bind(authorName, tenant.id, identity.email_hash).run();
+    "UPDATE comment_identities SET author_name = ?, website = ? WHERE tenant_id = ? AND email_hash = ?"
+  ).bind(authorName, website, tenant.id, identity.email_hash).run();
   // Renames apply to past comments too: rows are stamped at insert, so
   // without this the reader's own history would keep the old name forever.
   await tenantDb(c.env, tenant).prepare(
     "UPDATE comments SET author_name = ? WHERE tenant_id = ? AND email_hash = ?"
   ).bind(authorName, tenant.id, identity.email_hash).run();
+  await tenantDb(c.env, tenant).prepare(
+    "UPDATE comments SET website = ? WHERE tenant_id = ? AND email_hash = ?"
+  ).bind(website, tenant.id, identity.email_hash).run();
   // Names render server-side and pages are edge-cached: without this the
   // renamed reader keeps seeing the old name until the cache expires.
   c.executionCtx.waitUntil(purgeCommenterPosts(c, tenant, identity.email_hash).catch(() => undefined));
-  return c.json({ author_name: authorName });
+  return c.json({ author_name: authorName, website });
 });
 
 // Best-effort edge purge for every post page carrying this reader's
@@ -8477,18 +8498,19 @@ app.post("/:slug/comments", async (c) => {
   const hueRaw = payload?.avatar_hue;
   const avatarHue = Number.isInteger(hueRaw) && hueRaw >= 0 && hueRaw < 360 ? hueRaw : null;
   const avatarKey = typeof identity.avatar_key === "string" && identity.avatar_key.startsWith("avatars/") ? identity.avatar_key : null;
+  const website = normalizeCommentWebsite(identity.website);
   const inserted = await db.prepare(
-    "INSERT INTO comments (tenant_id, post_id, parent_id, author_name, email_hash, body, status, created_at, decided_at, avatar_hue, avatar_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-  ).bind(tenant.id, post.id, parentId, identity.author_name, identity.email_hash, body, "approved", now, now, avatarHue, avatarKey).run();
+    "INSERT INTO comments (tenant_id, post_id, parent_id, author_name, email_hash, body, status, created_at, decided_at, avatar_hue, avatar_key, website) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(tenant.id, post.id, parentId, identity.author_name, identity.email_hash, body, "approved", now, now, avatarHue, avatarKey, website).run();
   await logCommentAttempt(c.env, tenant, "submit", identity.email_hash, now);
   // Keep the server-rendered section fresh: the post page is edge-cached.
   c.executionCtx.waitUntil(purge(c, [`/${post.slug}`]).catch(() => {}));
   const id = Number((inserted as any)?.meta?.last_row_id ?? 0);
   c.executionCtx.waitUntil(broadcastCommentEvent(c.env, tenant, post.id, {
     type: "comment-approved",
-    comment: { id, parent_id: parentId, author_name: identity.author_name, body, created_at: now, avatar_hue: avatarHue, avatar_key: avatarKey },
+    comment: { id, parent_id: parentId, author_name: identity.author_name, body, created_at: now, avatar_hue: avatarHue, avatar_key: avatarKey, website },
   }).catch(() => false));
-  return c.json({ comment: { id, parent_id: parentId, author_name: identity.author_name, body, status: "approved", created_at: now, avatar_hue: avatarHue, avatar_key: avatarKey } }, 201);
+  return c.json({ comment: { id, parent_id: parentId, author_name: identity.author_name, body, status: "approved", created_at: now, avatar_hue: avatarHue, avatar_key: avatarKey, website } }, 201);
 });
 
 // Reader abuse reports on approved comments. Anyone (verified or not) may

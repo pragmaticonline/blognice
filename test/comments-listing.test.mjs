@@ -176,6 +176,28 @@ test("post pages server-render comment threads with tombstones and depth caps", 
   }
 });
 
+test("supplied websites turn profiles into new-tab links", async () => {
+  const { blogniceApp } = await import("../src/index.ts");
+  const state = makeState();
+  state.comments[0].website = "https://linked.example.com/me";
+  state.comments[1].website = "javascript:alert(1)";
+  const env = { DB: fakeDb(state), POSTS: fakeDb(state), ROOT_DOMAIN: "blognice.test" };
+  const executionCtx = { waitUntil() {}, passThroughOnException() {} };
+  const originalCaches = globalThis.caches;
+  globalThis.caches = { default: { match: async () => undefined, put: async () => {} } };
+  try {
+    const res = await blogniceApp.request(req("/live-post"), undefined, env, executionCtx);
+    assert.equal(res.status, 200);
+    const html = await res.text();
+    assert.match(html, /<a class="comment-profile" data-profile-link href="https:\/\/linked\.example\.com\/me" target="_blank" rel="noopener nofollow">/);
+    assert.doesNotMatch(html, /javascript:alert/);
+    assert.equal((html.match(/<a class="comment-profile" data-profile-link href="https:\/\/linked\.example\.com\/me"/g) || []).length, 2, "avatar and name share the link");
+  } finally {
+    if (originalCaches === undefined) delete globalThis.caches;
+    else globalThis.caches = originalCaches;
+  }
+});
+
 test("comment section carries a settings cog and reader settings dialog", async () => {
   const { blogniceApp } = await import("../src/index.ts");
   const state = makeState();
@@ -193,10 +215,11 @@ test("comment section carries a settings cog and reader settings dialog", async 
     assert.match(html, /data-sort-tabs[\s\S]*?data-settings-cog/);
     assert.match(html, /data-settings-cog[^>]*aria-label="Comment settings"/);
     assert.match(html, /M22\.7 19l/, "settings icon is a spanner");
-    // Reader settings dialog: display name, avatar colour swatches, save.
+    // Reader settings dialog: display name, website address, photo, save.
     assert.match(html, /data-settings-dialog/);
     assert.match(html, /data-settings-name/);
-    assert.equal((html.match(/data-settings-hue="\d+"/g) || []).length, 8, "eight avatar colour swatches");
+    assert.match(html, /data-settings-site/);
+    assert.ok(!html.includes("data-settings-hue"), "no hue swatches in settings");
     assert.match(html, /data-settings-save/);
     // Stored hues render; rows without one fall back to the name-derived hue.
     assert.match(html, /hsl\(200,42%,45%\)/);
@@ -270,6 +293,29 @@ test("long comments render an excerpt with a show-more toggle", async () => {
     assert.match(html, /data-comment-more[^>]*>Show more</);
     assert.match(html, /…<\/div>/, "excerpt ends mid-sentence with an ellipsis");
     assert.match(html, /<div class="comment-body">Flat 0\.<\/div>/, "short comments render whole with no toggle");
+  } finally {
+    if (originalCaches === undefined) delete globalThis.caches;
+    else globalThis.caches = originalCaches;
+  }
+});
+
+test("tall thin comments fold after a reasonable number of lines", async () => {
+  const { blogniceApp } = await import("../src/index.ts");
+  const state = makeState();
+  state.comments.push({ id: 201, tenant_id: 1, post_id: 7, parent_id: null, author_name: "Tester", email_hash: "t1", body: "test\n".repeat(30).trimEnd(), status: "approved", created_at: NOW + 60 });
+  const env = { DB: fakeDb(state), POSTS: fakeDb(state), ROOT_DOMAIN: "blognice.test" };
+  const executionCtx = { waitUntil() {}, passThroughOnException() {} };
+  const originalCaches = globalThis.caches;
+  globalThis.caches = { default: { match: async () => undefined, put: async () => {} } };
+  try {
+    const res = await blogniceApp.request(req("/live-post"), undefined, env, executionCtx);
+    assert.equal(res.status, 200);
+    const html = await res.text();
+    const excerpt = html.match(/<div class="comment-body" data-excerpt-body>([\s\S]*?)<\/div>/);
+    assert.ok(excerpt, "thin tall comment gets an excerpt");
+    assert.equal((excerpt[1].match(/test/g) || []).length, 8, "excerpt shows eight lines");
+    assert.match(html, /data-full-body hidden>test(<br>test){29}/, "full text stays hidden");
+    assert.match(html, /data-comment-more[^>]*>Show more</, "fold offers show-more");
   } finally {
     if (originalCaches === undefined) delete globalThis.caches;
     else globalThis.caches = originalCaches;

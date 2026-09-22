@@ -370,7 +370,7 @@ test("verified readers rename themselves from comment settings", async () => {
     const emailHash = createHash("sha256").update("renamer@example.com").digest("hex");
     state.comments.push({ id: 90, tenant_id: 1, post_id: 7, parent_id: null, author_name: "Old Name", email_hash: emailHash, body: "Before rename.", status: "approved", created_at: NOW });
     // Rename sticks, future comments carry it, and past comments are renamed too.
-    const renamed = await blogniceApp.request(authed("/live-post/comments/identity", { author_name: "New Name" }), undefined, env, executionCtx);
+    const renamed = await blogniceApp.request(authed("/live-post/comments/identity", { author_name: "New Name", website: "newname.example.com" }), undefined, env, executionCtx);
     assert.equal(renamed.status, 200);
     assert.equal((await renamed.json()).author_name, "New Name");
     assert.equal(state.comments.find((c) => c.id === 90).author_name, "New Name");

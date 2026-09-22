@@ -53,8 +53,13 @@ test("served comment scripts parse and keep their regex escapes", async () => {
   assert.ok(client.includes("data-settings-cog"), "cog opens reader settings");
   assert.ok(client.includes("data-settings-dialog"), "settings dialog is wired");
   assert.ok(client.includes("data-settings-save"), "settings save persists identity");
-  assert.ok(client.includes("bn_comment_avatar_hue"), "avatar hue persists locally");
-  assert.ok(client.includes("avatar_hue"), "submit carries the chosen hue");
+  assert.ok(!client.includes("data-settings-hue"), "hue swatches are gone from settings");
+  assert.ok(client.includes("data-settings-site"), "settings asks for the website address");
+  assert.ok(client.includes("data-field-site"), "first-time modal asks for the website address");
+  assert.ok(client.includes("data-profile-link"), "profiles with a site render as links");
+  assert.ok(client.includes("window.open"), "profile clicks open a new tab");
+  assert.ok(client.includes("data-entry-avatar"), "entry avatar slot is addressable");
+  assert.ok(client.includes("paintEntry"), "entry box shows the profile photo when set");
   assert.ok(client.includes("data-settings-upload"), "photo upload is wired");
   assert.ok(client.includes("data-settings-remove"), "photo removal is wired");
   assert.ok(client.includes("bn_comment_avatar_key"), "photo key persists locally");
