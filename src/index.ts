@@ -1279,18 +1279,10 @@ app.post("/_blognice/metrics", async (c) => {
   const tenant = await resolveTenant(c.env, c.req.header("host") || "");
   if (!tenant) return c.body(null, 404);
 
-  let referrer = "";
-  if (typeof body.referrer === "string" && body.referrer.length <= 1000) {
-    try {
-      const hostname = new URL(body.referrer).hostname.toLowerCase();
-      if (hostname !== new URL(c.req.url).hostname.toLowerCase()) referrer = hostname.slice(0, 253);
-    } catch {
-      // Invalid referrers are treated as direct traffic.
-    }
-  }
+  const { normalizeReferrer, normalizeUtm } = await import("./metrics");
+  const referrer = normalizeReferrer(body.referrer, new URL(c.req.url).hostname);
   const country = String(c.req.raw.cf?.country || "").slice(0, 2).toUpperCase();
   const { device, browser } = clientCategory(c.req.raw);
-  const { normalizeUtm } = await import("./metrics");
   recordPageView(c.env, tenant.id, {
     path,
     referrer,

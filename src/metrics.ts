@@ -340,6 +340,23 @@ export function normalizeUtm(value: unknown): string {
   return raw;
 }
 
+// The beacon sends a bare external hostname ("x.com"), not a URL —
+// new URL() throws on those, which once discarded every referrer.
+export function normalizeReferrer(value: unknown, ownHostname: string): string {
+  if (typeof value !== "string") return "";
+  const raw = value.trim().toLowerCase();
+  if (!raw || raw.length > 1000) return "";
+  let hostname = "";
+  try {
+    hostname = new URL(raw).hostname.toLowerCase();
+  } catch {
+    if (!/^(?=.{1,253}$)[\p{L}\p{N}](?:[\p{L}\p{N}.-]*[\p{L}\p{N}])?$/u.test(raw)) return "";
+    hostname = raw;
+  }
+  if (!hostname || hostname === ownHostname.toLowerCase()) return "";
+  return hostname.slice(0, 253);
+}
+
 export function recordPageView(
   env: MetricsEnv,
   tenantId: number,
