@@ -1887,9 +1887,11 @@ app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
       return c.json({ error: e.message }, 400);
     }
   }
+  // Stored tags are a JSON array (see INSERT/UPDATE writers); re-running that
+  // JSON string through the comma-string normalizer rejects every tagged post.
   const normalizedTags = body?.tags !== undefined
     ? normalizeApiPostTags(body.tags)
-    : normalizeApiPostTags(post.tags_json || "[]");
+    : { tags: storedPostTags(post.tags_json) };
   if (normalizedTags.error) return c.json({ error: normalizedTags.error }, 400);
   const authorName = body?.author_name !== undefined
     ? (body.author_name === null ? null : String(body.author_name).trim().slice(0, 120))
