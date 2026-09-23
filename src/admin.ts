@@ -250,6 +250,7 @@ const ADMIN_STYLES = /* css */ `
   .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1rem; }
   .media-card { min-width: 0; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
   .media-card img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: var(--rule); }
+  .media-audio { display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: 4 / 3; background: var(--rule); font-size: 2rem; color: var(--muted); }
   .media-card-body { padding: 0.65rem; }
   .media-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.82rem; }
   .media-meta { color: var(--muted); font-size: 0.75rem; margin: 0.15rem 0 0.55rem; }
@@ -1266,9 +1267,13 @@ function formatBytes(bytes: number): string {
 }
 
 function mediaCards(items: MediaItem[], selectable = false): string {
-  if (!items.length) return `<p style="color:var(--muted)">No images uploaded yet.</p>`;
+  if (!items.length) return `<p style="color:var(--muted)">No images or audio uploaded yet.</p>`;
   return `<div class="media-grid">${items.map((item) => {
-    const inner = `<img src="${esc(item.url)}" alt="" loading="lazy"><div class="media-card-body"><div class="media-name" title="${esc(item.name)}">${esc(item.name)}</div><div class="media-meta">${formatBytes(item.size)} · ${esc(new Date(item.uploaded).toLocaleDateString())}</div></div>`;
+    const isAudio = /\.mp3$/i.test(item.url);
+    const visual = isAudio
+      ? `<div class="media-audio" aria-hidden="true">♪</div><audio controls preload="none" src="${esc(item.url)}" style="width:100%"></audio>`
+      : `<img src="${esc(item.url)}" alt="" loading="lazy">`;
+    const inner = `${visual}<div class="media-card-body"><div class="media-name" title="${esc(item.name)}">${esc(item.name)}</div><div class="media-meta">${formatBytes(item.size)} · ${esc(new Date(item.uploaded).toLocaleDateString())}</div></div>`;
     return selectable
       ? `<button class="media-card media-pick" type="button" data-url="${esc(item.url)}" data-name="${esc(item.name)}">${inner}</button>`
       : `<article class="media-card">${inner}<div class="media-card-body" style="padding-top:0"><button class="btn danger media-delete" type="button" data-key="${esc(item.key)}">Delete</button></div></article>`;
@@ -1280,8 +1285,8 @@ export function mediaPage(account: Account, tenant: Tenant, items: MediaItem[]):
   return shell(
     `Media — ${tenant.title}`,
     `<div class="page">
-      <div class="row"><div><h1 style="margin:0">Media</h1><div style="color:var(--muted);font-size:.85rem">Upload once and reuse images in any post.</div></div><button class="btn" type="button" id="media-upload">Upload images</button></div>
-      <input id="media-input" type="file" accept="image/*" multiple hidden>
+      <div class="row"><div><h1 style="margin:0">Media</h1><div style="color:var(--muted);font-size:.85rem">Upload once and reuse images and audio in any post.</div></div><button class="btn" type="button" id="media-upload">Upload</button></div>
+      <input id="media-input" type="file" accept="image/*,audio/mpeg,.mp3" multiple hidden>
       <div id="media-status" class="notice" hidden></div>
       <div id="media-list">${mediaCards(items)}</div>
     </div>
@@ -1291,14 +1296,14 @@ export function mediaPage(account: Account, tenant: Tenant, items: MediaItem[]):
         document.getElementById("media-upload").addEventListener("click",function(){input.click();});
         input.addEventListener("change",function(){
           var files=Array.from(input.files || []); if(!files.length)return;
-          status.hidden=false; status.textContent="Uploading " + files.length + " image(s)…";
+          status.hidden=false; status.textContent="Uploading " + files.length + " file(s)…";
           Promise.all(files.map(function(file){var fd=new FormData();fd.append("file",file,file.name);return fetch("${base}/upload",{method:"POST",body:fd}).then(function(r){if(!r.ok)throw new Error();return r.json();});}))
-            .then(function(){location.reload();}).catch(function(){status.className="error";status.textContent="One or more uploads failed. Images must be JPEG, PNG, GIF, WebP, or AVIF and no larger than 15 MB.";});
+            .then(function(){location.reload();}).catch(function(){status.className="error";status.textContent="One or more uploads failed. Images must be JPEG, PNG, GIF, WebP, or AVIF; audio must be MP3; everything no larger than 15 MB.";});
           input.value="";
         });
         document.addEventListener("click",function(e){
           var btn=e.target.closest(".media-delete"); if(!btn)return;
-          if(!confirm("Delete this image permanently?"))return;
+          if(!confirm("Delete this file permanently?"))return;
           btn.disabled=true;
           fetch("${base}/media/"+encodeURIComponent(btn.dataset.key.split("/").pop()),{method:"DELETE"}).then(function(r){return r.json().then(function(data){return {ok:r.ok,data:data};});}).then(function(result){
             if(!result.ok){alert(result.data.error || "This image could not be deleted.");btn.disabled=false;return;}
@@ -1377,6 +1382,8 @@ export function editorPage(
           <audio id="audio-preview" controls preload="none" src="${audioKey ? `/media/${esc(audioKey)}` : ""}"${audioKey ? "" : " hidden"}></audio>
           <div class="actions">
             ${isEdit ? `<button class="btn ghost" type="button" id="generate-audio"${audioKey ? " hidden" : ""}>Generate audio</button>
+            <button class="btn ghost" type="button" id="upload-audio"${audioKey ? " hidden" : ""}>Upload MP3</button>
+            <input type="file" id="audio-input" accept="audio/mpeg,.mp3" hidden>
             <button class="btn danger" type="button" id="remove-audio"${audioKey ? "" : " hidden"}>Remove audio</button>` : `<span style="color:var(--muted);font-size:.9rem">Save this post before generating audio.</span>`}
           </div>
           <div id="audio-status" class="notice" style="margin:.8rem 0 0" hidden></div>
@@ -1387,7 +1394,7 @@ export function editorPage(
           <button class="tab" type="button" id="tab-preview" aria-selected="false">Preview</button>
           <span class="spacer"></span>
           <button class="tab img-btn" type="button" id="add-image">🖼 Add image</button>
-          <input type="file" id="file-input" accept="image/*" multiple hidden>
+          <input type="file" id="file-input" accept="image/*,audio/mpeg,.mp3" multiple hidden>
         </div>
         <p class="markdown-intro" id="markdown-intro">You can write normally. Markdown adds formatting when you want it—select some text and use these buttons.</p>
         <div class="markdown-tools" id="markdown-tools" role="toolbar" aria-label="Text formatting">
@@ -1614,6 +1621,8 @@ export function editorPage(
         var aiGenerate = document.getElementById("ai-generate");
         var audioPreview = document.getElementById("audio-preview");
         var generateAudio = document.getElementById("generate-audio");
+        var uploadAudio = document.getElementById("upload-audio");
+        var audioInput = document.getElementById("audio-input");
         var removeAudio = document.getElementById("remove-audio");
         var audioStatus = document.getElementById("audio-status");
         audioPreview.preservesPitch = true;
@@ -1682,10 +1691,14 @@ export function editorPage(
             isExistingPost = true;
             var audioActions = document.querySelector(".audio-picker .actions");
             if (audioActions && !document.getElementById("generate-audio")) {
-              audioActions.innerHTML = '<button class="btn ghost" type="button" id="generate-audio">Generate audio</button><button class="btn danger" type="button" id="remove-audio" hidden>Remove audio</button>';
+              audioActions.innerHTML = '<button class="btn ghost" type="button" id="generate-audio">Generate audio</button><button class="btn ghost" type="button" id="upload-audio">Upload MP3</button><input type="file" id="audio-input" accept="audio/mpeg,.mp3" hidden><button class="btn danger" type="button" id="remove-audio" hidden>Remove audio</button>';
               generateAudio = document.getElementById("generate-audio");
+              uploadAudio = document.getElementById("upload-audio");
+              audioInput = document.getElementById("audio-input");
               removeAudio = document.getElementById("remove-audio");
               if (generateAudio) generateAudio.addEventListener("click", handleGenerateAudio);
+              if (uploadAudio) uploadAudio.addEventListener("click", function(){ if (audioInput) audioInput.click(); });
+              if (audioInput) audioInput.addEventListener("change", function(){ if (audioInput.files.length) handleUploadAudio(); });
               if (removeAudio) removeAudio.addEventListener("click", handleRemoveAudio);
             }
             showSaved();
@@ -1776,23 +1789,28 @@ export function editorPage(
 
         var uploadCount = 0;
         function uploadImage(file, target) {
-          if (!file || file.type.indexOf("image/") !== 0) return;
-          var token = target === "featured" ? "" : "![uploading image " + (++uploadCount) + "…]()";
+          if (!file) return;
+          var isAudio = file.type === "audio/mpeg";
+          if (!isAudio && file.type.indexOf("image/") !== 0) return;
+          if (isAudio && target === "featured") { alert("Audio cannot be a featured image."); return; }
+          var token = target === "featured" ? "" : (isAudio ? "[uploading audio " + (++uploadCount) + "…]()" : "![uploading image " + (++uploadCount) + "…]()");
           if (token) insertAtCursor("\\n" + token + "\\n");
-          shrink(file).then(function (blob) {
-            var name = (file.name || "image").replace(/\\.[^.]+$/, "") +
+          var sendFile = isAudio ? Promise.resolve(file) : shrink(file).then(function (blob) { return { blob: blob, shrunk: blob !== file }; });
+          sendFile.then(function (item) {
+            var blob = isAudio ? file : item.blob;
+            var name = isAudio ? (file.name || "audio.mp3") : (file.name || "image").replace(/\\.[^.]+$/, "") +
               (blob.type === "image/webp" ? ".webp" : "");
             var fd = new FormData();
             fd.append("file", blob, name);
             // Keep the pre-shrink original server-side so exports are not
             // stuck with the optimized derivative. shrink() resolves the
             // input file itself for GIFs and on failure — nothing to keep.
-            if (blob !== file) fd.append("original", file, file.name || "original");
+            if (!isAudio && item.shrunk) fd.append("original", file, file.name || "original");
             return fetch(uploadUrl, { method: "POST", body: fd });
           }).then(function (r) { return r.json(); })
             .then(function (data) {
               if (data && data.url && target === "featured") setFeatured(data.key, data.url);
-              else if (data && data.url) replaceToken(token, "![](" + data.url + ")");
+              else if (data && data.url) replaceToken(token, isAudio ? (data.snippet || data.url) : "![](" + data.url + ")");
               else if (token) replaceToken(token, "");
             })
             .catch(function () { if (token) replaceToken(token, ""); });
@@ -1811,7 +1829,7 @@ export function editorPage(
           mediaDialog.showModal();
           fetch("${base}/media.json").then(function(r){if(!r.ok)throw new Error();return r.json();}).then(function(data){
             if(!data.items.length){mediaDialogBody.innerHTML='<p style="color:var(--muted)">No images yet. <button class="btn" type="button" id="dialog-upload">Upload one</button></p>';}
-            else mediaDialogBody.innerHTML='<div class="media-grid">'+data.items.map(function(item){return '<button class="media-card media-pick" type="button" data-key="'+item.key+'" data-url="'+item.url.replace(/&/g,"&amp;").replace(/\"/g,"&quot;")+'"><img src="'+item.url+'" alt="" loading="lazy"><div class="media-card-body"><div class="media-name">'+item.name.replace(/&/g,"&amp;").replace(/</g,"&lt;")+'</div><div class="media-meta">Click to '+(mode === "featured" ? "select" : "insert")+'</div></div></button>';}).join('')+'</div><div class="actions"><button class="btn" type="button" id="dialog-upload">Upload new</button><a class="btn ghost" href="${base}/media">Manage media</a></div>';
+            else mediaDialogBody.innerHTML='<div class="media-grid">'+data.items.map(function(item){var isAudio=/\.mp3$/i.test(item.url);var visual=isAudio?'<div class="media-audio" aria-hidden="true">\u266A</div>':'<img src="'+item.url+'" alt="" loading="lazy">';return '<button class="media-card media-pick" type="button" data-key="'+item.key+'" data-url="'+item.url.replace(/&/g,"&amp;").replace(/\"/g,"&quot;")+'"'+(isAudio?' data-audio="1"':'')+'>'+visual+'<div class="media-card-body"><div class="media-name">'+item.name.replace(/&/g,"&amp;").replace(/</g,"&lt;")+'</div><div class="media-meta">Click to '+(mode === "featured" ? "select" : "insert")+'</div></div></button>';}).join('')+'</div><div class="actions"><button class="btn" type="button" id="dialog-upload">Upload new</button><a class="btn ghost" href="${base}/media">Manage media</a></div>';
             document.getElementById("dialog-upload").onclick=function(){nextUploadTarget=pickerMode;mediaDialog.close();fileInput.click();};
           }).catch(function(){mediaDialogBody.innerHTML='<p class="error">Could not load media.</p>';});
         }
@@ -1819,7 +1837,7 @@ export function editorPage(
         chooseFeatured.addEventListener("click", function () { openLibrary("featured"); });
         removeFeatured.addEventListener("click", function () { setFeatured("", ""); });
         document.getElementById("media-close").addEventListener("click",function(){mediaDialog.close();});
-        mediaDialogBody.addEventListener("click",function(e){var pick=e.target.closest(".media-pick");if(!pick)return;if(pickerMode === "featured")setFeatured(pick.dataset.key,pick.dataset.url);else insertAtCursor("\\n![]("+pick.dataset.url+")\\n");mediaDialog.close();});
+        mediaDialogBody.addEventListener("click",function(e){var pick=e.target.closest(".media-pick");if(!pick)return;var isAudio=pick.dataset.audio === "1";if(pickerMode === "featured"){if(isAudio){alert("Audio cannot be a featured image.");return;}setFeatured(pick.dataset.key,pick.dataset.url);}else insertAtCursor("\\n"+(isAudio?pick.dataset.url:"![]("+pick.dataset.url+")")+"\\n");mediaDialog.close();});
         document.getElementById("generate-image").addEventListener("click", function () {
           generatedImage = null; aiStatus.hidden = true; aiResult.hidden = true; aiDialog.showModal();
         });
@@ -1889,7 +1907,7 @@ export function editorPage(
             })
             .then(function(result){
               audioPreview.src = result.url; audioPreview.hidden = false; audioPreview.load(); audioPreview.playbackRate = 0.88;
-              removeAudio.hidden = false; button.hidden = true;
+              removeAudio.hidden = false; button.hidden = true; if (uploadAudio) uploadAudio.hidden = true;
               stopTimer(); audioStatus.textContent = "Narration generated and published.";
             }).catch(function(error){stopTimer(); audioStatus.className="error";audioStatus.textContent=error.message || "Audio generation failed.";})
             .finally(function(){button.disabled=false; if (removeAudio) removeAudio.disabled = false;});
@@ -1905,12 +1923,30 @@ export function editorPage(
             .then(function(result){
               if(!result.ok) throw new Error(result.data.error || "Could not remove audio.");
               audioPreview.pause(); audioPreview.removeAttribute("src"); audioPreview.load(); audioPreview.hidden = true;
-              button.hidden = true; generateAudio.hidden = false;
+              button.hidden = true; generateAudio.hidden = false; if (uploadAudio) uploadAudio.hidden = false;
               audioStatus.className = "notice"; audioStatus.hidden = false; audioStatus.textContent = "Narration removed.";
             }).catch(function(error){audioStatus.className="error";audioStatus.hidden=false;audioStatus.textContent=error.message || "Could not remove audio.";})
             .finally(function(){button.disabled=false;});
         }
         if (removeAudio) removeAudio.addEventListener("click", handleRemoveAudio);
+        function handleUploadAudio() {
+          if (!uploadAudio || !audioInput || !audioInput.files.length) return;
+          uploadAudio.disabled = true;
+          audioStatus.className = "notice"; audioStatus.hidden = false; audioStatus.textContent = "Uploading narration…";
+          var fd = new FormData();
+          fd.append("file", audioInput.files[0], audioInput.files[0].name);
+          fetch("${base}/audio/" + (currentPostId || "") + "/upload", { method: "POST", body: fd })
+            .then(readJsonResponse)
+            .then(function(result){
+              if(!result.ok || result.data.error) throw new Error(result.data.error || "Could not upload narration.");
+              audioPreview.src = result.data.url; audioPreview.hidden = false; audioPreview.load(); audioPreview.playbackRate = 0.88;
+              removeAudio.hidden = false; uploadAudio.hidden = true; if (generateAudio) generateAudio.hidden = true;
+              audioStatus.textContent = "Narration uploaded.";
+            }).catch(function(error){audioStatus.className="error";audioStatus.textContent=error.message || "Could not upload narration.";})
+            .finally(function(){uploadAudio.disabled=false;audioInput.value="";});
+        }
+        if (uploadAudio) uploadAudio.addEventListener("click", function(){ if (audioInput) audioInput.click(); });
+        if (audioInput) audioInput.addEventListener("change", function(){ if (audioInput.files.length) handleUploadAudio(); });
         fileInput.addEventListener("change", function () {
           handleFiles(fileInput.files, nextUploadTarget); nextUploadTarget = "body"; fileInput.value = "";
         });
@@ -2652,6 +2688,10 @@ curl ${base}/blogs/${exampleBlogId}/audio/generations/AUDIO_JOB_ID \\
 curl -X DELETE ${base}/blogs/${exampleBlogId}/posts/POST_ID/audio \\
   -H "Authorization: Bearer YOUR_KEY"
 
+# Upload a hand-recorded MP3 as narration (409 when audio already attached)
+curl -X POST ${base}/blogs/${exampleBlogId}/posts/POST_ID/audio \\
+  -H "Authorization: Bearer [REDACTED]" -F file=@narration.mp3
+
 # Delete a post
 curl -X DELETE ${base}/blogs/${exampleBlogId}/posts/POST_ID \\
   -H "Authorization: Bearer YOUR_KEY"
@@ -2668,9 +2708,10 @@ curl ${base}/blogs/${exampleBlogId}/pages/PAGE_ID -H "Authorization: Bearer YOUR
 curl -X PATCH ${base}/blogs/${exampleBlogId}/pages/PAGE_ID -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" -d '{"title":"About us","published":true}'
 curl -X DELETE ${base}/blogs/${exampleBlogId}/pages/PAGE_ID -H "Authorization: Bearer YOUR_KEY"
 
-# Media library
+# Media library (images and MP3 audio; audio responds with a snippet to paste into the post body)
 curl ${base}/blogs/${exampleBlogId}/media -H "Authorization: Bearer YOUR_KEY"
 curl -X POST ${base}/blogs/${exampleBlogId}/media -H "Authorization: Bearer YOUR_KEY" -F file=@photo.jpg
+curl -X POST ${base}/blogs/${exampleBlogId}/media -H "Authorization: Bearer [REDACTED]" -F file=@clip.mp3
 curl -X DELETE "${base}/blogs/${exampleBlogId}/media?key=KEY" -H "Authorization: Bearer YOUR_KEY"
 
 # Metrics and tags
@@ -2686,7 +2727,8 @@ curl ${base}/blogs/${exampleBlogId}/tags -H "Authorization: Bearer YOUR_KEY"</pr
         <code>GET/POST/DELETE /blogs/:id/media</code>, <code>GET /blogs/:id/metrics</code> (<code>?days=7|30|90</code>), <code>GET /blogs/:id/tags</code>,
         plus asynchronous <code>images/generations</code> and <code>posts/:postId/audio/generations</code>
         jobs with status endpoints, <code>DELETE /blogs/:id/posts/:postId/audio</code> to
-        remove narration, and <code>POST /blogs/:id/indexnow</code> to
+        remove narration, <code>POST /blogs/:id/posts/:postId/audio</code> (multipart
+        <code>file</code>) to upload hand-recorded narration, and <code>POST /blogs/:id/indexnow</code> to
         re-queue discovery for published pages. Its optional body accepts
         <code>post_ids</code> and/or <code>paths</code>; an empty body queues the
         homepage, sitemap, and RSS feed. Post creation and updates accept <code>tags</code>,

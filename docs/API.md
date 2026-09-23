@@ -176,7 +176,7 @@ Admin UI fallbacks: `POST /admin/b/:blogId/navigation-links`, `POST /admin/b/:bl
 ## 7. Media library
 
 ### `GET /api/v1/blogs/:blogId/media` — list R2 keys
-### `POST /api/v1/blogs/:blogId/media` — upload (`multipart/form-data` `file`, browser-downscaled WebP, 1-year immutable)
+### `POST /api/v1/blogs/:blogId/media` — upload (`multipart/form-data` `file`, browser-downscaled WebP, 1-year immutable; MP3 audio also accepted and responds with `{ key, url, snippet }` where `snippet` is the bare URL to paste on its own line in `body_md` — it renders as a player)
 ### `DELETE /api/v1/blogs/:blogId/media?key=KEY` — delete (blocked if referenced by a post)
 
 Media is per-blog in R2, served via `GET /media/:blogId/:file`.
@@ -203,7 +203,16 @@ curl https://www.blognice.com/api/v1/blogs/ggh6gvgsgj4h/images/generations/JOB_I
 ```bash
 curl -X POST https://www.blognice.com/api/v1/blogs/ggh6gvgsgj4h/posts/123/audio/generations -H "Authorization: Bearer YOUR_KEY"
 curl https://www.blognice.com/api/v1/blogs/ggh6gvgsgj4h/audio/generations/JOB_ID -H "Authorization: Bearer YOUR_KEY"
-curl -X DELETE https://www.blognice.com/api/v1/blogs/ggh6gvgsgj4h/posts/123/audio -H "Authorization: Bearer YOUR_KEY"
+curl -X DELETE https://www.blognice.com/api/v1/blogs/ggh6gvgsgj4h/posts/123/audio -H "Authorization: Bearer [REDACTED]"
+```
+
+### Audio (manual narration upload — no AI credits, any plan)
+
+```bash
+curl -X POST https://www.blognice.com/api/v1/blogs/ggh6gvgsgj4h/posts/123/audio \
+  -H "Authorization: Bearer [REDACTED]" -F file=@narration.mp3
+```
+`POST` → `201 { key, url }`, attaches the MP3 as the post's narration (same player and analytics as generated narration). `409` when audio is already attached — `DELETE` first.
 ```
 
 ---

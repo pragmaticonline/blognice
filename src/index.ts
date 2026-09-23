@@ -117,7 +117,7 @@ const termsPage = termsPageSource.replaceAll("hateful, ", "").replaceAll("Resend
 import policiesPage from "../policies.html";
 import faviconSvg from "../favicon.svg";
 import { OG_IMAGE_BASE64, OG_IMAGE_CONTENT_TYPE } from "./og-image";
-import { findMediaUse, mediaKey, mediaUrl, validLibraryFile } from "./media";
+import { AUDIO_MIME, findMediaUse, mediaKey, mediaUrl, parseRange, prepareAudioUpload, validLibraryFile } from "./media";
 import {
   AI_AUTOPILOT_MODEL,
   AI_BRIEF_MODEL,
@@ -2102,6 +2102,48 @@ app.delete("/api/v1/blogs/:blogId/posts/:id/audio", async (c) => {
   return new Response(null, { status: 204 });
 });
 
+// Manual narration upload (REST): attach an owner-recorded MP3 to a post.
+// Same rules as the /admin upload route: no paid-plan gate, 409 when audio
+// is already attached.
+app.post("/api/v1/blogs/:blogId/posts/:id/audio", async (c) => {
+  const account = await apiAccount(c);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
+  const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
+  if (!tenant) return c.json({ error: "blog not found" }, 404);
+  const role = await membershipRoleFor(c.env, account.id, tenant.id);
+  if (!role || !can(role, "media.upload")) return c.json({ error: "forbidden" }, 403);
+  const pdb = tenantDb(c.env, tenant);
+  const post = await pdb.prepare("SELECT id, slug, audio_key FROM posts WHERE id = ? AND tenant_id = ?")
+    .bind(c.req.param("id"), tenant.id)
+    .first<{ id: number; slug: string; audio_key: string | null }>();
+  if (!post) return c.json({ error: "post not found" }, 404);
+  if (post.audio_key) return c.json({ error: "remove the existing narration before uploading a new version" }, 409);
+  let form: FormData;
+  try { form = await c.req.formData(); } catch { return c.json({ error: "expected multipart/form-data with a file field" }, 400); }
+  const file = form.get("file");
+  if (!(file instanceof File)) return c.json({ error: "file is required" }, 400);
+  if (file.type !== AUDIO_MIME) return c.json({ error: "unsupported audio type (expected MP3)" }, 400);
+  if (file.size > MAX_UPLOAD) return c.json({ error: "audio too large" }, 413);
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let audio: { key: string; url: string; snippet: string; originalName: string };
+  try {
+    audio = prepareAudioUpload(tenant.id, bytes, file.name, "narration");
+  } catch {
+    return c.json({ error: "unsupported audio file (expected MP3)" }, 400);
+  }
+  await c.env.MEDIA.put(audio.key, bytes, {
+    httpMetadata: { contentType: AUDIO_MIME, cacheControl: "public, max-age=31536000, immutable" },
+    customMetadata: { originalName: audio.originalName },
+  });
+  await pdb.prepare("UPDATE posts SET audio_key = ?, audio_generation_id = NULL, updated_at = ? WHERE id = ? AND tenant_id = ?")
+    .bind(audio.key, Math.floor(Date.now() / 1000), post.id, tenant.id)
+    .run();
+  queueBlogAudit(c, tenant.id, account.id, "media_uploaded", file.name);
+  c.executionCtx.waitUntil(purgeTenant(c.env, tenant, ["/" + post.slug]));
+  return c.json({ key: audio.key, url: audio.url }, 201);
+});
+
 
 // ---------------------------------------------------------------------------
 // Account-managed blog APIs (P0/P1).
@@ -2516,6 +2558,19 @@ app.post("/api/v1/blogs/:blogId/media", async (c) => {
   const file = form.get("file") as unknown as File | null;
   if (!(file instanceof File)) return c.json({ error: "file is required" }, 400);
   const type = file.type;
+  if (type === AUDIO_MIME) {
+    if (file.size > MAX_UPLOAD) return c.json({ error: "audio too large" }, 413);
+    let audio: { key: string; url: string; snippet: string; originalName: string };
+    const audioBytes = new Uint8Array(await file.arrayBuffer());
+    try {
+      audio = prepareAudioUpload(tenant.id, audioBytes, file.name);
+    } catch {
+      return c.json({ error: "unsupported audio file (expected MP3)" }, 400);
+    }
+    await c.env.MEDIA.put(audio.key, audioBytes, { httpMetadata: { contentType: AUDIO_MIME, cacheControl: "public, max-age=31536000, immutable" }, customMetadata: { originalName: audio.originalName } });
+    queueBlogAudit(c, tenant.id, account.id, "media_uploaded", file.name);
+    return c.json({ key: audio.key, url: audio.url, snippet: audio.snippet }, 201);
+  }
   if (!ALLOWED_IMAGE.has(type) || (await detectedImageType(file)) !== type) return c.json({ error: "unsupported image type" }, 400);
   if (file.size > MAX_UPLOAD) return c.json({ error: "image too large" }, 413);
   const rand = crypto.randomUUID().slice(0, 8);
@@ -4018,7 +4073,7 @@ export async function listMedia(env: Bindings, tenantId: number): Promise<MediaI
     .filter((obj) => !obj.key.slice(prefix.length).startsWith(".audio-jobs/"))
     .filter((obj) => !obj.key.slice(prefix.length).startsWith(".image-jobs/"))
     .filter((obj) => !obj.key.slice(prefix.length).startsWith(".autopilot-image/"))
-    .filter((obj) => !obj.key.endsWith("-tts.mp3") && !obj.key.endsWith("-tts.wav"))
+    .filter((obj) => !obj.key.endsWith("-tts.mp3") && !obj.key.endsWith("-tts.wav") && !obj.key.endsWith("-narration.mp3"))
     .filter((obj) => !/\.orig\.[a-z0-9]+$/.test(obj.key.slice(prefix.length)))
     .sort((a, b) => b.uploaded.getTime() - a.uploaded.getTime())
     .map((obj) => ({
@@ -4056,6 +4111,22 @@ app.post("/admin/b/:blogId/upload", async (c) => {
   if (!(file instanceof File)) return c.json({ error: "no file" }, 400);
 
   const type = file.type;
+  if (type === AUDIO_MIME) {
+    if (file.size > MAX_UPLOAD) return c.json({ error: "audio too large" }, 413);
+    const audioBytes = new Uint8Array(await file.arrayBuffer());
+    let audio: { key: string; url: string; snippet: string; originalName: string };
+    try {
+      audio = prepareAudioUpload(ctx.tenant.id, audioBytes, file.name);
+    } catch {
+      return c.json({ error: "unsupported audio file (expected MP3)" }, 400);
+    }
+    await c.env.MEDIA.put(audio.key, audioBytes, {
+      httpMetadata: { contentType: AUDIO_MIME, cacheControl: "public, max-age=31536000, immutable" },
+      customMetadata: { originalName: audio.originalName },
+    });
+    queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "media_uploaded", file.name);
+    return c.json({ key: audio.key, url: audio.url, snippet: audio.snippet });
+  }
   if (!ALLOWED_IMAGE.has(type) || (await detectedImageType(file)) !== type)
     return c.json({ error: "unsupported image type" }, 400);
   if (file.size > MAX_UPLOAD) return c.json({ error: "image too large" }, 413);
@@ -4635,6 +4706,45 @@ app.delete("/admin/b/:blogId/audio/:id", async (c) => {
   if (post.audio_key) await c.env.MEDIA.delete(post.audio_key);
   c.executionCtx.waitUntil(purgeTenant(c.env, ctx.tenant, ["/" + post.slug]));
   return c.json({ ok: true });
+});
+
+// Manual narration: attach an owner-recorded MP3 instead of generating one.
+// No paid-plan gate — uploading a file is not an AI entitlement. Mirrors the
+// generate route's 409 rule: remove first, then upload.
+app.post("/admin/b/:blogId/audio/:id/upload", async (c) => {
+  const ctx = await blogContext(c);
+  if ("redirect" in ctx) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
+  if ("suspended" in ctx) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
+  if (!can(ctx.role, "media.upload")) return c.json({ error: "forbidden" }, 403);
+  const pdb = tenantDb(c.env, ctx.tenant);
+  const post = await pdb.prepare("SELECT id, slug, audio_key FROM posts WHERE id = ? AND tenant_id = ?")
+    .bind(c.req.param("id"), ctx.tenant.id)
+    .first<Pick<Post, "id" | "slug" | "audio_key">>();
+  if (!post) return c.json({ error: "Post not found." }, 404);
+  if (post.audio_key) return c.json({ error: "Remove the existing narration before uploading a new version." }, 409);
+  let form: FormData;
+  try { form = await c.req.formData(); } catch { return c.json({ error: "expected multipart/form-data with a file field" }, 400); }
+  const file = form.get("file");
+  if (!(file instanceof File)) return c.json({ error: "no file" }, 400);
+  if (file.type !== AUDIO_MIME) return c.json({ error: "unsupported audio type (expected MP3)" }, 400);
+  if (file.size > MAX_UPLOAD) return c.json({ error: "audio too large" }, 413);
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let audio: { key: string; url: string; snippet: string; originalName: string };
+  try {
+    audio = prepareAudioUpload(ctx.tenant.id, bytes, file.name, "narration");
+  } catch {
+    return c.json({ error: "unsupported audio file (expected MP3)" }, 400);
+  }
+  await c.env.MEDIA.put(audio.key, bytes, {
+    httpMetadata: { contentType: AUDIO_MIME, cacheControl: "public, max-age=31536000, immutable" },
+    customMetadata: { originalName: audio.originalName },
+  });
+  await pdb.prepare("UPDATE posts SET audio_key = ?, audio_generation_id = NULL, updated_at = ? WHERE id = ? AND tenant_id = ?")
+    .bind(audio.key, Math.floor(Date.now() / 1000), post.id, ctx.tenant.id)
+    .run();
+  queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "media_uploaded", file.name);
+  c.executionCtx.waitUntil(purgeTenant(c.env, ctx.tenant, ["/" + post.slug]));
+  return c.json({ key: audio.key, url: audio.url }, 201);
 });
 
 type AiBriefRequest = {
@@ -6500,6 +6610,39 @@ app.get("/media/:blogId/:file", async (c) => {
   const key = `${c.req.param("blogId")}/${c.req.param("file")}`;
   const cache = caches.default;
   const cacheKey = new Request(c.req.url, { method: "GET" });
+
+  // Seeks (audio scrubbing) bypass the cache: a ranged 206 must never poison
+  // the full-body entry, and vice versa.
+  const rangeHeader = c.req.header("range");
+  if (rangeHeader) {
+    const head = await c.env.MEDIA.head(key);
+    if (!head) return new Response("Not found", { status: 404 });
+    const size = head.size;
+    const slice = parseRange(rangeHeader, size);
+    if (!slice) {
+      return new Response("Range not satisfiable", {
+        status: 416,
+        headers: { "content-range": `bytes */${size}`, "accept-ranges": "bytes" },
+      });
+    }
+    const ranged = await c.env.MEDIA.get(key, {
+      range: { offset: slice.start, length: slice.end - slice.start + 1 },
+    });
+    if (!ranged) return new Response("Not found", { status: 404 });
+    return new Response(ranged.body, {
+      status: 206,
+      headers: {
+        "content-type": ranged.httpMetadata?.contentType || "application/octet-stream",
+        "content-length": String(slice.end - slice.start + 1),
+        "content-range": `bytes ${slice.start}-${slice.end}/${size}`,
+        "accept-ranges": "bytes",
+        "cache-control": "public, max-age=31536000, immutable",
+        "x-content-type-options": "nosniff",
+        etag: ranged.httpEtag,
+      },
+    });
+  }
+
   const hit = await cache.match(cacheKey);
   if (hit) return hit;
 
@@ -6509,6 +6652,7 @@ app.get("/media/:blogId/:file", async (c) => {
   const res = new Response(obj.body, {
     headers: {
       "content-type": obj.httpMetadata?.contentType || "application/octet-stream",
+      "accept-ranges": "bytes",
       "cache-control": "public, max-age=31536000, immutable",
       "x-content-type-options": "nosniff",
       etag: obj.httpEtag,

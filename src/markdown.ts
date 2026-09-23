@@ -9,7 +9,7 @@ import { visit } from "unist-util-visit";
 const safeTags = [
   "p", "br", "hr", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "em",
   "del", "s", "u", "blockquote", "pre", "code", "ul", "ol", "li", "a",
-  "img", "table", "thead", "tbody", "tr", "th", "td", "div",
+  "img", "table", "thead", "tbody", "tr", "th", "td", "div", "audio",
 ];
 
 const markdownSchema = {
@@ -28,6 +28,7 @@ const markdownSchema = {
     blockquote: [["className", "twitter-tweet"]],
     iframe: ["src", "title", "allow", "allowFullscreen", "frameBorder", "loading", "referrerPolicy"],
     img: ["src", "alt", "title"],
+    audio: ["src", "controls", "preload"],
     table: [], thead: [], tbody: [], tr: [], th: ["colSpan", "rowSpan"], td: ["colSpan", "rowSpan"],
   },
   protocols: {
@@ -149,6 +150,43 @@ function youtubeEmbeds() {
   };
 }
 
+function audioUrlFromHref(href: string): string | null {
+  if (!isSafeUrl(href, "src")) return null;
+  const clean = String(href).trim().split("#")[0].split("?")[0];
+  if (!/\.mp3$/i.test(clean)) return null;
+  return String(href).trim();
+}
+
+// A bare MP3 link alone in a paragraph becomes a player. Links with custom
+// link text keep their text and stay links, so authors opt in by pasting a
+// bare URL. Attributes are fixed (no autoplay, no loop); src already passed
+// the same safety gate as image sources.
+function audioEmbeds() {
+  return (tree: any) => {
+    visit(tree, "element", (node: any, index: any, parent: any) => {
+      if (!parent || node.tagName !== "p" || !Array.isArray(node.children) || node.children.length !== 1) return;
+      const child = node.children[0] as any;
+      if (!child) return;
+      // Bare absolute URLs autolink; bare relative /media/ paths stay text.
+      // Both reach here as long as the paragraph holds nothing else.
+      let href: string | null = null;
+      if (child.tagName === "a" && typeof child.properties?.href === "string") {
+        href = String(child.properties.href);
+        if (textContent(child).trim() !== href) return;
+      } else if (child.type === "text") {
+        href = String(child.value || "").trim();
+        if (!href || /\s/.test(href)) return;
+      } else return;
+      const src = audioUrlFromHref(href);
+      if (!src) return;
+      if (typeof index !== "number") return;
+      node.tagName = "audio";
+      node.properties = { controls: true, preload: "none", src };
+      node.children = [];
+    });
+  };
+}
+
 function bitchuteEmbeds() {
   return (tree: any) => {
     visit(tree, "element", (node: any, index: any, parent: any) => {
@@ -202,6 +240,7 @@ const processor = unified()
   .use(dividerStyles)
   .use(remarkRehype, { allowDangerousHtml: false })
   .use(transformMarkdownTree)
+  .use(audioEmbeds as any)
   .use(youtubeEmbeds as any)
   .use(bitchuteEmbeds as any)
   .use(tweetCards as any)

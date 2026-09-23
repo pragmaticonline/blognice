@@ -39,7 +39,7 @@ test("reference lookup is tenant scoped and searches for the exact media URL", a
 
 test("editor media insertion keeps newline escapes valid in generated JavaScript", () => {
   const source = readFileSync(new URL("../src/admin.ts", import.meta.url), "utf8");
-  const escapedInsertion = String.raw`insertAtCursor("\\n![]("+pick.dataset.url+")\\n")`;
+  const escapedInsertion = String.raw`insertAtCursor("\\n"+(isAudio?pick.dataset.url:"![]("+pick.dataset.url+")")+"\\n")`;
   assert.ok(source.includes(escapedInsertion));
 });
 

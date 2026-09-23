@@ -26,3 +26,20 @@ test("ordered lists keep their start number instead of renumbering to 1", () => 
   assert.match(html, /<ol start="2">/);
   assert.match(html, /<ol start="3">/);
 });
+
+test("a bare MP3 link on its own line becomes a constrained audio player", () => {
+  const html = renderMarkdown("Listen:\n\nhttps://example.com/media/4/1722510000-deadbeef-audio.mp3\n\nDone.");
+  assert.match(html, /<audio controls preload="none" src="https:\/\/example\.com\/media\/4\/1722510000-deadbeef-audio\.mp3"><\/audio>/);
+  assert.doesNotMatch(html, /autoplay|loop/i);
+});
+
+test("MP3 links with link text stay links instead of embedding", () => {
+  const html = renderMarkdown("[episode](https://example.com/media/4/1722510000-deadbeef-audio.mp3)");
+  assert.match(html, /<a /);
+  assert.doesNotMatch(html, /<audio/);
+});
+
+test("unsafe MP3 hrefs never become players", () => {
+  const html = renderMarkdown("https://example.com/x.mp3\" onerror=\"alert(1)");
+  assert.doesNotMatch(html, /<audio/);
+});
