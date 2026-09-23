@@ -84,6 +84,11 @@ fast, server-rendered pages.
   every post; authors see the list at `/admin/b/<public-id>/subscribers` with CSV
   export. Capture and unsubscribe work without email configuration. MailNice
   sends welcome messages and subscriber notifications when configured.
+- **Blog comments** — Disqus-style threading with email-verified identity,
+  auto-approve, like/dislike votes, and update subscriptions. Fast by design:
+  one indexed D1 query per load plus realtime fan-out over WebSockets (see
+  [Blog comments](#blog-comments)). Comment engagement lands in the metrics
+  dashboard.
 - **Image uploads** — drag, paste, or pick images in the editor. They're
   downscaled and recompressed to WebP in the browser, stored in an R2 bucket,
   served through the Worker with a one-year immutable cache, and inserted into
@@ -422,6 +427,29 @@ New-post notifications are placed on the dedicated `blognice-email` Cloudflare
 Queue and delivered by a retrying consumer in controlled batches. Delivery
 state is recorded in `email_delivery_log` so a retried queue message does not
 normally send the same notification twice.
+
+## Blog comments
+
+Disqus-style threading under every post: nested replies, like/dislike votes,
+and email-verified identity (verification links live 24 hours; clicking one
+also confirms the update subscription). New comments are approved
+automatically; owners moderate from `/admin/b/<id>/comments`. Readers opt into
+reply notifications through a first-time modal or their settings. Comments are
+on by default and can be switched off per blog.
+
+**Why they stay fast.** Loading a thread is a single indexed D1 query
+(`idx_comments_listing`), refreshed incrementally by `since_id` with a short
+edge cache — the worker never re-reads the whole thread. New comments, votes,
+and removals fan out in realtime through a `CommentRoom` Durable Object over
+WebSockets (HMAC-signed room protocol), so browsers open one socket instead of
+polling. The reply tree is built in the worker and served paged.
+
+**Comment metrics.** The server records `comment_posted` / `comment_voted`
+events (no PII) into the Cloudflare events dataset. The owner metrics page has
+a Comments panel with totals, a per-post table, and a Daily engagement chart
+(comments + votes per day, CSS-only bars). Two limits to know: panels fill from
+deploy forward (no backfill), and edge caching can delay vote totals by a few
+minutes.
 
 ## NOWPayments crypto billing (annual secondary option)
 
