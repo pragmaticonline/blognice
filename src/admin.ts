@@ -1831,13 +1831,14 @@ export function editorPage(
           mediaDialogTitle.textContent = mode === "featured" ? "Choose featured image" : "Choose from media";
           mediaDialog.showModal();
           fetch("${base}/media.json").then(function(r){if(!r.ok)throw new Error();return r.json();}).then(function(data){
-            if(!data.items.length){mediaDialogBody.innerHTML='<p style="color:var(--muted)">No images yet. <button class="btn" type="button" id="dialog-upload">Upload one</button></p>';}
-            else mediaDialogBody.innerHTML='<div class="media-grid">'+data.items.map(function(item){var isAudio=/\.mp3$/i.test(item.url);var visual=isAudio?'<div class="media-audio" aria-hidden="true">\u266A</div>':'<img src="'+item.url+'" alt="" loading="lazy">';return '<button class="media-card media-pick" type="button" data-key="'+item.key+'" data-url="'+item.url.replace(/&/g,"&amp;").replace(/\"/g,"&quot;")+'"'+(isAudio?' data-audio="1"':'')+'>'+visual+'<div class="media-card-body"><div class="media-name">'+item.name.replace(/&/g,"&amp;").replace(/</g,"&lt;")+'</div><div class="media-meta">Click to '+(mode === "featured" ? "select" : "insert")+'</div></div></button>';}).join('')+'</div><div class="actions"><button class="btn" type="button" id="dialog-upload">Upload new</button><a class="btn ghost" href="${base}/media">Manage media</a></div>';
+            var shown=(data.items || []).filter(function(item){var isAudio=/\.mp3$/i.test(item.url || "");return mode === "audio" ? isAudio : !isAudio;});
+            if(!shown.length){mediaDialogBody.innerHTML='<p style="color:var(--muted)">'+(mode === "audio" ? "No audio yet." : "No images yet.")+' <button class="btn" type="button" id="dialog-upload">Upload one</button></p>';}
+            else mediaDialogBody.innerHTML='<div class="media-grid">'+shown.map(function(item){var isAudio=/\.mp3$/i.test(item.url);var visual=isAudio?'<div class="media-audio" aria-hidden="true">\u266A</div>':'<img src="'+item.url+'" alt="" loading="lazy">';return '<button class="media-card media-pick" type="button" data-key="'+item.key+'" data-url="'+item.url.replace(/&/g,"&amp;").replace(/\"/g,"&quot;")+'"'+(isAudio?' data-audio="1"':'')+'>'+visual+'<div class="media-card-body"><div class="media-name">'+item.name.replace(/&/g,"&amp;").replace(/</g,"&lt;")+'</div><div class="media-meta">Click to '+(mode === "featured" ? "select" : "insert")+'</div></div></button>';}).join('')+'</div><div class="actions"><button class="btn" type="button" id="dialog-upload">Upload new</button><a class="btn ghost" href="${base}/media">Manage media</a></div>';
             document.getElementById("dialog-upload").onclick=function(){nextUploadTarget=pickerMode;mediaDialog.close();fileInput.click();};
           }).catch(function(){mediaDialogBody.innerHTML='<p class="error">Could not load media.</p>';});
         }
         addImage.addEventListener("click", function () { openLibrary("body"); });
-        if (addAudio) addAudio.addEventListener("click", function () { openLibrary("body"); });
+        if (addAudio) addAudio.addEventListener("click", function () { openLibrary("audio"); });
         chooseFeatured.addEventListener("click", function () { openLibrary("featured"); });
         removeFeatured.addEventListener("click", function () { setFeatured("", ""); });
         document.getElementById("media-close").addEventListener("click",function(){mediaDialog.close();});
