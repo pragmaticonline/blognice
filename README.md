@@ -96,7 +96,9 @@ fast, server-rendered pages.
   pre-shrink original is kept alongside, so exports carry full-quality files.
 - **One-click full export** — owners download a zip from blog settings: posts
   and pages as Markdown with frontmatter, images (originals when kept),
-  `subscribers.csv`, and `comments.json`. RSS items also carry post tags.
+  `subscribers.csv`, and `comments.json`. Uploads from this release on keep
+  their full-quality originals; older images export as WebP. RSS items also
+  carry post tags. Custom domains mean your links survive a move.
 - **Media library** — browse and reuse a blog's existing R2 images from the
   editor or the Media admin page. Images referenced by any post cannot be
   deleted until those references are removed.
