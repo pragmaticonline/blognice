@@ -214,10 +214,10 @@ paths:
   /api/v1/blogs/{blogId}/media:
     get: { summary: List media, parameters: [{ name: blogId, in: path, required: true, schema: { type: string } }], responses: { '200': { description: OK } } }
     post:
-      summary: Upload media
+      summary: Upload media (images and MP3 audio; audio responds with a snippet URL to paste on its own line in body_md)
       parameters: [{ name: blogId, in: path, required: true, schema: { type: string } }]
       requestBody: { required: true, content: { multipart/form-data: { schema: { type: object, properties: { file: { type: string, format: binary } } } } } }
-      responses: { '200': { description: OK } }
+      responses: { '201': { description: Created } }
     delete:
       summary: Delete media
       parameters: [{ name: blogId, in: path, required: true, schema: { type: string } }, { name: key, in: query, required: true, schema: { type: string } }]
