@@ -195,9 +195,17 @@ test("narration omits emoji and lengthens pauses after full stops", () => {
   assert.equal(sections.title, "A calm title.");
   assert.equal(
     sections.body,
-    "First sentence.\n\nSecond sentence continues.\n\nThird paragraph ends.",
+    `First sentence.\n\nSecond sentence continues.${TTS_HARD_PAUSE}Third paragraph ends.`,
   );
   assert.doesNotMatch(sections.body, /🎙|👩|💻|🇬🇧|1️⃣/gu);
+});
+
+test("narration pauses between paragraphs instead of ellipses", () => {
+  const sections = narrationSections("Title", "First paragraph here.\n\nSecond paragraph here.");
+  assert.match(sections.body, /First paragraph here\./);
+  assert.match(sections.body, /Second paragraph here\./);
+  assert.match(sections.body, /\u241E/);
+  assert.doesNotMatch(sections.body, /\.\.\./);
 });
 
 test("narration removes separators inside numbers", () => {
@@ -262,7 +270,7 @@ test("colons and semicolons receive guaranteed structural pauses", () => {
     "Choose carefully: speed matters; reliability matters.\n\nOptions include:\n\n- A first option\n- A second option",
   );
   assert.match(sections.body, new RegExp(`carefully:${TTS_SOFT_PAUSE}\\s+speed matters;${TTS_SOFT_PAUSE}\\s+reliability matters\\.`));
-  assert.match(sections.body, new RegExp(`Options include:${TTS_SOFT_PAUSE}\\s+A first option\\.`));
+  assert.match(sections.body, new RegExp(`Options include:${TTS_SOFT_PAUSE}\\s*${TTS_HARD_PAUSE}\\s*A first option\\.`));
 });
 
 test("MeloTTS output supports both binary and base64 binding responses", () => {

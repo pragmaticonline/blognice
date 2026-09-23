@@ -359,7 +359,7 @@ export function narrationSections(title: string, markdown: string, overrides: Pr
   return {
     // A short, standalone statement gives MeloTTS its most neutral title delivery.
     title: cleanSpeech(finishPhrase(decodeEntities(title)), overrides),
-    body: cleanSpeech(blocks.join(" ... "), overrides),
+    body: cleanSpeech(blocks.join(` ${TTS_HARD_PAUSE} `), overrides),
   };
 }
 
