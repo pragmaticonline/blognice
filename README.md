@@ -367,7 +367,9 @@ account's Workers AI usage.
 ## Audio narration
 
 On a saved post, authors can select **Generate audio** to create English audio
-with Cloudflare Workers AI's MeloTTS model. Generation uses the last saved title
+with Cloudflare Workers AI's MeloTTS model, or **Upload MP3** to attach a
+hand-recorded narration instead (MP3 frame-validated, 15 MB max, any plan —
+uploading a file is not an AI entitlement). Generation uses the last saved title
 and post body, strips Markdown syntax and code blocks, stores the result in the
 existing R2 media bucket, and adds a compact audio player at the right of the
 public post byline. Audio is generated once rather than on page views. To regenerate,
@@ -401,6 +403,17 @@ MeloTTS usage is billed through the existing `AI` binding and requires no
 additional API key. A short cooldown separates segment requests. Transient model
 failures, including Cloudflare error 3043, are retried up to four times with
 increasing delays before generation fails.
+
+## Audio clips in post bodies
+
+MP3s can also live inline anywhere in a post, like images. Authors upload via
+the editor's **Add audio** button (or drag-and-drop), and the clip's URL pasted
+on its own line in `body_md` renders as a native player — seekable, since
+`/media/` serves `206` ranges. The same flow works over the API: `POST`
+`multipart/form-data` to `/api/v1/blogs/:blogId/media` (pass
+`;type=audio/mpeg` with curl, which otherwise guesses the MIME wrong) returns
+`{ key, url, snippet }`, and the snippet goes straight into the post body.
+`GET /media/:blogId/:file` advertises `Accept-Ranges: bytes` on every object.
 
 ## Subscriptions & email
 
