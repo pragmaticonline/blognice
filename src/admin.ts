@@ -1256,6 +1256,7 @@ export type MediaItem = {
   url: string;
   size: number;
   uploaded: string;
+  originalKey?: string;
 };
 
 function formatBytes(bytes: number): string {
@@ -1783,6 +1784,10 @@ export function editorPage(
               (blob.type === "image/webp" ? ".webp" : "");
             var fd = new FormData();
             fd.append("file", blob, name);
+            // Keep the pre-shrink original server-side so exports are not
+            // stuck with the optimized derivative. shrink() resolves the
+            // input file itself for GIFs and on failure — nothing to keep.
+            if (blob !== file) fd.append("original", file, file.name || "original");
             return fetch(uploadUrl, { method: "POST", body: fd });
           }).then(function (r) { return r.json(); })
             .then(function (data) {
@@ -2223,6 +2228,7 @@ export function settingsPage(
           <a class="btn ghost" href="${base}">Done</a>
         </div>
       </form>
+      ${opts?.isOwner ? `<div class="card"><h2 style="margin-top:0">Export blog</h2><p>Download everything as a zip: posts and pages as Markdown, images, subscribers, and comments. Yours to keep, whatever you do next.</p><p><a class="btn ghost" href="${base}/export.zip">Download full export (.zip)</a></p></div>` : ""}
       ${opts?.isOwner ? `<div class="card"><h2 style="margin-top:0">Delete blog</h2><p>Removes this blog from the web while keeping its posts and media for now. Deletion asks you to type the blog title to confirm.</p><p><a class="btn danger" href="${base}/delete">Delete this blog</a></p></div>` : ""}
     </div>
     <script>

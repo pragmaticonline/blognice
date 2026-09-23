@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import { strToU8, zipSync } from "fflate";
 import { verifyPlatformBearer } from "./platform-auth";
 import {
   esc,
@@ -1506,12 +1507,13 @@ app.get("/rss.xml", async (c) => {
     if (!tenant) return new Response("Not found", { status: 404 });
     const origin = originOf(c);
     const { results } = await tenantDb(c.env, tenant).prepare(
-      "SELECT id, slug, title, body_md, created_at, updated_at FROM posts WHERE tenant_id = ? AND published = 1 ORDER BY created_at DESC LIMIT 50"
-    ).bind(tenant.id).all<{ id: number; slug: string; title: string; body_md: string; created_at: number; updated_at: number }>();
+      "SELECT id, slug, title, body_md, tags_json, created_at, updated_at FROM posts WHERE tenant_id = ? AND published = 1 ORDER BY created_at DESC LIMIT 50"
+    ).bind(tenant.id).all<{ id: number; slug: string; title: string; body_md: string; tags_json: string | null; created_at: number; updated_at: number }>();
     const items = results.map((post) => {
       const url = `${origin}/${post.slug}`;
       const description = rssText(post.body_md);
-      return `<item><title>${esc(post.title)}</title><link>${esc(url)}</link><guid isPermaLink="true">${esc(url)}</guid><pubDate>${new Date(post.created_at * 1000).toUTCString()}</pubDate><description>${esc(description)}</description></item>`;
+      const categories = storedPostTags(post.tags_json).map((tag) => `<category>${esc(tag)}</category>`).join("");
+      return `<item><title>${esc(post.title)}</title><link>${esc(url)}</link><guid isPermaLink="true">${esc(url)}</guid><pubDate>${new Date(post.created_at * 1000).toUTCString()}</pubDate><description>${esc(description)}</description>${categories}</item>`;
     }).join("");
     const xml = `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>${esc(tenant.title)}</title><link>${esc(origin + "/")}</link><description>${esc(tenant.description || tenant.title)}</description><language>en-us</language>${items}</channel></rss>`;
     return new Response(xml, { headers: { "content-type": "application/rss+xml; charset=utf-8", "cache-control": "public, max-age=300" } });
@@ -2526,7 +2528,20 @@ app.post("/api/v1/blogs/:blogId/media", async (c) => {
   if (file.size > MAX_UPLOAD) return c.json({ error: "image too large" }, 413);
   const rand = crypto.randomUUID().slice(0, 8);
   const key = `${tenant.id}/${Date.now()}-${rand}.${EXT[type]}`;
-  await c.env.MEDIA.put(key, await file.arrayBuffer(), { httpMetadata: { contentType: type, cacheControl: "public, max-age=31536000, immutable" }, customMetadata: { originalName: file.name.slice(0, 200) } });
+  // Keep the pre-shrink original when the uploader sends one, so exports and
+  // future migrations are not stuck with the optimized derivative.
+  const original = form.get("original") as unknown as File | null;
+  let originalKey: string | null = null;
+  if (original instanceof File && original.size > 0) {
+    const originalType = original.type;
+    if (!ALLOWED_IMAGE.has(originalType) || (await detectedImageType(original)) !== originalType) {
+      return c.json({ error: "unsupported original image type" }, 400);
+    }
+    if (original.size > MAX_UPLOAD) return c.json({ error: "original image too large" }, 413);
+    originalKey = `${key.slice(0, key.lastIndexOf("."))}.orig.${EXT[originalType]}`;
+    await c.env.MEDIA.put(originalKey, await original.arrayBuffer(), { httpMetadata: { contentType: originalType, cacheControl: "public, max-age=31536000, immutable" }, customMetadata: { originalName: original.name.slice(0, 200), derivativeOf: key } });
+  }
+  await c.env.MEDIA.put(key, await file.arrayBuffer(), { httpMetadata: { contentType: type, cacheControl: "public, max-age=31536000, immutable" }, customMetadata: { originalName: file.name.slice(0, 200), ...(originalKey ? { originalKey } : {}) } });
   const url = `/media/${key}`;
   queueBlogAudit(c, tenant.id, account.id, "media_uploaded", file.name);
   return c.json({ key, url, markdown: `![](${url})` }, 201);
@@ -4012,6 +4027,7 @@ export async function listMedia(env: Bindings, tenantId: number): Promise<MediaI
     .filter((obj) => !obj.key.slice(prefix.length).startsWith(".image-jobs/"))
     .filter((obj) => !obj.key.slice(prefix.length).startsWith(".autopilot-image/"))
     .filter((obj) => !obj.key.endsWith("-tts.mp3") && !obj.key.endsWith("-tts.wav"))
+    .filter((obj) => !/\.orig\.[a-z0-9]+$/.test(obj.key.slice(prefix.length)))
     .sort((a, b) => b.uploaded.getTime() - a.uploaded.getTime())
     .map((obj) => ({
       key: obj.key,
@@ -4019,6 +4035,7 @@ export async function listMedia(env: Bindings, tenantId: number): Promise<MediaI
       url: `/media/${obj.key}`,
       size: obj.size,
       uploaded: obj.uploaded.toISOString(),
+      ...(obj.customMetadata?.originalKey ? { originalKey: obj.customMetadata.originalKey } : {}),
     }));
 }
 
@@ -5557,6 +5574,110 @@ app.get("/admin/b/:blogId/subscribers.csv", async (c) => {
     headers: {
       "content-type": "text/csv; charset=utf-8",
       "content-disposition": `attachment; filename="subscribers-${ctx.tenant.slug}.csv"`,
+    },
+  });
+});
+
+// One-click full export: posts + pages as Markdown with frontmatter, images
+// with rewritten links, subscribers.csv, comments.json. Owner-only, same
+// sensitivity as the subscriber CSV. Refuses over EXPORT_MAX_BYTES.
+const EXPORT_MAX_BYTES = 100_000_000;
+
+function exportFrontmatter(fields: Record<string, unknown>, body: string): string {
+  const lines = Object.entries(fields).map(([key, value]) => `${key}: ${JSON.stringify(value ?? null)}`);
+  return `---\n${lines.join("\n")}\n---\n\n${body}`;
+}
+
+app.get("/admin/b/:blogId/export.zip", async (c) => {
+  const ctx = await blogContext(c);
+  if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
+  const denied = requireBlogCapability(c, ctx, "settings.manage");
+  if (denied) return denied;
+  const tenant = ctx.tenant;
+  const pdb = tenantDb(c.env, tenant);
+  await ensurePostsMetaColumn(pdb);
+
+  const zip: Record<string, Uint8Array> = {};
+  let totalBytes = 0;
+  const add = (name: string, data: Uint8Array) => {
+    totalBytes += data.length;
+    zip[name] = data;
+  };
+
+  const media = await listMedia(c.env, tenant.id);
+  const mediaBytes = media.reduce((sum, item) => sum + item.size, 0);
+  if (mediaBytes > EXPORT_MAX_BYTES) return c.text("Export too large to build here; download media in parts.", 413);
+  const exportName = (item: { key: string; originalKey?: string }) => {
+    const source = item.originalKey ?? item.key;
+    return { source, filename: source.slice(`${tenant.id}/`.length) };
+  };
+  const rewriteMedia = (body: string) => {
+    let out = body;
+    for (const item of media) {
+      out = out.split(`/media/${item.key}`).join(`images/${exportName(item).filename}`);
+    }
+    return out;
+  };
+
+  const postRows = await pdb.prepare(
+    "SELECT id, slug, title, body_md, tags_json, published, created_at, updated_at, author_name FROM posts WHERE tenant_id = ? ORDER BY id"
+  ).bind(tenant.id).all<any>();
+  const slugOf = new Map<number, string>();
+  for (const post of postRows.results) {
+    slugOf.set(post.id, post.slug);
+    add(`posts/${post.id}-${post.slug}.md`, strToU8(exportFrontmatter({
+      title: post.title, slug: post.slug,
+      date: new Date(post.created_at * 1000).toISOString(),
+      updated: new Date(post.updated_at * 1000).toISOString(),
+      tags: storedPostTags(post.tags_json), published: !!post.published,
+      author: post.author_name ?? null,
+    }, rewriteMedia(post.body_md))));
+  }
+  const pageRows = await pdb.prepare(
+    "SELECT id, slug, title, body_md, published, created_at, updated_at FROM pages WHERE tenant_id = ? ORDER BY id"
+  ).bind(tenant.id).all<any>();
+  for (const page of pageRows.results) {
+    slugOf.set(-page.id, page.slug);
+    add(`pages/${page.id}-${page.slug}.md`, strToU8(exportFrontmatter({
+      title: page.title, slug: page.slug,
+      date: new Date(page.created_at * 1000).toISOString(),
+      updated: new Date(page.updated_at * 1000).toISOString(),
+      published: !!page.published,
+    }, rewriteMedia(page.body_md))));
+  }
+
+  for (const item of media) {
+    const { source, filename } = exportName(item);
+    const obj = await c.env.MEDIA.get(source);
+    if (!obj) continue;
+    add(`images/${filename}`, new Uint8Array(await obj.arrayBuffer()));
+  }
+
+  const subRows = await c.env.DB.prepare(
+    "SELECT email, created_at, source_path, utm_source, utm_medium, utm_campaign FROM subscribers WHERE tenant_id = ? ORDER BY created_at DESC"
+  ).bind(tenant.id).all<any>();
+  add("subscribers.csv", strToU8(["email,subscribed_at,source_path,utm_source,utm_medium,utm_campaign"].concat(
+    subRows.results.map((r: any) => `${r.email},${new Date(r.created_at * 1000).toISOString()},${r.source_path ?? ""},${r.utm_source ?? ""},${r.utm_medium ?? ""},${r.utm_campaign ?? ""}`)
+  ).join("\n")));
+
+  let commentRows: { results: any[] } = { results: [] };
+  try {
+    commentRows = await pdb.prepare(
+      "SELECT id, post_id, parent_id, author_name, email_hash, body, status, created_at FROM comments WHERE tenant_id = ? ORDER BY id"
+    ).bind(tenant.id).all<any>();
+  } catch { commentRows = { results: [] }; }
+  add("comments.json", strToU8(JSON.stringify(commentRows.results.map((row: any) => ({
+    id: row.id, post_slug: slugOf.get(row.post_id) ?? null, parent_id: row.parent_id,
+    author_name: row.author_name, email_hash: row.email_hash, body: row.body,
+    status: row.status, created_at: new Date(row.created_at * 1000).toISOString(),
+  })), null, 2)));
+
+  if (totalBytes > EXPORT_MAX_BYTES) return c.text("Export too large to build here; download media in parts.", 413);
+  return new Response(zipSync(zip), {
+    headers: {
+      "content-type": "application/zip",
+      "content-disposition": `attachment; filename="export-${tenant.slug}.zip"`,
     },
   });
 });

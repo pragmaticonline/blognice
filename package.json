@@ -25,6 +25,7 @@
     "test:dynadot-sandbox": "DYNADOT_SANDBOX=true node --experimental-strip-types tools/dynadot-sandbox.mjs"
   },
   "dependencies": {
+    "fflate": "^0.8.3",
     "hono": "^4.6.0",
     "rehype-sanitize": "^6.0.0",
     "rehype-stringify": "^10.0.1",

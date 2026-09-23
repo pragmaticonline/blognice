@@ -92,7 +92,11 @@ fast, server-rendered pages.
 - **Image uploads** — drag, paste, or pick images in the editor. They're
   downscaled and recompressed to WebP in the browser, stored in an R2 bucket,
   served through the Worker with a one-year immutable cache, and inserted into
-  the post as Markdown. No image-processing entitlement required.
+  the post as Markdown. No image-processing entitlement required. The
+  pre-shrink original is kept alongside, so exports carry full-quality files.
+- **One-click full export** — owners download a zip from blog settings: posts
+  and pages as Markdown with frontmatter, images (originals when kept),
+  `subscribers.csv`, and `comments.json`. RSS items also carry post tags.
 - **Media library** — browse and reuse a blog's existing R2 images from the
   editor or the Media admin page. Images referenced by any post cannot be
   deleted until those references are removed.
