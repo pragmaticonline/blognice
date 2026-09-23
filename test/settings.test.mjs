@@ -162,3 +162,40 @@ test("admin settings recovers when header_link_url column is missing", async () 
 
   await mf.dispose();
 });
+
+test("settings page folds export and delete under Advanced after a divider", async () => {
+  const script = await createBundle();
+  const mf = new Miniflare({
+    modules: true,
+    script,
+    compatibilityFlags: ["nodejs_compat"],
+    d1Databases: { DB: "settings-b", POSTS: "settings-b-posts" },
+    r2Buckets: ["MEDIA"],
+    bindings: { ROOT_DOMAIN: "blognice.com" },
+  });
+  const db = await mf.getD1Database("DB");
+  const postsDb = await mf.getD1Database("POSTS");
+  await execSql(db, fs.readFileSync("schema.sql", "utf8"));
+  await execSql(postsDb, fs.readFileSync("schema-posts.sql", "utf8"));
+  const now = Math.floor(Date.now() / 1000);
+  await db.prepare("INSERT INTO accounts (id,email,pw_hash,created_at) VALUES (1,'a@a.com','h',?)").bind(now).run();
+  await db.prepare("INSERT INTO tenants (id,public_id,slug,title,description,accent_color,topics_json,social_links_json,navigation_links_json,browser_push_enabled,created_at) VALUES (1,'test1234','myblog','My Blog','tag','#1a8917','[]','{}','[]',1,?)").bind(now).run();
+  await db.prepare("INSERT INTO memberships (account_id,tenant_id,role,created_at) VALUES (1,1,'owner',?)").bind(now).run();
+  await db.prepare("INSERT INTO sessions (token,account_id,created_at,expires_at) VALUES ('sess',1,?,?)").bind(now, now + 86400).run();
+
+  const res = await mf.dispatchFetch("https://www.blognice.com/admin/b/test1234/settings", {
+    headers: { Cookie: "bn_session=sess" },
+  });
+  assert.equal(res.status, 200);
+  const html = await res.text();
+  const order = ["</form>", "<hr", "<details", "export.zip", "/delete", "</details>"];
+  let from = -1;
+  for (const token of order) {
+    const at = html.indexOf(token, from + 1);
+    assert.ok(at > from, `expected ${token} after position ${from}`);
+    from = at;
+  }
+  assert.match(html, /<summary[^>]*>Advanced<\/summary>/);
+
+  await mf.dispose();
+});

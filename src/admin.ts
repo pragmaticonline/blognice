@@ -2228,8 +2228,9 @@ export function settingsPage(
           <a class="btn ghost" href="${base}">Done</a>
         </div>
       </form>
-      ${opts?.isOwner ? `<div class="card"><h2 style="margin-top:0">Export blog</h2><p>Download everything as a zip: posts and pages as Markdown, images, subscribers, and comments. Yours to keep, whatever you do next.</p><p><a class="btn ghost" href="${base}/export.zip">Download full export (.zip)</a></p></div>` : ""}
-      ${opts?.isOwner ? `<div class="card"><h2 style="margin-top:0">Delete blog</h2><p>Removes this blog from the web while keeping its posts and media for now. Deletion asks you to type the blog title to confirm.</p><p><a class="btn danger" href="${base}/delete">Delete this blog</a></p></div>` : ""}
+      <hr>
+      ${opts?.isOwner ? `<details><summary style="cursor:pointer">Advanced</summary><div class="card"><h2 style="margin-top:0">Export blog</h2><p>Download everything as a zip: posts and pages as Markdown, images, subscribers, and comments. Yours to keep, whatever you do next.</p><p><a class="btn ghost" href="${base}/export.zip">Download full export (.zip)</a></p></div>
+      <div class="card"><h2 style="margin-top:0">Delete blog</h2><p>Removes this blog from the web while keeping its posts and media for now. Deletion asks you to type the blog title to confirm.</p><p><a class="btn danger" href="${base}/delete">Delete this blog</a></p></div></details>` : ""}
     </div>
     <script>
       (function () {
