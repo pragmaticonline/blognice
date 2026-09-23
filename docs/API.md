@@ -210,9 +210,9 @@ curl -X DELETE https://www.blognice.com/api/v1/blogs/ggh6gvgsgj4h/posts/123/audi
 
 ```bash
 curl -X POST https://www.blognice.com/api/v1/blogs/ggh6gvgsgj4h/posts/123/audio \
-  -H "Authorization: Bearer [REDACTED]" -F file=@narration.mp3
+  -H "Authorization: Bearer [REDACTED]" -F "file=@narration.mp3;type=audio/mpeg"
 ```
-`POST` → `201 { key, url }`, attaches the MP3 as the post's narration (same player and analytics as generated narration). `409` when audio is already attached — `DELETE` first.
+`POST` → `201 { key, url }`, attaches the MP3 as the post's narration (same player and analytics as generated narration). `audio/mpeg` required (`;type=` in curl, which otherwise guesses wrong); `audio/mp3` accepted as an alias. `409` when audio is already attached — `DELETE` first.
 ```
 
 ---

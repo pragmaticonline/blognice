@@ -1793,7 +1793,7 @@ export function editorPage(
         var uploadCount = 0;
         function uploadImage(file, target) {
           if (!file) return;
-          var isAudio = file.type === "audio/mpeg";
+          var isAudio = file.type === "audio/mpeg" || file.type === "audio/mp3";
           if (!isAudio && file.type.indexOf("image/") !== 0) return;
           if (isAudio && target === "featured") { alert("Audio cannot be a featured image."); return; }
           var token = target === "featured" ? "" : (isAudio ? "[uploading audio " + (++uploadCount) + "…]()" : "![uploading image " + (++uploadCount) + "…]()");
@@ -2695,7 +2695,7 @@ curl -X DELETE ${base}/blogs/${exampleBlogId}/posts/POST_ID/audio \\
 
 # Upload a hand-recorded MP3 as narration (409 when audio already attached)
 curl -X POST ${base}/blogs/${exampleBlogId}/posts/POST_ID/audio \\
-  -H "Authorization: Bearer [REDACTED]" -F file=@narration.mp3
+  -H "Authorization: Bearer [REDACTED]" -F "file=@narration.mp3;type=audio/mpeg"
 
 # Delete a post
 curl -X DELETE ${base}/blogs/${exampleBlogId}/posts/POST_ID \\
@@ -2716,7 +2716,7 @@ curl -X DELETE ${base}/blogs/${exampleBlogId}/pages/PAGE_ID -H "Authorization: B
 # Media library (images and MP3 audio; audio responds with a snippet to paste into the post body)
 curl ${base}/blogs/${exampleBlogId}/media -H "Authorization: Bearer YOUR_KEY"
 curl -X POST ${base}/blogs/${exampleBlogId}/media -H "Authorization: Bearer YOUR_KEY" -F file=@photo.jpg
-curl -X POST ${base}/blogs/${exampleBlogId}/media -H "Authorization: Bearer [REDACTED]" -F file=@clip.mp3
+curl -X POST ${base}/blogs/${exampleBlogId}/media -H "Authorization: Bearer [REDACTED]" -F "file=@clip.mp3;type=audio/mpeg"
 curl -X DELETE "${base}/blogs/${exampleBlogId}/media?key=KEY" -H "Authorization: Bearer YOUR_KEY"
 
 # Metrics and tags

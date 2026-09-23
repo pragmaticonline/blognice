@@ -44,6 +44,12 @@ export function isValidMp3(bytes: Uint8Array): boolean {
 
 export const AUDIO_MIME = "audio/mpeg";
 
+// audio/mp3 is a widespread non-standard alias (some HTTP clients and tools
+// send it). Accept it at the gate; storage always uses the canonical type.
+export function isAudioMime(type: unknown): boolean {
+  return type === AUDIO_MIME || type === "audio/mp3";
+}
+
 // Single-range parsing for media seeking (audio scrubbing). Returns an
 // inclusive slice or null when the header is absent, malformed, multi-range,
 // or unsatisfiable (caller answers 416).

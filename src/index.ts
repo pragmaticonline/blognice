@@ -117,7 +117,7 @@ const termsPage = termsPageSource.replaceAll("hateful, ", "").replaceAll("Resend
 import policiesPage from "../policies.html";
 import faviconSvg from "../favicon.svg";
 import { OG_IMAGE_BASE64, OG_IMAGE_CONTENT_TYPE } from "./og-image";
-import { AUDIO_MIME, findMediaUse, mediaKey, mediaUrl, parseRange, prepareAudioUpload, validLibraryFile } from "./media";
+import { AUDIO_MIME, findMediaUse, isAudioMime, mediaKey, mediaUrl, parseRange, prepareAudioUpload, validLibraryFile } from "./media";
 import {
   AI_AUTOPILOT_MODEL,
   AI_BRIEF_MODEL,
@@ -2123,7 +2123,7 @@ app.post("/api/v1/blogs/:blogId/posts/:id/audio", async (c) => {
   try { form = await c.req.formData(); } catch { return c.json({ error: "expected multipart/form-data with a file field" }, 400); }
   const file = form.get("file");
   if (!(file instanceof File)) return c.json({ error: "file is required" }, 400);
-  if (file.type !== AUDIO_MIME) return c.json({ error: "unsupported audio type (expected MP3)" }, 400);
+  if (!isAudioMime(file.type)) return c.json({ error: "unsupported audio type (expected MP3)" }, 400);
   if (file.size > MAX_UPLOAD) return c.json({ error: "audio too large" }, 413);
   const bytes = new Uint8Array(await file.arrayBuffer());
   let audio: { key: string; url: string; snippet: string; originalName: string };
@@ -2558,7 +2558,7 @@ app.post("/api/v1/blogs/:blogId/media", async (c) => {
   const file = form.get("file") as unknown as File | null;
   if (!(file instanceof File)) return c.json({ error: "file is required" }, 400);
   const type = file.type;
-  if (type === AUDIO_MIME) {
+  if (isAudioMime(type)) {
     if (file.size > MAX_UPLOAD) return c.json({ error: "audio too large" }, 413);
     let audio: { key: string; url: string; snippet: string; originalName: string };
     const audioBytes = new Uint8Array(await file.arrayBuffer());
@@ -4111,7 +4111,7 @@ app.post("/admin/b/:blogId/upload", async (c) => {
   if (!(file instanceof File)) return c.json({ error: "no file" }, 400);
 
   const type = file.type;
-  if (type === AUDIO_MIME) {
+  if (isAudioMime(type)) {
     if (file.size > MAX_UPLOAD) return c.json({ error: "audio too large" }, 413);
     const audioBytes = new Uint8Array(await file.arrayBuffer());
     let audio: { key: string; url: string; snippet: string; originalName: string };
@@ -4726,7 +4726,7 @@ app.post("/admin/b/:blogId/audio/:id/upload", async (c) => {
   try { form = await c.req.formData(); } catch { return c.json({ error: "expected multipart/form-data with a file field" }, 400); }
   const file = form.get("file");
   if (!(file instanceof File)) return c.json({ error: "no file" }, 400);
-  if (file.type !== AUDIO_MIME) return c.json({ error: "unsupported audio type (expected MP3)" }, 400);
+  if (!isAudioMime(file.type)) return c.json({ error: "unsupported audio type (expected MP3)" }, 400);
   if (file.size > MAX_UPLOAD) return c.json({ error: "audio too large" }, 413);
   const bytes = new Uint8Array(await file.arrayBuffer());
   let audio: { key: string; url: string; snippet: string; originalName: string };

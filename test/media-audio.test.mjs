@@ -109,6 +109,15 @@ test("editor body uploads and library picker insert audio as a bare URL", () => 
   assert.match(source, /data-audio="1"/);
 });
 
+test("audio MIME gating accepts the mp3 alias", async () => {
+  const { isAudioMime, AUDIO_MIME } = await import("../src/media.ts");
+  assert.equal(AUDIO_MIME, "audio/mpeg");
+  assert.equal(isAudioMime("audio/mpeg"), true);
+  assert.equal(isAudioMime("audio/mp3"), true);
+  assert.equal(isAudioMime("application/octet-stream"), false);
+  assert.equal(isAudioMime("audio/wav"), false);
+});
+
 test("media picker filters by the button that opened it", () => {
   const source = readFileSync(new URL("../src/admin.ts", import.meta.url), "utf8");
   assert.match(source, /openLibrary\("audio"\)/);
@@ -123,7 +132,7 @@ test("editor has a visible Add audio button wired to the media picker", () => {
 
 test("API docs cover audio upload and narration upload", () => {
   const source = readFileSync(new URL("../src/admin.ts", import.meta.url), "utf8");
-  assert.match(source, /-F file=@clip\.mp3/);
+  assert.match(source, /-F "file=@clip\.mp3;type=audio\/mpeg"/);
   assert.match(source, /posts\/POST_ID\/audio/);
 });
 
