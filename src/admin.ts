@@ -1394,6 +1394,7 @@ export function editorPage(
           <button class="tab" type="button" id="tab-preview" aria-selected="false">Preview</button>
           <span class="spacer"></span>
           <button class="tab img-btn" type="button" id="add-image">🖼 Add image</button>
+          <button class="tab img-btn" type="button" id="add-audio">🔊 Add audio</button>
           <input type="file" id="file-input" accept="image/*,audio/mpeg,.mp3" multiple hidden>
         </div>
         <p class="markdown-intro" id="markdown-intro">You can write normally. Markdown adds formatting when you want it—select some text and use these buttons.</p>
@@ -1430,6 +1431,7 @@ export function editorPage(
               <p><code>[text](https://example.com)</code><span>Link</span></p>
               <p><code>[Jump](#heading-name)</code><span>Link to a heading</span></p>
               <p><code>![Alt text](https://example.com/image.jpg)</code><span>Image—Add image is easier</span></p>
+              <p><code>https://example.com/clip.mp3</code><span>Audio player (own line)—Add audio is easier</span></p>
               <p><code>&#96;code&#96;</code><span>Inline code</span></p>
               <p><code>&#96;&#96;&#96; … &#96;&#96;&#96;</code><span>Code block</span></p>
               <p><code>&#92;*not italic&#92;*</code><span>Show Markdown symbols</span></p>
@@ -1605,6 +1607,7 @@ export function editorPage(
         var uploadUrl = "${base}/upload";
         var fileInput = document.getElementById("file-input");
         var addImage = document.getElementById("add-image");
+        var addAudio = document.getElementById("add-audio");
         var mediaDialog = document.getElementById("media-dialog");
         var mediaDialogBody = document.getElementById("media-dialog-body");
         var mediaDialogTitle = document.getElementById("media-dialog-title");
@@ -1834,6 +1837,7 @@ export function editorPage(
           }).catch(function(){mediaDialogBody.innerHTML='<p class="error">Could not load media.</p>';});
         }
         addImage.addEventListener("click", function () { openLibrary("body"); });
+        if (addAudio) addAudio.addEventListener("click", function () { openLibrary("body"); });
         chooseFeatured.addEventListener("click", function () { openLibrary("featured"); });
         removeFeatured.addEventListener("click", function () { setFeatured("", ""); });
         document.getElementById("media-close").addEventListener("click",function(){mediaDialog.close();});

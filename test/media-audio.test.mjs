@@ -109,6 +109,12 @@ test("editor body uploads and library picker insert audio as a bare URL", () => 
   assert.match(source, /data-audio="1"/);
 });
 
+test("editor has a visible Add audio button wired to the media picker", () => {
+  const source = readFileSync(new URL("../src/admin.ts", import.meta.url), "utf8");
+  assert.match(source, /id="add-audio"/);
+  assert.match(source, /addAudio\.addEventListener\("click", function \(\) \{ openLibrary\("body"\); \}\);/);
+});
+
 test("API docs cover audio upload and narration upload", () => {
   const source = readFileSync(new URL("../src/admin.ts", import.meta.url), "utf8");
   assert.match(source, /-F file=@clip\.mp3/);
