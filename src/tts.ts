@@ -202,6 +202,18 @@ function removeNumericSeparators(value: string): string {
   return value.replace(/(?<=\d),(?=\d)/g, "");
 }
 
+// Decimal numbers ("4.9") reach the TTS engine raw and get misread, so expand
+// them: integer part in words, each fraction digit spoken ("four point nine").
+// Dotted versions ("1.13.0") are skipped — only a lone decimal point counts.
+function expandDecimalNumbers(value: string): string {
+  return value.replace(/(?<!\d\.)\b-?\d+\.\d+\b(?!\.\d)/g, (match) => {
+    const negative = match.startsWith("-");
+    const [int, frac] = (negative ? match.slice(1) : match).split(".");
+    const spokenFrac = frac.split("").map((digit) => numberWords(Number(digit))).join(" ");
+    return `${negative ? "minus " : ""}${numberWords(Number(int))} point ${spokenFrac}`;
+  });
+}
+
 function spokenDomains(value: string): string {
   return value
     .replace(/\bhttps?:\/\/[^\s]+/gi, " ")
@@ -262,7 +274,7 @@ function removeMarkdownTables(value: string): string {
 }
 
 function cleanSpeech(value: string, overrides: PronunciationReplacement[] = []): string {
-  return disambiguateRead(spokenForms(applyManagedSpokenForms(spokenDomains(removeNumericSeparators(removeEmoji(value))), overrides)))
+  return disambiguateRead(spokenForms(applyManagedSpokenForms(spokenDomains(expandDecimalNumbers(removeNumericSeparators(removeEmoji(value)))), overrides)))
     .replace(/\s*[—–]\s*/g, ", ")
     .replace(/\s*&\s*/g, " and ")
     .replace(/\s+([.,!?;:])(?!\.\.)/g, "$1")

@@ -207,6 +207,16 @@ test("narration removes separators inside numbers", () => {
   assert.doesNotMatch(text, /1,2/);
 });
 
+test("narration expands decimal numbers into spoken words", () => {
+  const text = narrationText("Scores", "Version 4.9 scores 48.9 overall, see jev-1.13.0 for details.");
+  assert.match(text, /four point nine/);
+  assert.match(text, /forty eight point nine/);
+  assert.doesNotMatch(text, /4\.9/);
+  assert.doesNotMatch(text, /48\.9/);
+  // Dotted versions are not decimals; leave their handling unchanged.
+  assert.doesNotMatch(text, /one point/);
+});
+
 test("hostnames are spoken with explicit dots", () => {
   const text = narrationText("Visit development.blognice.com", "Read development.blognice.com or https://www.blognice.com for more.");
   assert.doesNotMatch(text, /development dot blognice dot com/);
