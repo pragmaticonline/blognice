@@ -685,6 +685,7 @@ export const STYLES = /* css */ `
   .share-inline { display: none; }
   .byline-name { font-family: var(--sans); font-size: 1rem; color: var(--ink); font-weight: 500; }
   .byline-meta { font-family: var(--sans); font-size: 0.9rem; color: var(--muted); margin-top: 0.1rem; }
+  .byline-meta-line { display: block; }
   .post-audio { display: block; width: 19rem; height: 2rem; margin-left: auto; flex: 0 1 19rem; }
   .post-audio-mobile { display: none; align-items: center; gap: .45rem; padding: .5rem .9rem; border: 1px solid var(--rule); border-radius: 999px; background: var(--bg); color: var(--muted); font-family: var(--sans); font-size: .9rem; font-weight: 600; line-height: 1; cursor: pointer; flex: 0 0 auto; margin-left: auto; }
   .post-audio-mobile:hover, .post-audio-mobile:focus-visible { color: var(--accent); border-color: var(--accent); }
@@ -1936,7 +1937,7 @@ export function renderPost(
         }
         <div>
           <div class="byline-name">${post.author_visible === 0 ? esc(tenant.title) : `Author: ${esc(post.author_name && !post.author_name.includes("@") ? post.author_name : tenant.title)}`}</div>
-          <div class="byline-meta">${post.author_visible !== 0 && post.author_name && !post.author_name.includes("@") && post.author_name !== tenant.title ? `For ${esc(tenant.title)} · ` : ""}${formatDate(post.created_at)} · ${readingTime(post.body_md)} min read</div>
+          <div class="byline-meta">${post.author_visible !== 0 && post.author_name && !post.author_name.includes("@") && post.author_name !== tenant.title ? `<span class="byline-meta-line">For ${esc(tenant.title)}</span>` : ""}<span class="byline-meta-line">${formatDate(post.created_at)}</span><span class="byline-meta-line">${readingTime(post.body_md)} min read</span></div>
         </div>
       </a>
       ${post.audio_key ? `<audio class="post-audio" data-narration controls preload="none" aria-label="Listen to this article" src="/media/${esc(post.audio_key)}">Your browser does not support audio playback.</audio><button class="post-audio-mobile" type="button" data-narration-mobile aria-label="Play narration"><span aria-hidden="true"><svg class="icon-play" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><svg class="icon-pause" viewBox="0 0 24 24" hidden><rect x="6" y="4" width="4" height="16" rx="1"></rect><rect x="14" y="4" width="4" height="16" rx="1"></rect></svg></span><span class="post-audio-mobile-label">Play</span></button>` : ""}

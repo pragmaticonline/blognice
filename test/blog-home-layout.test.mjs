@@ -4,6 +4,12 @@ import test from "node:test";
 
 const renderSource = readFileSync(new URL("../src/render.ts", import.meta.url), "utf8");
 
+test("byline date and read time stack on their own lines", () => {
+  assert.match(renderSource, /byline-meta-line\s*\{[^}]*display:\s*block/);
+  assert.match(renderSource, /byline-meta-line">\$\{formatDate\(post\.created_at\)\}/);
+  assert.match(renderSource, /\$\{readingTime\(post\.body_md\)\} min read<\/span>/);
+});
+
 test("breadcrumbs truncate visually on mobile without losing data", () => {
   assert.match(renderSource, /\.breadcrumbs \[aria-current="page"\] \{[^}]*text-overflow:ellipsis/);
   assert.match(renderSource, /aria-current="page" title="\$\{esc\(page\.title\)\}"/);
