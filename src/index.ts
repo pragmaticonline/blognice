@@ -107,6 +107,7 @@ import cookiesPage from "../cookies.html";
 import securityPage from "../security.html";
 import pressPage from "../press.html";
 import pressLaunchPage from "../press-launch.html";
+import manifestoPage from "../manifesto.html";
 import affiliatePage from "../affiliate.html";
 
 // Keep the published legal text aligned with the maintained policy sources.
@@ -6810,6 +6811,12 @@ app.get("/press", (c) => {
 
 app.get("/press/2026-09-blognice-launch", (c) => {
   return new Response(pressLaunchPage, {
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60, s-maxage=300" },
+  });
+});
+
+app.get("/manifesto", (c) => {
+  return new Response(manifestoPage, {
     headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60, s-maxage=300" },
   });
 });

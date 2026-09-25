@@ -71,6 +71,25 @@ test("marketing homepage description fills the 120-160 display range", () => {
   assert.ok(m[1].length >= 120 && m[1].length <= 160, `description is ${m[1].length} chars`);
 });
 
+test("privacy manifesto page is complete and discoverable", () => {
+  const manifesto = readFileSync(new URL("../manifesto.html", import.meta.url), "utf8");
+  const title = manifesto.match(/<title>([^<]*)<\/title>/);
+  assert.ok(title && title[1].length <= 70, "manifesto title fits display");
+  const desc = manifesto.match(/<meta name="description" content="([^"]*)"/);
+  assert.ok(desc && desc[1].length >= 120 && desc[1].length <= 160, "manifesto description fills range");
+  assert.match(manifesto, /<link rel="canonical" href="https:\/\/www\.blognice\.com\/manifesto"/);
+  assert.match(manifesto, /property="og:title"/);
+  assert.match(manifesto, /Pragmatic Online Co\., Ltd\./);
+  assert.match(manifesto, /September 2026/);
+  const index = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
+  assert.match(index, /app\.get\("\/manifesto"/);
+});
+
+test("pricing section compares self-hosted and cloud", () => {
+  assert.match(homepage, /Self-hosted/);
+  assert.match(homepage, /Blognice Cloud|Managed|Hosted/);
+});
+
 test("compare grid is constrained and centred under its heading", () => {
   assert.match(homepage, /\.compare-grid\{[^}]*max-width:900px/);
   assert.match(homepage, /\.compare-grid\{[^}]*margin-inline:auto/);
