@@ -211,9 +211,12 @@ export function renderAffiliateOfferPage(
   const control = homepage
     .replace("<title>Blognice: Open-Source, Privacy-First Blogging Platform</title>", "<title>10% off Blognice for 12 months</title>")
     .replace(
-      '<meta name="description" content="Create beautiful, fast blogs without hosting, plugins, updates, or technical maintenance.">',
-      '<meta name="description" content="Start a beautiful Blognice blog and save 10% on your first 12 paid months.">\n<meta name="robots" content="noindex,follow">',
+      '<meta name="description" content="Run up to 5 fast, beautiful blogs with custom domains and Markdown publishing — no hosting, plugins, or upkeep. Privacy-first, no tracking.">',
+      '<meta name="description" content="Start a beautiful Blognice blog and save 10% on your first 12 paid months.">',
     )
+    // noindex rides on the canonical link, not marketing copy: copy edits
+    // must never silently drop it again.
+    .replace('<link rel="canonical" href="https://www.blognice.com/">', '<link rel="canonical" href="https://www.blognice.com/">\n<meta name="robots" content="noindex,follow">')
     .replace('<link rel="canonical" href="https://www.blognice.com/">', `<link rel="canonical" href="${canonical}">`)
     .replace('<meta property="og:title" content="Blognice: Open-Source, Privacy-First Blogging Platform">', '<meta property="og:title" content="Save 10% on Blognice for 12 months">')
     .replace('<meta property="og:description" content="Create beautiful, fast blogs without hosting, plugins, updates, or technical maintenance.">', '<meta property="og:description" content="Start writing on Blognice and receive 10% off your first 12 paid months.">')
