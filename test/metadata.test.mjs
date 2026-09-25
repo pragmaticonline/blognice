@@ -65,6 +65,24 @@ test("marketing homepage carries Organization structured data", () => {
   assert.match(homepage, /"name":"Blognice"/);
 });
 
+test("marketing homepage description fills the 120-160 display range", () => {
+  const m = homepage.match(/<meta name="description" content="([^"]*)"/);
+  assert.ok(m, "homepage has a meta description");
+  assert.ok(m[1].length >= 120 && m[1].length <= 160, `description is ${m[1].length} chars`);
+});
+
+test("compare grid is constrained and centred under its heading", () => {
+  assert.match(homepage, /\.compare-grid\{[^}]*max-width:900px/);
+  assert.match(homepage, /\.compare-grid\{[^}]*margin-inline:auto/);
+});
+
+test("press launch title tag fits display while the headline stays intact", () => {
+  const m = pressLaunch.match(/<title>([^<]*)<\/title>/);
+  assert.ok(m, "press page has a title tag");
+  assert.ok(m[1].length <= 70, `title tag is ${m[1].length} chars`);
+  assert.match(pressLaunch, /<h1>Blognice: Open-Source, Privacy-First Blogging Platform for Managing Multiple Blogs<\/h1>/);
+});
+
 test("press launch page has social share tags and theme color", () => {
   assert.match(pressLaunch, /property="og:title"/);
   assert.match(pressLaunch, /property="og:description"/);
