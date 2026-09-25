@@ -4,6 +4,12 @@ import test from "node:test";
 
 const renderSource = readFileSync(new URL("../src/render.ts", import.meta.url), "utf8");
 
+test("breadcrumbs truncate visually on mobile without losing data", () => {
+  assert.match(renderSource, /\.breadcrumbs \[aria-current="page"\] \{[^}]*text-overflow:ellipsis/);
+  assert.match(renderSource, /aria-current="page" title="\$\{esc\(page\.title\)\}"/);
+  assert.match(renderSource, /aria-current="page" title="\$\{esc\(post\.title\)\}"/);
+});
+
 test("tenant homepage art matches the designer mockup aspect ratios", () => {
   assert.match(renderSource, /\.blog-art \{ display:block; aspect-ratio:16 \/ 9/);
   assert.match(renderSource, /\.blog-cards, \.blog-popular-cards \{ display:grid; grid-template-columns:repeat\(3/);

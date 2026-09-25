@@ -448,6 +448,10 @@ export const STYLES = /* css */ `
   .breadcrumbs { font-family:var(--sans); font-size:.84rem; color:var(--muted); margin:.5rem 0 0; display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; }
   .breadcrumbs a { color:var(--muted); text-decoration:none; }
   .breadcrumbs a:hover { color:var(--accent); text-decoration:underline; }
+  @media (max-width:640px) {
+    .breadcrumbs { font-size:.75rem; flex-wrap:nowrap; }
+    .breadcrumbs [aria-current="page"] { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+  }
   .related-posts { margin:3rem 0 1rem; padding-top:2rem; border-top:1px solid var(--rule); font-family:var(--sans); font-size:1rem; line-height:1.6; }
   .related-posts h2 { font-family:var(--sans); font-size:1.25rem; font-weight:700; margin:0 0 1rem; }
   .related-posts .blog-excerpt { font-family:var(--sans); font-size:1rem; }
@@ -1215,7 +1219,7 @@ export function renderPage(
       ],
     },
   ];
-  const breadcrumbs = `<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> <span aria-hidden="true">›</span> <span aria-current="page">${esc(page.title)}</span></nav>`;
+  const breadcrumbs = `<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> <span aria-hidden="true">›</span> <span aria-current="page" title="${esc(page.title)}">${esc(page.title)}</span></nav>`;
   return shell({
     tenant,
     pageTitle: `${page.title} — ${tenant.title}`,
@@ -1910,7 +1914,7 @@ export function renderPost(
   const canonical = `${origin}/${post.slug}`;
   const postImage = post.featured_image_key ? `${origin}/media/${post.featured_image_key}` : (tenant.avatar_key ? `${origin}/media/${tenant.avatar_key}` : undefined);
   const authorNameClean = post.author_name && !post.author_name.includes("@") ? post.author_name : tenant.title;
-  const breadcrumbs = `<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> <span aria-hidden="true">›</span> <span aria-current="page">${esc(post.title)}</span></nav>`;
+  const breadcrumbs = `<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> <span aria-hidden="true">›</span> <span aria-current="page" title="${esc(post.title)}">${esc(post.title)}</span></nav>`;
   const relatedBlock = relatedPosts.length
     ? `<section class="related-posts" aria-label="Related posts"><h2>Related posts</h2><div class="blog-cards">${relatedPosts.map((rp) => `<article class="blog-card"><a class="blog-art" href="/${esc(rp.slug)}">${rp.featured_image_key ? `<img src="/media/${esc(rp.featured_image_key)}" ${contentAlt(rp.title)} loading="lazy" width="800" height="450" style="aspect-ratio:16/9;object-fit:cover">` : ""}</a><h3><a href="/${esc(rp.slug)}">${esc(rp.title)}</a></h3><p class="blog-excerpt">${esc(excerpt(rp.body_md, 100))}</p></article>`).join("")}</div></section>`
     : "";
