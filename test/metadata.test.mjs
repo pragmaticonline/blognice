@@ -96,6 +96,12 @@ test("homepage QA punchlist: rows, panels, headings, padding, footer", () => {
   assert.match(homepage, /\.footer-actions \.link-underline\{[^}]*align-self:flex-start/);
 });
 
+test("all section headers are centred", () => {
+  assert.match(homepage, /\.section-head\{[^}]*margin-inline:auto/);
+  assert.match(homepage, /\.section-head\{[^}]*text-align:center/);
+  assert.match(homepage, /\.host-compare\{[^}]*text-align:center/);
+});
+
 test("mobile nav has an accessible toggle instead of vanishing links", () => {
   assert.match(homepage, /id="nav-toggle"/);
   assert.match(homepage, /aria-expanded/);
