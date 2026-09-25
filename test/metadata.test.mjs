@@ -4,6 +4,7 @@ import test from "node:test";
 
 const render = readFileSync(new URL("../src/render.ts", import.meta.url), "utf8");
 const homepage = readFileSync(new URL("../homepage.html", import.meta.url), "utf8");
+const pressLaunch = readFileSync(new URL("../press-launch.html", import.meta.url), "utf8");
 
 test("public blog shell emits complete social metadata", () => {
   assert.match(render, /property=\"og:site_name\"/);
@@ -57,4 +58,26 @@ test("marketing homepage has canonical and social metadata", () => {
   assert.match(homepage, /name="twitter:image" content="https:\/\/www\.blognice\.com\/og-image\.jpg"/);
   assert.doesNotMatch(homepage, /og:image" content="[^"]*\.svg"/);
   assert.doesNotMatch(homepage, /twitter:image" content="[^"]*\.svg"/);
+});
+
+test("marketing homepage carries Organization structured data", () => {
+  assert.match(homepage, /"@type":"Organization"/);
+  assert.match(homepage, /"name":"Blognice"/);
+});
+
+test("press launch page has social share tags and theme color", () => {
+  assert.match(pressLaunch, /property="og:title"/);
+  assert.match(pressLaunch, /property="og:description"/);
+  assert.match(pressLaunch, /property="og:url" content="https:\/\/blognice\.com\/press\/2026-09-blognice-launch"/);
+  assert.match(pressLaunch, /property="og:type" content="article"/);
+  assert.match(pressLaunch, /name="twitter:card" content="summary_large_image"/);
+  assert.match(pressLaunch, /name="theme-color"/);
+});
+
+test("blog card images fall back to the post title for alt text", () => {
+  assert.match(render, /export function contentAlt\(title: string\)/);
+  assert.match(render, /blog-card/);
+  assert.match(render, /\$\{contentAlt\(post\.title\)\}/);
+  assert.match(render, /\$\{contentAlt\(rp\.title\)\}/);
+  assert.doesNotMatch(render, /blog-card[^\\n]*alt=\\"\\"/);
 });

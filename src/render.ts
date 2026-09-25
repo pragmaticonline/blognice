@@ -132,6 +132,12 @@ export function esc(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
+// Content images (cards, heroes) describe their post when no dedicated
+// caption exists. Decorative images (avatars) keep alt="".
+export function contentAlt(title: string): string {
+  return `alt="${esc(title)}"`;
+}
+
 export function formatDate(unixSeconds: number): string {
   return new Date(unixSeconds * 1000).toLocaleDateString("en-US", {
     year: "numeric",
@@ -1032,7 +1038,7 @@ export function renderHome(
   const topics = tenantTopics(tenant);
   const art = (post: Post, index: number, rank?: number) =>
     post.featured_image_key
-      ? `<img src="/media/${esc(post.featured_image_key)}" alt="" loading="lazy" width="800" height="450" style="aspect-ratio:16/9;object-fit:cover">`
+      ? `<img src="/media/${esc(post.featured_image_key)}" ${contentAlt(post.title)} loading="lazy" width="800" height="450" style="aspect-ratio:16/9;object-fit:cover">`
       : rank
         ? `<span class="rank">${rank}</span>`
         : "";
@@ -1130,7 +1136,7 @@ export function renderTagPage(
     ? `<img class="blog-avatar" src="/media/${esc(tenant.avatar_key)}" alt="">`
     : `<div class="blog-avatar">${monogram(tenant.title)}</div>`;
   const header = `<nav class="blog-nav"><a href="${esc(headerHref(tenant))}"${headerLinkIsExternal(tenant) ? ' target="_blank" rel="noopener noreferrer"' : ''} class="blog-header-id"><div>${avatar}</div><div class="blog-header-text"><div class="site-title">${esc(tenant.title)}</div>${tenant.description ? `<div class="blog-tagline">${esc(tenant.description)}</div>` : ""}</div></a></nav>`;
-  const cards = posts.map((post) => `<article class="blog-card"><a class="blog-art" href="/${esc(post.slug)}">${post.featured_image_key ? `<img src="/media/${esc(post.featured_image_key)}" alt="" loading="lazy" width="800" height="450" style="aspect-ratio:16/9;object-fit:cover">` : ""}</a><h3><a href="/${esc(post.slug)}">${esc(post.title)}</a></h3><p class="blog-excerpt">${esc(excerpt(post.body_md, 125))}</p><div class="blog-meta">${formatDate(post.created_at)} · ${readingTime(post.body_md)} min read</div></article>`).join("");
+  const cards = posts.map((post) => `<article class="blog-card"><a class="blog-art" href="/${esc(post.slug)}">${post.featured_image_key ? `<img src="/media/${esc(post.featured_image_key)}" ${contentAlt(post.title)} loading="lazy" width="800" height="450" style="aspect-ratio:16/9;object-fit:cover">` : ""}</a><h3><a href="/${esc(post.slug)}">${esc(post.title)}</a></h3><p class="blog-excerpt">${esc(excerpt(post.body_md, 125))}</p><div class="blog-meta">${formatDate(post.created_at)} · ${readingTime(post.body_md)} min read</div></article>`).join("");
   const body = `${header}<section class="blog-section tag-page"><div class="blog-kicker">Posts tagged</div><h1 class="tag-page-title">#${esc(tag)}</h1>${posts.length ? `<div class="blog-cards">${cards}</div>` : `<p class="feed-meta">No published posts use this tag yet.</p>`}</section><div id="subscribe" class="blog-subscribe-wrap">${subscribeBox(tenant)}</div>`;
   const tagJsonLd = [
     {
@@ -1897,7 +1903,7 @@ export function renderPost(
   </div>`;
   const shareScript = `<script>(function(){var buttons=document.querySelectorAll("[data-share-copy]");buttons.forEach(function(button){button.addEventListener("click",function(){var value=button.getAttribute("data-share-copy")||location.href;var done=function(){button.classList.add("is-copied");button.textContent="✓";setTimeout(function(){button.classList.remove("is-copied");button.textContent="↗"},1400)};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(value).then(done).catch(function(){})}else{var input=document.createElement("input");input.value=value;document.body.appendChild(input);input.select();try{document.execCommand("copy");done()}catch(e){}input.remove()}})});var more=document.querySelector("[data-share-more]");var panel=document.querySelector("[data-share-panel]");if(more&&panel){more.addEventListener("click",function(){var expanded=more.getAttribute("aria-expanded")==="true";more.setAttribute("aria-expanded",expanded?"false":"true");if(expanded){panel.hidden=true}else{panel.hidden=false;}try{more.blur();}catch(e){}});document.addEventListener("click",function(e){if(!more.contains(e.target)&&!panel.contains(e.target)){panel.hidden=true;more.setAttribute("aria-expanded","false");}});document.addEventListener("keydown",function(e){if(e.key==="Escape"){panel.hidden=true;more.setAttribute("aria-expanded","false");}});}})();</script>`;
   const featuredBlock = post.featured_image_key
-    ? `<div class="post-featured-row"><aside>${shareRail}</aside><div><img class="featured-image" src="/media/${esc(post.featured_image_key)}" alt="" width="1200" height="675" style="aspect-ratio:16/9;object-fit:cover"></div></div>`
+    ? `<div class="post-featured-row"><aside>${shareRail}</aside><div><img class="featured-image" src="/media/${esc(post.featured_image_key)}" ${contentAlt(post.title)} width="1200" height="675" style="aspect-ratio:16/9;object-fit:cover"></div></div>`
     : `<div class="share-inline">${shareRail}</div>`;
   const rawDescription = (post.meta_description?.trim() || excerpt(post.body_md, 155) || tenant.description || post.title).slice(0, 155);
   const description = rawDescription;
@@ -1906,7 +1912,7 @@ export function renderPost(
   const authorNameClean = post.author_name && !post.author_name.includes("@") ? post.author_name : tenant.title;
   const breadcrumbs = `<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> <span aria-hidden="true">›</span> <span aria-current="page">${esc(post.title)}</span></nav>`;
   const relatedBlock = relatedPosts.length
-    ? `<section class="related-posts" aria-label="Related posts"><h2>Related posts</h2><div class="blog-cards">${relatedPosts.map((rp) => `<article class="blog-card"><a class="blog-art" href="/${esc(rp.slug)}">${rp.featured_image_key ? `<img src="/media/${esc(rp.featured_image_key)}" alt="" loading="lazy" width="800" height="450" style="aspect-ratio:16/9;object-fit:cover">` : ""}</a><h3><a href="/${esc(rp.slug)}">${esc(rp.title)}</a></h3><p class="blog-excerpt">${esc(excerpt(rp.body_md, 100))}</p></article>`).join("")}</div></section>`
+    ? `<section class="related-posts" aria-label="Related posts"><h2>Related posts</h2><div class="blog-cards">${relatedPosts.map((rp) => `<article class="blog-card"><a class="blog-art" href="/${esc(rp.slug)}">${rp.featured_image_key ? `<img src="/media/${esc(rp.featured_image_key)}" ${contentAlt(rp.title)} loading="lazy" width="800" height="450" style="aspect-ratio:16/9;object-fit:cover">` : ""}</a><h3><a href="/${esc(rp.slug)}">${esc(rp.title)}</a></h3><p class="blog-excerpt">${esc(excerpt(rp.body_md, 100))}</p></article>`).join("")}</div></section>`
     : "";
   const proseClass = openingParagraphHasDropCap(htmlBody) ? "prose lead-dropcap" : "prose";
   const draftBand = isDraftPreview
