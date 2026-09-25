@@ -85,6 +85,29 @@ test("privacy manifesto page is complete and discoverable", () => {
   assert.match(index, /app\.get\("\/manifesto"/);
 });
 
+test("homepage QA punchlist: rows, panels, headings, padding, footer", () => {
+  assert.match(homepage, /\.feat-row\{grid-template-columns:1fr/);
+  assert.match(homepage, /\.blog-row\{[^}]*flex-direction:column/);
+  assert.match(homepage, /\.we-visual \.toolbar\{[^}]*flex-wrap:wrap/);
+  assert.match(homepage, /\.we-grid\{[^}]*align-items:start/);
+  assert.match(homepage, /\.blogs-visual\{[^}]*max-width:900px/);
+  assert.match(homepage, /text-wrap:balance/);
+  assert.match(homepage, /section\.manifesto[^{]*\{[^}]*padding:64px 0/);
+  assert.match(homepage, /\.footer-actions \.link-underline\{[^}]*align-self:flex-start/);
+});
+
+test("mobile nav has an accessible toggle instead of vanishing links", () => {
+  assert.match(homepage, /id="nav-toggle"/);
+  assert.match(homepage, /aria-expanded/);
+  assert.match(homepage, /\.nav-links\.is-open\{/);
+});
+
+test("pricing cards align buttons via flex, not offsets", () => {
+  assert.match(homepage, /\.price-box\{[^}]*display:flex/);
+  assert.match(homepage, /\.price-box \.btn\{[^}]*margin-top:auto/);
+  assert.doesNotMatch(homepage, /\.price-box\.recommended\{[^}]*translateY\(-8px\)/);
+});
+
 test("pricing section compares self-hosted and cloud", () => {
   assert.match(homepage, /Self-hosted/);
   assert.match(homepage, /Blognice Cloud|Managed|Hosted/);

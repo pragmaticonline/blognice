@@ -45,7 +45,7 @@ test("marketing homepage protects narrow mobile layout and anchor targets", () =
 });
 
 test("marketing homepage FAQ exposes accessible expansion state", () => {
-  assert.equal((homepage.match(/aria-expanded="false"/g) || []).length, 5);
+  assert.equal((homepage.match(/class="faq-q" aria-expanded="false"/g) || []).length, 5);
   assert.equal((homepage.match(/aria-controls="faq-a-[1-5]"/g) || []).length, 5);
   assert.equal((homepage.match(/<div class="faq-a" id="faq-a-[1-5]" hidden>/g) || []).length, 5);
   assert.match(homepage, /setAttribute\('aria-expanded', 'true'\)/);
