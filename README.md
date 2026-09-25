@@ -296,6 +296,9 @@ application audience tag, index database ID, and an initial
 
     npm run deploy:staff:production
 
+<details>
+<summary>Staff deployment and operations</summary>
+
 The staff Worker provides account and blog search, support context, activity,
 notes, locks, rate-limit controls, impersonation, export and deletion actions,
 affiliate support, payout operations, and experiment reporting. Access varies
@@ -311,6 +314,8 @@ Configure the MailNice secret on the staff Worker (secrets belong to each
 Worker independently):
 
     npx wrangler secret put MAILNICE_API_KEY --config wrangler.staff.production.jsonc
+
+</details>
 
 ## Metrics
 
@@ -479,6 +484,9 @@ crypto assets and handles conversion to the merchant's configured settlement
 currency; access is granted only after a verified `finished` IPN and a server-side
 payment lookup. The browser return URL never grants access.
 
+<details>
+<summary>NOWPayments setup and ledger rules</summary>
+
 Configure the NOWPayments API key and IPN secret as Worker secrets:
 
 ```sh
@@ -497,6 +505,8 @@ Crypto payments are recorded in the separate `crypto_payments` ledger and are
 idempotent. Failed, expired, partial, refunded, or merely confirming payments do
 not grant Pro access.
 
+</details>
+
 ## Stripe billing (initial foundation)
 
 blognice uses Stripe-hosted Checkout for starting a subscription and Stripe's
@@ -504,6 +514,9 @@ hosted Customer Portal for payment methods, invoices, billing details, and
 cancellation. Billing belongs to the account owner, not collaborators. Access
 is updated only from verified Stripe webhooks; returning from Checkout never
 grants access by itself.
+
+<details>
+<summary>Stripe setup and webhook registration</summary>
 
 Configure monthly and yearly recurring Stripe Prices in test mode, then set
 their IDs as `STRIPE_MONTHLY_PRICE_ID` and `STRIPE_YEARLY_PRICE_ID` on the public
@@ -522,6 +535,8 @@ Register it in Stripe Workbench for `checkout.session.completed`,
 portal is configured in Stripe Dashboard; optionally set its configuration ID
 as `STRIPE_PORTAL_CONFIGURATION_ID`. The account billing page is
 `/admin/billing`.
+
+</details>
 
 ### Plans and feature boundaries
 
@@ -696,6 +711,9 @@ The `BLOG_ID` in every `/blogs/:id/...` path is the blog's opaque `public_id`
 returned by `/me`. Post IDs remain numeric. For example, a response may include
 `{"public_id":"ggh6gvgsgj4h","slug":"ray","title":"Ray's blog"}`.
 
+<details>
+<summary>Post, IndexNow, media, and AI generation endpoints</summary>
+
 List blogs and IDs:
 
     curl "$API/me" -H "Authorization: Bearer $KEY"
@@ -770,6 +788,8 @@ status endpoint until `complete` or `failed`; ordinary post creation never
 triggers paid AI work. Every request is checked against the account's
 `memberships`, so a key can only touch blogs its owner controls.
 
+</details>
+
 ## ChatGPT & Claude — MCP server
 
 Blognice exposes a Streamable HTTP MCP server so ChatGPT and Claude can call the per-account API without a Custom GPT. Authenticates via OAuth 2.1 Authorization Code + PKCE S256 when connected as a ChatGPT/Claude Connector (`Authorization: Bearer <oauth_access_token>` on every MCP and `/api/v1/*` request); the same bearer also works for direct `POST /mcp` and API calls. Legacy per-tool `apiKey` (from `https://www.blognice.com/admin/api-key`, paid plan required) is retained for scripts and for MCP tools when not using OAuth — `apiKey` is optional when the request bears a valid OAuth token.
@@ -820,6 +840,9 @@ rules are in
 
 ## Operational safeguards
 
+<details>
+<summary>Authentication, scaling, deletion, and recovery details</summary>
+
 - **Authentication:** signup and failed login attempts are rate-limited. Every
   unsafe cookie-authenticated `/admin/*` request must come from the canonical
   admin origin; bearer-token APIs use their own authentication boundary.
@@ -835,6 +858,8 @@ rules are in
   and perform the [D1 restore drill](docs/restore-drill.md) at least quarterly.
   CI checks README links and npm commands, migration-ledger coverage, and queue
   documentation for common forms of drift.
+
+</details>
 
 Built to run on Cloudflare Workers, D1, and Cloudflare for SaaS.
 
