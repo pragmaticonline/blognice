@@ -699,10 +699,16 @@ export function signupPage(
   values?: { slug?: string; title?: string; email?: string },
   error?: string,
   inviteToken?: string,
-  inviteInfo?: { title: string; role: string; email: string }
+  inviteInfo?: { title: string; role: string; email: string },
+  adsAttribution?: { gclid?: string; gbraid?: string; wbraid?: string; ads_landing?: string }
 ): string {
   void rootDomain;
   const email = esc(values?.email ?? inviteInfo?.email ?? "");
+  const adsFields = adsAttribution
+    ? (["gclid", "gbraid", "wbraid", "ads_landing"] as const)
+        .map((key) => (adsAttribution[key] ? `<input type="hidden" name="${key}" value="${esc(adsAttribution[key]!)}">` : ""))
+        .join("")
+    : "";
   const inviteBanner = inviteToken && inviteInfo
     ? `<div class="notice" style="margin-bottom:1rem">You're invited to join <strong>${esc(inviteInfo.title)}</strong> as <em>${esc(inviteInfo.role)}</em> — create an account for <strong>${esc(inviteInfo.email)}</strong> to accept.</div>`
     : inviteToken
@@ -717,6 +723,7 @@ export function signupPage(
       ${inviteToken ? "" : `<p style="color:var(--muted)">One account, up to five blogs. You can create your first blog right after signing up.</p>`}
       <form method="post" action="/signup">
         ${inviteToken ? `<input type="hidden" name="invite" value="${esc(inviteToken)}">` : ""}
+        ${adsFields}
         <label for="email">Email</label>
         <input id="email" name="email" type="email" value="${email}" autocomplete="username" required ${inviteInfo ? `readonly style="background:var(--rule-bg, #f6f6f5)"` : ""}>
         ${inviteInfo ? `<div style="margin:-0.6rem 0 1rem;color:var(--muted);font-size:0.82rem">Invitation is for ${esc(inviteInfo.email)} — use that address.</div>` : ""}

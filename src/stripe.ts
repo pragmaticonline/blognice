@@ -44,6 +44,7 @@ export type StripeSubscription = {
   created?: number;
   status?: string;
   current_period_end?: number;
+  trial_end?: number;
   cancel_at_period_end?: boolean;
   items?: { data?: Array<{ price?: { id?: string }; current_period_end?: number }> };
 };
@@ -74,6 +75,26 @@ export function subscriptionEventMatchesCurrent(currentId: string | null | undef
 
 export function retrieveSubscription(env: StripeEnv, subscriptionId: string) {
   return stripeGet<StripeSubscription>(env, `subscriptions/${encodeURIComponent(subscriptionId)}`);
+}
+
+export type CheckoutSession = {
+  id: string;
+  status?: string;
+  payment_status?: string;
+  amount_total?: number;
+  currency?: string;
+  client_reference_id?: string;
+  customer?: string;
+  subscription?: string | StripeSubscription;
+  metadata?: Record<string, string>;
+};
+
+// Retrieve a Checkout Session with its subscription expanded, so the billing
+// success page can verify completion server-side instead of trusting the
+// redirect alone.
+export function retrieveCheckoutSession(env: StripeEnv, sessionId: string) {
+  if (!/^cs_(test|live)_[A-Za-z0-9]+$/.test(sessionId)) throw new Error("Invalid checkout session.");
+  return stripeGet<CheckoutSession>(env, `checkout/sessions/${encodeURIComponent(sessionId)}?expand[]=subscription`);
 }
 
 export const TRIAL_PERIOD_DAYS = 14;

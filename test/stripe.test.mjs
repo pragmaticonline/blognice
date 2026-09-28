@@ -429,10 +429,11 @@ test("one trial per account gates checkout on trial_used_at", () => {
   assert.match(source, /trial_used_at/);
   assert.match(source, /const trialEligible = /);
   assert.match(source, /trialPeriodDays: trialDays/);
-  assert.match(source, /trial=1/);
+  // trial and paid checkouts share one verified success page
+  assert.match(source, /\/admin\/billing\/success\?session_id=\{CHECKOUT_SESSION_ID\}/);
   assert.match(source, /Trial started: /);
-  // used trials fall back to the immediate-charge confirmation
-  assert.match(source, /Subscription access will update after Stripe confirms payment/);
+  // unverified or incomplete checkouts fall back to billing with a message
+  assert.match(source, /That checkout is not complete/);
 });
 
 test("trialing webhook stamps trial_used_at without touching paid status flow", () => {

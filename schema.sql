@@ -152,6 +152,26 @@ CREATE UNIQUE INDEX idx_accounts_stripe_customer ON accounts (stripe_customer_id
 CREATE UNIQUE INDEX idx_accounts_stripe_subscription ON accounts (stripe_subscription_id);
 CREATE INDEX idx_accounts_vip_expires_at ON accounts(vip_expires_at);
 
+-- Paid-ads funnel ledger (see migrations/083-ads-funnel.sql). Click
+-- attribution captured at signup, plus the once-per-account conversion record
+-- that keeps the Google Ads conversion event from re-firing.
+CREATE TABLE IF NOT EXISTS ads_attributions (
+  account_id  INTEGER PRIMARY KEY,
+  gclid       TEXT,
+  gbraid      TEXT,
+  wbraid      TEXT,
+  landing_path TEXT NOT NULL DEFAULT '',
+  created_at  INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ads_conversions (
+  account_id     INTEGER PRIMARY KEY,
+  transaction_id TEXT    NOT NULL,
+  value_minor    INTEGER NOT NULL DEFAULT 0,
+  currency       TEXT    NOT NULL DEFAULT 'USD',
+  reported_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ads_conversions_reported ON ads_conversions (reported_at);
+
 CREATE TABLE affiliate_attributions (
   id                  INTEGER PRIMARY KEY,
   referred_account_id INTEGER NOT NULL UNIQUE,

@@ -117,6 +117,7 @@ import cookiesPage from "../cookies.html";
 import securityPage from "../security.html";
 import pressPage from "../press.html";
 import pressLaunchPage from "../press-launch.html";
+import bloggerAlternativePage from "../blogger-alternative.html";
 import manifestoPage from "../manifesto.html";
 import affiliatePage from "../affiliate.html";
 
@@ -154,10 +155,11 @@ import {
   affiliateFunnelSeries,
   type AffiliateFunnelDay,
   recordAuditEvent,
+  recordAdsFunnelEvent,
   analyticsConsentRequired,
   ANALYTICS_CONSENT_VERSION,
 } from "./metrics";
-import { TRIAL_PERIOD_DAYS, checkoutSubscriptionDecision, createAffiliateConnectedAccount, createAffiliateConnectOnboardingLink, createAffiliatePromotionCode, createCheckoutSession, createDomainCheckoutSession, createPortalSession, retrieveSubscription, stripeConfigured, subscriptionEventMatchesCurrent, verifyStripeSignature } from "./stripe";
+import { TRIAL_PERIOD_DAYS, checkoutSubscriptionDecision, createAffiliateConnectedAccount, createAffiliateConnectOnboardingLink, createAffiliatePromotionCode, createCheckoutSession, createDomainCheckoutSession, createPortalSession, retrieveCheckoutSession, retrieveSubscription, stripeConfigured, subscriptionEventMatchesCurrent, verifyStripeSignature } from "./stripe";
 import { createAnnualInvoice, getPayment, isNowPaymentsAmountFullyPaid, isTerminalPaidStatus, nowPaymentsConfigured, verifyNowPaymentsIpn, NOWPAYMENTS_ANNUAL_SECONDS, NOWPAYMENTS_ANNUAL_USD } from "./nowpayments";
 import { affiliateAnnualPriceMinor, attachStripeConnectedAccountInDb, attachStripePromotionCodeInDb, beginCheckoutAttributionInDb, createNowPaymentsCheckoutInDb, createStripeCheckoutInDb, enableAffiliateProfileInDb, parseAffiliateStripeConnectCountries, prepareAffiliatePayoutBatchInDb, reacceptAffiliateTermsInDb, recordPendingStripeFinancialEventInDb, refundNowPaymentsCheckoutInDb, requireCurrentAffiliateTermsInDb, requireOutdatedAffiliateTermsInDb, settleNowPaymentsCheckoutInDb, settleStripeInvoiceInDb, updateStripeConnectedAccountStatusInDb } from "./affiliate";
 import { captureSignupReferral, handleReferralCodeSubmission, handleReferralLink, hasActiveReferralOffer, prepareReferralExperiment, readReferralExperiment } from "./affiliate-referral";
@@ -170,6 +172,7 @@ import { AI_MARKDOWN_TEXT_MAX, confidentLocalMarkdownFormat, conservativeMarkdow
 import { applySubscriberConfirmation, requestSubscriberConfirmation } from "./subscriber-optin";
 import { refreshPostPopularity } from "./popularity";
 import { BLOGGER_SOURCE, BloggerImportError, parseBloggerExport } from "./blogger-import";
+import { adsBaseTag, adsConversionScript, ensureAdsTables, injectAdsClickParams, parseAdsClickFields, parseAdsClickParams, parseAdsLanding } from "./ads-funnel";
 
 import { handleMcpRequest, aiPluginManifest } from "./mcp";
 import { OPENAPI_YAML } from "./openapi-data";
@@ -6057,7 +6060,10 @@ app.get("/signup", async (c) => {
     const row = await c.env.DB.prepare("SELECT i.email, i.role, t.title FROM blog_invitations i JOIN tenants t ON t.id = i.tenant_id WHERE i.token_hash = ? AND i.accepted_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > ?").bind(h, now).first<{ email: string; role: string; title: string }>();
     if (row) inviteInfo = { title: row.title, role: row.role, email: row.email };
   }
-  return c.html(signupPage(c.env.ROOT_DOMAIN, undefined, undefined, inviteToken, inviteInfo));
+  const adsParams = parseAdsClickParams(new URL(c.req.url));
+  const adsLanding = parseAdsLanding(c.req.query("ads_landing"));
+  const adsAttribution = adsParams ? { ...adsParams, ...(adsLanding ? { ads_landing: adsLanding } : {}) } : undefined;
+  return c.html(signupPage(c.env.ROOT_DOMAIN, undefined, undefined, inviteToken, inviteInfo, adsAttribution));
 });
 
 app.get("/admin/impersonate", async (c) => {
@@ -6083,12 +6089,15 @@ app.post("/signup", async (c) => {
   const email = String(form.get("email") ?? "").trim().toLowerCase();
   const password = String(form.get("password") ?? "");
   const inviteToken = String(form.get("invite") ?? "").trim();
+  const adsParams = parseAdsClickFields({ gclid: form.get("gclid"), gbraid: form.get("gbraid"), wbraid: form.get("wbraid") });
+  const adsLanding = parseAdsLanding(form.get("ads_landing"));
+  const adsAttribution = adsParams ? { ...adsParams, ...(adsLanding ? { ads_landing: adsLanding } : {}) } : undefined;
   const values = { email };
   // Rate limit: 5/hour per IP, 3/hour per email
   const rl = await checkSignupRateLimit(c, ip, email);
   if (!rl.allowed) {
     const msg = `Too many signups — try again in ${Math.ceil((rl.retryAfter||3600)/60)} minutes.`;
-    const failRL = (m: string) => c.html(signupPage(c.env.ROOT_DOMAIN, values, m, inviteToken || undefined, undefined), 429);
+    const failRL = (m: string) => c.html(signupPage(c.env.ROOT_DOMAIN, values, m, inviteToken || undefined, undefined, adsAttribution), 429);
     return failRL(msg);
   }
   let __inviteInfo: { title: string; role: string; email: string } | undefined;
@@ -6099,7 +6108,7 @@ app.post("/signup", async (c) => {
     if (__row) __inviteInfo = { title: __row.title, role: __row.role, email: __row.email };
   }
   const fail = (msg: string, status: 400 | 409 = 400) =>
-    c.html(signupPage(c.env.ROOT_DOMAIN, values, msg, inviteToken || undefined, __inviteInfo), status);
+    c.html(signupPage(c.env.ROOT_DOMAIN, values, msg, inviteToken || undefined, __inviteInfo, adsAttribution), status);
 
   type SignupInvite = { id: number; tenant_id: number; email: string; role: MembershipRole };
   let invite: SignupInvite | null = null;
@@ -6134,6 +6143,18 @@ app.post("/signup", async (c) => {
     accountId = res.meta.last_row_id as number;
   } catch {
     return fail("That email already has an account.", 409);
+  }
+
+  // Paid-ads attribution survives signup in the account record, so later
+  // redirects (verification, login) cannot drop it.
+  if (adsParams) {
+    try {
+      await ensureAdsTables(c.env.DB);
+      await c.env.DB.prepare(
+        "INSERT OR IGNORE INTO ads_attributions (account_id, gclid, gbraid, wbraid, landing_path, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+      ).bind(accountId, adsParams.gclid ?? null, adsParams.gbraid ?? null, adsParams.wbraid ?? null, adsLanding || "", now).run();
+      recordAdsFunnelEvent(c.env, { name: "signup", landing: adsLanding || "", detail: "attributed" });
+    } catch {}
   }
 
   if (invite) {
@@ -6938,6 +6959,19 @@ app.get("/press/2026-09-blognice-launch", (c) => {
   });
 });
 
+// Paid-ads landing page for Blogger/Blogspot switchers. Fully usable without
+// JavaScript (native details/summary FAQ, plain links); the only scripts are
+// the funnel-scoped Google tag and JSON-LD. Google click parameters in the URL
+// are validated and forwarded into the signup links server-side so attribution
+// survives the hop with no client script.
+app.get("/blogger-alternative", (c) => {
+  const adsParams = parseAdsClickParams(new URL(c.req.url));
+  try { recordAdsFunnelEvent(c.env, { name: "landing_view", landing: "/blogger-alternative", detail: adsParams ? "attributed" : "organic" }); } catch {}
+  return new Response(injectAdsClickParams(bloggerAlternativePage, adsParams, "/blogger-alternative"), {
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60, s-maxage=300" },
+  });
+});
+
 app.get("/manifesto", (c) => {
   return new Response(manifestoPage, {
     headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60, s-maxage=300" },
@@ -7210,6 +7244,35 @@ app.get("/admin/b/:blogId/audit", async (c) => {
     return c.html(auditPage(ctx.account, ctx.tenant, null, { error: "Audit log could not be loaded. Please try again shortly.", paid: true }), 502);
   }
 });
+
+// Confirmation shown after Stripe Checkout redirects back. The Google Ads
+// conversion scripts render ONLY when the caller passes a freshly claimed
+// conversion — never on refresh, failure, or for unattributed accounts.
+function billingSuccessPage(
+  account: Account,
+  opts: { trialDays?: number | null; alreadyActive?: boolean; conversion?: { valueMinor: number; currency: string; transactionId: string } | null },
+): string {
+  const conversionScripts = opts.conversion ? `${adsBaseTag()}\n${adsConversionScript(opts.conversion)}` : "";
+  const headline = opts.trialDays ? "Your trial has started" : "Subscription confirmed";
+  const body = opts.trialDays
+    ? `<div class="notice">Trial started: ${opts.trialDays} days free, then your plan begins. Cancel anytime before day ${opts.trialDays}.</div>`
+    : opts.alreadyActive
+      ? `<div class="notice">Your Pro subscription is active.</div>`
+      : `<div class="notice">Payment confirmed. Pro access unlocks as soon as Stripe's confirmation lands — usually within seconds.</div>`;
+  return shell(
+    "Subscription confirmed — blognice",
+    `<div class="page narrow">
+      <h1>${headline}</h1>
+      ${body}
+      <p>Up to five blogs, AI features, collaborators, custom domains, and API access are included.</p>
+      <div class="actions">
+        <a class="btn" href="/admin">View your blogs</a>
+        <a class="btn ghost" href="/admin/billing">Billing details</a>
+      </div>
+    </div>${conversionScripts}`,
+    account,
+  );
+}
 
 function billingPage(
   account: Account,
@@ -7546,6 +7609,54 @@ app.get("/admin/billing", async (c) => {
   return c.html(billingPage(account, billing, String(c.req.query("message") || ""), usage || { used: 0, allowance: AI_MONTHLY_CREDITS }, { monthly: c.env.STRIPE_MONTHLY_PRICE_ID || c.env.STRIPE_PRICE_ID, yearly: c.env.STRIPE_YEARLY_PRICE_ID }, nowPaymentsConfigured(c.env), Boolean(attribution)).replaceAll("Blog Nice admin", "blognice admin").replaceAll("Billing · Blog Nice", "Billing · blognice"));
 });
 
+app.get("/admin/billing/success", async (c) => {
+  const account = await currentAccount(c);
+  if (!account) return c.redirect("/admin/login");
+  if (isSuspended(account)) return suspendedResponse(c, account);
+  const sessionId = String(c.req.query("session_id") || "");
+  if (!sessionId) {
+    if (accountHasPaidPlan(account as any)) return c.html(billingSuccessPage(account, { alreadyActive: true }));
+    return c.redirect("/admin/billing");
+  }
+  // Verify with Stripe: the session must be complete, owned by this account,
+  // and attached to an active or trialing subscription. Anything else renders
+  // no conversion event — no fire on refresh, failure, or forgery.
+  let session;
+  try {
+    session = await retrieveCheckoutSession(c.env, sessionId);
+  } catch {
+    return c.redirect(`/admin/billing?message=${encodeURIComponent("We could not confirm that checkout with Stripe yet. If you paid, access updates automatically.")}`);
+  }
+  const owner = session.client_reference_id === String(account.id) || session.metadata?.account_id === String(account.id);
+  const subscription = typeof session.subscription === "object" && session.subscription ? session.subscription : null;
+  const status = subscription?.status || "";
+  if (session.status !== "complete" || !owner || (status !== "active" && status !== "trialing")) {
+    return c.redirect(`/admin/billing?message=${encodeURIComponent("That checkout is not complete. If you paid, access updates automatically.")}`);
+  }
+  // Once per attributed account, ever: INSERT OR IGNORE claims the single
+  // conversion row, so refreshes and later subscriptions cannot re-fire.
+  let conversion: { valueMinor: number; currency: string; transactionId: string } | null = null;
+  try {
+    await ensureAdsTables(c.env.DB);
+    const attributed = await c.env.DB.prepare("SELECT landing_path FROM ads_attributions WHERE account_id = ?").bind(account.id).first<{ landing_path: string }>();
+    if (attributed) {
+      const valueMinor = Number.isSafeInteger(session.amount_total) ? Math.max(0, session.amount_total as number) : 0;
+      const currency = typeof session.currency === "string" && /^[A-Za-z]{3}$/.test(session.currency) ? session.currency.toUpperCase() : "USD";
+      const claimed = await c.env.DB.prepare(
+        "INSERT OR IGNORE INTO ads_conversions (account_id, transaction_id, value_minor, currency, reported_at) VALUES (?, ?, ?, ?, ?)"
+      ).bind(account.id, session.id, valueMinor, currency, Math.floor(Date.now() / 1000)).run();
+      if (claimed.meta.changes === 1) {
+        conversion = { valueMinor, currency, transactionId: session.id };
+        recordAdsFunnelEvent(c.env, { name: "conversion", landing: attributed.landing_path || "", detail: currency });
+      }
+    }
+  } catch {}
+  const trialDays = status === "trialing" && subscription?.trial_end
+    ? Math.max(1, Math.ceil((subscription.trial_end - Math.floor(Date.now() / 1000)) / 86400))
+    : null;
+  return c.html(billingSuccessPage(account, { trialDays, conversion }));
+});
+
 app.post("/admin/billing/referral", async (c) => {
   const account = await currentAccount(c);
   if (!account) return c.redirect("/admin/login");
@@ -7620,9 +7731,7 @@ app.post("/admin/billing/checkout", async (c) => {
       experimentKey: experimentContext?.experimentKey,
       experimentVariant: experimentContext?.variant,
       trialPeriodDays: trialDays,
-      successUrl: trialDays
-        ? `${origin}/admin/billing?trial=1&message=${encodeURIComponent(`Trial started: ${trialDays} days free, then your plan begins. Cancel anytime before day ${trialDays}.`)}`
-        : `${origin}/admin/billing?message=Checkout completed. Subscription access will update after Stripe confirms payment.`,
+      successUrl: `${origin}/admin/billing/success?session_id={CHECKOUT_SESSION_ID}`,
       cancelUrl: `${origin}/admin/billing?message=Checkout cancelled.`,
     });
     if (affiliateCheckout) {
@@ -7632,6 +7741,11 @@ app.post("/admin/billing/checkout", async (c) => {
     }
     await recordFunnelExperimentCheckoutInDb(c.env.DB, account.id, now).catch((error) => console.error(JSON.stringify({ message: "Funnel Experiment checkout milestone failed", accountId: account.id, error: error instanceof Error ? error.message : String(error) })));
     await recordExperimentCheckoutStart(c, account.id);
+    try {
+      await ensureAdsTables(c.env.DB);
+      const attributed = await c.env.DB.prepare("SELECT landing_path FROM ads_attributions WHERE account_id = ?").bind(account.id).first<{ landing_path: string }>();
+      recordAdsFunnelEvent(c.env, { name: "checkout_start", landing: attributed?.landing_path || "", detail: attributed ? "attributed" : "organic" });
+    } catch {}
     return c.redirect(session.url, 303);
   } catch (error) {
     return c.redirect(`/admin/billing?message=${encodeURIComponent(error instanceof Error ? error.message : "Stripe checkout failed.")}`);

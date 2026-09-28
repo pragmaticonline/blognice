@@ -485,6 +485,50 @@ export function recordAuditEvent(
   });
 }
 
+export type AdsFunnelStage = "landing_view" | "signup" | "checkout_start" | "conversion";
+
+// Paid-ads funnel trends in the EVENTS dataset (platform-level index "0").
+// Aggregate-safe only: stage, landing path, and a coarse attributed/organic or
+// currency detail. Click IDs and account identities stay in D1, never here.
+export function recordAdsFunnelEvent(
+  env: Pick<MetricsEnv, "EVENTS">,
+  event: { name: AdsFunnelStage; landing?: string; detail?: string }
+): void {
+  if (!env.EVENTS) return;
+  env.EVENTS.writeDataPoint({
+    indexes: ["0"],
+    blobs: [`ads:${event.name}`, (event.landing || "").slice(0, 80), (event.detail || "").slice(0, 80), "", "", ""],
+    doubles: [1],
+  });
+}
+
+export type AdsFunnelDay = { date: string; event: AdsFunnelStage; landing: string; events: number };
+
+const ADS_FUNNEL_EVENTS = ["ads:landing_view", "ads:signup", "ads:checkout_start", "ads:conversion"] as const;
+
+export async function adsFunnelSeries(
+  env: MetricsEnv,
+  days = 42,
+  now = new Date(),
+): Promise<AdsFunnelDay[]> {
+  const boundedDays = Math.max(1, Math.min(90, Math.trunc(days)));
+  const endDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const startDay = new Date(endDay.getTime() - (boundedDays - 1) * 86_400_000);
+  const nextDay = new Date(endDay.getTime() + 86_400_000);
+  const rows = await analyticsSql(
+    env,
+    `SELECT formatDateTime(timestamp, '%Y-%m-%d') AS date, blob1 AS event, blob2 AS landing, SUM(_sample_interval) AS events FROM ${EVENTS_DATASET} WHERE index1 = '0' AND timestamp >= toDateTime(${sqlString(`${startDay.toISOString().slice(0, 10)} 00:00:00`)}) AND timestamp < toDateTime(${sqlString(`${nextDay.toISOString().slice(0, 10)} 00:00:00`)}) AND blob1 IN (${ADS_FUNNEL_EVENTS.map((name) => sqlString(name)).join(", ")}) GROUP BY date, event, landing ORDER BY date, event, landing`,
+  );
+  return rows
+    .filter((row) => ADS_FUNNEL_EVENTS.includes(String(row.event || "") as (typeof ADS_FUNNEL_EVENTS)[number]))
+    .map((row) => ({
+      date: String(row.date || ""),
+      event: String(row.event).slice("ads:".length) as AdsFunnelStage,
+      landing: String(row.landing || ""),
+      events: Math.max(0, Math.round(numberValue(row.events))),
+    }));
+}
+
 export function metricsBeacon(consentRequired = false): string {
   const bannerMarkup = `<strong>Help us improve blognice (optional).</strong><span> We use pseudonymous, aggregate analytics to understand what readers find useful. This does not affect reading, listening, or subscribing. Declining only means we won’t collect optional usage analytics.</span><button type="button" data-consent="granted">Allow analytics</button><button type="button" data-consent="denied">Decline analytics</button><a href="https://www.blognice.com/privacy">Privacy details</a>`;
   const serializedBannerMarkup = JSON.stringify(bannerMarkup).replaceAll("<", "\\u003c");

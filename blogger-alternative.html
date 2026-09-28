@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Blogger Alternative | Blognice</title>
+<meta name="description" content="Looking for a Blogger alternative? Blognice lets you manage up to five fast, beautiful blogs with custom domains, exports and no plugin maintenance.">
+<link rel="canonical" href="https://www.blognice.com/blogger-alternative">
+<meta name="theme-color" content="#1a8917">
+<meta property="og:site_name" content="blognice">
+<meta property="og:title" content="Blogger Alternative | Blognice">
+<meta property="og:description" content="Create beautiful blogs without hosting, plugins, updates or technical maintenance.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://www.blognice.com/blogger-alternative">
+<meta property="og:image" content="https://www.blognice.com/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="blognice">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Blogger Alternative | Blognice">
+<meta name="twitter:description" content="Create beautiful blogs without hosting, plugins, updates or technical maintenance.">
+<meta name="twitter:image" content="https://www.blognice.com/og-image.jpg">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<script async src="https://www.googletagmanager.com/gtag/js?id=AW-16852730460"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'AW-16852730460');
+</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"Blogger Alternative | Blognice","url":"https://www.blognice.com/blogger-alternative","description":"Looking for a Blogger alternative? Blognice lets you manage up to five fast, beautiful blogs with custom domains, exports and no plugin maintenance."}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Can I use my own domain?","acceptedAnswer":{"@type":"Answer","text":"Yes. Connect a domain such as blog.yourcompany.com in Blog Settings → Domains, add the CNAME record shown, and SSL is automatic."}},{"@type":"Question","name":"How many blogs can I manage?","acceptedAnswer":{"@type":"Answer","text":"One account holds one blog for free and up to five blogs on Pro, all managed from the same login."}},{"@type":"Question","name":"Do I need to install anything?","acceptedAnswer":{"@type":"Answer","text":"No. Blognice runs entirely in your browser — no hosting to arrange, no plugins to install, and no updates to apply."}},{"@type":"Question","name":"Can I export my content?","acceptedAnswer":{"@type":"Answer","text":"Yes. Owners download a full export any time: posts and pages as Markdown, images, subscribers.csv, and comments.json."}},{"@type":"Question","name":"Is Blognice open source?","acceptedAnswer":{"@type":"Answer","text":"Yes. Blognice is open source under the AGPL-3.0 license, so you can self-host it free or use the hosted service."}},{"@type":"Question","name":"Can I import an existing Blogger blog?","acceptedAnswer":{"@type":"Answer","text":"Yes. Upload your Blogger backup file in Settings → Advanced → Import from Blogger. Posts and pages arrive with their tags, original dates, and drafts; uploading the same file again skips what is already there."}}]}</script>
+<style>
+  :root{
+    --bg:#FFFFFF;
+    --paper:#F7F8F3;
+    --ink:#15170F;
+    --ink-soft:#5C6455;
+    --ink-faint:#8A9182;
+    --green:#1a8917;
+    --green-deep:#0E5A0C;
+    --green-mist:#EEF5EC;
+    --rule:#E3E7DD;
+    --display:Georgia, 'Times New Roman', serif;
+    --body:system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html{scroll-behavior:smooth; scroll-padding-top:74px;}
+  body{background:var(--bg); color:var(--ink); font-family:var(--body); line-height:1.6; -webkit-font-smoothing:antialiased;}
+  ::selection{background:var(--green); color:#fff;}
+  img{max-width:100%; display:block;}
+  a{color:inherit; text-decoration:none;}
+  .wrap{max-width:1120px; margin:0 auto; padding:0 28px; position:relative; z-index:2;}
+  .prose{max-width:660px;}
+  .center{margin-left:auto; margin-right:auto; text-align:center;}
+  :focus-visible{outline:2px solid var(--green); outline-offset:3px; border-radius:3px;}
+  @media (prefers-reduced-motion: reduce){
+    *{transition-duration:0.01ms !important; animation-duration:0.01ms !important;}
+    html{scroll-behavior:auto;}
+  }
+  .skip{position:absolute; left:-9999px; top:0; background:var(--ink); color:#fff; padding:10px 16px; border-radius:0 0 7px 0; z-index:200;}
+  .skip:focus{left:0;}
+
+  /* ---------- announce + nav ---------- */
+  .announce{background:var(--ink); color:#fff; text-align:center; font-size:13.5px; padding:9px 16px;}
+  .announce a{text-decoration:underline; text-underline-offset:3px; font-weight:600;}
+  .nav{position:sticky; top:0; z-index:50; background:rgba(255,255,255,0.92); backdrop-filter:blur(10px); border-bottom:1px solid var(--rule);}
+  .nav-inner{display:flex; align-items:center; justify-content:space-between; height:74px; gap:16px;}
+  .logo{font-family:var(--display); font-weight:600; font-size:20px; letter-spacing:-0.01em;}
+  .nav-links{display:flex; align-items:center; gap:26px;}
+  .nav-links a{font-size:14px; color:var(--ink-soft); position:relative; padding-bottom:3px;}
+  .nav-links a:hover{color:var(--ink);}
+  .nav-actions{display:flex; align-items:center; gap:10px; flex-shrink:0;}
+  .btn{display:inline-flex; align-items:center; gap:8px; padding:11px 20px; border-radius:7px; font-size:14.5px; font-weight:600; transition:background .15s ease, color .15s ease, border-color .15s ease, transform .15s ease, box-shadow .15s ease;}
+  .btn-solid{background:var(--ink); color:#fff;}
+  .btn-solid:hover{background:var(--green-deep);}
+  .btn-line{border:1px solid var(--rule); color:var(--ink);}
+  .btn-line:hover{border-color:var(--ink);}
+  .btn-green{background:var(--green); color:#fff; padding:14px 28px; font-size:16px;}
+  .btn-green:hover{background:var(--green-deep);}
+  .link-underline{text-decoration:underline; text-underline-offset:4px; text-decoration-thickness:1px; color:var(--ink-soft); font-weight:600;}
+  .link-underline:hover{color:var(--green-deep);}
+
+  /* ---------- hero ---------- */
+  .hero{padding:72px 0 56px; border-bottom:1px solid var(--rule);}
+  .hero h1{font-family:var(--display); font-weight:600; font-size:clamp(34px, 5.4vw, 56px); line-height:1.08; letter-spacing:-0.02em; max-width:16em; text-wrap:balance;}
+  .hero-sub{font-size:18px; color:var(--ink-soft); margin:18px 0 28px; max-width:34em;}
+  .hero-ctas{display:flex; align-items:center; gap:22px; flex-wrap:wrap;}
+  .hero-note{margin-top:16px; font-size:14px; color:var(--ink-faint);}
+
+  section.block{padding:64px 0; border-bottom:1px solid var(--rule);}
+  section.block h2{font-family:var(--display); font-weight:600; font-size:clamp(26px, 3.4vw, 34px); letter-spacing:-0.015em; margin-bottom:10px; text-wrap:balance;}
+  .section-sub{font-size:16px; color:var(--ink-soft); max-width:38em; margin-bottom:32px;}
+
+  /* ---------- feature list ---------- */
+  .feature-list{list-style:none; display:grid; grid-template-columns:1fr 1fr; gap:26px 48px; max-width:960px;}
+  .feature-list li{padding-top:18px; border-top:2px solid var(--ink);}
+  .feature-list strong{display:block; font-size:16px; margin-bottom:4px;}
+  .feature-list span{font-size:14.5px; color:var(--ink-soft);}
+
+  /* ---------- compare ---------- */
+  .compare-words{font-size:17px; max-width:42em; margin-bottom:28px;}
+  .compare-table{width:100%; max-width:860px; border-collapse:collapse; font-size:15px;}
+  .compare-table th, .compare-table td{text-align:left; padding:12px 14px; border-bottom:1px solid var(--rule); vertical-align:top;}
+  .compare-table thead th{font-family:var(--display); font-size:16px; border-bottom:2px solid var(--ink);}
+  .compare-table tbody th{font-weight:600; white-space:nowrap;}
+  .compare-table td{color:var(--ink-soft);}
+  .compare-table td:last-child{color:var(--ink);}
+  .compare-note{margin-top:14px; font-size:13.5px; color:var(--ink-faint); max-width:60em;}
+
+  /* ---------- pricing ---------- */
+  .plans{display:grid; grid-template-columns:1fr 1fr; gap:20px; max-width:860px; margin-bottom:24px;}
+  .plan{border:1px solid var(--rule); border-radius:12px; padding:28px; background:#fff;}
+  .plan.recommended{border:2px solid var(--green); background:var(--green-mist);}
+  .plan h3{font-family:var(--display); font-size:20px; font-weight:600;}
+  .plan .price{font-family:var(--display); font-size:38px; font-weight:600; margin:8px 0 2px;}
+  .plan .price small{font-family:var(--body); font-size:14px; font-weight:400; color:var(--ink-soft);}
+  .plan .was{font-size:14px; color:var(--ink-faint);}
+  .plan .was s{margin-right:6px;}
+  .plan ul{list-style:none; margin:16px 0 22px; display:flex; flex-direction:column; gap:9px; font-size:14.5px; color:var(--ink-soft);}
+  .plan ul li{padding-left:20px; position:relative;}
+  .plan ul li::before{content:'✓'; position:absolute; left:0; color:var(--green); font-weight:700;}
+  .plan .btn{width:100%; justify-content:center;}
+  .plan-note{font-size:14px; color:var(--ink-soft); max-width:60em;}
+  .plan-note strong{color:var(--ink);}
+
+  /* ---------- faq ---------- */
+  .faq{max-width:700px;}
+  .faq details{border-bottom:1px solid var(--rule); padding:2px 0;}
+  .faq details:first-of-type{border-top:1px solid var(--rule);}
+  .faq summary{cursor:pointer; font-weight:600; font-size:16.5px; padding:16px 8px 16px 0; list-style:none; display:flex; align-items:center; justify-content:space-between; gap:16px;}
+  .faq summary::-webkit-details-marker{display:none;}
+  .faq summary::after{content:'+'; font-size:22px; font-weight:400; color:var(--green-deep); flex-shrink:0; line-height:1;}
+  .faq details[open] summary::after{content:'–';}
+  .faq .answer{padding:0 8px 20px 0; font-size:15px; color:var(--ink-soft); max-width:40em;}
+  .faq .answer a{text-decoration:underline; text-underline-offset:3px;}
+
+  /* ---------- final band + footer ---------- */
+  .final{padding:72px 0; text-align:center;}
+  .final h2{font-family:var(--display); font-weight:600; font-size:clamp(28px, 4vw, 40px); letter-spacing:-0.015em; margin-bottom:12px; text-wrap:balance;}
+  .final p{color:var(--ink-soft); margin-bottom:26px;}
+  footer{border-top:1px solid var(--rule); padding:36px 0 44px;}
+  .footer-inner{display:flex; align-items:flex-start; justify-content:space-between; gap:28px; flex-wrap:wrap;}
+  .footer-brand small{display:block; color:var(--ink-faint); font-size:13px; margin-top:6px;}
+  .footer-links{display:flex; gap:20px; flex-wrap:wrap; font-size:14px; color:var(--ink-soft);}
+  .footer-links a:hover{color:var(--ink);}
+  .footer-actions{display:flex; gap:14px; align-items:center;}
+
+  @media (max-width:760px){
+    .nav-links{display:none;}
+    .nav-inner{gap:10px;}
+    .logo{font-size:18px;}
+    .nav-actions{gap:8px;}
+    .nav-actions .btn{padding:9px 12px; font-size:13px; white-space:nowrap;}
+    .feature-list{grid-template-columns:1fr;}
+    .plans{grid-template-columns:1fr;}
+    .hero{padding:52px 0 44px;}
+    section.block{padding:48px 0;}
+    .compare-table thead th:first-child{font-size:0;}
+    .compare-table tbody th{white-space:normal;}
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="announce">Founding pricing — try Pro free for 14 days, then $36/year locked. <a href="#pricing">See plans</a></div>
+<nav class="nav" aria-label="Primary">
+  <div class="wrap nav-inner">
+    <a class="logo" href="/">blognice</a>
+    <div class="nav-links">
+      <a href="#features">Why Blognice</a>
+      <a href="#compare">Compare</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#faq">FAQ</a>
+    </div>
+    <div class="nav-actions">
+      <a href="/admin/login" class="btn btn-line">Log in</a>
+      <a href="/signup" class="btn btn-solid">Start your free blog</a>
+    </div>
+  </div>
+</nav>
+<main id="main">
+<header class="hero">
+  <div class="wrap">
+    <h1>A Better Alternative to Blogger</h1>
+    <p class="hero-sub">Create beautiful blogs without hosting, plugins, updates or technical maintenance.</p>
+    <div class="hero-ctas">
+      <a href="/signup" class="btn btn-green">Start your free blog</a>
+      <a href="#compare" class="link-underline">See how Blognice compares with Blogger</a>
+    </div>
+    <p class="hero-note">Your first blog is free to try · Pro free for 14 days · No charge during the trial.</p>
+  </div>
+</header>
+
+<section class="block" id="features" aria-labelledby="features-h">
+  <div class="wrap">
+    <h2 id="features-h">One calm home for all your blogs</h2>
+    <p class="section-sub">Everything lives under a single login. No control panels, plugin updates, or hosting bills — just writing and publishing.</p>
+    <ul class="feature-list">
+      <li><strong>Up to five blogs from one account</strong><span>Run several blogs side by side and switch between them in one click. One blog is free; up to five on Pro.</span></li>
+      <li><strong>Unlimited posts and images</strong><span>Publish as much as you like. Images are optimized automatically and served fast.</span></li>
+      <li><strong>Custom domains</strong><span>Point blog.yourcompany.com at your blog with a guided DNS setup and automatic SSL.</span></li>
+      <li><strong>Markdown writing and preview</strong><span>A clean editor with a Write/Preview toggle — what you write is what readers get.</span></li>
+      <li><strong>Fast server-rendered pages</strong><span>Pages render on the server and cache at the edge, so readers see content immediately.</span></li>
+      <li><strong>Subscriber tools and analytics</strong><span>Collect subscribers with built-in signup forms and see privacy-first reading stats.</span></li>
+      <li><strong>Full content export</strong><span>Download everything any time: posts and pages as Markdown, images, subscribers, and comments.</span></li>
+      <li><strong>Open-source self-hosted version</strong><span>Blognice is open source under the AGPL-3.0 license. Host it yourself free, or let us run it.</span></li>
+      <li><strong>Privacy-first, no advertising or tracking</strong><span>No ads on your blog and no third-party tracking of your readers. Analytics are first-party and anonymous.</span></li>
+    </ul>
+  </div>
+</section>
+
+<section class="block" id="compare" aria-labelledby="compare-h">
+  <div class="wrap">
+    <h2 id="compare-h">Blognice vs Blogger</h2>
+    <p class="compare-words">Blogger is free and familiar, but Blognice is designed for people who want a focused writing experience, multiple blogs under one account, modern publishing tools, exportability and less dependence on a large platform.</p>
+    <table class="compare-table">
+      <thead><tr><th scope="col"><span class="visually-hidden" style="position:absolute;left:-9999px">Feature</span></th><th scope="col">Blogger</th><th scope="col">Blognice</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Price</th><td>Free</td><td>First blog free to try; Pro from $3/month billed annually</td></tr>
+        <tr><th scope="row">Blogs per account</th><td>Multiple blogs per Google account</td><td>Up to 5 blogs under one login on Pro</td></tr>
+        <tr><th scope="row">Writing</th><td>Web editor with HTML view</td><td>Markdown editor with live preview</td></tr>
+        <tr><th scope="row">Custom domains</th><td>Supported, with manual DNS and SSL setup</td><td>Supported, with guided DNS setup and automatic SSL</td></tr>
+        <tr><th scope="row">Export</th><td>Backup file download</td><td>One-click full export: posts, pages, images, subscribers, comments</td></tr>
+        <tr><th scope="row">Open source</th><td>Closed source</td><td>Open source (AGPL-3.0), self-hostable</td></tr>
+        <tr><th scope="row">Maintenance</th><td>Google-hosted; templates and settings to manage</td><td>No hosting, plugins, or updates to maintain</td></tr>
+      </tbody>
+    </table>
+    <p class="compare-note">Blogger is a Google product; this comparison describes generally available features as of 2026 and is not affiliated with Google.</p>
+  </div>
+</section>
+
+<section class="block" id="pricing" aria-labelledby="pricing-h">
+  <div class="wrap">
+    <h2 id="pricing-h">Founding member pricing</h2>
+    <p class="section-sub">Limited to the first 1,000 paying members. Your price stays locked while your subscription stays active.</p>
+    <div class="plans">
+      <div class="plan recommended">
+        <h3>Founding Annual</h3>
+        <p class="price">$36<small>/year</small></p>
+        <p class="was"><s>$119/year</s> save 70%</p>
+        <ul>
+          <li>Up to 5 blogs, unlimited posts &amp; images</li>
+          <li>Custom domains and full export</li>
+          <li>Pro free for 14 days — no charge during the trial</li>
+          <li>Cancel during the trial any time</li>
+        </ul>
+        <a href="/signup" class="btn btn-green">Start your free blog</a>
+      </div>
+      <div class="plan">
+        <h3>Founding Monthly</h3>
+        <p class="price">$5<small>/month</small></p>
+        <p class="was"><s>$12.99/month</s> save 62%</p>
+        <ul>
+          <li>Up to 5 blogs, unlimited posts &amp; images</li>
+          <li>Custom domains and full export</li>
+          <li>Pro free for 14 days — no charge during the trial</li>
+          <li>Cancel during the trial any time</li>
+        </ul>
+        <a href="/signup" class="btn btn-line">Start your free blog</a>
+      </div>
+    </div>
+    <p class="plan-note"><strong>First blog free to try.</strong> Start writing in minutes; upgrade only when you are ready. Founding prices never increase while your subscription stays active.</p>
+  </div>
+</section>
+
+<section class="block" id="faq" aria-labelledby="faq-h">
+  <div class="wrap">
+    <h2 id="faq-h">Questions, answered</h2>
+    <p class="section-sub">The essentials for anyone moving from Blogger or Blogspot.</p>
+    <div class="faq">
+      <details>
+        <summary>Can I use my own domain?</summary>
+        <div class="answer">Yes. Connect a domain such as blog.yourcompany.com in Blog Settings → Domains, add the CNAME record shown, and SSL is automatic.</div>
+      </details>
+      <details>
+        <summary>How many blogs can I manage?</summary>
+        <div class="answer">One account holds one blog for free and up to five blogs on Pro, all managed from the same login.</div>
+      </details>
+      <details>
+        <summary>Do I need to install anything?</summary>
+        <div class="answer">No. Blognice runs entirely in your browser — no hosting to arrange, no plugins to install, and no updates to apply.</div>
+      </details>
+      <details>
+        <summary>Can I export my content?</summary>
+        <div class="answer">Yes. Owners download a full export any time: posts and pages as Markdown, images, subscribers.csv, and comments.json.</div>
+      </details>
+      <details>
+        <summary>Is Blognice open source?</summary>
+        <div class="answer">Yes. Blognice is open source under the AGPL-3.0 license, so you can <a href="https://github.com/pragmaticonline/blognice">self-host it free</a> or use the hosted service.</div>
+      </details>
+      <details>
+        <summary>Can I import an existing Blogger blog?</summary>
+        <div class="answer">Yes. Upload your Blogger backup file in Settings → Advanced → Import from Blogger. Posts and pages arrive with their tags, original dates, and drafts; uploading the same file again skips what is already there. Both the classic Blogger export and the Google Takeout file work — <a href="https://github.com/pragmaticonline/blognice#importing-from-blogger">see the import guide</a>.</div>
+      </details>
+    </div>
+  </div>
+</section>
+
+<div class="final">
+  <div class="wrap">
+    <h2>Your words deserve a calmer home</h2>
+    <p>Start your first blog free — bring your Blogger archive with you.</p>
+    <a href="/signup" class="btn btn-green">Start your free blog</a>
+  </div>
+</div>
+</main>
+<footer>
+  <div class="wrap footer-inner">
+    <div class="footer-brand"><a class="logo" href="/">blognice</a><small>© 2026 Pragmatic Online Co., Ltd.</small></div>
+    <div class="footer-links" aria-label="Product">
+      <a href="#features">Features</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#faq">FAQ</a>
+      <a href="https://github.com/pragmaticonline/blognice">Source</a>
+    </div>
+    <div class="footer-links" aria-label="Legal"><a href="/privacy">Privacy</a><a href="/manifesto">Manifesto</a><a href="/terms">Terms</a><a href="/cookies">Cookies</a><a href="/security">Security</a></div>
+    <div class="footer-actions"><a class="link-underline" href="/admin/login">Sign in</a><a class="btn btn-solid" href="/signup">Create your blog</a></div>
+  </div>
+</footer>
+</body>
+</html>
