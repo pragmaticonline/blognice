@@ -2270,7 +2270,8 @@ export function settingsPage(
         </div>
       </form>
       <hr>
-      ${opts?.isOwner ? `<details><summary style="cursor:pointer">Advanced</summary><div class="card"><h2 style="margin-top:0">Export blog</h2><p>Download everything as a zip: posts and pages as Markdown, images, subscribers, and comments. Yours to keep, whatever you do next.</p><p><a class="btn ghost" href="${base}/export.zip">Download full export (.zip)</a></p></div>
+      ${opts?.isOwner ? `<details><summary style="cursor:pointer">Advanced</summary><div class="card"><h2 style="margin-top:0">Import from Blogger</h2><p>Bring over a Blogger backup: posts and pages with their tags, dates, and drafts. Uploading the same file again skips what is already here.</p><p><a class="btn ghost" href="${base}/import">Import a Blogger backup</a></p></div>
+      <div class="card"><h2 style="margin-top:0">Export blog</h2><p>Download everything as a zip: posts and pages as Markdown, images, subscribers, and comments. Yours to keep, whatever you do next.</p><p><a class="btn ghost" href="${base}/export.zip">Download full export (.zip)</a></p></div>
       <div class="card"><h2 style="margin-top:0">Delete blog</h2><p>Removes this blog from the web while keeping its posts and media for now. Deletion asks you to type the blog title to confirm.</p><p><a class="btn danger" href="${base}/delete">Delete this blog</a></p></div></details>` : ""}
     </div>
     <script>
@@ -2468,6 +2469,46 @@ export function blogDeletePage(
           <div class="actions">
             <button class="btn danger" type="submit">Delete this blog</button>
             <a class="btn ghost" href="${base}/settings">Keep my blog</a>
+          </div>
+        </form>
+      </div>
+    </div>`,
+    account,
+    tenant
+  );
+}
+
+export type BloggerImportResult = {
+  posts: number;
+  pages: number;
+  drafts: number;
+  alreadyImported: number;
+};
+
+export function bloggerImportPage(
+  account: Account,
+  tenant: Tenant,
+  opts?: { error?: string; result?: BloggerImportResult }
+): string {
+  const base = `/admin/b/${tenant.public_id}`;
+  const result = opts?.result
+    ? `<div class="notice">Imported ${opts.result.posts} post${opts.result.posts === 1 ? "" : "s"} and ${opts.result.pages} page${opts.result.pages === 1 ? "" : "s"}${opts.result.drafts ? `, including ${opts.result.drafts} draft${opts.result.drafts === 1 ? "" : "s"}` : ""}${opts.result.alreadyImported ? `; ${opts.result.alreadyImported} already-imported item${opts.result.alreadyImported === 1 ? " was" : "s were"} skipped` : ""}.</div>`
+    : "";
+  return shell(
+    `Settings — Import from Blogger`,
+    `<div class="page">
+      <h1>Import from Blogger</h1>
+      ${opts?.error ? `<div class="error">${esc(opts.error)}</div>` : ""}
+      ${result}
+      <div class="card">
+        <p>Bring over a Blogger backup. Posts and pages arrive with their tags, original publish dates, and drafts; images keep pointing at their Blogger addresses. Comments are not imported.</p>
+        <p>In Blogger, open <strong>Settings → Back up content</strong> and download the backup file, then upload it here. Uploading the same file again skips what is already here — nothing is duplicated.</p>
+        <form method="post" action="${base}/import/blogger" enctype="multipart/form-data">
+          <label for="import-file">Blogger backup file (.xml)</label>
+          <input id="import-file" name="file" type="file" accept=".xml,.atom,text/xml,application/atom+xml" required>
+          <div class="actions">
+            <button class="btn" type="submit">Import</button>
+            <a class="btn ghost" href="${base}/settings">Back to settings</a>
           </div>
         </form>
       </div>

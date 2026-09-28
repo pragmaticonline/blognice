@@ -87,6 +87,7 @@ import {
   mediaPage,
   metricsPage,
   auditPage,
+  bloggerImportPage,
   shell,
   suspendedAccountPage,
   type MediaItem,
@@ -95,6 +96,15 @@ import { tenantDb } from "./db";
 
 async function ensurePostsMetaColumn(db: D1Database): Promise<void> {
   try { await db.prepare("ALTER TABLE posts ADD COLUMN meta_description TEXT").run(); } catch {}
+}
+
+async function ensureImportRecordsTable(db: D1Database): Promise<void> {
+  try {
+    await db.prepare("CREATE TABLE IF NOT EXISTS import_records (tenant_id INTEGER NOT NULL, source TEXT NOT NULL, external_id TEXT NOT NULL, item_type TEXT NOT NULL, slug TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (tenant_id, source, external_id))").run();
+  } catch {}
+  try {
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_import_records_tenant ON import_records (tenant_id, source)").run();
+  } catch {}
 }
 import { checkLoginRateLimit, clearFailedLoginForEmail, recordFailedLogin } from "./login-rate-limit";
 import { pushConfigured, sendBrowserPush, validBrowserPushSubscription, type BrowserPushSubscription, type PushPayload } from "./push";
@@ -159,6 +169,7 @@ import { buildSitemapIndexXml, buildShardSitemapIndexXml, buildMasterSitemapInde
 import { AI_MARKDOWN_TEXT_MAX, confidentLocalMarkdownFormat, conservativeMarkdownFallback, formatObviousStructures, markdownFormattingMessages, markdownFormattingRetryMessages, markdownOutputTokenBudget, normalizedMarkdownResponse, preservesAuthorTokens } from "./ai-markdown";
 import { applySubscriberConfirmation, requestSubscriberConfirmation } from "./subscriber-optin";
 import { refreshPostPopularity } from "./popularity";
+import { BLOGGER_SOURCE, BloggerImportError, parseBloggerExport } from "./blogger-import";
 
 import { handleMcpRequest, aiPluginManifest } from "./mcp";
 import { OPENAPI_YAML } from "./openapi-data";
@@ -5783,6 +5794,118 @@ app.get("/admin/b/:blogId/export.zip", async (c) => {
       "content-disposition": `attachment; filename="export-${tenant.slug}.zip"`,
     },
   });
+});
+
+// ---------------------------------------------------------------------------
+// Native imports: the first is Blogger. Owner-only, like export: upload a
+// Blogger backup file, posts and pages are created with their tags, original
+// dates, and drafts, and repeat uploads skip what is already here (tracked in
+// import_records by the Atom entry id). Imports are silent: no subscriber or
+// push fan-out is queued, so publishing an imported draft later notifies once.
+// ---------------------------------------------------------------------------
+const BLOGGER_IMPORT_MAX_BYTES = 10 * 1024 * 1024;
+
+app.get("/admin/b/:blogId/import", async (c) => {
+  const ctx = await blogContext(c);
+  if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
+  const denied = requireBlogCapability(c, ctx, "settings.manage");
+  if (denied) return denied;
+  return c.html(bloggerImportPage(ctx.account, ctx.tenant));
+});
+
+app.post("/admin/b/:blogId/import/blogger", async (c) => {
+  const ctx = await blogContext(c);
+  if ("redirect" in ctx) return c.redirect(ctx.redirect);
+  if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
+  const denied = requireBlogCapability(c, ctx, "settings.manage");
+  if (denied) return denied;
+
+  const origin = c.req.header("Origin");
+  try {
+    if (!origin || new URL(origin).origin !== new URL(c.req.url).origin) return c.text("Cross-origin requests are not allowed.", 403);
+  } catch { return c.text("Cross-origin requests are not allowed.", 403); }
+
+  const fail = (message: string, status: 400 | 413) =>
+    c.html(bloggerImportPage(ctx.account, ctx.tenant, { error: message }), status);
+  let form: FormData;
+  try { form = await c.req.formData(); } catch { return fail("Upload your Blogger backup file to import it.", 400); }
+  const file = form.get("file") as unknown as File | null;
+  if (!(file instanceof File) || file.size === 0) return fail("Choose the Blogger backup file (.xml) to import.", 400);
+  if (file.size > BLOGGER_IMPORT_MAX_BYTES) return fail("That backup is larger than 10 MB; split it and try again.", 413);
+
+  const now = Math.floor(Date.now() / 1000);
+  let parsed;
+  try {
+    parsed = parseBloggerExport(await file.text(), now);
+  } catch (error) {
+    return fail(error instanceof BloggerImportError ? error.message : "That file could not be read as a Blogger backup.", 400);
+  }
+  if (!parsed.items.length) return fail("That backup holds no posts or pages to import.", 400);
+
+  const pdb = tenantDb(c.env, ctx.tenant);
+  await ensurePostsMetaColumn(pdb);
+  await ensureImportRecordsTable(pdb);
+  const [imported, postSlugs, pageSlugs] = await Promise.all([
+    pdb.prepare("SELECT external_id FROM import_records WHERE tenant_id = ? AND source = ?").bind(ctx.tenant.id, BLOGGER_SOURCE).all<{ external_id: string }>(),
+    pdb.prepare("SELECT slug FROM posts WHERE tenant_id = ?").bind(ctx.tenant.id).all<{ slug: string }>(),
+    pdb.prepare("SELECT slug FROM pages WHERE tenant_id = ?").bind(ctx.tenant.id).all<{ slug: string }>(),
+  ]);
+  const seen = new Set(imported.results.map((row) => row.external_id));
+  const takenPosts = new Set(postSlugs.results.map((row) => row.slug));
+  const takenPages = new Set(pageSlugs.results.map((row) => row.slug));
+  const assignSlug = (taken: Set<string>, base: string, maxLen: number): string => {
+    let slug = base.slice(0, maxLen);
+    for (let i = 0; i < 10 && taken.has(slug); i++) slug = withSlugSuffix(base, maxLen);
+    taken.add(slug);
+    return slug;
+  };
+
+  const statements: any[] = [];
+  const paths: string[] = [];
+  let posts = 0, pages = 0, drafts = 0, alreadyImported = 0;
+  for (const item of parsed.items) {
+    if (seen.has(item.externalId)) { alreadyImported += 1; continue; }
+    seen.add(item.externalId);
+    const published = item.draft ? 0 : 1;
+    if (item.draft) drafts += 1;
+    const authorName = item.author || ctx.tenant.title;
+    if (item.kind === "page") {
+      const slug = assignSlug(takenPages, item.suggestedSlug, 100);
+      pages += 1;
+      paths.push(`/pages/${slug}`);
+      statements.push(
+        pdb.prepare("INSERT INTO pages (tenant_id, slug, title, body_md, published, created_at, updated_at, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+          .bind(ctx.tenant.id, slug, item.title, item.bodyMarkdown, published, item.publishedAt, item.updatedAt, published ? item.publishedAt : null)
+      );
+      statements.push(
+        pdb.prepare("INSERT OR IGNORE INTO import_records (tenant_id, source, external_id, item_type, slug, created_at) VALUES (?, ?, ?, 'page', ?, ?)")
+          .bind(ctx.tenant.id, BLOGGER_SOURCE, item.externalId, slug, now)
+      );
+    } else {
+      const slug = assignSlug(takenPosts, item.suggestedSlug, 80);
+      posts += 1;
+      paths.push(`/${slug}`);
+      statements.push(
+        pdb.prepare("INSERT INTO posts (tenant_id, slug, title, body_md, tags_json, published, created_at, updated_at, author_account_id, author_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+          .bind(ctx.tenant.id, slug, item.title, item.bodyMarkdown, JSON.stringify(item.tags), published, item.publishedAt, item.updatedAt, ctx.account.id, authorName)
+      );
+      statements.push(
+        pdb.prepare("INSERT OR IGNORE INTO import_records (tenant_id, source, external_id, item_type, slug, created_at) VALUES (?, ?, ?, 'post', ?, ?)")
+          .bind(ctx.tenant.id, BLOGGER_SOURCE, item.externalId, slug, now)
+      );
+    }
+  }
+
+  if (statements.length) {
+    for (let i = 0; i < statements.length; i += 100) {
+      await pdb.batch(statements.slice(i, i + 100));
+    }
+    c.executionCtx.waitUntil(purgeTenant(c.env, ctx.tenant, ["/", "/sitemap.xml"]));
+    if (paths.length) queueIndexNow(c, ctx.tenant, ["/", ...paths.slice(0, 99)]);
+    queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "blogger_imported", `${posts} posts, ${pages} pages`);
+  }
+  return c.html(bloggerImportPage(ctx.account, ctx.tenant, { result: { posts, pages, drafts, alreadyImported } }));
 });
 
 // ---------------------------------------------------------------------------

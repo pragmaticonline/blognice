@@ -99,6 +99,9 @@ fast, server-rendered pages.
   `subscribers.csv`, and `comments.json`. Uploads from this release on keep
   their full-quality originals; older images export as WebP. RSS items also
   carry post tags. Custom domains mean your links survive a move.
+- **Blogger import** — owners upload a Blogger backup file from blog settings
+  and get their posts and pages back with tags, original publish dates, and
+  drafts intact. Uploading the same file again skips what is already here.
 - **Media library** — browse and reuse a blog's existing R2 images from the
   editor or the Media admin page. Images referenced by any post cannot be
   deleted until those references are removed.
@@ -684,6 +687,31 @@ Set `"published": false` for a draft. Publishing purges the affected cached page
 APIs also accept `"featured_image_key": "<blogId>/<file>"`; the image must
 already exist in that blog's media library. Send `null` or an empty string to
 remove an assigned featured image.
+
+## Importing from Blogger
+
+Moving a Blogger blog over takes one upload. In Blogger, open **Settings →
+Back up content** and download the backup file (both the classic export and the
+Google Takeout `feed.atom` work). Then, in blognice, open the blog's
+**Settings → Advanced → Import from Blogger** and upload that file.
+
+What comes over:
+
+- Posts and pages with their titles, tags, original publish dates, and authors.
+- Drafts stay drafts; published posts stay published.
+- Post HTML is converted to Markdown (headings, lists, links, images, quotes,
+  code). Images keep pointing at their Blogger addresses.
+
+What to know:
+
+- Comments are not imported.
+- Uploading the same file again skips what is already here — nothing is
+  duplicated, and taken slugs get a fresh suffix.
+- Imports are silent: subscribers and push followers are not notified.
+  Publishing an imported draft later notifies once, as usual.
+- Backups are capped at 10 MB and 2,000 entries; split larger blogs and import
+  each part.
+- Only the blog owner can import (same as export).
 
 ## Account API keys
 

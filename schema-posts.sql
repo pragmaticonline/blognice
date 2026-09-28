@@ -129,3 +129,17 @@ CREATE TABLE IF NOT EXISTS comment_reports (
 );
 CREATE INDEX IF NOT EXISTS idx_comment_reports_queue ON comment_reports (status, created_at);
 CREATE INDEX IF NOT EXISTS idx_comment_reports_comment ON comment_reports (tenant_id, comment_id);
+
+-- Native import ledger (see migrations/082-import-records.sql). Shared by
+-- every importer; `source` names the origin and `external_id` is the
+-- origin's stable item id, so repeat imports skip instead of duplicating.
+CREATE TABLE IF NOT EXISTS import_records (
+  tenant_id   INTEGER NOT NULL,
+  source      TEXT    NOT NULL,
+  external_id TEXT    NOT NULL,
+  item_type   TEXT    NOT NULL,
+  slug        TEXT    NOT NULL,
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (tenant_id, source, external_id)
+);
+CREATE INDEX IF NOT EXISTS idx_import_records_tenant ON import_records (tenant_id, source);
