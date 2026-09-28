@@ -31,134 +31,172 @@ gtag('config', 'AW-16852730460');
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"Blogger Alternative | Blognice","url":"https://www.blognice.com/blogger-alternative","description":"Looking for a Blogger alternative? Blognice lets you manage up to five fast, beautiful blogs with custom domains, exports and no plugin maintenance."}</script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Can I use my own domain?","acceptedAnswer":{"@type":"Answer","text":"Yes. Connect a domain such as blog.yourcompany.com in Blog Settings → Domains, add the CNAME record shown, and SSL is automatic."}},{"@type":"Question","name":"How many blogs can I manage?","acceptedAnswer":{"@type":"Answer","text":"One account holds one blog for free and up to five blogs on Pro, all managed from the same login."}},{"@type":"Question","name":"Do I need to install anything?","acceptedAnswer":{"@type":"Answer","text":"No. Blognice runs entirely in your browser — no hosting to arrange, no plugins to install, and no updates to apply."}},{"@type":"Question","name":"Can I export my content?","acceptedAnswer":{"@type":"Answer","text":"Yes. Owners download a full export any time: posts and pages as Markdown, images, subscribers.csv, and comments.json."}},{"@type":"Question","name":"Is Blognice open source?","acceptedAnswer":{"@type":"Answer","text":"Yes. Blognice is open source under the AGPL-3.0 license, so you can self-host it free or use the hosted service."}},{"@type":"Question","name":"Can I import an existing Blogger blog?","acceptedAnswer":{"@type":"Answer","text":"Yes. Upload your Blogger backup file in Settings → Advanced → Import from Blogger. Posts and pages arrive with their tags, original dates, and drafts; uploading the same file again skips what is already there."}}]}</script>
 <style>
-  :root{
-    --bg:#FFFFFF;
-    --paper:#F7F8F3;
-    --ink:#15170F;
-    --ink-soft:#5C6455;
-    --ink-faint:#8A9182;
-    --green:#1a8917;
-    --green-deep:#0E5A0C;
-    --green-mist:#EEF5EC;
-    --rule:#E3E7DD;
-    --display:Georgia, 'Times New Roman', serif;
-    --body:system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  }
-  *{box-sizing:border-box; margin:0; padding:0;}
-  html{scroll-behavior:smooth; scroll-padding-top:74px;}
-  body{background:var(--bg); color:var(--ink); font-family:var(--body); line-height:1.6; -webkit-font-smoothing:antialiased;}
-  ::selection{background:var(--green); color:#fff;}
-  img{max-width:100%; display:block;}
-  a{color:inherit; text-decoration:none;}
-  .wrap{max-width:1120px; margin:0 auto; padding:0 28px; position:relative; z-index:2;}
-  .prose{max-width:660px;}
-  .center{margin-left:auto; margin-right:auto; text-align:center;}
-  :focus-visible{outline:2px solid var(--green); outline-offset:3px; border-radius:3px;}
-  @media (prefers-reduced-motion: reduce){
-    *{transition-duration:0.01ms !important; animation-duration:0.01ms !important;}
-    html{scroll-behavior:auto;}
-  }
-  .skip{position:absolute; left:-9999px; top:0; background:var(--ink); color:#fff; padding:10px 16px; border-radius:0 0 7px 0; z-index:200;}
-  .skip:focus{left:0;}
-
-  /* ---------- announce + nav ---------- */
-  .announce{background:var(--ink); color:#fff; text-align:center; font-size:13.5px; padding:9px 16px;}
-  .announce a{text-decoration:underline; text-underline-offset:3px; font-weight:600;}
-  .nav{position:sticky; top:0; z-index:50; background:rgba(255,255,255,0.92); backdrop-filter:blur(10px); border-bottom:1px solid var(--rule);}
-  .nav-inner{display:flex; align-items:center; justify-content:space-between; height:74px; gap:16px;}
-  .logo{font-family:var(--display); font-weight:600; font-size:20px; letter-spacing:-0.01em;}
-  .nav-links{display:flex; align-items:center; gap:26px;}
-  .nav-links a{font-size:14px; color:var(--ink-soft); position:relative; padding-bottom:3px;}
-  .nav-links a:hover{color:var(--ink);}
-  .nav-actions{display:flex; align-items:center; gap:10px; flex-shrink:0;}
-  .btn{display:inline-flex; align-items:center; gap:8px; padding:11px 20px; border-radius:7px; font-size:14.5px; font-weight:600; transition:background .15s ease, color .15s ease, border-color .15s ease, transform .15s ease, box-shadow .15s ease;}
-  .btn-solid{background:var(--ink); color:#fff;}
-  .btn-solid:hover{background:var(--green-deep);}
-  .btn-line{border:1px solid var(--rule); color:var(--ink);}
-  .btn-line:hover{border-color:var(--ink);}
-  .btn-green{background:var(--green); color:#fff; padding:14px 28px; font-size:16px;}
-  .btn-green:hover{background:var(--green-deep);}
-  .link-underline{text-decoration:underline; text-underline-offset:4px; text-decoration-thickness:1px; color:var(--ink-soft); font-weight:600;}
-  .link-underline:hover{color:var(--green-deep);}
-
-  /* ---------- hero ---------- */
-  .hero{padding:72px 0 56px; border-bottom:1px solid var(--rule);}
-  .hero h1{font-family:var(--display); font-weight:600; font-size:clamp(34px, 5.4vw, 56px); line-height:1.08; letter-spacing:-0.02em; max-width:16em; text-wrap:balance;}
-  .hero-sub{font-size:18px; color:var(--ink-soft); margin:18px 0 28px; max-width:34em;}
-  .hero-ctas{display:flex; align-items:center; gap:22px; flex-wrap:wrap;}
-  .hero-note{margin-top:16px; font-size:14px; color:var(--ink-faint);}
-
-  section.block{padding:64px 0; border-bottom:1px solid var(--rule);}
-  section.block h2{font-family:var(--display); font-weight:600; font-size:clamp(26px, 3.4vw, 34px); letter-spacing:-0.015em; margin-bottom:10px; text-wrap:balance;}
-  .section-sub{font-size:16px; color:var(--ink-soft); max-width:38em; margin-bottom:32px;}
-
-  /* ---------- feature list ---------- */
-  .feature-list{list-style:none; display:grid; grid-template-columns:1fr 1fr; gap:26px 48px; max-width:960px;}
-  .feature-list li{padding-top:18px; border-top:2px solid var(--ink);}
-  .feature-list strong{display:block; font-size:16px; margin-bottom:4px;}
-  .feature-list span{font-size:14.5px; color:var(--ink-soft);}
-
-  /* ---------- compare ---------- */
-  .compare-words{font-size:17px; max-width:42em; margin-bottom:28px;}
-  .compare-table{width:100%; max-width:860px; border-collapse:collapse; font-size:15px;}
-  .compare-table th, .compare-table td{text-align:left; padding:12px 14px; border-bottom:1px solid var(--rule); vertical-align:top;}
-  .compare-table thead th{font-family:var(--display); font-size:16px; border-bottom:2px solid var(--ink);}
-  .compare-table tbody th{font-weight:600; white-space:nowrap;}
-  .compare-table td{color:var(--ink-soft);}
-  .compare-table td:last-child{color:var(--ink);}
-  .compare-note{margin-top:14px; font-size:13.5px; color:var(--ink-faint); max-width:60em;}
-
-  /* ---------- pricing ---------- */
-  .plans{display:grid; grid-template-columns:1fr 1fr; gap:20px; max-width:860px; margin-bottom:24px;}
-  .plan{border:1px solid var(--rule); border-radius:12px; padding:28px; background:#fff;}
-  .plan.recommended{border:2px solid var(--green); background:var(--green-mist);}
-  .plan h3{font-family:var(--display); font-size:20px; font-weight:600;}
-  .plan .price{font-family:var(--display); font-size:38px; font-weight:600; margin:8px 0 2px;}
-  .plan .price small{font-family:var(--body); font-size:14px; font-weight:400; color:var(--ink-soft);}
-  .plan .was{font-size:14px; color:var(--ink-faint);}
-  .plan .was s{margin-right:6px;}
-  .plan ul{list-style:none; margin:16px 0 22px; display:flex; flex-direction:column; gap:9px; font-size:14.5px; color:var(--ink-soft);}
-  .plan ul li{padding-left:20px; position:relative;}
-  .plan ul li::before{content:'✓'; position:absolute; left:0; color:var(--green); font-weight:700;}
-  .plan .btn{width:100%; justify-content:center;}
-  .plan-note{font-size:14px; color:var(--ink-soft); max-width:60em;}
-  .plan-note strong{color:var(--ink);}
-
-  /* ---------- faq ---------- */
-  .faq{max-width:700px;}
-  .faq details{border-bottom:1px solid var(--rule); padding:2px 0;}
-  .faq details:first-of-type{border-top:1px solid var(--rule);}
-  .faq summary{cursor:pointer; font-weight:600; font-size:16.5px; padding:16px 8px 16px 0; list-style:none; display:flex; align-items:center; justify-content:space-between; gap:16px;}
-  .faq summary::-webkit-details-marker{display:none;}
-  .faq summary::after{content:'+'; font-size:22px; font-weight:400; color:var(--green-deep); flex-shrink:0; line-height:1;}
-  .faq details[open] summary::after{content:'–';}
-  .faq .answer{padding:0 8px 20px 0; font-size:15px; color:var(--ink-soft); max-width:40em;}
-  .faq .answer a{text-decoration:underline; text-underline-offset:3px;}
-
-  /* ---------- final band + footer ---------- */
-  .final{padding:72px 0; text-align:center;}
-  .final h2{font-family:var(--display); font-weight:600; font-size:clamp(28px, 4vw, 40px); letter-spacing:-0.015em; margin-bottom:12px; text-wrap:balance;}
-  .final p{color:var(--ink-soft); margin-bottom:26px;}
-  footer{border-top:1px solid var(--rule); padding:36px 0 44px;}
-  .footer-inner{display:flex; align-items:flex-start; justify-content:space-between; gap:28px; flex-wrap:wrap;}
-  .footer-brand small{display:block; color:var(--ink-faint); font-size:13px; margin-top:6px;}
-  .footer-links{display:flex; gap:20px; flex-wrap:wrap; font-size:14px; color:var(--ink-soft);}
-  .footer-links a:hover{color:var(--ink);}
-  .footer-actions{display:flex; gap:14px; align-items:center;}
-
-  @media (max-width:760px){
-    .nav-links{display:none;}
-    .nav-inner{gap:10px;}
-    .logo{font-size:18px;}
-    .nav-actions{gap:8px;}
-    .nav-actions .btn{padding:9px 12px; font-size:13px; white-space:nowrap;}
-    .feature-list{grid-template-columns:1fr;}
-    .plans{grid-template-columns:1fr;}
-    .hero{padding:52px 0 44px;}
-    section.block{padding:48px 0;}
-    .compare-table thead th:first-child{font-size:0;}
-    .compare-table tbody th{white-space:normal;}
-  }
+:root{
+  --bg:#FFFFFF; --paper:#F7F8F3; --ink:#15170F; --ink-soft:#5C6455; --ink-faint:#8A9182;
+  --green:#1a8917; --green-deep:#0E5A0C; --green-mist:#EEF5EC; --green-wash:#DCEBDA;
+  --amber:#b7791f; --clay:#c2412d; --gray-ink:#6B7268; --gray:#B7BDB6; --gray-soft:#D8DCD6;
+  --gray-wash:#EDEFEA; --rule:#E3E7DD;
+  --display:Georgia, 'Times New Roman', serif;
+  --body:system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box;}
+html,body,h1,h2,h3,p,ul,ol,table,figure,details,summary,div,section,header,footer,main,nav{margin:0;}
+ul,ol{padding:0;list-style:none;}
+html{scroll-behavior:smooth; scroll-padding-top:74px;}
+body{background:var(--bg); color:var(--ink); font-family:var(--body); line-height:1.6; -webkit-font-smoothing:antialiased;}
+::selection{background:var(--green); color:#fff;}
+img,svg{display:block; max-width:100%;}
+a{color:inherit; text-decoration:none;}
+.wrap{max-width:1120px; margin:0 auto; padding:0 28px; position:relative; z-index:2;}
+:focus-visible{outline:2px solid var(--green); outline-offset:3px; border-radius:3px;}
+.visually-hidden{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap;}
+.skip{position:absolute; left:-9999px; top:0; background:var(--ink); color:#fff; padding:10px 16px; border-radius:0 0 7px 0; z-index:200;}
+.skip:focus{left:0;}
+@keyframes ba-float{0%,100%{transform:translateY(-6px)}50%{transform:translateY(6px)}}
+@keyframes ba-twinkle{0%,100%{opacity:.25;transform:scale(.7) rotate(0deg)}50%{opacity:1;transform:scale(1.1) rotate(12deg)}}
+@keyframes ba-drift{from{transform:translateX(-14px)}to{transform:translateX(14px)}}
+@keyframes ba-march{to{stroke-dashoffset:-64}}
+@keyframes ba-spin-slow{to{transform:rotate(360deg)}}
+@keyframes ba-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+@keyframes ba-flutter{0%,100%{transform:rotate(-5deg)}50%{transform:rotate(7deg)}}
+@keyframes ba-bounce{0%,100%{transform:translateY(0);opacity:.65}50%{transform:translateY(7px);opacity:1}}
+@keyframes ba-rise{from{opacity:0;transform:translateY(26px)}}
+@keyframes ba-wipe{from{clip-path:inset(-3% 0 -3% 3%)}to{clip-path:inset(-3% 0 -3% 97%)}}
+@keyframes ba-ride{from{left:3%}to{left:97%}}
+@keyframes ba-pop{from{opacity:0;transform:translateY(-6px)}}
+.ba-anim{transform-box:fill-box; transform-origin:center;}
+.tw1{animation:ba-twinkle 2.6s ease-in-out infinite;}
+.tw2{animation:ba-twinkle 3.4s ease-in-out -0.9s infinite;}
+.tw3{animation:ba-twinkle 2.1s ease-in-out -1.4s infinite;}
+.float1{animation:ba-float 5s ease-in-out infinite;}
+.float2{animation:ba-float 6.5s ease-in-out -2s infinite;}
+.float3{animation:ba-float 7.4s ease-in-out -4s infinite;}
+.march{animation:ba-march 1.6s linear infinite;}
+.spin-slow{animation:ba-spin-slow 28s linear infinite;}
+.bob{animation:ba-bob 5.2s ease-in-out infinite;}
+.flutter{animation:ba-flutter 3.2s ease-in-out infinite; transform-origin:100% 50%;}
+.drift{animation:ba-drift 7s ease-in-out infinite alternate;}
+details[open] .answer{animation:ba-pop .25s ease;}
+@media (prefers-reduced-motion: reduce){
+  html{scroll-behavior:auto;}
+  .hero-scene *,.stage-sticky *,.scroll-hint *,.faq *{animation:none !important;}
+}
+.announce{background:var(--ink); color:#fff; text-align:center; font-size:13.5px; padding:9px 16px;}
+.announce a{text-decoration:underline; text-underline-offset:3px; font-weight:600;}
+.nav{position:sticky; top:0; z-index:50; background:rgba(255,255,255,0.92); backdrop-filter:blur(10px); border-bottom:1px solid var(--rule);}
+.nav-inner{display:flex; align-items:center; justify-content:space-between; height:74px; gap:16px;}
+.logo{font-family:var(--display); font-weight:600; font-size:20px; letter-spacing:-0.01em;}
+.nav-links{display:flex; align-items:center; gap:26px;}
+.nav-links a{font-size:14px; color:var(--ink-soft); padding-bottom:3px;}
+.nav-links a:hover{color:var(--ink);}
+.nav-actions{display:flex; align-items:center; gap:10px; flex-shrink:0;}
+.btn{display:inline-flex; align-items:center; gap:8px; padding:11px 20px; border-radius:7px; font-size:14.5px; font-weight:600; transition:background .15s ease, color .15s ease, border-color .15s ease, transform .15s ease, box-shadow .15s ease;}
+.btn-solid{background:var(--ink); color:#fff;}
+.btn-solid:hover{background:var(--green-deep);}
+.btn-line{border:1px solid var(--rule); color:var(--ink); background:#fff;}
+.btn-line:hover{border-color:var(--ink);}
+.btn-green{background:var(--green); color:#fff; padding:14px 28px; font-size:16px;}
+.btn-green:hover{background:var(--green-deep); transform:translateY(-1px); box-shadow:0 12px 24px -12px rgba(26,137,23,.5);}
+.link-underline{text-decoration:underline; text-underline-offset:4px; text-decoration-thickness:1px; color:var(--ink-soft); font-weight:600;}
+.link-underline:hover{color:var(--green-deep);}
+.hero{padding:64px 0 56px; border-bottom:1px solid var(--rule); overflow:clip;}
+.hero-grid{display:grid; grid-template-columns:1.02fr .98fr; gap:48px; align-items:center;}
+.hero h1{font-family:var(--display); font-weight:600; font-size:clamp(34px, 5.4vw, 56px); line-height:1.08; letter-spacing:-0.02em; text-wrap:balance;}
+.hero-sub{font-size:18px; color:var(--ink-soft); margin:18px 0 28px; max-width:32em;}
+.hero-ctas{display:flex; align-items:center; gap:22px; flex-wrap:wrap;}
+.hero-note{margin-top:16px; font-size:14px; color:var(--ink-faint);}
+.scroll-hint{margin-top:30px; font-size:13px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--ink-faint); display:flex; align-items:center; gap:10px;}
+.scroll-hint i{width:9px; height:9px; border-right:2.5px solid var(--green); border-bottom:2.5px solid var(--green); transform:rotate(45deg); animation:ba-bounce 1.8s ease-in-out infinite;}
+.hero-scene{position:relative;}
+.hero-scene svg{width:100%; height:auto;}
+.scene-caption{margin-top:10px; text-align:center; font-size:13.5px; color:var(--ink-faint);}
+section.block{padding:64px 0; border-bottom:1px solid var(--rule);}
+section.block h2{font-family:var(--display); font-weight:600; font-size:clamp(26px, 3.4vw, 34px); letter-spacing:-0.015em; margin-bottom:10px; text-wrap:balance;}
+.section-sub{font-size:16px; color:var(--ink-soft); max-width:38em; margin-bottom:32px;}
+.feature-list{display:grid; grid-template-columns:1fr 1fr; gap:26px 48px; max-width:960px;}
+.feature-list li{padding-top:18px; border-top:2px solid var(--ink);}
+.feature-list strong{display:block; font-size:16px; margin-bottom:4px;}
+.feature-list span{font-size:14.5px; color:var(--ink-soft);}
+.stage-head{max-width:1120px; margin:0 auto; padding:64px 28px 8px;}
+.stage-head h2{font-family:var(--display); font-weight:600; font-size:clamp(26px, 3.4vw, 34px); letter-spacing:-0.015em; margin-bottom:10px; text-wrap:balance;}
+.stage{position:relative; height:260vh;}
+.stage-sticky{position:sticky; top:0; height:100svh; min-height:600px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; overflow:clip;}
+.scene-wrap{position:relative; width:min(980px, 94vw);}
+.scene-wrap svg.w{width:100%; height:auto; border-radius:16px; border:1px solid var(--rule); background:var(--paper); box-shadow:0 30px 60px -30px rgba(21,23,15,.25);}
+.old-world{clip-path:inset(-3% 0 -3% 44%);}
+.rider{position:absolute; top:-6%; bottom:6%; left:44%; width:0; z-index:3;}
+.rider-bar{position:absolute; top:0; bottom:0; left:-2px; width:4px; border-radius:4px; background:var(--green); box-shadow:0 0 18px 3px rgba(26,137,23,.45);}
+.rider-mage{position:absolute; bottom:64%; left:0; transform:translateX(-50%); width:clamp(84px, 11vw, 120px);}
+.rider-mage svg{width:100%; height:auto; overflow:visible;}
+.corner{position:absolute; bottom:12px; font-size:12.5px; font-weight:700; padding:5px 12px; border-radius:99px; background:rgba(255,255,255,.88); border:1px solid var(--rule); z-index:2;}
+.corner.left{left:12px; color:var(--green-deep);}
+.corner.right{right:12px; color:var(--ink-faint);}
+.stage-cap{font-size:14px; color:var(--ink-soft); text-align:center; padding:0 28px;}
+@supports (animation-timeline: scroll()) and (view-timeline-name: --stage){
+  .stage{view-timeline-name:--stage; view-timeline-axis:block;}
+  .old-world{animation:ba-wipe linear both; animation-timeline:--stage; animation-range:cover 6% cover 94%;}
+  .rider{animation:ba-ride linear both; animation-timeline:--stage; animation-range:cover 6% cover 94%;}
+  .reveal{animation:ba-rise linear both; animation-timeline:view(); animation-range:entry 0% cover 30%;}
+}
+.compare-words{font-size:17px; max-width:42em; margin-bottom:28px;}
+.compare-table{width:100%; max-width:860px; border-collapse:collapse; font-size:15px;}
+.compare-table th, .compare-table td{text-align:left; padding:12px 14px; border-bottom:1px solid var(--rule); vertical-align:top;}
+.compare-table thead th{font-family:var(--display); font-size:16px; border-bottom:2px solid var(--ink);}
+.compare-table tbody th{font-weight:600; white-space:nowrap;}
+.compare-table td{color:var(--ink-soft);}
+.compare-table td:last-child{color:var(--ink);}
+.compare-note{margin-top:14px; font-size:13.5px; color:var(--ink-faint); max-width:60em;}
+.plans{display:grid; grid-template-columns:1fr 1fr; gap:20px; max-width:860px; margin-bottom:24px;}
+.plan{border:1px solid var(--rule); border-radius:12px; padding:28px; background:#fff; transition:transform .2s ease, box-shadow .2s ease;}
+.plan:hover{transform:translateY(-4px); box-shadow:0 18px 40px -18px rgba(21,23,15,.25);}
+.plan.recommended{border:2px solid var(--green); background:var(--green-mist);}
+.plan h3{font-family:var(--display); font-size:20px; font-weight:600;}
+.plan .price{font-family:var(--display); font-size:38px; font-weight:600; margin:8px 0 2px;}
+.plan .price small{font-family:var(--body); font-size:14px; font-weight:400; color:var(--ink-soft);}
+.plan .was{font-size:14px; color:var(--ink-faint);}
+.plan .was s{margin-right:6px;}
+.plan ul{margin:16px 0 22px; display:flex; flex-direction:column; gap:9px; font-size:14.5px; color:var(--ink-soft);}
+.plan ul li{padding-left:20px; position:relative;}
+.plan ul li::before{content:'✓'; position:absolute; left:0; color:var(--green); font-weight:700;}
+.plan .btn{width:100%; justify-content:center;}
+.plan-note{font-size:14px; color:var(--ink-soft); max-width:60em;}
+.plan-note strong{color:var(--ink);}
+.faq{max-width:700px;}
+.faq details{border-bottom:1px solid var(--rule); padding:2px 0;}
+.faq details:first-of-type{border-top:1px solid var(--rule);}
+.faq summary{cursor:pointer; font-weight:600; font-size:16.5px; padding:16px 8px 16px 0; list-style:none; display:flex; align-items:center; justify-content:space-between; gap:16px;}
+.faq summary::-webkit-details-marker{display:none;}
+.faq summary::after{content:'+'; font-size:22px; font-weight:400; color:var(--green-deep); flex-shrink:0; line-height:1; transition:transform .2s ease;}
+.faq details[open] summary::after{content:'–'; transform:rotate(180deg);}
+.faq .answer{padding:0 8px 20px 0; font-size:15px; color:var(--ink-soft); max-width:40em;}
+.faq .answer a{text-decoration:underline; text-underline-offset:3px;}
+.final{padding:72px 0; text-align:center;}
+.final h2{font-family:var(--display); font-weight:600; font-size:clamp(28px, 4vw, 40px); letter-spacing:-0.015em; margin-bottom:12px; text-wrap:balance;}
+.final p{color:var(--ink-soft); margin-bottom:26px;}
+footer{border-top:1px solid var(--rule); padding:36px 0 44px;}
+.footer-inner{display:flex; align-items:flex-start; justify-content:space-between; gap:28px; flex-wrap:wrap;}
+.footer-brand small{display:block; color:var(--ink-faint); font-size:13px; margin-top:6px;}
+.footer-links{display:flex; gap:20px; flex-wrap:wrap; font-size:14px; color:var(--ink-soft);}
+.footer-links a:hover{color:var(--ink);}
+.footer-actions{display:flex; gap:14px; align-items:center;}
+@media (max-width:900px){
+  .hero-grid{grid-template-columns:1fr; gap:32px;}
+  .hero-scene{max-width:520px; margin:0 auto; width:100%;}
+}
+@media (max-width:760px){
+  .nav-links{display:none;}
+  .nav-inner{gap:10px;}
+  .logo{font-size:18px;}
+  .nav-actions{gap:8px;}
+  .nav-actions .btn{padding:9px 12px; font-size:13px; white-space:nowrap;}
+  .feature-list{grid-template-columns:1fr;}
+  .plans{grid-template-columns:1fr;}
+  .hero{padding:52px 0 44px;}
+  section.block{padding:48px 0;}
+  .compare-table thead th:first-child{font-size:0;}
+  .compare-table tbody th{white-space:normal;}
+  .stage-head{padding:48px 28px 4px;}
+}
 </style>
 </head>
 <body>
@@ -181,22 +219,108 @@ gtag('config', 'AW-16852730460');
 </nav>
 <main id="main">
 <header class="hero">
-  <div class="wrap">
-    <h1>A Better Alternative to Blogger</h1>
-    <p class="hero-sub">Create beautiful blogs without hosting, plugins, updates or technical maintenance.</p>
-    <div class="hero-ctas">
-      <a href="/signup" class="btn btn-green">Start your free blog</a>
-      <a href="#compare" class="link-underline">See how Blognice compares with Blogger</a>
+  <div class="wrap hero-grid">
+    <div class="hero-copy">
+      <h1>A Better Alternative to Blogger</h1>
+      <p class="hero-sub">Create beautiful blogs without hosting, plugins, updates or technical maintenance.</p>
+      <div class="hero-ctas">
+        <a href="/signup" class="btn btn-green">Start your free blog</a>
+        <a href="#compare" class="link-underline">See how Blognice compares with Blogger</a>
+      </div>
+      <p class="hero-note">Your first blog is free to try · Pro free for 14 days · No charge during the trial.</p>
+      <p class="scroll-hint" aria-hidden="true"><span>Scroll to watch the move</span><i></i></p>
     </div>
-    <p class="hero-note">Your first blog is free to try · Pro free for 14 days · No charge during the trial.</p>
+    <div class="hero-scene">
+<svg viewBox="0 0 440 460" role="img" aria-label="A mage turning a gray Blogspot page into a green Blognice blog">
+<defs>
+<path id="spark" d="M0 -9 C 1.2 -2.5, 2.5 -1.2, 9 0 C 2.5 1.2, 1.2 2.5, 0 9 C -1.2 2.5, -2.5 1.2, -9 0 C -2.5 -1.2, -1.2 -2.5, 0 -9 Z"/>
+</defs>
+<circle cx="220" cy="230" r="185" fill="#EEF5EC"/>
+<g class="spin-slow ba-anim">
+<circle cx="220" cy="230" r="185" fill="none" stroke="#E3E7DD" stroke-width="2" stroke-dasharray="3 9"/>
+<g transform="translate(220,45)"><g class="tw1 ba-anim"><use href="#spark" fill="#b7791f"/></g></g>
+<g transform="translate(220,415)"><g class="tw2 ba-anim"><use href="#spark" fill="#1a8917"/></g></g>
+</g>
+<g>
+<rect x="48" y="190" width="124" height="96" rx="10" fill="#ffffff" stroke="#C9CFC6" stroke-width="2"/>
+<line x1="48" y1="214" x2="172" y2="214" stroke="#C9CFC6" stroke-width="2"/>
+<circle cx="60" cy="202" r="4" fill="#C9CFC6"/><circle cx="72" cy="202" r="4" fill="#C9CFC6"/><circle cx="84" cy="202" r="4" fill="#C9CFC6"/>
+<rect x="60" y="228" width="100" height="10" rx="5" fill="#DDE1DA"/>
+<rect x="60" y="244" width="72" height="10" rx="5" fill="#DDE1DA"/>
+<rect x="60" y="260" width="86" height="10" rx="5" fill="#DDE1DA"/>
+</g>
+<g class="float3 ba-anim"><g>
+<rect x="107" y="297" width="26" height="26" rx="4" fill="#C9CFC6" transform="rotate(14 120 310)"/>
+</g></g>
+<g class="float2 ba-anim"><g>
+<ellipse cx="86" cy="152" rx="26" ry="14" fill="#D8DCD6"/>
+<ellipse cx="108" cy="146" rx="20" ry="16" fill="#D8DCD6"/>
+<ellipse cx="66" cy="148" rx="16" ry="12" fill="#D8DCD6"/>
+</g></g>
+<ellipse cx="350" cy="404" rx="112" ry="66" fill="#1a8917" opacity="0.14"/>
+<ellipse cx="372" cy="424" rx="88" ry="58" fill="#1a8917" opacity="0.2"/>
+<g>
+<circle cx="350" cy="118" r="24" fill="#b7791f"/>
+<g class="spin-slow ba-anim" stroke="#b7791f" stroke-width="4" stroke-linecap="round">
+<line x1="350" y1="78" x2="350" y2="88"/><line x1="350" y1="148" x2="350" y2="158"/>
+<line x1="310" y1="118" x2="320" y2="118"/><line x1="380" y1="118" x2="390" y2="118"/>
+<line x1="322" y1="90" x2="329" y2="97"/><line x1="371" y1="139" x2="378" y2="146"/>
+<line x1="378" y1="90" x2="371" y2="97"/><line x1="329" y1="139" x2="322" y2="146"/>
+</g>
+</g>
+<path d="M292 172 q7 -7 14 0 M312 164 q7 -7 14 0" stroke="#15170F" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+<g class="float1 ba-anim"><g transform="translate(292,236)">
+<rect x="0" y="0" width="66" height="46" rx="7" fill="#ffffff" stroke="#E3E7DD" stroke-width="2"/>
+<rect x="8" y="8" width="34" height="7" rx="3.5" fill="#1a8917"/>
+<rect x="8" y="21" width="50" height="5" rx="2.5" fill="#DDE1DA"/>
+<rect x="8" y="30" width="38" height="5" rx="2.5" fill="#DDE1DA"/>
+</g></g>
+<g class="float2 ba-anim"><g transform="translate(336,282)">
+<rect x="0" y="0" width="66" height="46" rx="7" fill="#ffffff" stroke="#E3E7DD" stroke-width="2"/>
+<rect x="8" y="8" width="28" height="7" rx="3.5" fill="#1a8917"/>
+<rect x="8" y="21" width="50" height="5" rx="2.5" fill="#DDE1DA"/>
+<rect x="8" y="30" width="42" height="5" rx="2.5" fill="#DDE1DA"/>
+</g></g>
+<g class="float3 ba-anim"><g transform="translate(298,330)">
+<rect x="0" y="0" width="66" height="46" rx="7" fill="#ffffff" stroke="#E3E7DD" stroke-width="2"/>
+<rect x="8" y="8" width="38" height="7" rx="3.5" fill="#1a8917"/>
+<rect x="8" y="21" width="44" height="5" rx="2.5" fill="#DDE1DA"/>
+<rect x="8" y="30" width="50" height="5" rx="2.5" fill="#DDE1DA"/>
+</g></g>
+<ellipse cx="220" cy="408" rx="58" ry="10" fill="#15170F" opacity="0.08"/>
+<g class="bob ba-anim"><g>
+<path d="M220 196 C 196 250, 176 310, 160 372 L 280 372 C 264 310, 244 250, 220 196 Z" fill="#15170F"/>
+<path d="M220 196 C 208 250, 200 310, 196 372 L 224 372 C 222 310, 221 250, 220 196 Z" fill="#ffffff" opacity="0.06"/>
+<circle cx="220" cy="224" r="6.5" fill="#b7791f"/>
+<g class="flutter ba-anim"><path d="M196 210 C 170 200, 148 206, 128 224 C 150 226, 172 228, 194 230 Z" fill="#c2412d"/></g>
+<circle cx="220" cy="168" r="21" fill="#FFFDF6" stroke="#15170F" stroke-width="3"/>
+<circle cx="212" cy="166" r="2.6" fill="#15170F"/><circle cx="228" cy="166" r="2.6" fill="#15170F"/>
+<path d="M212 176 Q220 182 228 176" stroke="#15170F" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+<ellipse cx="220" cy="150" rx="46" ry="10" fill="#15170F"/>
+<path d="M220 62 C 206 96, 194 116, 178 146 L 262 146 C 246 116, 234 96, 220 62 Z" fill="#15170F"/>
+<path d="M188 128 L 252 128 L 246 142 L 194 142 Z" fill="#1a8917"/>
+<path d="M232 250 L 272 286" stroke="#15170F" stroke-width="11" stroke-linecap="round" fill="none"/>
+<line x1="266" y1="372" x2="292" y2="196" stroke="#8A5A2B" stroke-width="7" stroke-linecap="round"/>
+<circle cx="293" cy="184" r="20" fill="#1a8917" opacity="0.22"/>
+<circle cx="293" cy="184" r="11" fill="#1a8917"/>
+<circle cx="289" cy="180" r="3.5" fill="#ffffff" opacity="0.85"/>
+</g></g>
+<g transform="translate(220,52)"><g class="tw1 ba-anim"><use href="#spark" fill="#b7791f"/></g></g>
+<path d="M300 200 C 322 232, 330 268, 344 304" stroke="#1a8917" stroke-width="4" stroke-dasharray="7 9" stroke-linecap="round" fill="none" class="march"/>
+<circle cx="344" cy="304" r="4" fill="#1a8917"/>
+<g transform="translate(318,212)"><g class="tw2 ba-anim"><use href="#spark" fill="#1a8917"/></g></g>
+<g transform="translate(120,120)"><g class="tw3 ba-anim"><use href="#spark" fill="#b7791f"/></g></g>
+<g transform="translate(392,180)"><g class="tw1 ba-anim"><use href="#spark" fill="#1a8917"/></g></g>
+</svg>
+      <p class="scene-caption">Our importer waves its staff — gray Blogspot becomes green Blognice.</p>
+    </div>
   </div>
 </header>
-
 <section class="block" id="features" aria-labelledby="features-h">
   <div class="wrap">
-    <h2 id="features-h">One calm home for all your blogs</h2>
-    <p class="section-sub">Everything lives under a single login. No control panels, plugin updates, or hosting bills — just writing and publishing.</p>
-    <ul class="feature-list">
+    <h2 id="features-h" class="reveal">One calm home for all your blogs</h2>
+    <p class="section-sub reveal">Everything lives under a single login. No control panels, plugin updates, or hosting bills — just writing and publishing.</p>
+    <ul class="feature-list reveal">
       <li><strong>Up to five blogs from one account</strong><span>Run several blogs side by side and switch between them in one click. One blog is free; up to five on Pro.</span></li>
       <li><strong>Unlimited posts and images</strong><span>Publish as much as you like. Images are optimized automatically and served fast.</span></li>
       <li><strong>Custom domains</strong><span>Point blog.yourcompany.com at your blog with a guided DNS setup and automatic SSL.</span></li>
@@ -210,12 +334,116 @@ gtag('config', 'AW-16852730460');
   </div>
 </section>
 
+<div class="stage-head">
+  <h2 class="reveal">Watch the move happen</h2>
+  <p class="section-sub reveal">Keep scrolling — the mage walks your world from Blogspot gray to Blognice green.</p>
+</div>
+<div class="stage" id="move">
+  <div class="stage-sticky">
+    <div class="scene-wrap">
+      <svg class="w" viewBox="0 0 800 420" role="img" aria-label="A gray Blogspot city transforming into a green Blognice landscape">
+      <ellipse cx="620" cy="470" rx="330" ry="160" fill="#1a8917" opacity="0.12"/>
+      <g>
+      <circle cx="650" cy="100" r="32" fill="#b7791f"/>
+      <g class="spin-slow ba-anim" stroke="#b7791f" stroke-width="5" stroke-linecap="round">
+      <line x1="650" y1="48" x2="650" y2="60"/><line x1="650" y1="140" x2="650" y2="152"/>
+      <line x1="598" y1="100" x2="610" y2="100"/><line x1="690" y1="100" x2="702" y2="100"/>
+      <line x1="613" y1="63" x2="621" y2="71"/><line x1="679" y1="129" x2="687" y2="137"/>
+      <line x1="687" y1="63" x2="679" y2="71"/><line x1="621" y1="129" x2="613" y2="137"/>
+      </g>
+      </g>
+      <g class="drift ba-anim"><g>
+      <ellipse cx="480" cy="90" rx="44" ry="18" fill="#ffffff"/>
+      <ellipse cx="512" cy="82" rx="32" ry="20" fill="#ffffff"/>
+      <ellipse cx="452" cy="84" rx="26" ry="15" fill="#ffffff"/>
+      </g></g>
+      <rect x="0" y="300" width="800" height="120" fill="#DCEBDA"/>
+      <ellipse cx="180" cy="336" rx="210" ry="72" fill="#1a8917" opacity="0.18"/>
+      <ellipse cx="640" cy="350" rx="190" ry="66" fill="#1a8917" opacity="0.22"/>
+      <g class="float2 ba-anim"><g transform="translate(120,196)">
+      <rect x="0" y="0" width="104" height="72" rx="10" fill="#ffffff" stroke="#E3E7DD" stroke-width="2"/>
+      <rect x="12" y="12" width="52" height="10" rx="5" fill="#1a8917"/>
+      <rect x="12" y="30" width="80" height="7" rx="3.5" fill="#DDE1DA"/>
+      <rect x="12" y="42" width="62" height="7" rx="3.5" fill="#DDE1DA"/>
+      </g></g>
+      <g class="float1 ba-anim"><g transform="translate(560,180)">
+      <rect x="0" y="0" width="104" height="72" rx="10" fill="#ffffff" stroke="#E3E7DD" stroke-width="2"/>
+      <rect x="12" y="12" width="44" height="10" rx="5" fill="#1a8917"/>
+      <rect x="12" y="30" width="80" height="7" rx="3.5" fill="#DDE1DA"/>
+      <rect x="12" y="42" width="68" height="7" rx="3.5" fill="#DDE1DA"/>
+      </g></g>
+      <g>
+      <rect x="330" y="318" width="10" height="34" fill="#8A5A2B"/>
+      <path d="M335 268 L 312 322 L 358 322 Z" fill="#0E5A0C"/>
+      <path d="M335 292 L 316 330 L 354 330 Z" fill="#1a8917"/>
+      </g>
+      <g>
+      <rect x="716" y="322" width="10" height="30" fill="#8A5A2B"/>
+      <path d="M721 276 L 700 326 L 742 326 Z" fill="#0E5A0C"/>
+      <path d="M721 298 L 704 330 L 738 330 Z" fill="#1a8917"/>
+      </g>
+      <path d="M420 130 q8 -8 16 0 M442 121 q8 -8 16 0" stroke="#15170F" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <circle cx="250" cy="356" r="5" fill="#b7791f"/><circle cx="420" cy="368" r="5" fill="#c2412d"/><circle cx="600" cy="358" r="5" fill="#b7791f"/><circle cx="700" cy="372" r="5" fill="#c2412d"/>
+<g class="old-world">
+<rect x="0" y="0" width="800" height="302" fill="#EDEFEA"/>
+<circle cx="150" cy="100" r="28" fill="#C6CBC5"/>
+<g fill="#D8DCD6">
+<ellipse cx="330" cy="86" rx="42" ry="17"/>
+<ellipse cx="360" cy="78" rx="30" ry="19"/>
+<ellipse cx="304" cy="80" rx="24" ry="14"/>
+</g>
+<rect x="0" y="300" width="800" height="120" fill="#D9DCD8"/>
+<g>
+<rect x="60" y="200" width="70" height="100" fill="#B7BDB6"/>
+<rect x="140" y="160" width="80" height="140" fill="#C6CBC5"/>
+<rect x="230" y="220" width="60" height="80" fill="#B7BDB6"/>
+<rect x="560" y="190" width="90" height="110" fill="#C6CBC5"/>
+<rect x="660" y="230" width="70" height="70" fill="#B7BDB6"/>
+<rect x="40" y="250" width="40" height="50" fill="#C6CBC5"/>
+</g>
+<g fill="#8F968E">
+<rect x="152" y="176" width="14" height="14"/><rect x="174" y="176" width="14" height="14"/><rect x="196" y="176" width="14" height="14"/>
+<rect x="152" y="198" width="14" height="14"/><rect x="174" y="198" width="14" height="14"/><rect x="196" y="198" width="14" height="14"/>
+<rect x="572" y="206" width="14" height="14"/><rect x="594" y="206" width="14" height="14"/><rect x="616" y="206" width="14" height="14"/>
+<rect x="572" y="228" width="14" height="14"/><rect x="594" y="228" width="14" height="14"/><rect x="616" y="228" width="14" height="14"/>
+<rect x="70" y="216" width="12" height="12"/><rect x="90" y="216" width="12" height="12"/>
+</g>
+<g class="float3 ba-anim"><g>
+<rect x="380" y="150" width="60" height="44" rx="6" fill="#ffffff" stroke="#C9CFC6" stroke-width="2" transform="rotate(-8 410 172)"/>
+</g></g>
+</g>
+      </svg>
+<div class="rider" aria-hidden="true">
+<div class="rider-bar"></div>
+<div class="rider-mage">
+<svg viewBox="0 0 120 150">
+<g class="bob ba-anim"><g>
+<path d="M60 45 C 48 75, 38 105, 30 140 L 90 140 C 82 105, 72 75, 60 45 Z" fill="#15170F"/>
+<circle cx="60" cy="30" r="14" fill="#FFFDF6" stroke="#15170F" stroke-width="2.5"/>
+<circle cx="55" cy="29" r="1.8" fill="#15170F"/><circle cx="65" cy="29" r="1.8" fill="#15170F"/>
+<path d="M60 2 L 36 24 L 84 24 Z" fill="#15170F"/>
+<rect x="42" y="16" width="36" height="6" fill="#1a8917"/>
+<path d="M68 78 L 86 96" stroke="#15170F" stroke-width="8" stroke-linecap="round" fill="none"/>
+<line x1="84" y1="140" x2="96" y2="50" stroke="#8A5A2B" stroke-width="5" stroke-linecap="round"/>
+<circle cx="97" cy="42" r="13" fill="#1a8917" opacity="0.25"/>
+<circle cx="97" cy="42" r="8" fill="#1a8917"/>
+<path d="M44 62 C 32 56, 20 58, 10 66 C 22 68, 34 70, 44 70 Z" fill="#c2412d"/>
+</g></g>
+</svg>
+</div>
+</div>
+      <span class="corner left">Blognice</span>
+      <span class="corner right">Blogspot</span>
+    </div>
+    <p class="stage-cap">One upload carries posts, pages, tags, dates, and drafts across.</p>
+  </div>
+</div>
 <section class="block" id="compare" aria-labelledby="compare-h">
   <div class="wrap">
-    <h2 id="compare-h">Blognice vs Blogger</h2>
-    <p class="compare-words">Blogger is free and familiar, but Blognice is designed for people who want a focused writing experience, multiple blogs under one account, modern publishing tools, exportability and less dependence on a large platform.</p>
-    <table class="compare-table">
-      <thead><tr><th scope="col"><span class="visually-hidden" style="position:absolute;left:-9999px">Feature</span></th><th scope="col">Blogger</th><th scope="col">Blognice</th></tr></thead>
+    <h2 id="compare-h" class="reveal">Blognice vs Blogger</h2>
+    <p class="compare-words reveal">Blogger is free and familiar, but Blognice is designed for people who want a focused writing experience, multiple blogs under one account, modern publishing tools, exportability and less dependence on a large platform.</p>
+    <table class="compare-table reveal">
+      <thead><tr><th scope="col"><span class="visually-hidden">Feature</span></th><th scope="col">Blogger</th><th scope="col">Blognice</th></tr></thead>
       <tbody>
         <tr><th scope="row">Price</th><td>Free</td><td>First blog free to try; Pro from $3/month billed annually</td></tr>
         <tr><th scope="row">Blogs per account</th><td>Multiple blogs per Google account</td><td>Up to 5 blogs under one login on Pro</td></tr>
@@ -232,9 +460,9 @@ gtag('config', 'AW-16852730460');
 
 <section class="block" id="pricing" aria-labelledby="pricing-h">
   <div class="wrap">
-    <h2 id="pricing-h">Founding member pricing</h2>
-    <p class="section-sub">Limited to the first 1,000 paying members. Your price stays locked while your subscription stays active.</p>
-    <div class="plans">
+    <h2 id="pricing-h" class="reveal">Founding member pricing</h2>
+    <p class="section-sub reveal">Limited to the first 1,000 paying members. Your price stays locked while your subscription stays active.</p>
+    <div class="plans reveal">
       <div class="plan recommended">
         <h3>Founding Annual</h3>
         <p class="price">$36<small>/year</small></p>
@@ -266,9 +494,9 @@ gtag('config', 'AW-16852730460');
 
 <section class="block" id="faq" aria-labelledby="faq-h">
   <div class="wrap">
-    <h2 id="faq-h">Questions, answered</h2>
-    <p class="section-sub">The essentials for anyone moving from Blogger or Blogspot.</p>
-    <div class="faq">
+    <h2 id="faq-h" class="reveal">Questions, answered</h2>
+    <p class="section-sub reveal">The essentials for anyone moving from Blogger or Blogspot.</p>
+    <div class="faq reveal">
       <details>
         <summary>Can I use my own domain?</summary>
         <div class="answer">Yes. Connect a domain such as blog.yourcompany.com in Blog Settings → Domains, add the CNAME record shown, and SSL is automatic.</div>
@@ -299,9 +527,9 @@ gtag('config', 'AW-16852730460');
 
 <div class="final">
   <div class="wrap">
-    <h2>Your words deserve a calmer home</h2>
-    <p>Start your first blog free — bring your Blogger archive with you.</p>
-    <a href="/signup" class="btn btn-green">Start your free blog</a>
+    <h2 class="reveal">Your words deserve a calmer home</h2>
+    <p class="reveal">Start your first blog free — bring your Blogger archive with you.</p>
+    <a href="/signup" class="btn btn-green reveal">Start your free blog</a>
   </div>
 </div>
 </main>
