@@ -151,6 +151,12 @@ test("landing page renders headline, offer, FAQ, comparison, tag, and no custom 
     const html = await res.text();
     assert.equal(html.match(/<h1>/g).length, 1);
     assert.match(html, /<h1>A Better Alternative to Blogger<\/h1>/);
+    assert.match(html, /section\.block h2\{[^}]*text-align:center/);
+    assert.match(html, /\.section-sub\{[^}]*margin-inline:auto/);
+    assert.match(html, /\.section-sub\{[^}]*text-align:center/);
+    assert.match(html, /\.stage-head\{[^}]*text-align:center/);
+    assert.match(html, /\.compare-words\{[^}]*margin-inline:auto/);
+    assert.match(html, /\.compare-words\{[^}]*text-align:center/);
     assert.match(html, /<title>Blogger Alternative \| Blognice<\/title>/);
     assert.match(html, /Looking for a Blogger alternative\? Blognice lets you manage up to five/);
     assert.match(html, /rel="canonical" href="https:\/\/www\.blognice\.com\/blogger-alternative"/);
