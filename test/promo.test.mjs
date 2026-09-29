@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs, { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
+import { Script } from "node:vm";
 import { Miniflare } from "miniflare";
 import {
   MAX_PROMO_BODY_LENGTH,
@@ -277,6 +278,22 @@ test("free owners see the Pro upsell and their promo is left alone", async () =>
     assert.equal(res.status, 200);
     const row = await db.prepare("SELECT promo_enabled, promo_body_md FROM tenants WHERE id=2").first();
     assert.deepEqual(row, { promo_enabled: 0, promo_body_md: "" });
+  } finally {
+    await mf.dispose();
+  }
+});
+
+test("every inline script on the settings page parses", async () => {
+  // A template-literal escape once shipped `/^https:///i` (line comment to
+  // the browser), silently killing the promo picker. Parse, never execute.
+  const { mf, env, ctx } = await setup();
+  try {
+    const html = await (await blogniceApp.request(`${ORIGIN}/admin/b/promoblog1/settings`, {
+      headers: { Cookie: "bn_session=sess" },
+    }, env, ctx)).text();
+    const blocks = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]).filter((s) => s.trim());
+    assert.ok(blocks.length >= 2, `expected inline scripts, found ${blocks.length}`);
+    for (const code of blocks) new Script(code);
   } finally {
     await mf.dispose();
   }
