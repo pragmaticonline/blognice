@@ -2263,9 +2263,9 @@ export function settingsPage(
           </div>
         </fieldset>
         <fieldset class="settings-card"><legend>Blog theme</legend>
-          <p class="help">Modern is the current look. Classic gives the blog an old-Blogspot-style look — a bordered column, classic blue links, and dashed dividers.</p>
+          <p class="help">Modern is the current look. Blogspot gives the blog an old-Blogspot-style look — a bordered column, classic blue links, and dashed dividers.</p>
           <label><input type="radio" name="theme" value="modern"${normalizeBlogTheme((tenant as any).theme) === "modern" ? " checked" : ""}> Modern</label>
-          <label><input type="radio" name="theme" value="classic"${normalizeBlogTheme((tenant as any).theme) === "classic" ? " checked" : ""}> Classic</label>
+          <label><input type="radio" name="theme" value="blogspot"${normalizeBlogTheme((tenant as any).theme) === "blogspot" ? " checked" : ""}> Blogspot</label>
         </fieldset>
         <label for="accent-color">Brand colour</label>
         <div class="accent-presets" role="group" aria-label="Brand colour presets">
@@ -2792,7 +2792,7 @@ curl ${base}/blogs/${exampleBlogId}/tags -H "Authorization: Bearer YOUR_KEY"</pr
         homepage, sitemap, and RSS feed. Post creation and updates accept <code>tags</code>,
         <code>author_name</code>, <code>author_visible</code>, and a validated
         <code>featured_image_key</code>; image generation accepts <code>prompt</code> or
-        <code>post_id</code> with <code>style</code> (see above); pages accept <code>title</code>, <code>slug</code>, <code>body_md</code>, <code>published</code>, <code>show_in_navigation</code>, <code>navigation_label</code>, <code>navigation_order</code>, <code>meta_description</code>; blogs accept <code>slug</code>, <code>title</code>, <code>description</code>, <code>footer_name</code>, <code>accent_color</code>, <code>topics</code>, <code>social_links</code>, <code>navigation_links</code> (<code>{label, href, order}</code> with https or / paths), <code>header_link_url</code> (<code>/</code> or <code>https://</code> — where the header logo/title links), <code>browser_push_enabled</code>, <code>comments_enabled</code>, <code>theme</code> (<code>modern</code> or <code>classic</code>); use the returned job URLs to poll AI work.
+        <code>post_id</code> with <code>style</code> (see above); pages accept <code>title</code>, <code>slug</code>, <code>body_md</code>, <code>published</code>, <code>show_in_navigation</code>, <code>navigation_label</code>, <code>navigation_order</code>, <code>meta_description</code>; blogs accept <code>slug</code>, <code>title</code>, <code>description</code>, <code>footer_name</code>, <code>accent_color</code>, <code>topics</code>, <code>social_links</code>, <code>navigation_links</code> (<code>{label, href, order}</code> with https or / paths), <code>header_link_url</code> (<code>/</code> or <code>https://</code> — where the header logo/title links), <code>browser_push_enabled</code>, <code>comments_enabled</code>, <code>theme</code> (<code>modern</code> or <code>blogspot</code>); use the returned job URLs to poll AI work.
         Everything is scoped to blogs you own.
       </p>
     </div>`,

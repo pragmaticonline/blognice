@@ -2294,8 +2294,8 @@ app.patch("/api/v1/blogs/:blogId", async (c) => {
   let theme = normalizeBlogTheme((tenant as any).theme);
   if (has("theme")) {
     const raw = String(body.theme ?? "").trim().toLowerCase();
-    if (raw !== "modern" && raw !== "classic") return c.json({ error: "theme must be 'modern' or 'classic'." }, 400);
-    theme = raw as "modern" | "classic";
+    if (raw !== "modern" && raw !== "blogspot" && raw !== "classic") return c.json({ error: "theme must be 'modern' or 'blogspot'." }, 400);
+    theme = normalizeBlogTheme(raw);
   }
   let avatarKey: string | null | undefined = undefined;
   const hasAvatar = has("avatar_key") || has("profile_image_key") || has("profile_image") || has("avatar_url") || has("profile_image_url");

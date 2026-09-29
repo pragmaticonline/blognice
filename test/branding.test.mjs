@@ -55,11 +55,11 @@ test("public blog URLs use opaque IDs while internal joins keep tenant_id", () =
 test("blog theme is stored, selectable, and styles public pages", () => {
   assert.match(themeMigration, /ADD COLUMN theme TEXT NOT NULL DEFAULT 'modern'/);
   assert.match(render, /export function normalizeBlogTheme/);
-  assert.match(render, /export const CLASSIC_STYLES/);
-  assert.match(render, /data-blog-theme="classic"/);
+  assert.match(render, /export const BLOGSPOT_STYLES/);
+  assert.match(render, /data-blog-theme="blogspot"/);
   assert.match(admin, /name="theme" value="modern"/);
-  assert.match(admin, /name="theme" value="classic"/);
-  assert.match(indexSource, /theme must be 'modern' or 'classic'/);
+  assert.match(admin, /name="theme" value="blogspot"/);
+  assert.match(indexSource, /theme must be 'modern' or 'blogspot'/);
   assert.match(indexSource, /header_link_url = \?, avatar_key = \?, theme = \? WHERE id = \?/);
   assert.match(indexSource, /header_link_url = \?, theme = \? WHERE id = \?/);
 });

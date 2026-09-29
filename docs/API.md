@@ -73,7 +73,7 @@ curl -X PATCH https://www.blognice.com/api/v1/blogs/ggh6gvgsgj4h \
 | `social_links` | object `x,facebook,instagram,linkedin,youtube,tiktok,bluesky,mastodon,bitchute,telegram` → `https://` ≤500 | https only |
 | `navigation_links` | `Array<{label ≤40, href ≤200, order 0-999}>` ≤20 | `href` must be `https://...` or `/path` (no spaces) |
 | `header_link_url` | string ≤500 | `"/"` or `/path` or `https://...` — **where the header logo/title links**. Use `"/"` for blog home, or `https://www.domain.com` when blog lives at `blog.domain.com`. External opens in new tab. Default `"/"` |
-| `theme` | `'modern'` \| `'classic'` | public blog look; `classic` is the old-Blogspot-style theme. Default `'modern'` |
+| `theme` | `'modern'` \| `'blogspot'` | public blog look; `blogspot` is the old-Blogspot-style theme. Default `'modern'` |
 | `browser_push_enabled` | boolean | owner opt-in for reader notifications |
 
 Custom menu is **activated by sending `navigation_links`** — `[]` disables it. Pages with `show_in_navigation` merge with these links in the header.

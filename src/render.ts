@@ -18,7 +18,7 @@ export type Tenant = {
   avatar_key: string | null; // R2 key of the blog's profile image
   favicon_key: string | null; // R2 key of the blog's favicon
   accent_color: string | null; // hex accent used for this blog's branding
-  theme?: string | null; // public blog theme: 'modern' (default) or 'classic'
+  theme?: string | null; // public blog theme: 'modern' (default) or 'blogspot'
   topics_json: string | null;
   social_links_json?: string | null;
   navigation_links_json?: string | null;
@@ -74,14 +74,15 @@ export type NavigationItem = { label: string; href: string; external: boolean };
 
 export const DEFAULT_ACCENT_COLOR = "#1a8917";
 
-export type BlogTheme = "modern" | "classic";
+export type BlogTheme = "modern" | "blogspot";
 
 export function normalizeBlogTheme(value: unknown): BlogTheme {
-  return String(value ?? "").trim().toLowerCase() === "classic" ? "classic" : "modern";
+  const v = String(value ?? "").trim().toLowerCase();
+  return v === "blogspot" || v === "classic" ? "blogspot" : "modern";
 }
 
-export function isClassicTheme(tenant: Tenant): boolean {
-  return normalizeBlogTheme((tenant as any).theme) === "classic";
+export function isBlogspotTheme(tenant: Tenant): boolean {
+  return normalizeBlogTheme((tenant as any).theme) === "blogspot";
 }
 
 export function normalizeAccentColor(value: unknown): string {
@@ -943,12 +944,12 @@ export const STYLES = /* css */ `
   }
 `;
 
-// The "classic" blog theme: an old-Blogspot-inspired look (narrow bordered
+// The "blogspot" blog theme: an old-Blogspot-inspired look (narrow bordered
 // column, Trebuchet-era type, classic blue links, dashed dividers, square
 // corners). Pure overrides — every rule is scoped under the body attribute
 // so the modern theme is untouched.
-export const CLASSIC_STYLES = /* css */ `
-  body[data-blog-theme="classic"] {
+export const BLOGSPOT_STYLES = /* css */ `
+  body[data-blog-theme="blogspot"] {
     --bg: #e9edf1;
     --panel: #ffffff;
     --ink: #333333;
@@ -961,7 +962,7 @@ export const CLASSIC_STYLES = /* css */ `
     font-size: 1.02rem;
     line-height: 1.6;
   }
-  html[data-theme="dark"] body[data-blog-theme="classic"] {
+  html[data-theme="dark"] body[data-blog-theme="blogspot"] {
     --bg: #141b21;
     --panel: #1f282f;
     --ink: #d8e0e6;
@@ -970,74 +971,74 @@ export const CLASSIC_STYLES = /* css */ `
     --rule: #33404a;
     --accent: #6ea8d8;
   }
-  body[data-blog-theme="classic"] .wrap {
+  body[data-blog-theme="blogspot"] .wrap {
     max-width: 56rem;
     background: var(--panel);
     border-left: 1px solid var(--rule);
     border-right: 1px solid var(--rule);
     padding: 0 2rem 2rem;
   }
-  body[data-blog-theme="classic"] .homepage-wrap { max-width: 62rem; font-size: .95rem; }
-  body[data-blog-theme="classic"] .prose a, body[data-blog-theme="classic"] .page-prose a,
-  body[data-blog-theme="classic"] .feed-excerpt a, body[data-blog-theme="classic"] .blog-excerpt a,
-  body[data-blog-theme="classic"] .comment-body a, body[data-blog-theme="classic"] footer.site-footer a,
-  body[data-blog-theme="classic"] .breadcrumbs a { color: var(--accent); }
-  body[data-blog-theme="classic"] a:hover { text-decoration: underline; }
-  body[data-blog-theme="classic"] .masthead {
+  body[data-blog-theme="blogspot"] .homepage-wrap { max-width: 62rem; font-size: .95rem; }
+  body[data-blog-theme="blogspot"] .prose a, body[data-blog-theme="blogspot"] .page-prose a,
+  body[data-blog-theme="blogspot"] .feed-excerpt a, body[data-blog-theme="blogspot"] .blog-excerpt a,
+  body[data-blog-theme="blogspot"] .comment-body a, body[data-blog-theme="blogspot"] footer.site-footer a,
+  body[data-blog-theme="blogspot"] .breadcrumbs a { color: var(--accent); }
+  body[data-blog-theme="blogspot"] a:hover { text-decoration: underline; }
+  body[data-blog-theme="blogspot"] .masthead {
     text-align: left;
     padding: 1.6rem 1.2rem;
     margin: 0 -2rem 2rem;
     border-bottom: 3px double var(--rule);
   }
-  body[data-blog-theme="classic"] .masthead .site-title { font-size: 2rem; letter-spacing: 0; }
-  body[data-blog-theme="classic"] .masthead .site-desc { font-style: italic; }
-  body[data-blog-theme="classic"] article h1 { font-size: 1.9rem; font-weight: 700; letter-spacing: 0; }
-  body[data-blog-theme="classic"] .feed li { border-bottom: 1px dashed var(--rule); padding-bottom: 1.8rem; margin-bottom: 1.8rem; }
-  body[data-blog-theme="classic"] .feed-title { font-size: 1.4rem; letter-spacing: 0; }
-  body[data-blog-theme="classic"] .feed-excerpt { font-size: 1rem; }
-  body[data-blog-theme="classic"] .feed-meta, body[data-blog-theme="classic"] .byline-meta {
+  body[data-blog-theme="blogspot"] .masthead .site-title { font-size: 2rem; letter-spacing: 0; }
+  body[data-blog-theme="blogspot"] .masthead .site-desc { font-style: italic; }
+  body[data-blog-theme="blogspot"] article h1 { font-size: 1.9rem; font-weight: 700; letter-spacing: 0; }
+  body[data-blog-theme="blogspot"] .feed li { border-bottom: 1px dashed var(--rule); padding-bottom: 1.8rem; margin-bottom: 1.8rem; }
+  body[data-blog-theme="blogspot"] .feed-title { font-size: 1.4rem; letter-spacing: 0; }
+  body[data-blog-theme="blogspot"] .feed-excerpt { font-size: 1rem; }
+  body[data-blog-theme="blogspot"] .feed-meta, body[data-blog-theme="blogspot"] .byline-meta {
     text-transform: uppercase; font-size: .74rem; letter-spacing: .08em;
   }
-  body[data-blog-theme="classic"] .byline { border-top: 1px dashed var(--rule); padding-top: 1rem; }
-  body[data-blog-theme="classic"] .avatar { border-radius: 4px; }
-  body[data-blog-theme="classic"] .blog-avatar { border-radius: 4px; }
-  body[data-blog-theme="classic"] .post-tags span, body[data-blog-theme="classic"] .post-tags a { border-radius: 3px; }
-  body[data-blog-theme="classic"] .theme-toggle, body[data-blog-theme="classic"] .to-top,
-  body[data-blog-theme="classic"] .rss-global a, body[data-blog-theme="classic"] .site-controls .subscribe-link,
-  body[data-blog-theme="classic"] .post-home, body[data-blog-theme="classic"] .owner-edit,
-  body[data-blog-theme="classic"] .site-controls-more, body[data-blog-theme="classic"] .share-button {
+  body[data-blog-theme="blogspot"] .byline { border-top: 1px dashed var(--rule); padding-top: 1rem; }
+  body[data-blog-theme="blogspot"] .avatar { border-radius: 4px; }
+  body[data-blog-theme="blogspot"] .blog-avatar { border-radius: 4px; }
+  body[data-blog-theme="blogspot"] .post-tags span, body[data-blog-theme="blogspot"] .post-tags a { border-radius: 3px; }
+  body[data-blog-theme="blogspot"] .theme-toggle, body[data-blog-theme="blogspot"] .to-top,
+  body[data-blog-theme="blogspot"] .rss-global a, body[data-blog-theme="blogspot"] .site-controls .subscribe-link,
+  body[data-blog-theme="blogspot"] .post-home, body[data-blog-theme="blogspot"] .owner-edit,
+  body[data-blog-theme="blogspot"] .site-controls-more, body[data-blog-theme="blogspot"] .share-button {
     border-radius: 4px;
   }
-  body[data-blog-theme="classic"] .blog-nav { padding: 1rem 0; }
-  body[data-blog-theme="classic"] .blog-nav-links { border-top: 1px dashed var(--rule); border-bottom: 1px dashed var(--rule); }
-  body[data-blog-theme="classic"] .blog-nav .subscribe-link, body[data-blog-theme="classic"] .blog-nav .rss-link,
-  body[data-blog-theme="classic"] .blog-featured-subscribe, body[data-blog-theme="classic"] .blog-pagination a {
+  body[data-blog-theme="blogspot"] .blog-nav { padding: 1rem 0; }
+  body[data-blog-theme="blogspot"] .blog-nav-links { border-top: 1px dashed var(--rule); border-bottom: 1px dashed var(--rule); }
+  body[data-blog-theme="blogspot"] .blog-nav .subscribe-link, body[data-blog-theme="blogspot"] .blog-nav .rss-link,
+  body[data-blog-theme="blogspot"] .blog-featured-subscribe, body[data-blog-theme="blogspot"] .blog-pagination a {
     border-radius: 4px;
   }
-  body[data-blog-theme="classic"] .blog-featured h2 { font-size: clamp(1.5rem, 2.6vw, 2rem); }
-  body[data-blog-theme="classic"] .blog-card h3, body[data-blog-theme="classic"] .blog-popular-card h3 { font-size: 1rem; }
-  body[data-blog-theme="classic"] .blog-art { border-radius: 4px; border: 1px solid var(--rule); }
-  body[data-blog-theme="classic"] .featured-image { border-radius: 4px; border: 1px solid var(--rule); }
-  body[data-blog-theme="classic"] .subscribe {
+  body[data-blog-theme="blogspot"] .blog-featured h2 { font-size: clamp(1.5rem, 2.6vw, 2rem); }
+  body[data-blog-theme="blogspot"] .blog-card h3, body[data-blog-theme="blogspot"] .blog-popular-card h3 { font-size: 1rem; }
+  body[data-blog-theme="blogspot"] .blog-art { border-radius: 4px; border: 1px solid var(--rule); }
+  body[data-blog-theme="blogspot"] .featured-image { border-radius: 4px; border: 1px solid var(--rule); }
+  body[data-blog-theme="blogspot"] .subscribe {
     border-radius: 0; border-left: 4px solid var(--accent);
   }
-  body[data-blog-theme="classic"] .subscribe button, body[data-blog-theme="classic"] .comment-form button[type="submit"],
-  body[data-blog-theme="classic"] .settings-actions button, body[data-blog-theme="classic"] .settings-photo-row button {
+  body[data-blog-theme="blogspot"] .subscribe button, body[data-blog-theme="blogspot"] .comment-form button[type="submit"],
+  body[data-blog-theme="blogspot"] .settings-actions button, body[data-blog-theme="blogspot"] .settings-photo-row button {
     border-radius: 4px;
   }
-  body[data-blog-theme="classic"] .subscribe input, body[data-blog-theme="classic"] .comment-form input[type="text"],
-  body[data-blog-theme="classic"] .comment-form input[type="email"], body[data-blog-theme="classic"] .comment-form input[type="url"],
-  body[data-blog-theme="classic"] .comment-bubble textarea, body[data-blog-theme="classic"] .settings-body input[type="text"],
-  body[data-blog-theme="classic"] .settings-body input[type="url"] {
+  body[data-blog-theme="blogspot"] .subscribe input, body[data-blog-theme="blogspot"] .comment-form input[type="text"],
+  body[data-blog-theme="blogspot"] .comment-form input[type="email"], body[data-blog-theme="blogspot"] .comment-form input[type="url"],
+  body[data-blog-theme="blogspot"] .comment-bubble textarea, body[data-blog-theme="blogspot"] .settings-body input[type="text"],
+  body[data-blog-theme="blogspot"] .settings-body input[type="url"] {
     border-radius: 0;
   }
-  body[data-blog-theme="classic"] .comments { border-top: 3px double var(--rule); }
-  body[data-blog-theme="classic"] footer.site-footer { border-top: 1px solid var(--rule); font-size: .85rem; }
-  body[data-blog-theme="classic"] .post-audio-mobile { border-radius: 4px; }
+  body[data-blog-theme="blogspot"] .comments { border-top: 3px double var(--rule); }
+  body[data-blog-theme="blogspot"] footer.site-footer { border-top: 1px solid var(--rule); font-size: .85rem; }
+  body[data-blog-theme="blogspot"] .post-audio-mobile { border-radius: 4px; }
   @media (max-width: 640px) {
-    body[data-blog-theme="classic"] .wrap { padding: 0 1.1rem 1.5rem; }
-    body[data-blog-theme="classic"] .masthead { margin: 0 -1.1rem 1.6rem; }
-    body[data-blog-theme="classic"] article h1 { font-size: 1.6rem; }
+    body[data-blog-theme="blogspot"] .wrap { padding: 0 1.1rem 1.5rem; }
+    body[data-blog-theme="blogspot"] .masthead { margin: 0 -1.1rem 1.6rem; }
+    body[data-blog-theme="blogspot"] article h1 { font-size: 1.6rem; }
   }
 `;
 
@@ -1091,7 +1092,7 @@ ${modifiedAt ? `<meta property="article:modified_time" content="${new Date(modif
   const prevLink = prevUrl ? `<link rel="prev" href="${esc(prevUrl)}">` : "";
   const nextLink = nextUrl ? `<link rel="next" href="${esc(nextUrl)}">` : "";
   const jsonLdTag = jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, "\\u003c")}</script>` : "";
-  const classic = isClassicTheme(tenant);
+  const blogspot = isBlogspotTheme(tenant);
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -1117,10 +1118,10 @@ ${jsonLdTag}
 <link rel="alternate" type="application/rss+xml" title="${esc(tenant.title)} RSS feed" href="/rss.xml">
 <link rel="icon" href="/favicon.svg">
 <script>(function(){try{var saved=localStorage.getItem("blognice-theme");var theme=saved==="light"||saved==="dark"?saved:(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");document.documentElement.dataset.theme=theme}catch(e){}})();</script>
-<style>${STYLES}${classic ? CLASSIC_STYLES : ""}</style>
+<style>${STYLES}${blogspot ? BLOGSPOT_STYLES : ""}</style>
 <style>:root { --accent: ${normalizeAccentColor(tenant.accent_color)}; --accent-ink: ${accentTextColor(normalizeAccentColor(tenant.accent_color))}; } @media (prefers-color-scheme: dark) { :root { --accent: ${normalizeAccentColor(tenant.accent_color)}; } }</style>
 </head>
-<body${classic ? ' data-blog-theme="classic"' : ""}>
+<body${blogspot ? ' data-blog-theme="blogspot"' : ""}>
   <div class="wrap${wide ? " homepage-wrap" : ""}">
   <div class="site-controls">${homeControl ? `<a class="post-home" href="/" aria-label="Back to all posts" title="Back to all posts"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg><span class="sr-only">Back to all posts</span></a>` : ""}${ownerEditControl}<span class="site-controls-more-wrap"><button class="site-controls-more" type="button" aria-expanded="false" aria-label="More options" data-site-more>⋮</button><span class="site-controls-panel" hidden data-site-panel>${showRss ? `<div class="rss-global"><a href="/rss.xml" target="_blank" rel="noopener noreferrer" aria-label="RSS feed" title="RSS feed"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18.5a2 2 0 1 0 0 4 2 2 0 0 0 0-4ZM4 10v3a7 7 0 0 1 7 7h3A10 10 0 0 0 4 10Zm0-6v3c8.3 0 15 6.7 15 15h3C22 12.2 13.8 4 4 4Z"/></svg><span class="sr-only">RSS feed</span></a></div><a class="subscribe-link" href="#subscribe" aria-label="Subscribe" title="Subscribe"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg><span class="sr-only">Subscribe</span></a>` : ""}<button class="theme-toggle" id="theme-toggle" type="button" aria-label="Use dark theme" aria-pressed="false" title="Use dark theme"><span class="sun" aria-hidden="true">☀</span><span class="moon" aria-hidden="true">☾</span></button></span></span></div>
   <button class="to-top" id="to-top" type="button" aria-label="Back to top" title="Back to top">↑</button>

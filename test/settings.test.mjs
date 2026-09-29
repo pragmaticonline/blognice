@@ -61,7 +61,7 @@ test("admin settings save succeeds and persists branding", async () => {
     topics: "tech, travel",
     browser_push_enabled: "1",
     social_x: "https://x.com/user",
-    theme: "classic",
+    theme: "blogspot",
   });
   const res = await mf.dispatchFetch("https://www.blognice.com/admin/b/test1234/settings", {
     method: "POST",
@@ -82,8 +82,8 @@ test("admin settings save succeeds and persists branding", async () => {
   assert.equal(row.browser_push_enabled, 1);
   assert.deepEqual(JSON.parse(row.topics_json), ["tech", "travel"]);
   assert.deepEqual(JSON.parse(row.social_links_json), { x: "https://x.com/user" });
-  assert.equal(row.theme, "classic");
-  assert.match(html, /name="theme" value="classic" checked/);
+  assert.equal(row.theme, "blogspot");
+  assert.match(html, /name="theme" value="blogspot" checked/);
 
   await mf.dispose();
 });
