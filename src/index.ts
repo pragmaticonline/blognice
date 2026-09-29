@@ -2349,6 +2349,18 @@ app.patch("/api/v1/blogs/:blogId", async (c) => {
     const parsed = normalizePromoImage(body.promo_image);
     if (parsed.error) return c.json({ error: parsed.error }, 400);
     promoImage = parsed.image;
+    // Media keys must belong to this blog and exist (same rule as avatars);
+    // https URLs pass through.
+    if (promoImage && !/^https:\/\//i.test(promoImage)) {
+      let key = promoImage.startsWith("/media/") ? promoImage.slice("/media/".length) : promoImage;
+      if (!key.includes("/")) key = `${tenant.id}/${key}`;
+      if (!key.startsWith(`${tenant.id}/`)) return c.json({ error: "Promo image must belong to this blog." }, 403);
+      const head = await c.env.MEDIA.head(key);
+      if (!head) return c.json({ error: "Promo image not found in media." }, 404);
+      const ct = head.httpMetadata?.contentType || "";
+      if (ct && !ct.startsWith("image/")) return c.json({ error: "Promo image must be an image." }, 400);
+      promoImage = key;
+    }
   }
   let promoBody = String((tenant as any).promo_body_md ?? "");
   if (has("promo_body_md")) {
@@ -5358,6 +5370,18 @@ app.post("/admin/b/:blogId/settings", async (c) => {
     if (promoImageParsed.error)
       return c.html(settingsPage(ctx.account, ctx.tenant, { isOwner: ctx.role === "owner", error: promoImageParsed.error }), 400);
     promoImage = promoImageParsed.image;
+    if (promoImage && !/^https:\/\//i.test(promoImage)) {
+      let key = promoImage.startsWith("/media/") ? promoImage.slice("/media/".length) : promoImage;
+      if (!key.includes("/")) key = `${ctx.tenant.id}/${key}`;
+      const fail = (message: string) =>
+        c.html(settingsPage(ctx.account, ctx.tenant, { isOwner: ctx.role === "owner", error: message }), 400);
+      if (!key.startsWith(`${ctx.tenant.id}/`)) return fail("Promo image must belong to this blog.");
+      const head = await c.env.MEDIA.head(key);
+      if (!head) return fail("Promo image not found in media.");
+      const ct = head.httpMetadata?.contentType || "";
+      if (ct && !ct.startsWith("image/")) return fail("Promo image must be an image.");
+      promoImage = key;
+    }
     const promoBodyParsed = normalizePromoBody(form.get("promo_body_md"));
     if (promoBodyParsed.error)
       return c.html(settingsPage(ctx.account, ctx.tenant, { isOwner: ctx.role === "owner", error: promoBodyParsed.error }), 400);

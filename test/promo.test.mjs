@@ -221,6 +221,11 @@ test("settings save persists a promo and it renders on the home page", async () 
     assert.match(settingsHtml, /name="promo_placement" value="home" checked/);
     assert.match(settingsHtml, /name="promo_body_md"/);
     assert.match(settingsHtml, /id="promo-preview"/);
+    assert.match(settingsHtml, /id="promo-choose"/);
+    assert.match(settingsHtml, /id="promo-media-dialog"/);
+    assert.match(settingsHtml, /id="promo-file-input"/);
+    assert.match(settingsHtml, /media\.json/);
+    assert.match(settingsHtml, /\/upload/);
   } finally {
     await mf.dispose();
   }
@@ -262,6 +267,7 @@ test("free owners see the Pro upsell and their promo is left alone", async () =>
     assert.match(html, /promo popup is a Pro feature/);
     assert.doesNotMatch(html, /name="promo_enabled"/);
     assert.doesNotMatch(html, /name="promo_body_md"/);
+    assert.doesNotMatch(html, /id="promo-choose"/);
 
     const res = await blogniceApp.request(`${ORIGIN}/admin/b/freeblog1/settings`, {
       method: "POST",
@@ -271,6 +277,41 @@ test("free owners see the Pro upsell and their promo is left alone", async () =>
     assert.equal(res.status, 200);
     const row = await db.prepare("SELECT promo_enabled, promo_body_md FROM tenants WHERE id=2").first();
     assert.deepEqual(row, { promo_enabled: 0, promo_body_md: "" });
+  } finally {
+    await mf.dispose();
+  }
+});
+
+test("promo media keys must belong to the blog and exist", async () => {
+  const { mf, db, env, ctx } = await setup();
+  try {
+    const auth = { Authorization: `Bearer ${OWNER_KEY}`, "Content-Type": "application/json" };
+    const foreign = await blogniceApp.request(`${ORIGIN}/api/v1/blogs/promoblog1`, {
+      method: "PATCH", headers: auth, body: JSON.stringify({ promo_image: "999/other.jpg" }),
+    }, env, ctx);
+    assert.equal(foreign.status, 403);
+    assert.match((await foreign.json()).error, /belong to this blog/);
+
+    const missing = await blogniceApp.request(`${ORIGIN}/api/v1/blogs/promoblog1`, {
+      method: "PATCH", headers: auth, body: JSON.stringify({ promo_image: "cover.jpg" }),
+    }, env, ctx);
+    assert.equal(missing.status, 404);
+    assert.match((await missing.json()).error, /not found in media/);
+
+    await env.MEDIA.put("1/cover.jpg", new TextEncoder().encode("fake-image"), { httpMetadata: { contentType: "image/jpeg" } });
+    const ok = await blogniceApp.request(`${ORIGIN}/api/v1/blogs/promoblog1`, {
+      method: "PATCH", headers: auth, body: JSON.stringify({ promo_image: "/media/1/cover.jpg" }),
+    }, env, ctx);
+    assert.equal(ok.status, 200);
+    assert.equal((await ok.json()).blog.promo_image, "1/cover.jpg");
+
+    const form = await blogniceApp.request(`${ORIGIN}/admin/b/promoblog1/settings`, {
+      method: "POST",
+      headers: { Origin: ORIGIN, Cookie: "bn_session=sess", "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ slug: "promoblog", title: "Promo Blog", accent_color: "#1a8917", promo_image: "gone.jpg" }).toString(),
+    }, env, ctx);
+    assert.equal(form.status, 400);
+    assert.match(await form.text(), /not found in media/);
   } finally {
     await mf.dispose();
   }

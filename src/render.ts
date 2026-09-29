@@ -220,14 +220,14 @@ export const PROMO_STYLES = /* css */ `
   .promo-backdrop { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center; padding: 1rem; background: rgb(0 0 0 / .45); opacity: 0; transition: opacity .25s ease; }
   .promo-backdrop[hidden] { display: none !important; }
   .promo-backdrop.promo-open { opacity: 1; }
-  .promo-modal { position: relative; display: flex; gap: 1.5rem; align-items: stretch; width: min(46rem, 100%); max-height: min(90vh, 42rem); overflow: auto; background: var(--panel, var(--bg)); color: var(--ink); border-radius: 14px; padding: 2rem; box-shadow: 0 24px 70px rgb(0 0 0 / .3); }
+  .promo-modal { position: relative; display: flex; gap: 2rem; align-items: stretch; width: min(58rem, 100%); max-height: min(90vh, 46rem); overflow: auto; background: var(--panel, var(--bg)); color: var(--ink); border-radius: 16px; padding: 2.5rem; box-shadow: 0 24px 70px rgb(0 0 0 / .3); }
   .promo-close { position: absolute; top: .6rem; right: .6rem; width: 2.2rem; height: 2.2rem; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--rule); border-radius: 999px; background: transparent; color: var(--muted); font-size: 1.3rem; line-height: 1; cursor: pointer; }
   .promo-close:hover, .promo-close:focus-visible { color: var(--ink); border-color: var(--ink); }
-  .promo-text { flex: 1 1 55%; min-width: 0; font-size: 1rem; }
+  .promo-text { flex: 1 1 55%; min-width: 0; font-size: 1.06rem; }
   .promo-text > :first-child { margin-top: 0; }
   .promo-text > :last-child { margin-bottom: 0; }
-  .promo-text h1, .promo-text h2 { font-size: 1.35rem; letter-spacing: -.01em; }
-  .promo-text h3 { font-size: 1.1rem; }
+  .promo-text h1, .promo-text h2 { font-size: 1.6rem; letter-spacing: -.01em; }
+  .promo-text h3 { font-size: 1.2rem; }
   .promo-text img { max-width: 100%; border-radius: 8px; }
   .promo-cta { display: inline-block; margin-top: 1.1rem; padding: .7rem 1.35rem; background: var(--accent); color: var(--accent-ink); border-radius: 8px; font-weight: 700; text-decoration: none; }
   .promo-cta:hover, .promo-cta:focus-visible { filter: brightness(.93); }

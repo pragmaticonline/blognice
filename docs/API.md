@@ -77,7 +77,7 @@ curl -X PATCH https://www.blognice.com/api/v1/blogs/ggh6gvgsgj4h \
 | `custom_css` | string ≤20000 | Pro-only owner stylesheet, appended after the theme styles. Rejects `</style>`, `javascript:` URLs, `expression(...)` |
 | `promo_enabled` | boolean | Pro-only: show the promo popup to visitors |
 | `promo_placement` | `'home'` \| `'all'` | popup on the home page only, or every public page. Default `'home'` |
-| `promo_image` | string ≤500 | popup graphic: media key, `/media/…` URL, or `https://` image URL. Empty = text only |
+| `promo_image` | string ≤500 | popup graphic: own-blog media key, `/media/…` URL, or `https://` image URL. Empty = text only |
 | `promo_body_md` | string ≤2000 | popup Markdown text (sanitized). Empty = no popup |
 | `promo_cta_text` | string ≤80 | popup button label |
 | `promo_cta_url` | string ≤500 | popup button target: `/path` or `https://…`. Button shows only with text + URL |
