@@ -8,6 +8,7 @@ const indexSource = readFileSync(new URL("../src/index.ts", import.meta.url), "u
 const migration = readFileSync(new URL("../migrations/004-tenant-accent-color.sql", import.meta.url), "utf8");
 const socialMigration = readFileSync(new URL("../migrations/044-tenant-social-links.sql", import.meta.url), "utf8");
 const publicIdMigration = readFileSync(new URL("../migrations/005-tenant-public-id.sql", import.meta.url), "utf8");
+const themeMigration = readFileSync(new URL("../migrations/085-blog-theme.sql", import.meta.url), "utf8");
 
 test("accent colours are validated and choose readable button text", () => {
   assert.match(render, /export function normalizeAccentColor/);
@@ -49,4 +50,16 @@ test("public blog URLs use opaque IDs while internal joins keep tenant_id", () =
   assert.match(admin, /type BlogRow = \{ public_id: string/);
   assert.match(indexSource, /WHERE t\.public_id = \? AND m\.account_id/);
   assert.match(indexSource, /SELECT t\.public_id, t\.slug, t\.title/);
+});
+
+test("blog theme is stored, selectable, and styles public pages", () => {
+  assert.match(themeMigration, /ADD COLUMN theme TEXT NOT NULL DEFAULT 'modern'/);
+  assert.match(render, /export function normalizeBlogTheme/);
+  assert.match(render, /export const CLASSIC_STYLES/);
+  assert.match(render, /data-blog-theme="classic"/);
+  assert.match(admin, /name="theme" value="modern"/);
+  assert.match(admin, /name="theme" value="classic"/);
+  assert.match(indexSource, /theme must be 'modern' or 'classic'/);
+  assert.match(indexSource, /header_link_url = \?, avatar_key = \?, theme = \? WHERE id = \?/);
+  assert.match(indexSource, /header_link_url = \?, theme = \? WHERE id = \?/);
 });

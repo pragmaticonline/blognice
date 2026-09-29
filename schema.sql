@@ -67,6 +67,7 @@ CREATE TABLE tenants (
   avatar_key    TEXT,                             -- R2 key of the blog's profile image (nullable)
   favicon_key   TEXT,                             -- R2 key of the blog's browser icon (nullable)
   accent_color  TEXT    NOT NULL DEFAULT '#1a8917', -- six-digit hex branding accent
+  theme         TEXT    NOT NULL DEFAULT 'modern', -- public blog theme: 'modern' or 'classic'
   topics_json   TEXT    NOT NULL DEFAULT '[]',     -- normalized blog topics
   social_links_json TEXT NOT NULL DEFAULT '{}',    -- normalized social profile URLs
   navigation_links_json TEXT NOT NULL DEFAULT '[]', -- external/custom navigation links {label, href, order}

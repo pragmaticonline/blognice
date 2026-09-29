@@ -61,6 +61,7 @@ test("admin settings save succeeds and persists branding", async () => {
     topics: "tech, travel",
     browser_push_enabled: "1",
     social_x: "https://x.com/user",
+    theme: "classic",
   });
   const res = await mf.dispatchFetch("https://www.blognice.com/admin/b/test1234/settings", {
     method: "POST",
@@ -71,7 +72,7 @@ test("admin settings save succeeds and persists branding", async () => {
   const html = await res.text();
   assert.match(html, /Saved\./);
 
-  const row = await db.prepare("SELECT slug,title,description,footer_name,accent_color,topics_json,social_links_json,header_link_url,browser_push_enabled FROM tenants WHERE id=1").first();
+  const row = await db.prepare("SELECT slug,title,description,footer_name,accent_color,topics_json,social_links_json,header_link_url,browser_push_enabled,theme FROM tenants WHERE id=1").first();
   assert.equal(row.slug, "myblog");
   assert.equal(row.title, "My Updated Blog");
   assert.equal(row.description, "new tagline");
@@ -81,6 +82,8 @@ test("admin settings save succeeds and persists branding", async () => {
   assert.equal(row.browser_push_enabled, 1);
   assert.deepEqual(JSON.parse(row.topics_json), ["tech", "travel"]);
   assert.deepEqual(JSON.parse(row.social_links_json), { x: "https://x.com/user" });
+  assert.equal(row.theme, "classic");
+  assert.match(html, /name="theme" value="classic" checked/);
 
   await mf.dispose();
 });
