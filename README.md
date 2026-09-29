@@ -690,7 +690,9 @@ remove an assigned featured image.
 
 ## Importing from Blogger
 
-Moving a Blogger blog over takes one upload. In Blogger, open **Settings →
+Moving a Blogger blog over takes one upload. Announcement:
+[Migrate from Blogger to Blognice](https://blognice.blognice.com/migrate-from-blogger-to-blognice).
+In Blogger, open **Settings →
 Back up content** and download the backup file (both the classic export and the
 Google Takeout `feed.atom` work). Then, in blognice, open the blog's
 **Settings → Advanced → Import from Blogger** and upload that file.
