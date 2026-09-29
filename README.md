@@ -115,6 +115,10 @@ fast, server-rendered pages.
 - **A Medium-inspired reading theme** — a wide, comfortable measure, a large
   Charter serif body, bold sans headings, a byline with monogram and read time,
   a drop cap, and light/dark support. No web fonts, so it stays fast.
+- **A Blogspot-style theme** — each blog can switch to a classic Blogger look
+  (bordered column, classic blue links, dashed dividers) from Settings → Blog
+  theme, or `PATCH /api/v1/blogs/:id` with `{"theme": "blogspot"}`. A comfort
+  for freshly migrated Blogger blogs.
 - **Per-tenant `sitemap.xml` and `robots.txt`** for search engines.
 - **Privacy-conscious metrics** — a tiny first-party beacon sends anonymous
   page views to Workers Analytics Engine. Authors get 7/30/90-day views,
@@ -703,6 +707,8 @@ What comes over:
 - Old addresses keep working: `/YYYY/MM/slug.html` and `/p/slug.html` redirect
   (301) to the imported post or page, so backlinks and search results survive
   the move. Slugs are taken from the original URL when it has one.
+- Homesick for the old look? Switch on the **Blogspot theme** under Settings →
+  Blog theme for a classic Blogger-style design.
 - Drafts stay drafts; published posts stay published.
 - Post HTML is converted to Markdown (headings, lists, links, images, quotes,
   code). Images keep pointing at their Blogger addresses.
