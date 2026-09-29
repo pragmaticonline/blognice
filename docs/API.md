@@ -40,7 +40,7 @@ curl https://www.blognice.com/api/v1/me -H "Authorization: Bearer YOUR_KEY"
 
 ### `GET /api/v1/blogs/:blogId`
 
-Returns `slug`, `title`, `description`, `footer_name`, `accent_color`, `topics`, `social_links`, `navigation_links`, `header_link_url`, `theme`, `browser_push_enabled`, `custom_domain`, `role`.
+Returns `slug`, `title`, `description`, `footer_name`, `accent_color`, `topics`, `social_links`, `navigation_links`, `header_link_url`, `theme`, `custom_css`, `browser_push_enabled`, `custom_domain`, `role`.
 
 ### `PATCH /api/v1/blogs/:blogId` — update settings (requires `settings.manage`)
 
@@ -74,6 +74,7 @@ curl -X PATCH https://www.blognice.com/api/v1/blogs/ggh6gvgsgj4h \
 | `navigation_links` | `Array<{label ≤40, href ≤200, order 0-999}>` ≤20 | `href` must be `https://...` or `/path` (no spaces) |
 | `header_link_url` | string ≤500 | `"/"` or `/path` or `https://...` — **where the header logo/title links**. Use `"/"` for blog home, or `https://www.domain.com` when blog lives at `blog.domain.com`. External opens in new tab. Default `"/"` |
 | `theme` | `'modern'` \| `'blogspot'` | public blog look; `blogspot` is the old-Blogspot-style theme. Default `'modern'` |
+| `custom_css` | string ≤20000 | Pro-only owner stylesheet, appended after the theme styles. Rejects `</style>`, `javascript:` URLs, `expression(...)` |
 | `browser_push_enabled` | boolean | owner opt-in for reader notifications |
 
 Custom menu is **activated by sending `navigation_links`** — `[]` disables it. Pages with `show_in_navigation` merge with these links in the header.

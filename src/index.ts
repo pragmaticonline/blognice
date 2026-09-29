@@ -22,6 +22,7 @@ import {
   buildCommentTree,
   commentNodeJson,
   normalizeBlogTheme,
+  normalizeCustomCss,
   renderCommentSection,
 } from "./render";
 import { sendEmail, sendEmailDetailed, emailEnabled, registrationWelcomeEmail, invitationWelcomeEmail, emailVerificationEmail, subscriptionActiveEmail, subscriberConfirmationEmail, commentVerificationEmail, passwordResetEmail, subscriberWelcomeEmail, postNotificationEmail, commentReplyEmail } from "./email";
@@ -593,6 +594,9 @@ async function ensureTenantHeaderLinkColumn(env: Bindings): Promise<void> {
   } catch {}
   try {
     await env.DB.prepare("ALTER TABLE tenants ADD COLUMN theme TEXT NOT NULL DEFAULT 'modern'").run();
+  } catch {}
+  try {
+    await env.DB.prepare("ALTER TABLE tenants ADD COLUMN custom_css TEXT NOT NULL DEFAULT ''").run();
   } catch {}
 }
 
@@ -2205,6 +2209,7 @@ app.get("/api/v1/blogs/:blogId", async (c) => {
       comments_enabled: !!tenant.comments_enabled,
       header_link_url: (tenant as any).header_link_url || "/",
       theme: normalizeBlogTheme((tenant as any).theme),
+      custom_css: String((tenant as any).custom_css ?? ""),
       custom_domain: tenant.custom_domain,
       avatar_key: avatarKey,
       avatar_url: avatarUrl,
@@ -2297,6 +2302,13 @@ app.patch("/api/v1/blogs/:blogId", async (c) => {
     if (raw !== "modern" && raw !== "blogspot" && raw !== "classic") return c.json({ error: "theme must be 'modern' or 'blogspot'." }, 400);
     theme = normalizeBlogTheme(raw);
   }
+  // The API already requires a paid plan (see apiAccount), so no extra gate.
+  let customCss = String((tenant as any).custom_css ?? "");
+  if (has("custom_css")) {
+    const parsed = normalizeCustomCss(body.custom_css);
+    if (parsed.error) return c.json({ error: parsed.error }, 400);
+    customCss = parsed.css;
+  }
   let avatarKey: string | null | undefined = undefined;
   const hasAvatar = has("avatar_key") || has("profile_image_key") || has("profile_image") || has("avatar_url") || has("profile_image_url");
   if (hasAvatar) {
@@ -2327,8 +2339,8 @@ app.patch("/api/v1/blogs/:blogId", async (c) => {
   }
   await ensureTenantHeaderLinkColumn(c.env);
   const finalAvatarKey = avatarKey === undefined ? (tenant as any).avatar_key || null : avatarKey;
-  await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, footer_name = ?, accent_color = ?, topics_json = ?, social_links_json = ?, navigation_links_json = ?, browser_push_enabled = ?, comments_enabled = ?, header_link_url = ?, avatar_key = ?, theme = ? WHERE id = ?")
-    .bind(slug, title, description, footerName, accentColor, JSON.stringify(topics), JSON.stringify(socialLinks), JSON.stringify(navigationLinks), browserPushEnabled, commentsEnabled, headerLinkUrl, finalAvatarKey, theme, tenant.id).run();
+  await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, footer_name = ?, accent_color = ?, topics_json = ?, social_links_json = ?, navigation_links_json = ?, browser_push_enabled = ?, comments_enabled = ?, header_link_url = ?, avatar_key = ?, theme = ?, custom_css = ? WHERE id = ?")
+    .bind(slug, title, description, footerName, accentColor, JSON.stringify(topics), JSON.stringify(socialLinks), JSON.stringify(navigationLinks), browserPushEnabled, commentsEnabled, headerLinkUrl, finalAvatarKey, theme, customCss, tenant.id).run();
   queueBlogAudit(c, tenant.id, account.id, "blog_settings_updated", "settings");
   const updatedTenant = { ...tenant, slug } as Tenant;
   c.executionCtx.waitUntil((async () => {
@@ -2337,7 +2349,7 @@ app.patch("/api/v1/blogs/:blogId", async (c) => {
   })());
   const retAvatarKey = finalAvatarKey;
   const retAvatarUrl = retAvatarKey ? `/media/${retAvatarKey}` : null;
-  return c.json({ blog: { public_id: tenant.public_id, slug, title, description, footer_name: footerName, accent_color: accentColor, topics, social_links: socialLinks, navigation_links: navigationLinks, browser_push_enabled: !!browserPushEnabled, comments_enabled: !!commentsEnabled, header_link_url: headerLinkUrl, theme, custom_domain: tenant.custom_domain, avatar_key: retAvatarKey, avatar_url: retAvatarUrl, profile_image_key: retAvatarKey, profile_image_url: retAvatarUrl, created_at: tenant.created_at } });
+  return c.json({ blog: { public_id: tenant.public_id, slug, title, description, footer_name: footerName, accent_color: accentColor, topics, social_links: socialLinks, navigation_links: navigationLinks, browser_push_enabled: !!browserPushEnabled, comments_enabled: !!commentsEnabled, header_link_url: headerLinkUrl, theme, custom_css: customCss, custom_domain: tenant.custom_domain, avatar_key: retAvatarKey, avatar_url: retAvatarUrl, profile_image_key: retAvatarKey, profile_image_url: retAvatarUrl, created_at: tenant.created_at } });
 });
 
 app.post("/api/v1/blogs", async (c) => {
@@ -5254,6 +5266,16 @@ app.post("/admin/b/:blogId/settings", async (c) => {
   const footerName = String(form.get("footer_name") ?? "").trim().slice(0, 160);
   const accentColor = String(form.get("accent_color") ?? "").trim();
   const theme = normalizeBlogTheme(form.get("theme"));
+  const paidPlan = accountHasPaidPlan(ctx.account);
+  let customCss = String((ctx.tenant as any).custom_css ?? "");
+  if (paidPlan) {
+    const parsedCustomCss = normalizeCustomCss(form.get("custom_css"));
+    if (parsedCustomCss.error)
+      return c.html(settingsPage(ctx.account, ctx.tenant, { isOwner: ctx.role === "owner", error: parsedCustomCss.error }), 400);
+    customCss = parsedCustomCss.css;
+  }
+  // Free plan: the field isn't offered, so anything submitted is ignored and
+  // whatever is stored (e.g. from a lapsed Pro spell) is left untouched.
   const headerLinkRaw = String(form.get("header_link_url") ?? "/").trim();
   const headerLinkParsed = normalizeHeaderLink(headerLinkRaw);
   if (headerLinkParsed.error)
@@ -5294,13 +5316,13 @@ app.post("/admin/b/:blogId/settings", async (c) => {
       .bind(ctx.tenant.slug, ctx.tenant.id, now).run();
   }
   await ensureTenantHeaderLinkColumn(c.env);
-  await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, footer_name = ?, accent_color = ?, topics_json = ?, social_links_json = ?, browser_push_enabled = ?, comments_enabled = ?, header_link_url = ?, theme = ? WHERE id = ?")
-    .bind(slug, title, description, footerName, accentColor.toLowerCase(), JSON.stringify(normalizedTopics.topics), JSON.stringify(socialLinks), browserPushEnabled, commentsEnabled, headerLinkUrl, theme, ctx.tenant.id)
+  await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, footer_name = ?, accent_color = ?, topics_json = ?, social_links_json = ?, browser_push_enabled = ?, comments_enabled = ?, header_link_url = ?, theme = ?, custom_css = ? WHERE id = ?")
+    .bind(slug, title, description, footerName, accentColor.toLowerCase(), JSON.stringify(normalizedTopics.topics), JSON.stringify(socialLinks), browserPushEnabled, commentsEnabled, headerLinkUrl, theme, customCss, ctx.tenant.id)
     .run();
   queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "blog_settings_updated", "settings");
 
   c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant));
-  const updated = { ...ctx.tenant, slug, title, description, footer_name: footerName, accent_color: accentColor.toLowerCase(), topics_json: JSON.stringify(normalizedTopics.topics), social_links_json: JSON.stringify(socialLinks), browser_push_enabled: browserPushEnabled, comments_enabled: commentsEnabled, header_link_url: headerLinkUrl, theme };
+  const updated = { ...ctx.tenant, slug, title, description, footer_name: footerName, accent_color: accentColor.toLowerCase(), topics_json: JSON.stringify(normalizedTopics.topics), social_links_json: JSON.stringify(socialLinks), browser_push_enabled: browserPushEnabled, comments_enabled: commentsEnabled, header_link_url: headerLinkUrl, theme, custom_css: customCss };
   return c.html(settingsPage(ctx.account, updated, { isOwner: ctx.role === "owner", notice: "Saved." }));
 });
 

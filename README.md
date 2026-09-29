@@ -119,6 +119,10 @@ fast, server-rendered pages.
   (bordered column, classic blue links, dashed dividers) from Settings → Blog
   theme, or `PATCH /api/v1/blogs/:id` with `{"theme": "blogspot"}`. A comfort
   for freshly migrated Blogger blogs.
+- **Custom CSS (Pro)** — paid blogs can bring their own stylesheet from
+  Settings → Custom CSS, or `PATCH /api/v1/blogs/:id` with
+  `{"custom_css": "..."}`. It loads after the theme styles, so it wins over
+  both themes. Free blogs see an upgrade prompt instead.
 - **Per-tenant `sitemap.xml` and `robots.txt`** for search engines.
 - **Privacy-conscious metrics** — a tiny first-party beacon sends anonymous
   page views to Workers Analytics Engine. Authors get 7/30/90-day views,
@@ -126,8 +130,9 @@ fast, server-rendered pages.
   Audio starts and completions go to a separate Analytics Engine dataset. A
   nightly cron stores aggregate daily JSON rollups in R2 for retention beyond
   Analytics Engine's 90-day window.
-- **A token-protected API** to create/update posts, pages, media, and domains, so you can write from a
-  script, a form, or a future editor. Full reference in [`docs/API.md`](docs/API.md) with machine-readable [`docs/openapi.yaml`](docs/openapi.yaml).
+- **A token-protected API** covering the whole blog — settings, branding, theme, custom CSS, navigation,
+  header link, posts, pages, media, and domains — so a script or an AI agent with your API key can customize
+  and run a blog end to end. Full reference in [`docs/API.md`](docs/API.md) with machine-readable [`docs/openapi.yaml`](docs/openapi.yaml).
 - **Per-account API keys** — every account holder generates their own key at
   `/admin/api-key` and manages their blogs and posts via `/api/v1/*`, scoped to
   blogs they own. Keys are stored hashed and shown only once. See also `/api/domains` for custom-domain linking.

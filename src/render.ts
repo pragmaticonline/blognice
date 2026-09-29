@@ -19,6 +19,7 @@ export type Tenant = {
   favicon_key: string | null; // R2 key of the blog's favicon
   accent_color: string | null; // hex accent used for this blog's branding
   theme?: string | null; // public blog theme: 'modern' (default) or 'blogspot'
+  custom_css?: string | null; // Pro-only owner CSS, appended after the theme styles
   topics_json: string | null;
   social_links_json?: string | null;
   navigation_links_json?: string | null;
@@ -83,6 +84,34 @@ export function normalizeBlogTheme(value: unknown): BlogTheme {
 
 export function isBlogspotTheme(tenant: Tenant): boolean {
   return normalizeBlogTheme((tenant as any).theme) === "blogspot";
+}
+
+export const MAX_CUSTOM_CSS_LENGTH = 20000;
+
+// Owner-supplied CSS for Pro blogs. Rejects anything that could break out of
+// the <style> block or run script in an old browser; external urls (fonts,
+// background images) are allowed and load in the visitor's browser.
+export function normalizeCustomCss(value: unknown): { css: string; error?: string } {
+  const css = String(value ?? "").trim();
+  if (!css) return { css: "" };
+  if (css.length > MAX_CUSTOM_CSS_LENGTH)
+    return { css: "", error: `Custom CSS must be ${MAX_CUSTOM_CSS_LENGTH} characters or fewer.` };
+  if (/<\/style/i.test(css))
+    return { css: "", error: 'Custom CSS must not contain "</style>".' };
+  if (/javascript\s*:/i.test(css))
+    return { css: "", error: 'Custom CSS must not contain "javascript:" URLs.' };
+  if (/expression\s*\(/i.test(css))
+    return { css: "", error: 'Custom CSS must not contain "expression(...)".' };
+  return { css };
+}
+
+// Renders the stored CSS as its own <style> block, or nothing when blank.
+// Escapes "</style" defensively so a value written by any path — present or
+// future — can never break out of the block.
+export function customCssTag(tenant: Tenant): string {
+  const css = String((tenant as any).custom_css ?? "").trim();
+  if (!css) return "";
+  return `<style>${css.replace(/<\/style/gi, "<\\/style")}</style>`;
 }
 
 export function normalizeAccentColor(value: unknown): string {
@@ -1120,7 +1149,7 @@ ${jsonLdTag}
 <script>(function(){try{var saved=localStorage.getItem("blognice-theme");var theme=saved==="light"||saved==="dark"?saved:(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");document.documentElement.dataset.theme=theme}catch(e){}})();</script>
 <style>${STYLES}${blogspot ? BLOGSPOT_STYLES : ""}</style>
 <style>:root { --accent: ${normalizeAccentColor(tenant.accent_color)}; --accent-ink: ${accentTextColor(normalizeAccentColor(tenant.accent_color))}; } @media (prefers-color-scheme: dark) { :root { --accent: ${normalizeAccentColor(tenant.accent_color)}; } }</style>
-</head>
+${customCssTag(tenant)}</head>
 <body${blogspot ? ' data-blog-theme="blogspot"' : ""}>
   <div class="wrap${wide ? " homepage-wrap" : ""}">
   <div class="site-controls">${homeControl ? `<a class="post-home" href="/" aria-label="Back to all posts" title="Back to all posts"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg><span class="sr-only">Back to all posts</span></a>` : ""}${ownerEditControl}<span class="site-controls-more-wrap"><button class="site-controls-more" type="button" aria-expanded="false" aria-label="More options" data-site-more>⋮</button><span class="site-controls-panel" hidden data-site-panel>${showRss ? `<div class="rss-global"><a href="/rss.xml" target="_blank" rel="noopener noreferrer" aria-label="RSS feed" title="RSS feed"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18.5a2 2 0 1 0 0 4 2 2 0 0 0 0-4ZM4 10v3a7 7 0 0 1 7 7h3A10 10 0 0 0 4 10Zm0-6v3c8.3 0 15 6.7 15 15h3C22 12.2 13.8 4 4 4Z"/></svg><span class="sr-only">RSS feed</span></a></div><a class="subscribe-link" href="#subscribe" aria-label="Subscribe" title="Subscribe"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg><span class="sr-only">Subscribe</span></a>` : ""}<button class="theme-toggle" id="theme-toggle" type="button" aria-label="Use dark theme" aria-pressed="false" title="Use dark theme"><span class="sun" aria-hidden="true">☀</span><span class="moon" aria-hidden="true">☾</span></button></span></span></div>

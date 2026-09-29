@@ -40,6 +40,7 @@ components:
         navigation_links: { type: array, items: { $ref: '#/components/schemas/NavigationLink' }, maxItems: 20 }
         header_link_url: { type: string, description: 'Where header logo/title links — / or https://', example: https://www.domain.com }
         theme: { type: string, enum: [modern, blogspot], description: 'Public blog look; blogspot is the old-Blogspot-style theme' }
+        custom_css: { type: string, maxLength: 20000, description: 'Pro-only owner stylesheet, appended after the theme styles' }
         browser_push_enabled: { type: boolean }
         custom_domain: { type: string, nullable: true }
         created_at: { type: integer }
@@ -125,6 +126,7 @@ paths:
                 navigation_links: { type: array, items: { $ref: '#/components/schemas/NavigationLink' } }
                 header_link_url: { type: string, description: Where header logo/title links — / or https:// }
                 theme: { type: string, enum: [modern, blogspot] }
+                custom_css: { type: string, maxLength: 20000 }
                 browser_push_enabled: { type: boolean }
       responses:
         '200': { description: OK, content: { application/json: { schema: { type: object, properties: { blog: { $ref: '#/components/schemas/Blog' } } } } } }

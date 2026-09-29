@@ -2193,6 +2193,8 @@ export function settingsPage(
   opts?: { notice?: string; error?: string; isOwner?: boolean }
 ): string {
   const base = `/admin/b/${tenant.public_id}`;
+  const paid = accountHasPaidPlan(account);
+  const storedCss = String((tenant as any).custom_css ?? "");
   const initial = (tenant.title.trim()[0] || "?").toUpperCase();
   const avatar = tenant.avatar_key
     ? `<img id="avatar-preview" class="avatar-lg" src="/media/${esc(tenant.avatar_key)}" alt="">`
@@ -2276,6 +2278,13 @@ export function settingsPage(
           <input id="accent-color-hex" type="text" value="${esc(normalizeAccentColor(tenant.accent_color))}" pattern="#[0-9a-fA-F]{6}" maxlength="7" style="max-width:10rem;margin:0;font-family:var(--mono)" aria-label="Brand colour hex value">
         </div>
         <p style="color:var(--muted);font-size:.85rem;margin:-.5rem 0 1.4rem">Used for links, buttons, highlights, and other accents on this blog and its dashboard.</p>
+        <fieldset class="settings-card"><legend>Custom CSS</legend>
+          ${paid
+            ? `<p class="help">Your CSS loads after the theme styles, so it wins over both the Modern and Blogspot themes. Keep it under 20,000 characters; external fonts and images are allowed.</p>
+            <label for="custom-css">Stylesheet</label>
+            <textarea id="custom-css" name="custom_css" rows="8" spellcheck="false" style="font-family:var(--mono)" placeholder=":root { --accent: #7c3aed; }">${esc(storedCss)}</textarea>`
+            : `<div class="notice"><strong>Custom CSS is a Pro feature.</strong><br><a href="/admin/billing">Upgrade to Pro</a> to style this blog with your own CSS.</div>${storedCss.trim() ? `<p class="help">Your saved CSS stays live on the blog; editing it needs Pro.</p>` : ""}`}
+        </fieldset>
         <div class="actions">
           <button class="btn" type="submit">Save</button>
           <a class="btn ghost" href="${base}">Done</a>
@@ -2792,7 +2801,7 @@ curl ${base}/blogs/${exampleBlogId}/tags -H "Authorization: Bearer YOUR_KEY"</pr
         homepage, sitemap, and RSS feed. Post creation and updates accept <code>tags</code>,
         <code>author_name</code>, <code>author_visible</code>, and a validated
         <code>featured_image_key</code>; image generation accepts <code>prompt</code> or
-        <code>post_id</code> with <code>style</code> (see above); pages accept <code>title</code>, <code>slug</code>, <code>body_md</code>, <code>published</code>, <code>show_in_navigation</code>, <code>navigation_label</code>, <code>navigation_order</code>, <code>meta_description</code>; blogs accept <code>slug</code>, <code>title</code>, <code>description</code>, <code>footer_name</code>, <code>accent_color</code>, <code>topics</code>, <code>social_links</code>, <code>navigation_links</code> (<code>{label, href, order}</code> with https or / paths), <code>header_link_url</code> (<code>/</code> or <code>https://</code> — where the header logo/title links), <code>browser_push_enabled</code>, <code>comments_enabled</code>, <code>theme</code> (<code>modern</code> or <code>blogspot</code>); use the returned job URLs to poll AI work.
+        <code>post_id</code> with <code>style</code> (see above); pages accept <code>title</code>, <code>slug</code>, <code>body_md</code>, <code>published</code>, <code>show_in_navigation</code>, <code>navigation_label</code>, <code>navigation_order</code>, <code>meta_description</code>; blogs accept <code>slug</code>, <code>title</code>, <code>description</code>, <code>footer_name</code>, <code>accent_color</code>, <code>topics</code>, <code>social_links</code>, <code>navigation_links</code> (<code>{label, href, order}</code> with https or / paths), <code>header_link_url</code> (<code>/</code> or <code>https://</code> — where the header logo/title links), <code>browser_push_enabled</code>, <code>comments_enabled</code>, <code>theme</code> (<code>modern</code> or <code>blogspot</code>), <code>custom_css</code> (Pro stylesheet, 20000 chars max); use the returned job URLs to poll AI work.
         Everything is scoped to blogs you own.
       </p>
     </div>`,
