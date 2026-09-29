@@ -41,6 +41,12 @@ components:
         header_link_url: { type: string, description: 'Where header logo/title links — / or https://', example: https://www.domain.com }
         theme: { type: string, enum: [modern, blogspot], description: 'Public blog look; blogspot is the old-Blogspot-style theme' }
         custom_css: { type: string, maxLength: 20000, description: 'Pro-only owner stylesheet, appended after the theme styles' }
+        promo_enabled: { type: boolean }
+        promo_placement: { type: string, enum: [home, all] }
+        promo_image: { type: string, maxLength: 500 }
+        promo_body_md: { type: string, maxLength: 2000 }
+        promo_cta_text: { type: string, maxLength: 80 }
+        promo_cta_url: { type: string, maxLength: 500 }
         browser_push_enabled: { type: boolean }
         custom_domain: { type: string, nullable: true }
         created_at: { type: integer }
@@ -127,6 +133,12 @@ paths:
                 header_link_url: { type: string, description: Where header logo/title links — / or https:// }
                 theme: { type: string, enum: [modern, blogspot] }
                 custom_css: { type: string, maxLength: 20000 }
+                promo_enabled: { type: boolean }
+                promo_placement: { type: string, enum: [home, all] }
+                promo_image: { type: string, maxLength: 500 }
+                promo_body_md: { type: string, maxLength: 2000 }
+                promo_cta_text: { type: string, maxLength: 80 }
+                promo_cta_url: { type: string, maxLength: 500 }
                 browser_push_enabled: { type: boolean }
       responses:
         '200': { description: OK, content: { application/json: { schema: { type: object, properties: { blog: { $ref: '#/components/schemas/Blog' } } } } } }

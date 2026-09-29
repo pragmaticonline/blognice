@@ -1,5 +1,5 @@
 // Server-rendered admin UI. Utilitarian but styled to match the public theme.
-import { accentTextColor, esc, formatDate, normalizeAccentColor, normalizeBlogTheme, type Page, type Post, type Tenant } from "./render";
+import { accentTextColor, esc, formatDate, normalizeAccentColor, normalizeBlogTheme, normalizePromoPlacement, type Page, type Post, type Tenant } from "./render";
 import { accountHasPaidPlan, type Account } from "./auth";
 import type { AuditEntry, MetricsReport } from "./metrics";
 
@@ -2285,6 +2285,28 @@ export function settingsPage(
             <textarea id="custom-css" name="custom_css" rows="8" spellcheck="false" style="font-family:var(--mono)" placeholder=":root { --accent: #7c3aed; }">${esc(storedCss)}</textarea>`
             : `<div class="notice"><strong>Custom CSS is a Pro feature.</strong><br><a href="/admin/billing">Upgrade to Pro</a> to style this blog with your own CSS.</div>${storedCss.trim() ? `<p class="help">Your saved CSS stays live on the blog; editing it needs Pro.</p>` : ""}`}
         </fieldset>
+        <fieldset class="settings-card"><legend>Promo popup</legend>
+          ${paid
+            ? `<p class="help">Show visitors a popup — your new book, a course, a newsletter. Markdown text on the left, an optional graphic on the right (on top on phones), an optional button underneath. Visitors who dismiss it won't see it again unless you edit it.</p>`
+            : `<div class="notice"><strong>The promo popup is a Pro feature.</strong><br><a href="/admin/billing">Upgrade to Pro</a> to show visitors a popup.</div>${String((tenant as any).promo_body_md ?? "").trim() ? `<p class="help">Your saved promo stays live on the blog; editing it needs Pro.</p>` : ""}`}
+          ${paid ? `
+          <label><input type="checkbox" name="promo_enabled" value="1"${Number((tenant as any).promo_enabled ?? 0) ? " checked" : ""}> Show the promo popup</label>
+          <p class="help">Where it appears:</p>
+          <label><input type="radio" name="promo_placement" value="home"${normalizePromoPlacement((tenant as any).promo_placement) === "home" ? " checked" : ""}> Blog home page only</label>
+          <label><input type="radio" name="promo_placement" value="all"${normalizePromoPlacement((tenant as any).promo_placement) === "all" ? " checked" : ""}> Every page</label>
+          <label for="promo-image">Graphic (optional)</label>
+          <input id="promo-image" name="promo_image" type="text" value="${esc(String((tenant as any).promo_image ?? ""))}" placeholder="/media/… or https://…" maxlength="500" autocapitalize="none" autocorrect="off" spellcheck="false">
+          <p class="help">A media library <code>/media/…</code> URL or key, or any <code>https://</code> image URL.</p>
+          <img id="promo-preview" alt="" style="max-width:12rem;border-radius:8px;display:block;margin:0 0 1rem"${String((tenant as any).promo_image ?? "").trim() ? "" : " hidden"}>
+          <label for="promo-body">Text (Markdown)</label>
+          <textarea id="promo-body" name="promo_body_md" rows="5" placeholder="## My new book is out&#10;&#10;Two years of essays on …">${esc(String((tenant as any).promo_body_md ?? ""))}</textarea>
+          <label for="promo-cta-text">Button text (optional)</label>
+          <input id="promo-cta-text" name="promo_cta_text" type="text" value="${esc(String((tenant as any).promo_cta_text ?? ""))}" maxlength="80" placeholder="Buy the book">
+          <label for="promo-cta-url">Button link (optional)</label>
+          <input id="promo-cta-url" name="promo_cta_url" type="text" value="${esc(String((tenant as any).promo_cta_url ?? ""))}" placeholder="/ or https://…" maxlength="500" autocapitalize="none" autocorrect="off" spellcheck="false">
+          <p class="help">The button shows only when both text and link are set. External links open in a new tab.</p>` : ""}
+        </fieldset>
+        <script>(function(){var i=document.getElementById("promo-image"),p=document.getElementById("promo-preview");if(!i||!p)return;function u(){var v=i.value.trim();p.hidden=!v;if(v)p.src=(/^https:\/\//i.test(v)||v.charAt(0)==="/")?v:"/media/"+v;}i.addEventListener("input",u);u();})();</script>
         <div class="actions">
           <button class="btn" type="submit">Save</button>
           <a class="btn ghost" href="${base}">Done</a>
@@ -2801,7 +2823,7 @@ curl ${base}/blogs/${exampleBlogId}/tags -H "Authorization: Bearer YOUR_KEY"</pr
         homepage, sitemap, and RSS feed. Post creation and updates accept <code>tags</code>,
         <code>author_name</code>, <code>author_visible</code>, and a validated
         <code>featured_image_key</code>; image generation accepts <code>prompt</code> or
-        <code>post_id</code> with <code>style</code> (see above); pages accept <code>title</code>, <code>slug</code>, <code>body_md</code>, <code>published</code>, <code>show_in_navigation</code>, <code>navigation_label</code>, <code>navigation_order</code>, <code>meta_description</code>; blogs accept <code>slug</code>, <code>title</code>, <code>description</code>, <code>footer_name</code>, <code>accent_color</code>, <code>topics</code>, <code>social_links</code>, <code>navigation_links</code> (<code>{label, href, order}</code> with https or / paths), <code>header_link_url</code> (<code>/</code> or <code>https://</code> — where the header logo/title links), <code>browser_push_enabled</code>, <code>comments_enabled</code>, <code>theme</code> (<code>modern</code> or <code>blogspot</code>), <code>custom_css</code> (Pro stylesheet, 20000 chars max); use the returned job URLs to poll AI work.
+        <code>post_id</code> with <code>style</code> (see above); pages accept <code>title</code>, <code>slug</code>, <code>body_md</code>, <code>published</code>, <code>show_in_navigation</code>, <code>navigation_label</code>, <code>navigation_order</code>, <code>meta_description</code>; blogs accept <code>slug</code>, <code>title</code>, <code>description</code>, <code>footer_name</code>, <code>accent_color</code>, <code>topics</code>, <code>social_links</code>, <code>navigation_links</code> (<code>{label, href, order}</code> with https or / paths), <code>header_link_url</code> (<code>/</code> or <code>https://</code> — where the header logo/title links), <code>browser_push_enabled</code>, <code>comments_enabled</code>, <code>theme</code> (<code>modern</code> or <code>blogspot</code>), <code>custom_css</code> (Pro stylesheet, 20000 chars max), <code>promo_enabled</code> (Pro), <code>promo_placement</code> (<code>home</code> or <code>all</code>), <code>promo_image</code> (media key, <code>/media/…</code> or <code>https://</code>), <code>promo_body_md</code> (2000 chars max), <code>promo_cta_text</code> (80 chars max), <code>promo_cta_url</code> (<code>/</code> or <code>https://</code>); use the returned job URLs to poll AI work.
         Everything is scoped to blogs you own.
       </p>
     </div>`,

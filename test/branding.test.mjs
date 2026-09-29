@@ -60,6 +60,6 @@ test("blog theme is stored, selectable, and styles public pages", () => {
   assert.match(admin, /name="theme" value="modern"/);
   assert.match(admin, /name="theme" value="blogspot"/);
   assert.match(indexSource, /theme must be 'modern' or 'blogspot'/);
-  assert.match(indexSource, /header_link_url = \?, avatar_key = \?, theme = \?, custom_css = \? WHERE id = \?/);
-  assert.match(indexSource, /header_link_url = \?, theme = \?, custom_css = \? WHERE id = \?/);
+  assert.match(indexSource, /header_link_url = \?, avatar_key = \?, theme = \?, custom_css = \?, promo_enabled = \?, promo_placement = \?, promo_image = \?, promo_body_md = \?, promo_cta_text = \?, promo_cta_url = \? WHERE id = \?/);
+  assert.match(indexSource, /header_link_url = \?, theme = \?, custom_css = \?, promo_enabled = \?, promo_placement = \?, promo_image = \?, promo_body_md = \?, promo_cta_text = \?, promo_cta_url = \? WHERE id = \?/);
 });

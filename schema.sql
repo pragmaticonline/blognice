@@ -69,6 +69,12 @@ CREATE TABLE tenants (
   accent_color  TEXT    NOT NULL DEFAULT '#1a8917', -- six-digit hex branding accent
   theme         TEXT    NOT NULL DEFAULT 'modern', -- public blog theme: 'modern' or 'blogspot'
   custom_css    TEXT    NOT NULL DEFAULT '',   -- Pro-only owner CSS appended after the theme styles
+  promo_enabled INTEGER NOT NULL DEFAULT 0,   -- promo popup on/off
+  promo_placement TEXT NOT NULL DEFAULT 'home', -- promo pages: 'home' or 'all'
+  promo_image   TEXT    NOT NULL DEFAULT '',   -- promo graphic: R2 key, /media/ URL, or https:// URL
+  promo_body_md TEXT    NOT NULL DEFAULT '',   -- promo Markdown body
+  promo_cta_text TEXT   NOT NULL DEFAULT '',   -- promo button label (button needs text + URL)
+  promo_cta_url TEXT    NOT NULL DEFAULT '',  -- promo button target: '/' paths or https:// URLs (empty = no button)
   topics_json   TEXT    NOT NULL DEFAULT '[]',     -- normalized blog topics
   social_links_json TEXT NOT NULL DEFAULT '{}',    -- normalized social profile URLs
   navigation_links_json TEXT NOT NULL DEFAULT '[]', -- external/custom navigation links {label, href, order}

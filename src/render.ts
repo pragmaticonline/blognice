@@ -1,4 +1,5 @@
 import { metricsBeacon } from "./metrics";
+import { renderMarkdown } from "./markdown";
 
 // All HTML rendering lives here. No framework, no client-side JS —
 // just server-rendered pages so they are fast and index cleanly.
@@ -20,6 +21,12 @@ export type Tenant = {
   accent_color: string | null; // hex accent used for this blog's branding
   theme?: string | null; // public blog theme: 'modern' (default) or 'blogspot'
   custom_css?: string | null; // Pro-only owner CSS, appended after the theme styles
+  promo_enabled?: number | null; // promo popup on/off
+  promo_placement?: string | null; // promo pages: 'home' (default) or 'all'
+  promo_image?: string | null; // promo graphic: R2 key, /media/ URL, or https:// URL
+  promo_body_md?: string | null; // promo Markdown body
+  promo_cta_text?: string | null; // promo button label
+  promo_cta_url?: string | null; // promo button target
   topics_json: string | null;
   social_links_json?: string | null;
   navigation_links_json?: string | null;
@@ -113,6 +120,129 @@ export function customCssTag(tenant: Tenant): string {
   if (!css) return "";
   return `<style>${css.replace(/<\/style/gi, "<\\/style")}</style>`;
 }
+
+export type PromoPlacement = "home" | "all";
+
+export const MAX_PROMO_BODY_LENGTH = 2000;
+export const MAX_PROMO_CTA_TEXT_LENGTH = 80;
+export const MAX_PROMO_IMAGE_LENGTH = 500;
+
+export function normalizePromoPlacement(value: unknown): PromoPlacement {
+  return String(value ?? "").trim().toLowerCase() === "all" ? "all" : "home";
+}
+
+export function normalizePromoImage(value: unknown): { image: string; error?: string } {
+  const image = String(value ?? "").trim();
+  if (!image) return { image: "" };
+  if (image.length > MAX_PROMO_IMAGE_LENGTH)
+    return { image: "", error: `Promo image must be ${MAX_PROMO_IMAGE_LENGTH} characters or fewer.` };
+  if (/^https:\/\//i.test(image)) {
+    try {
+      const url = new URL(image);
+      if (url.protocol !== "https:") throw new Error();
+    } catch {
+      return { image: "", error: "Promo image must be a valid https URL, /media/ URL, or media key." };
+    }
+    return { image };
+  }
+  if (/^http:\/\//i.test(image)) return { image: "", error: "Promo image URLs must use https." };
+  if (/\s/.test(image) || image.includes("..") || /["'<>`]/.test(image))
+    return { image: "", error: "Promo image must be a valid https URL, /media/ URL, or media key." };
+  return { image };
+}
+
+// Resolves the stored image value to a public src: https URLs and / paths
+// pass through, bare R2 keys resolve under /media/.
+export function promoImageSrc(image: string): string {
+  const src = image.trim();
+  if (/^https:\/\//i.test(src) || src.startsWith("/")) return src;
+  return `/media/${src}`;
+}
+
+// Short content hash so dismissals survive until the blogger edits the promo.
+export function promoContentId(image: string, body: string, ctaText: string, ctaUrl: string): string {
+  const input = [image, body, ctaText, ctaUrl].join("\n");
+  let hash = 5381;
+  for (let i = 0; i < input.length; i++) hash = ((hash << 5) + hash + input.charCodeAt(i)) >>> 0;
+  return hash.toString(36);
+}
+
+export function normalizePromoBody(value: unknown): { body: string; error?: string } {
+  const body = String(value ?? "").trim();
+  if (body.length > MAX_PROMO_BODY_LENGTH)
+    return { body: "", error: `Promo text must be ${MAX_PROMO_BODY_LENGTH} characters or fewer.` };
+  return { body };
+}
+
+export function normalizePromoCtaText(value: unknown): { text: string; error?: string } {
+  const text = String(value ?? "").trim();
+  if (text.length > MAX_PROMO_CTA_TEXT_LENGTH)
+    return { text: "", error: `Promo button text must be ${MAX_PROMO_CTA_TEXT_LENGTH} characters or fewer.` };
+  return { text };
+}
+
+// Text left, graphic right on desktop; graphic on top on mobile. The body
+// renders through the same sanitized Markdown pipeline as posts. Hidden by
+// default so no-JS visitors never see a stuck modal; the inline script
+// reveals it unless this exact content was already dismissed.
+export function promoModal(tenant: Tenant): string {
+  const body = String((tenant as any).promo_body_md ?? "").trim();
+  if (!body) return "";
+  const image = String((tenant as any).promo_image ?? "").trim();
+  const ctaText = String((tenant as any).promo_cta_text ?? "").trim();
+  const rawCtaUrl = String((tenant as any).promo_cta_url ?? "").trim();
+  const ctaParsed = rawCtaUrl ? normalizeHeaderLink(rawCtaUrl) : { url: "" };
+  const ctaUrl = (ctaParsed as { error?: string }).error ? "" : ctaParsed.url;
+  const id = promoContentId(image, body, ctaText, ctaUrl);
+  const cta = ctaText && ctaUrl
+    ? `<a class="promo-cta" href="${esc(ctaUrl)}"${/^https:\/\//i.test(ctaUrl) ? ' target="_blank" rel="noopener noreferrer"' : ""}>${esc(ctaText)}</a>`
+    : "";
+  const art = image
+    ? `<div class="promo-art"><img src="${esc(promoImageSrc(image))}" alt="" loading="lazy" decoding="async"></div>`
+    : "";
+  return `<div class="promo-backdrop" hidden data-promo data-promo-id="${id}">
+<div class="promo-modal${image ? "" : " promo-noart"}" role="dialog" aria-modal="true" aria-label="Promotion">
+<button class="promo-close" type="button" data-promo-close aria-label="Dismiss">×</button>
+<div class="promo-text">${renderMarkdown(body)}${cta}</div>
+${art}</div>
+</div>
+<script>(function(){var root=document.querySelector("[data-promo]");if(!root)return;var key="blognice-promo:"+(root.getAttribute("data-promo-id")||"");try{if(localStorage.getItem(key))return;}catch(e){}function open(){root.hidden=false;requestAnimationFrame(function(){root.classList.add("promo-open")});var c=root.querySelector("[data-promo-close]");if(c){try{c.focus({preventScroll:true})}catch(e){c.focus()}}}function close(){try{localStorage.setItem(key,"1")}catch(e){}root.classList.remove("promo-open");root.hidden=true}setTimeout(open,800);root.querySelector("[data-promo-close]").addEventListener("click",close);root.addEventListener("click",function(e){if(e.target===root)close()});document.addEventListener("keydown",function(e){if(e.key==="Escape"&&!root.hidden)close()});var img=root.querySelector(".promo-art img");if(img){var drop=function(){var a=root.querySelector(".promo-art");if(a)a.remove();var m=root.querySelector(".promo-modal");if(m)m.classList.add("promo-noart")};img.addEventListener("error",drop);if(img.complete&&img.naturalWidth===0)drop()}})();</script>`;
+}
+
+export function promoForPage(tenant: Tenant, context: "home" | "page" | undefined): string {
+  if (!context) return "";
+  if (!Number((tenant as any).promo_enabled)) return "";
+  if (normalizePromoPlacement((tenant as any).promo_placement) === "home" && context !== "home") return "";
+  return promoModal(tenant);
+}
+
+export const PROMO_STYLES = /* css */ `
+  .promo-backdrop { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center; padding: 1rem; background: rgb(0 0 0 / .45); opacity: 0; transition: opacity .25s ease; }
+  .promo-backdrop[hidden] { display: none !important; }
+  .promo-backdrop.promo-open { opacity: 1; }
+  .promo-modal { position: relative; display: flex; gap: 1.5rem; align-items: stretch; width: min(46rem, 100%); max-height: min(90vh, 42rem); overflow: auto; background: var(--panel, var(--bg)); color: var(--ink); border-radius: 14px; padding: 2rem; box-shadow: 0 24px 70px rgb(0 0 0 / .3); }
+  .promo-close { position: absolute; top: .6rem; right: .6rem; width: 2.2rem; height: 2.2rem; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--rule); border-radius: 999px; background: transparent; color: var(--muted); font-size: 1.3rem; line-height: 1; cursor: pointer; }
+  .promo-close:hover, .promo-close:focus-visible { color: var(--ink); border-color: var(--ink); }
+  .promo-text { flex: 1 1 55%; min-width: 0; font-size: 1rem; }
+  .promo-text > :first-child { margin-top: 0; }
+  .promo-text > :last-child { margin-bottom: 0; }
+  .promo-text h1, .promo-text h2 { font-size: 1.35rem; letter-spacing: -.01em; }
+  .promo-text h3 { font-size: 1.1rem; }
+  .promo-text img { max-width: 100%; border-radius: 8px; }
+  .promo-cta { display: inline-block; margin-top: 1.1rem; padding: .7rem 1.35rem; background: var(--accent); color: var(--accent-ink); border-radius: 8px; font-weight: 700; text-decoration: none; }
+  .promo-cta:hover, .promo-cta:focus-visible { filter: brightness(.93); }
+  .promo-art { flex: 1 1 45%; min-width: 0; }
+  .promo-art img { width: 100%; height: 100%; object-fit: cover; border-radius: 10px; display: block; }
+  .promo-noart .promo-text { flex-basis: 100%; }
+  @media (max-width: 640px) {
+    .promo-modal { flex-direction: column; gap: 1rem; padding: 1.4rem; }
+    .promo-art { order: -1; max-height: 12rem; }
+    .promo-art img { max-height: 12rem; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .promo-backdrop { transition: none; }
+  }
+`;
 
 export function normalizeAccentColor(value: unknown): string {
   const color = String(value ?? "").trim();
@@ -1100,8 +1230,9 @@ function shell(opts: {
   noindex?: boolean;
   prevUrl?: string;
   nextUrl?: string;
+  promoContext?: "home" | "page";
 }): string {
-  const { tenant, pageTitle, description, canonical, body, showMasthead = true, wide = false, showRss = false, ownerEdit, homeControl = false, image, imageAlt, ogType = "website", publishedAt, modifiedAt, analyticsConsentRequired = false, jsonLd, tags, noindex, prevUrl, nextUrl } = opts;
+  const { tenant, pageTitle, description, canonical, body, showMasthead = true, wide = false, showRss = false, ownerEdit, homeControl = false, image, imageAlt, ogType = "website", publishedAt, modifiedAt, analyticsConsentRequired = false, jsonLd, tags, noindex, prevUrl, nextUrl, promoContext } = opts;
   const ownerEditControl = ownerEdit ? `<a class="owner-edit" data-${ownerEdit.dataAttr} hidden href="${esc(ownerEdit.href)}" aria-label="${esc(ownerEdit.label)}" title="${esc(ownerEdit.label)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${ownerEdit.dataAttr === "blog-edit" ? "M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" : "m14.7 6.3 3 3M4 20l4.2-1 9.9-9.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Z"}"/><path d="${ownerEdit.dataAttr === "blog-edit" ? "m19.4 15 .1.1a1.8 1.8 0 0 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-3.1 1.3v.2a1.8 1.8 0 0 1-3.6 0v-.2a1.8 1.8 0 0 0-3.1-1.3l-.1.1a1.8 1.8 0 1 1-2.5-2.5l.1-.1A1.8 1.8 0 0 0 5.3 12a1.8 1.8 0 0 0-1.3-3.1h-.2a1.8 1.8 0 0 1 0-3.6H4a1.8 1.8 0 0 0 1.3-3.1l-.1-.1a1.8 1.8 0 1 1 2.5-2.5l.1.1A1.8 1.8 0 0 0 10.9 1.3v-.2a1.8 1.8 0 0 1 3.6 0v.2a1.8 1.8 0 0 0 3.1 1.3l-.1-.1a1.8 1.8 0 1 1 2.5 2.5l-.1.1A1.8 1.8 0 0 0 19.4 8h.2a1.8 1.8 0 0 1 0 3.6h-.2a1.8 1.8 0 0 0 0 3.4Z" : "m13.5 7.5 3 3"}"/></svg><span class="sr-only">${esc(ownerEdit.label)}</span></a>` : "";
   const canonicalTag = canonical ? `<link rel="canonical" href="${esc(canonical)}">` : "";
   const imageTags = image
@@ -1122,6 +1253,7 @@ ${modifiedAt ? `<meta property="article:modified_time" content="${new Date(modif
   const nextLink = nextUrl ? `<link rel="next" href="${esc(nextUrl)}">` : "";
   const jsonLdTag = jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, "\\u003c")}</script>` : "";
   const blogspot = isBlogspotTheme(tenant);
+  const promoHtml = promoForPage(tenant, promoContext);
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -1149,7 +1281,7 @@ ${jsonLdTag}
 <script>(function(){try{var saved=localStorage.getItem("blognice-theme");var theme=saved==="light"||saved==="dark"?saved:(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");document.documentElement.dataset.theme=theme}catch(e){}})();</script>
 <style>${STYLES}${blogspot ? BLOGSPOT_STYLES : ""}</style>
 <style>:root { --accent: ${normalizeAccentColor(tenant.accent_color)}; --accent-ink: ${accentTextColor(normalizeAccentColor(tenant.accent_color))}; } @media (prefers-color-scheme: dark) { :root { --accent: ${normalizeAccentColor(tenant.accent_color)}; } }</style>
-${customCssTag(tenant)}</head>
+${customCssTag(tenant)}${promoHtml ? `<style>${PROMO_STYLES}</style>` : ""}</head>
 <body${blogspot ? ' data-blog-theme="blogspot"' : ""}>
   <div class="wrap${wide ? " homepage-wrap" : ""}">
   <div class="site-controls">${homeControl ? `<a class="post-home" href="/" aria-label="Back to all posts" title="Back to all posts"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg><span class="sr-only">Back to all posts</span></a>` : ""}${ownerEditControl}<span class="site-controls-more-wrap"><button class="site-controls-more" type="button" aria-expanded="false" aria-label="More options" data-site-more>⋮</button><span class="site-controls-panel" hidden data-site-panel>${showRss ? `<div class="rss-global"><a href="/rss.xml" target="_blank" rel="noopener noreferrer" aria-label="RSS feed" title="RSS feed"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18.5a2 2 0 1 0 0 4 2 2 0 0 0 0-4ZM4 10v3a7 7 0 0 1 7 7h3A10 10 0 0 0 4 10Zm0-6v3c8.3 0 15 6.7 15 15h3C22 12.2 13.8 4 4 4Z"/></svg><span class="sr-only">RSS feed</span></a></div><a class="subscribe-link" href="#subscribe" aria-label="Subscribe" title="Subscribe"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg><span class="sr-only">Subscribe</span></a>` : ""}<button class="theme-toggle" id="theme-toggle" type="button" aria-label="Use dark theme" aria-pressed="false" title="Use dark theme"><span class="sun" aria-hidden="true">☀</span><span class="moon" aria-hidden="true">☾</span></button></span></span></div>
@@ -1163,6 +1295,7 @@ ${customCssTag(tenant)}</head>
   ${body}
 </div>
 ${publicFooter(tenant, wide)}
+${promoHtml}
 <style>#blognice-consent{position:fixed;z-index:100;left:1rem;right:1rem;bottom:1rem;max-width:760px;margin:auto;padding:.85rem 1rem;border:1px solid var(--rule);border-radius:10px;background:var(--bg);box-shadow:0 8px 28px #0002;display:flex;align-items:center;gap:.65rem;flex-wrap:wrap;font:14px/1.45 system-ui,sans-serif}#blognice-consent[hidden]{display:none}#blognice-consent span{flex:1 1 100%;color:var(--soft)}#blognice-consent button,#blognice-consent a{font:inherit;padding:.45rem .7rem;border:1px solid var(--rule);border-radius:6px;background:var(--bg);color:var(--ink);cursor:pointer}#blognice-consent button:focus-visible,#blognice-consent a:focus-visible{color:var(--accent);text-decoration:underline;outline:2px solid var(--accent);outline-offset:2px}</style>
 ${metricsBeacon(analyticsConsentRequired)}
 <script>(function(){var button=document.getElementById("theme-toggle");if(button){function update(){var dark=document.documentElement.dataset.theme==="dark";button.setAttribute("aria-label",dark?"Use light theme":"Use dark theme");button.setAttribute("title",dark?"Use light theme":"Use dark theme");button.setAttribute("aria-pressed",dark?"true":"false")}update();button.addEventListener("click",function(){var dark=document.documentElement.dataset.theme!=="dark";document.documentElement.dataset.theme=dark?"dark":"light";try{localStorage.setItem("blognice-theme",dark?"dark":"light")}catch(e){}update()})}var more=document.querySelector("[data-site-more]");var panel=document.querySelector("[data-site-panel]");if(more&&panel){more.addEventListener("click",function(){var expanded=more.getAttribute("aria-expanded")==="true";more.setAttribute("aria-expanded",expanded?"false":"true");if(expanded){panel.hidden=true}else{panel.hidden=false}try{more.blur()}catch(e){}});document.addEventListener("click",function(e){if(!more.contains(e.target)&&!panel.contains(e.target)){panel.hidden=true;more.setAttribute("aria-expanded","false")}});document.addEventListener("keydown",function(e){if(e.key==="Escape"){panel.hidden=true;more.setAttribute("aria-expanded","false")}})}var top=document.getElementById("to-top");if(!top)return;function reveal(){var max=document.documentElement.scrollHeight-window.innerHeight;top.classList.toggle("visible",max>0&&window.scrollY/max>.35)}window.addEventListener("scroll",reveal,{passive:true});reveal();top.addEventListener("click",function(){window.scrollTo({top:0,behavior:"smooth"})})})();</script>
@@ -1198,7 +1331,7 @@ export function renderHome(
       ? `<img class="blog-avatar" src="/media/${esc(tenant.avatar_key)}" alt="">`
       : `<div class="blog-avatar">${monogram(tenant.title)}</div>`;
     return shell({
-      tenant, pageTitle: tenant.title, description: tenant.description || tenant.title, analyticsConsentRequired,
+      tenant, pageTitle: tenant.title, description: tenant.description || tenant.title, analyticsConsentRequired, promoContext: "home",
       canonical: origin + "/", ownerEdit: { href: `${origin}/admin/b/${tenant.public_id}/settings`, dataAttr: "blog-edit", label: "Open blog settings" }, body: `${withNavigation(header(noPostsAvatar))}<section class="blog-section blog-featured-section"><p class="feed-meta">No posts yet.</p></section>${topics.length ? `<div class="blog-topics blog-topics-bottom" aria-label="Blog topics">${topics.map((topic) => `<span>#${esc(topic)}</span>`).join("")}</div>` : ""}<div id="subscribe" class="blog-subscribe-wrap">${subscribeBox(tenant)}</div>${ownerScript}`, jsonLd: { "@context": "https://schema.org", "@type": "Blog", name: tenant.title, url: origin + "/", description: tenant.description || undefined },
     });
   }
@@ -1216,7 +1349,7 @@ export function renderHome(
       url: `${origin}/?page=${pageNumber}`,
       isPartOf: { "@type": "Blog", name: tenant.title, url: origin + "/" },
     };
-    return shell({ tenant, pageTitle: `${tenant.title} — More posts`, description: tenant.description || tenant.title, canonical: `${origin}/?page=${pageNumber}`, analyticsConsentRequired, ownerEdit: { href: `${origin}/admin/b/${tenant.public_id}/settings`, dataAttr: "blog-edit", label: "Open blog settings" }, body: archiveBody, showMasthead: false, wide: true, showRss: true, noindex: archiveNoindex, prevUrl: archivePrev, nextUrl: archiveNext, jsonLd: archiveJsonLd });
+    return shell({ tenant, pageTitle: `${tenant.title} — More posts`, description: tenant.description || tenant.title, canonical: `${origin}/?page=${pageNumber}`, analyticsConsentRequired, promoContext: "home", ownerEdit: { href: `${origin}/admin/b/${tenant.public_id}/settings`, dataAttr: "blog-edit", label: "Open blog settings" }, body: archiveBody, showMasthead: false, wide: true, showRss: true, noindex: archiveNoindex, prevUrl: archivePrev, nextUrl: archiveNext, jsonLd: archiveJsonLd });
   }
   const featured = posts[0];
   const more = posts.slice(1, 7);
@@ -1258,6 +1391,7 @@ export function renderHome(
     pageTitle: tenant.title,
     description: tenant.description || tenant.title,
     canonical: origin + "/",
+    promoContext: "home",
     ownerEdit: { href: `${origin}/admin/b/${tenant.public_id}/settings`, dataAttr: "blog-edit", label: "Open blog settings" },
     body: body + ownerScript,
     showMasthead: false,
@@ -1306,6 +1440,7 @@ export function renderTagPage(
     pageTitle: `#${tag} — ${tenant.title}`,
     description: `Posts tagged ${tag} on ${tenant.title}`,
     canonical: `${origin}/tag/${encodeURIComponent(tag)}`,
+    promoContext: "page",
     showMasthead: false,
     wide: true,
     showRss: true,
@@ -1367,6 +1502,7 @@ export function renderPage(
     description,
     canonical,
     analyticsConsentRequired,
+    promoContext: "page",
     ownerEdit: edit,
     wide: true,
     showMasthead: false,
@@ -2123,6 +2259,7 @@ export function renderPost(
     pageTitle: `${post.title} — ${tenant.title}`,
     description,
     canonical,
+    promoContext: "page",
     ownerEdit: { href: `${adminOrigin}/admin/b/${tenant.public_id}/edit/${post.id}`, dataAttr: "owner-edit", label: "Edit post" },
     homeControl: true,
     ogType: "article",

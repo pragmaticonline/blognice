@@ -23,6 +23,10 @@ import {
   commentNodeJson,
   normalizeBlogTheme,
   normalizeCustomCss,
+  normalizePromoPlacement,
+  normalizePromoImage,
+  normalizePromoBody,
+  normalizePromoCtaText,
   renderCommentSection,
 } from "./render";
 import { sendEmail, sendEmailDetailed, emailEnabled, registrationWelcomeEmail, invitationWelcomeEmail, emailVerificationEmail, subscriptionActiveEmail, subscriberConfirmationEmail, commentVerificationEmail, passwordResetEmail, subscriberWelcomeEmail, postNotificationEmail, commentReplyEmail } from "./email";
@@ -597,6 +601,24 @@ async function ensureTenantHeaderLinkColumn(env: Bindings): Promise<void> {
   } catch {}
   try {
     await env.DB.prepare("ALTER TABLE tenants ADD COLUMN custom_css TEXT NOT NULL DEFAULT ''").run();
+  } catch {}
+  try {
+    await env.DB.prepare("ALTER TABLE tenants ADD COLUMN promo_enabled INTEGER NOT NULL DEFAULT 0").run();
+  } catch {}
+  try {
+    await env.DB.prepare("ALTER TABLE tenants ADD COLUMN promo_placement TEXT NOT NULL DEFAULT 'home'").run();
+  } catch {}
+  try {
+    await env.DB.prepare("ALTER TABLE tenants ADD COLUMN promo_image TEXT NOT NULL DEFAULT ''").run();
+  } catch {}
+  try {
+    await env.DB.prepare("ALTER TABLE tenants ADD COLUMN promo_body_md TEXT NOT NULL DEFAULT ''").run();
+  } catch {}
+  try {
+    await env.DB.prepare("ALTER TABLE tenants ADD COLUMN promo_cta_text TEXT NOT NULL DEFAULT ''").run();
+  } catch {}
+  try {
+    await env.DB.prepare("ALTER TABLE tenants ADD COLUMN promo_cta_url TEXT NOT NULL DEFAULT ''").run();
   } catch {}
 }
 
@@ -2210,6 +2232,12 @@ app.get("/api/v1/blogs/:blogId", async (c) => {
       header_link_url: (tenant as any).header_link_url || "/",
       theme: normalizeBlogTheme((tenant as any).theme),
       custom_css: String((tenant as any).custom_css ?? ""),
+      promo_enabled: !!Number((tenant as any).promo_enabled ?? 0),
+      promo_placement: normalizePromoPlacement((tenant as any).promo_placement),
+      promo_image: String((tenant as any).promo_image ?? ""),
+      promo_body_md: String((tenant as any).promo_body_md ?? ""),
+      promo_cta_text: String((tenant as any).promo_cta_text ?? ""),
+      promo_cta_url: String((tenant as any).promo_cta_url ?? ""),
       custom_domain: tenant.custom_domain,
       avatar_key: avatarKey,
       avatar_url: avatarUrl,
@@ -2309,6 +2337,42 @@ app.patch("/api/v1/blogs/:blogId", async (c) => {
     if (parsed.error) return c.json({ error: parsed.error }, 400);
     customCss = parsed.css;
   }
+  const promoEnabled = has("promo_enabled") ? (body.promo_enabled ? 1 : 0) : (Number((tenant as any).promo_enabled ?? 0) ? 1 : 0);
+  let promoPlacement = normalizePromoPlacement((tenant as any).promo_placement);
+  if (has("promo_placement")) {
+    const raw = String(body.promo_placement ?? "").trim().toLowerCase();
+    if (raw !== "home" && raw !== "all") return c.json({ error: "promo_placement must be 'home' or 'all'." }, 400);
+    promoPlacement = raw;
+  }
+  let promoImage = String((tenant as any).promo_image ?? "");
+  if (has("promo_image")) {
+    const parsed = normalizePromoImage(body.promo_image);
+    if (parsed.error) return c.json({ error: parsed.error }, 400);
+    promoImage = parsed.image;
+  }
+  let promoBody = String((tenant as any).promo_body_md ?? "");
+  if (has("promo_body_md")) {
+    const parsed = normalizePromoBody(body.promo_body_md);
+    if (parsed.error) return c.json({ error: parsed.error }, 400);
+    promoBody = parsed.body;
+  }
+  let promoCtaText = String((tenant as any).promo_cta_text ?? "");
+  if (has("promo_cta_text")) {
+    const parsed = normalizePromoCtaText(body.promo_cta_text);
+    if (parsed.error) return c.json({ error: parsed.error }, 400);
+    promoCtaText = parsed.text;
+  }
+  let promoCtaUrl = String((tenant as any).promo_cta_url ?? "");
+  if (has("promo_cta_url")) {
+    const raw = String(body.promo_cta_url ?? "").trim();
+    if (!raw) {
+      promoCtaUrl = "";
+    } else {
+      const parsed = normalizeHeaderLink(raw);
+      if (parsed.error) return c.json({ error: parsed.error }, 400);
+      promoCtaUrl = parsed.url;
+    }
+  }
   let avatarKey: string | null | undefined = undefined;
   const hasAvatar = has("avatar_key") || has("profile_image_key") || has("profile_image") || has("avatar_url") || has("profile_image_url");
   if (hasAvatar) {
@@ -2339,8 +2403,8 @@ app.patch("/api/v1/blogs/:blogId", async (c) => {
   }
   await ensureTenantHeaderLinkColumn(c.env);
   const finalAvatarKey = avatarKey === undefined ? (tenant as any).avatar_key || null : avatarKey;
-  await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, footer_name = ?, accent_color = ?, topics_json = ?, social_links_json = ?, navigation_links_json = ?, browser_push_enabled = ?, comments_enabled = ?, header_link_url = ?, avatar_key = ?, theme = ?, custom_css = ? WHERE id = ?")
-    .bind(slug, title, description, footerName, accentColor, JSON.stringify(topics), JSON.stringify(socialLinks), JSON.stringify(navigationLinks), browserPushEnabled, commentsEnabled, headerLinkUrl, finalAvatarKey, theme, customCss, tenant.id).run();
+  await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, footer_name = ?, accent_color = ?, topics_json = ?, social_links_json = ?, navigation_links_json = ?, browser_push_enabled = ?, comments_enabled = ?, header_link_url = ?, avatar_key = ?, theme = ?, custom_css = ?, promo_enabled = ?, promo_placement = ?, promo_image = ?, promo_body_md = ?, promo_cta_text = ?, promo_cta_url = ? WHERE id = ?")
+    .bind(slug, title, description, footerName, accentColor, JSON.stringify(topics), JSON.stringify(socialLinks), JSON.stringify(navigationLinks), browserPushEnabled, commentsEnabled, headerLinkUrl, finalAvatarKey, theme, customCss, promoEnabled, promoPlacement, promoImage, promoBody, promoCtaText, promoCtaUrl, tenant.id).run();
   queueBlogAudit(c, tenant.id, account.id, "blog_settings_updated", "settings");
   const updatedTenant = { ...tenant, slug } as Tenant;
   c.executionCtx.waitUntil((async () => {
@@ -2349,7 +2413,7 @@ app.patch("/api/v1/blogs/:blogId", async (c) => {
   })());
   const retAvatarKey = finalAvatarKey;
   const retAvatarUrl = retAvatarKey ? `/media/${retAvatarKey}` : null;
-  return c.json({ blog: { public_id: tenant.public_id, slug, title, description, footer_name: footerName, accent_color: accentColor, topics, social_links: socialLinks, navigation_links: navigationLinks, browser_push_enabled: !!browserPushEnabled, comments_enabled: !!commentsEnabled, header_link_url: headerLinkUrl, theme, custom_css: customCss, custom_domain: tenant.custom_domain, avatar_key: retAvatarKey, avatar_url: retAvatarUrl, profile_image_key: retAvatarKey, profile_image_url: retAvatarUrl, created_at: tenant.created_at } });
+  return c.json({ blog: { public_id: tenant.public_id, slug, title, description, footer_name: footerName, accent_color: accentColor, topics, social_links: socialLinks, navigation_links: navigationLinks, browser_push_enabled: !!browserPushEnabled, comments_enabled: !!commentsEnabled, header_link_url: headerLinkUrl, theme, custom_css: customCss, promo_enabled: !!promoEnabled, promo_placement: promoPlacement, promo_image: promoImage, promo_body_md: promoBody, promo_cta_text: promoCtaText, promo_cta_url: promoCtaUrl, custom_domain: tenant.custom_domain, avatar_key: retAvatarKey, avatar_url: retAvatarUrl, profile_image_key: retAvatarKey, profile_image_url: retAvatarUrl, created_at: tenant.created_at } });
 });
 
 app.post("/api/v1/blogs", async (c) => {
@@ -5276,6 +5340,41 @@ app.post("/admin/b/:blogId/settings", async (c) => {
   }
   // Free plan: the field isn't offered, so anything submitted is ignored and
   // whatever is stored (e.g. from a lapsed Pro spell) is left untouched.
+  // Promo popup is Pro-only: free plans keep whatever is stored and anything
+  // submitted is ignored (same shape as custom_css above).
+  let promoEnabled = Number((ctx.tenant as any).promo_enabled ?? 0) ? 1 : 0;
+  let promoPlacement = normalizePromoPlacement((ctx.tenant as any).promo_placement);
+  let promoImage = String((ctx.tenant as any).promo_image ?? "");
+  let promoBody = String((ctx.tenant as any).promo_body_md ?? "");
+  let promoCtaText = String((ctx.tenant as any).promo_cta_text ?? "");
+  let promoCtaUrl = String((ctx.tenant as any).promo_cta_url ?? "");
+  if (paidPlan) {
+    promoEnabled = form.get("promo_enabled") === "1" ? 1 : 0;
+    const promoPlacementRaw = String(form.get("promo_placement") ?? "").trim().toLowerCase();
+    if (promoPlacementRaw !== "" && promoPlacementRaw !== "home" && promoPlacementRaw !== "all")
+      return c.html(settingsPage(ctx.account, ctx.tenant, { isOwner: ctx.role === "owner", error: "Promo placement must be 'home' or 'all'." }), 400);
+    promoPlacement = normalizePromoPlacement(form.get("promo_placement"));
+    const promoImageParsed = normalizePromoImage(form.get("promo_image"));
+    if (promoImageParsed.error)
+      return c.html(settingsPage(ctx.account, ctx.tenant, { isOwner: ctx.role === "owner", error: promoImageParsed.error }), 400);
+    promoImage = promoImageParsed.image;
+    const promoBodyParsed = normalizePromoBody(form.get("promo_body_md"));
+    if (promoBodyParsed.error)
+      return c.html(settingsPage(ctx.account, ctx.tenant, { isOwner: ctx.role === "owner", error: promoBodyParsed.error }), 400);
+    promoBody = promoBodyParsed.body;
+    const promoCtaTextParsed = normalizePromoCtaText(form.get("promo_cta_text"));
+    if (promoCtaTextParsed.error)
+      return c.html(settingsPage(ctx.account, ctx.tenant, { isOwner: ctx.role === "owner", error: promoCtaTextParsed.error }), 400);
+    promoCtaText = promoCtaTextParsed.text;
+    const promoCtaUrlRaw = String(form.get("promo_cta_url") ?? "").trim();
+    promoCtaUrl = "";
+    if (promoCtaUrlRaw) {
+      const promoCtaUrlParsed = normalizeHeaderLink(promoCtaUrlRaw);
+      if (promoCtaUrlParsed.error)
+        return c.html(settingsPage(ctx.account, ctx.tenant, { isOwner: ctx.role === "owner", error: promoCtaUrlParsed.error }), 400);
+      promoCtaUrl = promoCtaUrlParsed.url;
+    }
+  }
   const headerLinkRaw = String(form.get("header_link_url") ?? "/").trim();
   const headerLinkParsed = normalizeHeaderLink(headerLinkRaw);
   if (headerLinkParsed.error)
@@ -5316,13 +5415,13 @@ app.post("/admin/b/:blogId/settings", async (c) => {
       .bind(ctx.tenant.slug, ctx.tenant.id, now).run();
   }
   await ensureTenantHeaderLinkColumn(c.env);
-  await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, footer_name = ?, accent_color = ?, topics_json = ?, social_links_json = ?, browser_push_enabled = ?, comments_enabled = ?, header_link_url = ?, theme = ?, custom_css = ? WHERE id = ?")
-    .bind(slug, title, description, footerName, accentColor.toLowerCase(), JSON.stringify(normalizedTopics.topics), JSON.stringify(socialLinks), browserPushEnabled, commentsEnabled, headerLinkUrl, theme, customCss, ctx.tenant.id)
+  await c.env.DB.prepare("UPDATE tenants SET slug = ?, title = ?, description = ?, footer_name = ?, accent_color = ?, topics_json = ?, social_links_json = ?, browser_push_enabled = ?, comments_enabled = ?, header_link_url = ?, theme = ?, custom_css = ?, promo_enabled = ?, promo_placement = ?, promo_image = ?, promo_body_md = ?, promo_cta_text = ?, promo_cta_url = ? WHERE id = ?")
+    .bind(slug, title, description, footerName, accentColor.toLowerCase(), JSON.stringify(normalizedTopics.topics), JSON.stringify(socialLinks), browserPushEnabled, commentsEnabled, headerLinkUrl, theme, customCss, promoEnabled, promoPlacement, promoImage, promoBody, promoCtaText, promoCtaUrl, ctx.tenant.id)
     .run();
   queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "blog_settings_updated", "settings");
 
   c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant));
-  const updated = { ...ctx.tenant, slug, title, description, footer_name: footerName, accent_color: accentColor.toLowerCase(), topics_json: JSON.stringify(normalizedTopics.topics), social_links_json: JSON.stringify(socialLinks), browser_push_enabled: browserPushEnabled, comments_enabled: commentsEnabled, header_link_url: headerLinkUrl, theme, custom_css: customCss };
+  const updated = { ...ctx.tenant, slug, title, description, footer_name: footerName, accent_color: accentColor.toLowerCase(), topics_json: JSON.stringify(normalizedTopics.topics), social_links_json: JSON.stringify(socialLinks), browser_push_enabled: browserPushEnabled, comments_enabled: commentsEnabled, header_link_url: headerLinkUrl, theme, custom_css: customCss, promo_enabled: promoEnabled, promo_placement: promoPlacement, promo_image: promoImage, promo_body_md: promoBody, promo_cta_text: promoCtaText, promo_cta_url: promoCtaUrl };
   return c.html(settingsPage(ctx.account, updated, { isOwner: ctx.role === "owner", notice: "Saved." }));
 });
 

@@ -123,6 +123,11 @@ fast, server-rendered pages.
   Settings → Custom CSS, or `PATCH /api/v1/blogs/:id` with
   `{"custom_css": "..."}`. It loads after the theme styles, so it wins over
   both themes. Free blogs see an upgrade prompt instead.
+- **Promo popup (Pro)** — paid blogs can show visitors a popup (new book,
+  course, newsletter) from Settings → Promo popup: Markdown text, an optional
+  graphic (media library or `https://` URL), and an optional button with a
+  link. Home page only or every page; dismissals stick until the promo is
+  edited. Free blogs see an upgrade prompt instead.
 - **Per-tenant `sitemap.xml` and `robots.txt`** for search engines.
 - **Privacy-conscious metrics** — a tiny first-party beacon sends anonymous
   page views to Workers Analytics Engine. Authors get 7/30/90-day views,
