@@ -100,10 +100,16 @@ async function ensurePostsMetaColumn(db: D1Database): Promise<void> {
 
 async function ensureImportRecordsTable(db: D1Database): Promise<void> {
   try {
-    await db.prepare("CREATE TABLE IF NOT EXISTS import_records (tenant_id INTEGER NOT NULL, source TEXT NOT NULL, external_id TEXT NOT NULL, item_type TEXT NOT NULL, slug TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (tenant_id, source, external_id))").run();
+    await db.prepare("CREATE TABLE IF NOT EXISTS import_records (tenant_id INTEGER NOT NULL, source TEXT NOT NULL, external_id TEXT NOT NULL, item_type TEXT NOT NULL, slug TEXT NOT NULL, legacy_path TEXT, created_at INTEGER NOT NULL, PRIMARY KEY (tenant_id, source, external_id))").run();
+  } catch {}
+  try {
+    await db.prepare("ALTER TABLE import_records ADD COLUMN legacy_path TEXT").run();
   } catch {}
   try {
     await db.prepare("CREATE INDEX IF NOT EXISTS idx_import_records_tenant ON import_records (tenant_id, source)").run();
+  } catch {}
+  try {
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_import_records_legacy ON import_records (tenant_id, legacy_path)").run();
   } catch {}
 }
 import { checkLoginRateLimit, clearFailedLoginForEmail, recordFailedLogin } from "./login-rate-limit";
@@ -5882,8 +5888,8 @@ app.post("/admin/b/:blogId/import/blogger", async (c) => {
           .bind(ctx.tenant.id, slug, item.title, item.bodyMarkdown, published, item.publishedAt, item.updatedAt, published ? item.publishedAt : null)
       );
       statements.push(
-        pdb.prepare("INSERT OR IGNORE INTO import_records (tenant_id, source, external_id, item_type, slug, created_at) VALUES (?, ?, ?, 'page', ?, ?)")
-          .bind(ctx.tenant.id, BLOGGER_SOURCE, item.externalId, slug, now)
+        pdb.prepare("INSERT OR IGNORE INTO import_records (tenant_id, source, external_id, item_type, slug, legacy_path, created_at) VALUES (?, ?, ?, 'page', ?, ?, ?)")
+          .bind(ctx.tenant.id, BLOGGER_SOURCE, item.externalId, slug, item.legacyPath, now)
       );
     } else {
       const slug = assignSlug(takenPosts, item.suggestedSlug, 80);
@@ -5894,8 +5900,8 @@ app.post("/admin/b/:blogId/import/blogger", async (c) => {
           .bind(ctx.tenant.id, slug, item.title, item.bodyMarkdown, JSON.stringify(item.tags), published, item.publishedAt, item.updatedAt, ctx.account.id, authorName)
       );
       statements.push(
-        pdb.prepare("INSERT OR IGNORE INTO import_records (tenant_id, source, external_id, item_type, slug, created_at) VALUES (?, ?, ?, 'post', ?, ?)")
-          .bind(ctx.tenant.id, BLOGGER_SOURCE, item.externalId, slug, now)
+        pdb.prepare("INSERT OR IGNORE INTO import_records (tenant_id, source, external_id, item_type, slug, legacy_path, created_at) VALUES (?, ?, ?, 'post', ?, ?, ?)")
+          .bind(ctx.tenant.id, BLOGGER_SOURCE, item.externalId, slug, item.legacyPath, now)
       );
     }
   }
@@ -8590,6 +8596,49 @@ async function serveDraftPreview(c: any): Promise<Response | null> {
     }
   );
 }
+
+// Old Blogger URLs (/YYYY/MM/slug.html for posts, /p/slug.html for pages)
+// 301 to the imported item so backlinks and search results keep working.
+async function bloggerLegacyRedirect(c: any, requestPath: string): Promise<Response | null> {
+  const legacyPath = requestPath.toLowerCase();
+  if (!/^\/\d{4}\/\d{2}\/[^/]+\.html?$/.test(legacyPath) && !/^\/p\/[^/]+\.html?$/.test(legacyPath)) return null;
+  const tenant = await resolveTenant(c.env, c.req.header("host") || "");
+  if (!tenant) return null;
+  let record: { item_type: string; slug: string } | null = null;
+  try {
+    record = (await tenantDb(c.env, tenant).prepare(
+      "SELECT item_type, slug FROM import_records WHERE tenant_id = ? AND legacy_path = ?"
+    ).bind(tenant.id, legacyPath).first()) as { item_type: string; slug: string } | null;
+  } catch {
+    // Rolling deploy before migration 084: behave as if no mapping exists.
+    return null;
+  }
+  if (!record) return null;
+  const table = record.item_type === "page" ? "pages" : "posts";
+  const target = record.item_type === "page" ? `/pages/${record.slug}` : `/${record.slug}`;
+  let live: { ok: number } | null = null;
+  try {
+    live = (await tenantDb(c.env, tenant).prepare(
+      `SELECT 1 AS ok FROM ${table} WHERE tenant_id = ? AND slug = ? AND published = 1`
+    ).bind(tenant.id, record.slug).first()) as { ok: number } | null;
+  } catch {
+    return null;
+  }
+  if (!live) return null;
+  return c.redirect(target, 301);
+}
+
+app.use("/p/:file", async (c, next) => {
+  const hit = await bloggerLegacyRedirect(c, c.req.path);
+  if (hit) return hit;
+  await next();
+});
+
+app.use("/:year/:month/:file", async (c, next) => {
+  const hit = await bloggerLegacyRedirect(c, c.req.path);
+  if (hit) return hit;
+  await next();
+});
 
 app.get("/pages/:slug", async (c) => {
   const tenant = await resolveTenant(c.env, c.req.header("host") || "");

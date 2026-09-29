@@ -139,7 +139,9 @@ CREATE TABLE IF NOT EXISTS import_records (
   external_id TEXT    NOT NULL,
   item_type   TEXT    NOT NULL,
   slug        TEXT    NOT NULL,
+  legacy_path TEXT,
   created_at  INTEGER NOT NULL,
   PRIMARY KEY (tenant_id, source, external_id)
 );
 CREATE INDEX IF NOT EXISTS idx_import_records_tenant ON import_records (tenant_id, source);
+CREATE INDEX IF NOT EXISTS idx_import_records_legacy ON import_records (tenant_id, legacy_path);

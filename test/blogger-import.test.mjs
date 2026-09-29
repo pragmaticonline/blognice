@@ -7,6 +7,7 @@ import {
   BLOGGER_IMPORT_MAX_ENTRIES,
   BloggerImportError,
   bloggerHtmlToMarkdown,
+  bloggerLegacyPath,
   normalizeBloggerTags,
   parseBloggerExport,
 } from "../src/blogger-import.ts";
@@ -297,6 +298,65 @@ test("Blogger import creates posts and pages with tags, dates, and drafts; rerun
   }
 });
 
+const LEGACY_URL_XML = `<?xml version='1.0' encoding='UTF-8' ?>
+<feed xmlns='http://www.w3.org/2005/Atom' xmlns:app='http://purl.org/atom/app#'>
+  <entry>
+    <id>tag:blogger.com,1999:blog-7.post-1</id>
+    <published>2021-03-05T10:00:00.000Z</published>
+    <category scheme='http://schemas.google.com/g/2005#kind' term='http://schemas.google.com/blogger/2008/kind#post'/>
+    <title type='text'>A Very Different Title Here</title>
+    <link rel='alternate' type='text/html' href='https://oldblog.blogspot.com/2021/03/original-slug.html'/>
+    <content type='html'>&lt;p&gt;body&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <id>tag:blogger.com,1999:blog-7.page-2</id>
+    <published>2021-02-01T10:00:00.000Z</published>
+    <category scheme='http://schemas.google.com/g/2005#kind' term='http://schemas.google.com/blogger/2008/kind#page'/>
+    <title type='text'>Elsewhere Page</title>
+    <link rel='alternate' type='text/html' href='https://oldblog.blogspot.com/p/elsewhere.html'/>
+    <content type='html'>&lt;p&gt;page body&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <id>tag:blogger.com,1999:blog-7.post-3</id>
+    <published>2021-04-01T10:00:00.000Z</published>
+    <category scheme='http://schemas.google.com/g/2005#kind' term='http://schemas.google.com/blogger/2008/kind#post'/>
+    <title type='text'>Draft Without Link</title>
+    <link rel='alternate' type='text/html' href='https://oldblog.blogspot.com/2021/04/hidden-draft.html'/>
+    <content type='html'>&lt;p&gt;not ready&lt;/p&gt;</content>
+    <app:control><app:draft>yes</app:draft></app:control>
+  </entry>
+  <entry>
+    <id>tag:blogger.com,1999:blog-7.post-4</id>
+    <published>2021-05-01T10:00:00.000Z</published>
+    <category scheme='http://schemas.google.com/g/2005#kind' term='http://schemas.google.com/blogger/2008/kind#post'/>
+    <title type='text'>Weird Link Post</title>
+    <link rel='alternate' type='text/html' href='https://oldblog.blogspot.com/search/label/stuff'/>
+    <content type='html'>&lt;p&gt;weird&lt;/p&gt;</content>
+  </entry>
+</feed>`;
+
+test("Blogger entries keep their original URL path and slug it from the URL", () => {
+  assert.equal(bloggerLegacyPath("https://oldblog.blogspot.com/2021/03/My-Post.HTML"), "/2021/03/my-post.html");
+  assert.equal(bloggerLegacyPath("https://example.com/p/About.html"), "/p/about.html");
+  assert.equal(bloggerLegacyPath("https://oldblog.blogspot.com/search/label/x"), null);
+  assert.equal(bloggerLegacyPath("https://oldblog.blogspot.com/2021/03/noext"), null);
+  assert.equal(bloggerLegacyPath(null), null);
+  assert.equal(bloggerLegacyPath("not a url at all / /"), null);
+
+  const parsed = parseBloggerExport(LEGACY_URL_XML);
+  assert.equal(parsed.items.length, 4);
+  const [post, page, draft, weird] = parsed.items;
+  assert.equal(post.legacyPath, "/2021/03/original-slug.html");
+  assert.equal(post.suggestedSlug, "original-slug");
+  assert.equal(page.kind, "page");
+  assert.equal(page.legacyPath, "/p/elsewhere.html");
+  assert.equal(page.suggestedSlug, "elsewhere");
+  assert.equal(draft.draft, true);
+  assert.equal(draft.legacyPath, "/2021/04/hidden-draft.html");
+  assert.equal(weird.legacyPath, null);
+  assert.equal(weird.suggestedSlug, "weird-link-post");
+});
+
 test("Blogger import takes a fresh slug when the title slug is taken", async () => {
   const { mf, postsDb, upload } = await setupBlog();
   try {
@@ -310,6 +370,43 @@ test("Blogger import takes a fresh slug when the title slug is taken", async () 
     assert.equal(rows.results.length, 1);
     assert.notEqual(rows.results[0].slug, "hello-from-lisbon");
     assert.match(rows.results[0].slug, /^hello-from-lisbon-/);
+  } finally {
+    await mf.dispose();
+  }
+});
+
+test("Old Blogger URLs 301 to the imported post or page", async () => {
+  const { blogniceApp, mf, env, ctx, upload } = await setupBlog();
+  try {
+    const res = await upload(LEGACY_URL_XML);
+    assert.equal(res.status, 200);
+    const get = (path) => blogniceApp.request(`https://importblog.blognice.test${path}`, {
+      headers: { host: "importblog.blognice.test" },
+    }, env, ctx);
+
+    const post = await get("/2021/03/original-slug.html");
+    assert.equal(post.status, 301);
+    assert.equal(post.headers.get("location"), "/original-slug");
+
+    const mobile = await get("/2021/03/original-slug.html?m=1");
+    assert.equal(mobile.status, 301);
+    assert.equal(mobile.headers.get("location"), "/original-slug");
+
+    const page = await get("/p/elsewhere.html");
+    assert.equal(page.status, 301);
+    assert.equal(page.headers.get("location"), "/pages/elsewhere");
+
+    const draft = await get("/2021/04/hidden-draft.html");
+    assert.equal(draft.status, 404);
+
+    const unknown = await get("/2020/01/never-imported.html");
+    assert.equal(unknown.status, 404);
+
+    const notBlogger = await get("/a/b/c");
+    assert.equal(notBlogger.status, 404);
+
+    const live = await get("/original-slug");
+    assert.equal(live.status, 200);
   } finally {
     await mf.dispose();
   }

@@ -698,6 +698,9 @@ Google Takeout `feed.atom` work). Then, in blognice, open the blog's
 What comes over:
 
 - Posts and pages with their titles, tags, original publish dates, and authors.
+- Old addresses keep working: `/YYYY/MM/slug.html` and `/p/slug.html` redirect
+  (301) to the imported post or page, so backlinks and search results survive
+  the move. Slugs are taken from the original URL when it has one.
 - Drafts stay drafts; published posts stay published.
 - Post HTML is converted to Markdown (headings, lists, links, images, quotes,
   code). Images keep pointing at their Blogger addresses.

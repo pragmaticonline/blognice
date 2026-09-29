@@ -19,6 +19,8 @@ export type BloggerImportItem = {
   kind: "post" | "page";
   title: string;
   suggestedSlug: string;
+  /** Lowercased original path (e.g. /2021/03/slug.html, /p/slug.html), or null when the entry has no usable public link. */
+  legacyPath: string | null;
   bodyMarkdown: string;
   tags: string[];
   publishedAt: number;
@@ -118,6 +120,36 @@ function legacyKind(categories: Array<{ scheme: string | null; term: string }>):
     if (category.scheme === KIND_SCHEME) return category.term;
   }
   return null;
+}
+
+function linksOf(block: string): Array<{ rel: string | null; href: string | null }> {
+  const out: Array<{ rel: string | null; href: string | null }> = [];
+  for (const match of block.matchAll(/<link\b([^>]*?)\/?>/g)) {
+    out.push({ rel: attrOf(match[0], "rel"), href: attrOf(match[0], "href") });
+  }
+  return out;
+}
+
+// Blogger public URLs keep a fixed shape: posts live at /YYYY/MM/slug.html
+// and pages at /p/slug.html. Returns the lowercased path when the href has
+// one of those shapes so old links can 301 to the imported item.
+export function bloggerLegacyPath(href: string | null): string | null {
+  if (!href) return null;
+  let pathname: string;
+  try {
+    pathname = new URL(href, "https://blogger.invalid").pathname;
+  } catch {
+    return null;
+  }
+  const lower = pathname.toLowerCase();
+  if (/^\/\d{4}\/\d{2}\/[^/]+\.html?$/.test(lower)) return lower;
+  if (/^\/p\/[^/]+\.html?$/.test(lower)) return lower;
+  return null;
+}
+
+function bloggerSlugFromPath(path: string): string {
+  const base = (path.split("/").pop() || "").replace(/\.html?$/i, "");
+  return bloggerSlugify(base);
 }
 
 export function bloggerHtmlToMarkdown(html: string): string {
@@ -223,11 +255,14 @@ export function parseBloggerExport(xml: string, now = Math.floor(Date.now() / 10
     const publishedAt = parseUnixSeconds(textOf(block, "published"), now);
     const author = plainText(textOf(block, "author")?.match(/<name[^>]*>([\s\S]*?)<\/name\s*>/)?.[1] ?? "").slice(0, 120);
     const idTail = externalId.split(/[:.]/).pop() || externalId;
+    const alternate = linksOf(block).find((link) => (link.rel ?? "alternate") === "alternate" && link.href)?.href ?? null;
+    const legacyPath = bloggerLegacyPath(alternate);
     items.push({
       externalId,
       kind,
       title: (rawTitle || "Untitled").slice(0, 200),
-      suggestedSlug: bloggerSlugify(rawTitle) || bloggerSlugify(idTail) || "blogger-import",
+      suggestedSlug: (legacyPath ? bloggerSlugFromPath(legacyPath) : "") || bloggerSlugify(rawTitle) || bloggerSlugify(idTail) || "blogger-import",
+      legacyPath,
       bodyMarkdown: bloggerHtmlToMarkdown(bodyHtml),
       tags,
       publishedAt,
