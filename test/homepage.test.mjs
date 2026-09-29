@@ -19,6 +19,12 @@ test("marketing homepage provides a central login button", () => {
   assert.match(homepage, /href="https:\/\/www\.blognice\.com\/admin\/login"[^>]*>Log in<\/a>/);
 });
 
+test("marketing homepage footer links the social profiles", () => {
+  for (const social of ["https://www.reddit.com/r/BlogNiceOfficial/", "https://x.com/blognice_com", "https://www.threads.com/@blognice_com", "https://www.facebook.com/BlogniceOfficial/", "https://bsky.app/profile/blognice.bsky.social"]) {
+    assert.ok(homepage.includes(`href="${social}"`), social);
+  }
+});
+
 test("marketing homepage clearly distinguishes founding and planned standard pricing", () => {
   assert.match(homepage, /Founding member pricing/);
   assert.match(homepage, /\$36\/year or \$5\/month/);
