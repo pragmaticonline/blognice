@@ -20,7 +20,7 @@ test("marketing homepage provides a central login button", () => {
 });
 
 test("marketing homepage footer links the social profiles", () => {
-  for (const social of ["https://www.reddit.com/r/BlogNiceOfficial/", "https://x.com/blognice_com", "https://www.threads.com/@blognice_com", "https://www.facebook.com/BlogniceOfficial/", "https://bsky.app/profile/blognice.bsky.social"]) {
+  for (const social of ["https://www.reddit.com/r/BlogNiceOfficial/", "https://x.com/blognice_com", "https://www.threads.com/@blognice_com", "https://www.facebook.com/BlogniceOfficial/", "https://bsky.app/profile/blognice.bsky.social", "https://www.instagram.com/blognice_com/"]) {
     assert.ok(homepage.includes(`href="${social}"`), social);
   }
 });

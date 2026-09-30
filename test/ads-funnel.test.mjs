@@ -151,7 +151,7 @@ test("landing page renders headline, offer, FAQ, comparison, tag, and no custom 
     const html = await res.text();
     assert.equal(html.match(/<h1>/g).length, 1);
     assert.match(html, /<h1>A Better Alternative to Blogger<\/h1>/);
-    for (const social of ["https://www.reddit.com/r/BlogNiceOfficial/", "https://x.com/blognice_com", "https://www.threads.com/@blognice_com", "https://www.facebook.com/BlogniceOfficial/", "https://bsky.app/profile/blognice.bsky.social"]) {
+    for (const social of ["https://www.reddit.com/r/BlogNiceOfficial/", "https://x.com/blognice_com", "https://www.threads.com/@blognice_com", "https://www.facebook.com/BlogniceOfficial/", "https://bsky.app/profile/blognice.bsky.social", "https://www.instagram.com/blognice_com/"]) {
       assert.ok(html.includes(`href="${social}"`), social);
     }
     assert.match(html, /section\.block h2\{[^}]*text-align:center/);
