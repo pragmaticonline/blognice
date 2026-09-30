@@ -184,7 +184,9 @@ export function normalizePromoCtaText(value: unknown): { text: string; error?: s
 // Text left, graphic right on desktop; graphic on top on mobile. The body
 // renders through the same sanitized Markdown pipeline as posts. Hidden by
 // default so no-JS visitors never see a stuck modal; the inline script
-// reveals it unless this exact content was already dismissed.
+// reveals it unless dismissed within the last 24 hours. The dismissal key
+// includes a hash of the content, so editing the promo shows it again
+// straight away.
 export function promoModal(tenant: Tenant): string {
   const body = String((tenant as any).promo_body_md ?? "").trim();
   if (!body) return "";
@@ -206,7 +208,7 @@ export function promoModal(tenant: Tenant): string {
 <div class="promo-text">${renderMarkdown(body)}${cta}</div>
 ${art}</div>
 </div>
-<script>(function(){var root=document.querySelector("[data-promo]");if(!root)return;var key="blognice-promo:"+(root.getAttribute("data-promo-id")||"");try{if(localStorage.getItem(key))return;}catch(e){}function open(){root.hidden=false;requestAnimationFrame(function(){root.classList.add("promo-open")});var c=root.querySelector("[data-promo-close]");if(c){try{c.focus({preventScroll:true})}catch(e){c.focus()}}}function close(){try{localStorage.setItem(key,"1")}catch(e){}root.classList.remove("promo-open");root.hidden=true}setTimeout(open,800);root.querySelector("[data-promo-close]").addEventListener("click",close);root.addEventListener("click",function(e){if(e.target===root)close()});document.addEventListener("keydown",function(e){if(e.key==="Escape"&&!root.hidden)close()});var img=root.querySelector(".promo-art img");if(img){var drop=function(){var a=root.querySelector(".promo-art");if(a)a.remove();var m=root.querySelector(".promo-modal");if(m)m.classList.add("promo-noart")};img.addEventListener("error",drop);if(img.complete&&img.naturalWidth===0)drop()}})();</script>`;
+<script>(function(){var root=document.querySelector("[data-promo]");if(!root)return;var key="blognice-promo:"+(root.getAttribute("data-promo-id")||"");var DAY=24*60*60*1000;try{var ts=parseInt(localStorage.getItem(key)||"",10);if(ts&&Date.now()-ts<DAY)return;}catch(e){}function open(){root.hidden=false;requestAnimationFrame(function(){root.classList.add("promo-open")});var c=root.querySelector("[data-promo-close]");if(c){try{c.focus({preventScroll:true})}catch(e){c.focus()}}}function close(){try{localStorage.setItem(key,String(Date.now()))}catch(e){}root.classList.remove("promo-open");root.hidden=true}setTimeout(open,800);root.querySelector("[data-promo-close]").addEventListener("click",close);root.addEventListener("click",function(e){if(e.target===root)close()});document.addEventListener("keydown",function(e){if(e.key==="Escape"&&!root.hidden)close()});var img=root.querySelector(".promo-art img");if(img){var drop=function(){var a=root.querySelector(".promo-art");if(a)a.remove();var m=root.querySelector(".promo-modal");if(m)m.classList.add("promo-noart")};img.addEventListener("error",drop);if(img.complete&&img.naturalWidth===0)drop()}})();</script>`;
 }
 
 export function promoForPage(tenant: Tenant, context: "home" | "page" | undefined): string {
@@ -220,10 +222,10 @@ export const PROMO_STYLES = /* css */ `
   .promo-backdrop { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center; padding: 1rem; background: rgb(0 0 0 / .45); opacity: 0; transition: opacity .25s ease; }
   .promo-backdrop[hidden] { display: none !important; }
   .promo-backdrop.promo-open { opacity: 1; }
-  .promo-modal { position: relative; display: flex; gap: 2rem; align-items: stretch; width: min(58rem, 100%); max-height: min(90vh, 46rem); overflow: auto; background: var(--panel, var(--bg)); color: var(--ink); border-radius: 16px; padding: 2.5rem; box-shadow: 0 24px 70px rgb(0 0 0 / .3); }
-  .promo-close { position: absolute; top: .6rem; right: .6rem; width: 2.2rem; height: 2.2rem; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--rule); border-radius: 999px; background: transparent; color: var(--muted); font-size: 1.3rem; line-height: 1; cursor: pointer; }
+  .promo-modal { position: relative; display: flex; gap: 0; align-items: stretch; width: min(58rem, 100%); max-height: min(90vh, 46rem); overflow: auto; background: var(--panel, var(--bg)); color: var(--ink); border-radius: 16px; padding: 0; box-shadow: 0 24px 70px rgb(0 0 0 / .3); }
+  .promo-close { position: absolute; top: .6rem; right: .6rem; z-index: 1; width: 2.2rem; height: 2.2rem; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--rule); border-radius: 999px; background: var(--panel, var(--bg)); color: var(--muted); font-size: 1.3rem; line-height: 1; cursor: pointer; }
   .promo-close:hover, .promo-close:focus-visible { color: var(--ink); border-color: var(--ink); }
-  .promo-text { flex: 1 1 55%; min-width: 0; font-size: 1.06rem; }
+  .promo-text { flex: 1 1 55%; min-width: 0; font-size: 1.06rem; padding: 2.5rem; }
   .promo-text > :first-child { margin-top: 0; }
   .promo-text > :last-child { margin-bottom: 0; }
   .promo-text h1, .promo-text h2 { font-size: 1.6rem; letter-spacing: -.01em; }
@@ -232,12 +234,13 @@ export const PROMO_STYLES = /* css */ `
   .promo-cta { display: inline-block; margin-top: 1.1rem; padding: .7rem 1.35rem; background: var(--accent); color: var(--accent-ink); border-radius: 8px; font-weight: 700; text-decoration: none; }
   .promo-cta:hover, .promo-cta:focus-visible { filter: brightness(.93); }
   .promo-art { flex: 1 1 45%; min-width: 0; }
-  .promo-art img { width: 100%; height: 100%; object-fit: cover; border-radius: 10px; display: block; }
+  .promo-art img { width: 100%; height: 100%; object-fit: cover; border-radius: 0 16px 16px 0; display: block; }
   .promo-noart .promo-text { flex-basis: 100%; }
   @media (max-width: 640px) {
-    .promo-modal { flex-direction: column; gap: 1rem; padding: 1.4rem; }
+    .promo-modal { flex-direction: column; }
+    .promo-text { padding: 1.4rem; }
     .promo-art { order: -1; max-height: 12rem; }
-    .promo-art img { max-height: 12rem; }
+    .promo-art img { max-height: 12rem; border-radius: 16px 16px 0 0; }
   }
   @media (prefers-reduced-motion: reduce) {
     .promo-backdrop { transition: none; }

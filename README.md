@@ -125,9 +125,10 @@ fast, server-rendered pages.
   both themes. Free blogs see an upgrade prompt instead.
 - **Promo popup (Pro)** — paid blogs can show visitors a popup (new book,
   course, newsletter) from Settings → Promo popup: Markdown text, an optional
-  graphic (media library or `https://` URL), and an optional button with a
-  link. Home page only or every page; dismissals stick until the promo is
-  edited. Free blogs see an upgrade prompt instead.
+  graphic (media library), and an optional button with a
+  link. Home page only or every page; dismissals last 24 hours, and editing
+  the promo shows it again straight away. Free blogs see an upgrade prompt
+  instead.
 - **Per-tenant `sitemap.xml` and `robots.txt`** for search engines.
 - **Privacy-conscious metrics** — a tiny first-party beacon sends anonymous
   page views to Workers Analytics Engine. Authors get 7/30/90-day views,

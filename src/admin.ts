@@ -2287,21 +2287,21 @@ export function settingsPage(
         </fieldset>
         <fieldset class="settings-card"><legend>Promo popup</legend>
           ${paid
-            ? `<p class="help">Show visitors a popup — your new book, a course, a newsletter. Markdown text on the left, an optional graphic on the right (on top on phones), an optional button underneath. Visitors who dismiss it won't see it again unless you edit it.</p>`
+            ? `<p class="help">Show visitors a popup — your new book, a course, a newsletter. Markdown text on the left, an optional graphic on the right (on top on phones), an optional button underneath. Visitors who dismiss it won't see it again for 24 hours — editing the promo shows it again straight away.</p>`
             : `<div class="notice"><strong>The promo popup is a Pro feature.</strong><br><a href="/admin/billing">Upgrade to Pro</a> to show visitors a popup.</div>${String((tenant as any).promo_body_md ?? "").trim() ? `<p class="help">Your saved promo stays live on the blog; editing it needs Pro.</p>` : ""}`}
           ${paid ? `
           <label><input type="checkbox" name="promo_enabled" value="1"${Number((tenant as any).promo_enabled ?? 0) ? " checked" : ""}> Show the promo popup</label>
           <p class="help">Where it appears:</p>
           <label><input type="radio" name="promo_placement" value="home"${normalizePromoPlacement((tenant as any).promo_placement) === "home" ? " checked" : ""}> Blog home page only</label>
           <label><input type="radio" name="promo_placement" value="all"${normalizePromoPlacement((tenant as any).promo_placement) === "all" ? " checked" : ""}> Every page</label>
-          <label for="promo-image">Graphic (optional)</label>
-          <input id="promo-image" name="promo_image" type="text" value="${esc(String((tenant as any).promo_image ?? ""))}" placeholder="media key or https://…" maxlength="500" autocapitalize="none" autocorrect="off" spellcheck="false">
-          <div class="actions" style="margin:.6rem 0 0">
+          <label for="promo-choose">Graphic (optional)</label>
+          <input id="promo-image" name="promo_image" type="hidden" value="${esc(String((tenant as any).promo_image ?? ""))}">
+          <img id="promo-preview" alt="" style="max-width:12rem;border-radius:8px;display:block;margin:0 0 .6rem"${String((tenant as any).promo_image ?? "").trim() ? "" : " hidden"}>
+          <div class="actions" style="margin:0 0 1rem">
             <button class="btn ghost" type="button" id="promo-choose">Choose from media</button>
             <button class="btn ghost danger" type="button" id="promo-remove-image"${String((tenant as any).promo_image ?? "").trim() ? "" : " hidden"}>Remove</button>
           </div>
-          <p class="help">Pick from your media library, or paste any <code>https://</code> image URL.</p>
-          <img id="promo-preview" alt="" style="max-width:12rem;border-radius:8px;display:block;margin:0 0 1rem"${String((tenant as any).promo_image ?? "").trim() ? "" : " hidden"}>
+          <p class="help">Pick from your media library, or upload a new image.</p>
           <label for="promo-body">Text (Markdown)</label>
           <textarea id="promo-body" name="promo_body_md" rows="5" placeholder="## My new book is out&#10;&#10;Two years of essays on …">${esc(String((tenant as any).promo_body_md ?? ""))}</textarea>
           <label for="promo-cta-text">Button text (optional)</label>

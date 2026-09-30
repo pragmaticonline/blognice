@@ -135,6 +135,9 @@ test("promo modal has dialog semantics, dismiss, Markdown, art, and CTA", () => 
   assert.match(html, /<img src="https:\/\/cdn\.example\.com\/book\.jpg" alt="" loading="lazy"/);
   assert.match(html, /<a class="promo-cta" href="https:\/\/shop\.example\.com\/book" target="_blank" rel="noopener noreferrer">Buy the book<\/a>/);
   assert.match(html, /localStorage/);
+  assert.match(html, /24\*60\*60\*1000/);
+  assert.match(html, /Date\.now\(\)-ts<DAY/);
+  assert.match(html, /localStorage\.setItem\(key,String\(Date\.now\(\)\)\)/);
   assert.match(html, /Escape/);
   assert.match(html, /setTimeout\(open,800\)/);
   assert.match(html, /\.promo-art img/);
@@ -222,6 +225,8 @@ test("settings save persists a promo and it renders on the home page", async () 
     assert.match(settingsHtml, /name="promo_placement" value="home" checked/);
     assert.match(settingsHtml, /name="promo_body_md"/);
     assert.match(settingsHtml, /id="promo-preview"/);
+    assert.match(settingsHtml, /id="promo-image" name="promo_image" type="hidden"/);
+    assert.doesNotMatch(settingsHtml, /name="promo_image" type="text"/);
     assert.match(settingsHtml, /id="promo-choose"/);
     assert.match(settingsHtml, /id="promo-media-dialog"/);
     assert.match(settingsHtml, /id="promo-file-input"/);
@@ -281,6 +286,14 @@ test("free owners see the Pro upsell and their promo is left alone", async () =>
   } finally {
     await mf.dispose();
   }
+});
+
+test("promo modal inline script parses", () => {
+  // Same class of bug as the picker outage: a bad escape in a shipped
+  // inline script fails silently in every browser. Parse, never execute.
+  const blocks = [...promoModal(promoTenant).matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+  assert.equal(blocks.length, 1);
+  for (const code of blocks) new Script(code);
 });
 
 test("every inline script on the settings page parses", async () => {
