@@ -128,6 +128,27 @@ export function passwordResetEmail(input: { resetUrl: string }) {
   };
 }
 
+export function appealApprovedEmail(input: { note?: string } = {}) {
+  const note = (input.note || "").trim();
+  const notePlain = note ? `\n\nA note from our team: ${note}\n` : "\n";
+  const noteHtml = note ? `<p style="background:#f7f8f5;border:1px solid #e7e7e2;border-radius:10px;padding:16px 18px;color:#3c4038"><strong>A note from our team:</strong><br>${htmlEscape(note)}</p>` : "";
+  return {
+    subject: "Your blognice suspension appeal was approved",
+    plainText: `Good news — we reviewed your appeal and your blognice account is active again.${notePlain}\nLog in: https://www.blognice.com/admin/login\n\nNeed a hand? Reply to this email or contact ${PLATFORM_SUPPORT}`,
+    html: `<h2 style="font-family:Arial,sans-serif;text-align:center;margin:0 0 14px;color:#181a12">Appeal approved</h2><p>Good news — we reviewed your appeal and your blognice account is active again.</p>${noteHtml}<p style="text-align:center;margin:28px 0"><a href="https://www.blognice.com/admin/login" style="display:inline-block;background:#1a8917;color:#fff;text-decoration:none;padding:13px 30px;border-radius:9px;font-weight:700">Log in</a></p><hr><p><strong>Need a hand?</strong><br>Reply to this email or contact ${PLATFORM_SUPPORT}.</p>`,
+  };
+}
+
+export function appealDeniedEmail(input: { note: string; reappealDate: string }) {
+  const note = htmlEscape(input.note);
+  const date = htmlEscape(input.reappealDate);
+  return {
+    subject: "Update on your blognice suspension appeal",
+    plainText: `We reviewed your appeal and the suspension on your blognice account stays in place.\n\nWhat our team said: ${input.note || "No further detail was provided."}\n\nYou can submit a new appeal after ${input.reappealDate}.\n\nNeed a hand? Reply to this email or contact ${PLATFORM_SUPPORT}`,
+    html: `<h2 style="font-family:Arial,sans-serif;text-align:center;margin:0 0 14px;color:#181a12">Appeal update</h2><p>We reviewed your appeal and the suspension on your blognice account stays in place.</p><p style="background:#f7f8f5;border:1px solid #e7e7e2;border-radius:10px;padding:16px 18px;color:#3c4038"><strong>What our team said:</strong><br>${note || "No further detail was provided."}</p><p>You can submit a new appeal after <strong>${date}</strong>.</p><hr><p><strong>Need a hand?</strong><br>Reply to this email or contact ${PLATFORM_SUPPORT}.</p>`,
+  };
+}
+
 export function subscriberWelcomeEmail(input: { blogTitle: string; unsubscribeUrl: string; manageUrl: string }) {
   const title = htmlEscape(input.blogTitle);
   const unsub = htmlEscape(input.unsubscribeUrl);

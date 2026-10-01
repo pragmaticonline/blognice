@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import staffFaviconSvg from "../staff-favicon.svg";
 import { esc } from "./render";
-import { sendEmailDetailed, registrationWelcomeEmail, subscriptionActiveEmail, subscriberConfirmationEmail, passwordResetEmail, subscriberWelcomeEmail, postNotificationEmail } from "./email";
+import { sendEmailDetailed, registrationWelcomeEmail, subscriptionActiveEmail, subscriberConfirmationEmail, passwordResetEmail, subscriberWelcomeEmail, postNotificationEmail, appealApprovedEmail, appealDeniedEmail } from "./email";
 import { generateResetToken, sha256hex } from "./auth";
 import { classifyTtsError, ttsBytes, ttsStreamToBytes, readTtsEngineSetting, readTtsVoiceSetting, selectTtsEngine, selectTtsVoice, validWavAudio, AURA_VOICES, TTS_DEFAULT_VOICE, TTS_ENGINE_AURA, TTS_ENGINE_MELOTTS, TTS_ENGINE_SETTING_KEY, TTS_FALLBACK_MODEL, TTS_MODEL, TTS_RETRY_DELAYS, TTS_VOICE_SETTING_KEY } from "./tts";
 import { getAffiliatePayoutQueueInDb, getAffiliateSupportActivityInDb, getAffiliateSupportSummaryInDb } from "./affiliate-support";
@@ -230,7 +230,7 @@ async function relatedAccounts(c: any, id: number) {
 }
 
 function staffHeader(staff: StaffIdentity): string {
-  return `<header class="staff-top"><a class="staff-brand" href="/">blognice <span>staff</span></a><div class="staff-top-meta"><small>${esc(staff.email)} · ${esc(staff.role)}</small><a class="logout" href="/cdn-cgi/access/logout">Log out</a><button class="staff-menu-toggle" type="button" aria-controls="staff-sidebar" aria-expanded="false">Menu</button></div></header><div class="staff-shell"><aside class="staff-sidebar" id="staff-sidebar"><nav class="staff-nav" aria-label="Staff navigation"><a href="/dashboard" data-staff-nav>Dashboard</a><a href="/" data-staff-nav>Accounts</a><a href="/affiliate-payouts" data-staff-nav>Affiliate payouts</a><a href="/staff/experiments/affiliate-offer" data-staff-nav>Offer experiment</a><a href="/staff/ads-funnel" data-staff-nav>Ads funnel</a><a href="/audit" data-staff-nav>Audit log</a><a href="/pronunciations" data-staff-nav>Pronunciation dictionary</a><a href="/autopilot-runs" data-staff-nav>Autopilot runs</a><a href="/tts-test" data-staff-nav>TTS test</a><a href="/email-preview" data-staff-nav>Email preview</a></nav></aside><div class="staff-content">`;
+  return `<header class="staff-top"><a class="staff-brand" href="/">blognice <span>staff</span></a><div class="staff-top-meta"><small>${esc(staff.email)} · ${esc(staff.role)}</small><a class="logout" href="/cdn-cgi/access/logout">Log out</a><button class="staff-menu-toggle" type="button" aria-controls="staff-sidebar" aria-expanded="false">Menu</button></div></header><div class="staff-shell"><aside class="staff-sidebar" id="staff-sidebar"><nav class="staff-nav" aria-label="Staff navigation"><a href="/dashboard" data-staff-nav>Dashboard</a><a href="/" data-staff-nav>Accounts</a><a href="/appeals" data-staff-nav>Suspension appeals</a><a href="/affiliate-payouts" data-staff-nav>Affiliate payouts</a><a href="/staff/experiments/affiliate-offer" data-staff-nav>Offer experiment</a><a href="/staff/ads-funnel" data-staff-nav>Ads funnel</a><a href="/audit" data-staff-nav>Audit log</a><a href="/pronunciations" data-staff-nav>Pronunciation dictionary</a><a href="/autopilot-runs" data-staff-nav>Autopilot runs</a><a href="/tts-test" data-staff-nav>TTS test</a><a href="/email-preview" data-staff-nav>Email preview</a></nav></aside><div class="staff-content">`;
 }
 
 function billingPlan(account: any, c: any): string {
@@ -909,6 +909,86 @@ app.post("/api/accounts/:id/send-password-reset", async (c) => {
   if (!result.ok) return c.json({ error: result.detail || "Password reset email could not be sent." }, 502);
   return c.json({ ok: true, recipient: account.email });
 });
+
+// --- Suspension appeals ------------------------------------------------------
+// Mirror of APPEAL_COOLDOWN_DAYS in src/index.ts (separate worker bundles,
+// one domain value): a denied user may appeal again after this long.
+const APPEAL_COOLDOWN_DAYS = 30;
+
+type AppealRow = {
+  id: number; account_id: number; email: string; status_reason: string | null;
+  status: string; appeal_text: string; staff_note: string; created_at: number; decided_at: number | null;
+};
+
+async function appealById(db: D1Database, id: number): Promise<AppealRow | null> {
+  return db.prepare(
+    `SELECT a.id, a.account_id, c.email, c.status_reason, a.status, a.appeal_text, a.staff_note, a.created_at, a.decided_at
+       FROM suspension_appeals a JOIN accounts c ON c.id = a.account_id WHERE a.id = ?`
+  ).bind(id).first<AppealRow>();
+}
+
+app.get("/appeals", async (c) => {
+  const staff = c.get("staff") as StaffIdentity;
+  let pending: AppealRow[] = [];
+  let history: AppealRow[] = [];
+  try {
+    const p = await c.env.DB.prepare(
+      `SELECT a.id, a.account_id, c.email, c.status_reason, a.status, a.appeal_text, a.staff_note, a.created_at, a.decided_at
+         FROM suspension_appeals a JOIN accounts c ON c.id = a.account_id
+        WHERE a.status = 'pending' ORDER BY a.created_at ASC LIMIT 100`
+    ).all<AppealRow>();
+    pending = p.results ?? [];
+    const h = await c.env.DB.prepare(
+      `SELECT a.id, a.account_id, c.email, c.status_reason, a.status, a.appeal_text, a.staff_note, a.created_at, a.decided_at
+         FROM suspension_appeals a JOIN accounts c ON c.id = a.account_id
+        WHERE a.status != 'pending' ORDER BY a.decided_at DESC LIMIT 50`
+    ).all<AppealRow>();
+    history = h.results ?? [];
+  } catch { return c.html(staffPage("Suspension appeals", `${staffHeader(staff)}<h2>Suspension appeals</h2><div class="notice">Appeals table not available — apply migration 089.</div>`)); }
+  const fmtDate = (ts: number) => new Date(ts * 1000).toISOString().replace("T", " ").replace(".000Z", " UTC");
+  const cards = pending.map((a) => {
+    const form = canMutate(staff)
+      ? `<form class="appeal-decide" data-id="${a.id}"><label>Note to user (required to deny, shown on approval only if filled)<br><textarea name="note" rows="2" maxlength="500" style="width:100%;padding:8px;border:1px solid var(--rule);border-radius:5px"></textarea></label><div class="actions"><button class="btn" type="submit" name="decision" value="approve">Approve &amp; unsuspend</button><button class="btn btn-danger" type="submit" name="decision" value="deny">Deny</button></div><p class="muted appeal-status" aria-live="polite"></p></form>`
+      : `<div class="notice">Your role is read-only. Support or admin staff can decide appeals.</div>`;
+    return `<div class="card"><div class="card-head"><h2>${esc(a.email)}</h2><span class="badge warn">pending</span></div><p class="muted">Suspended: ${esc(a.status_reason || "no reason recorded")} · Appealed ${fmtDate(a.created_at)}</p><p style="white-space:pre-wrap">${esc(a.appeal_text)}</p>${form}</div>`;
+  }).join("");
+  const hist = history.map((a) => `<tr><td>${esc(a.email)}</td><td><span class="badge ${a.status === "approved" ? "" : "suspended"}">${esc(a.status)}</span></td><td>${esc((a.staff_note || "—").slice(0, 120))}</td><td>${a.decided_at ? fmtDate(a.decided_at) : "—"}</td></tr>`).join("");
+  const script = `<script>(function(){document.querySelectorAll('.appeal-decide').forEach(function(form){form.addEventListener('submit',async function(event){event.preventDefault();var decision=event.submitter&&event.submitter.value;var status=form.querySelector('.appeal-status');var buttons=form.querySelectorAll('button');buttons.forEach(function(b){b.disabled=true;});status.textContent='Working…';try{var response=await fetch('/api/appeals/'+form.dataset.id+'/'+decision,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({note:form.elements.note.value})});var data=await response.json().catch(function(){return {};});if(!response.ok)throw new Error(data.error||'Could not record decision.');location.reload();}catch(error){status.textContent=error.message||'Could not record decision.';buttons.forEach(function(b){b.disabled=false;});}});})();</script>`;
+  return c.html(staffPage("Suspension appeals", `${staffHeader(staff)}<h2>Suspension appeals</h2><p class="muted">Approve to lift the suspension immediately; deny to keep it with a note the user will see. Denied users may appeal again after ${APPEAL_COOLDOWN_DAYS} days.</p>${cards || `<div class="empty">No pending appeals.</div>`}<div class="card"><div class="card-head"><h2>Decided</h2></div><table><thead><tr><th>Account</th><th>Decision</th><th>Note</th><th>Decided</th></tr></thead><tbody>${hist || `<tr><td colspan="4" class="empty">No decided appeals yet.</td></tr>`}</tbody></table></div>${script}`));
+});
+
+async function decideAppeal(c: any, id: number, decision: "approved" | "denied", note: string) {
+  const staff = c.get("staff") as StaffIdentity;
+  if (!canMutate(staff)) return c.json({ error: "staff role cannot decide appeals" }, 403);
+  if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
+  if (decision === "denied" && !note.trim()) return c.json({ error: "a note is required when denying — the user will see it" }, 400);
+  const appeal = await appealById(c.env.DB, id).catch(() => null);
+  if (!appeal) return c.json({ error: "appeal not found (table missing? apply migration 089)" }, 404);
+  if (appeal.status !== "pending") return c.json({ error: `appeal already ${appeal.status}` }, 409);
+  const now = Math.floor(Date.now() / 1000);
+  const trimmed = note.trim().slice(0, 500);
+  if (decision === "approved") {
+    // Staff identities are Access subjects, not accounts rows, so decided_by
+    // stays NULL — the audit event below records who decided.
+    const writes = await c.env.DB.batch([
+      c.env.DB.prepare("UPDATE suspension_appeals SET status = 'approved', staff_note = ?, decided_at = ? WHERE id = ? AND status = 'pending'").bind(trimmed, now, id),
+      c.env.DB.prepare("UPDATE accounts SET status = 'active', status_reason = 'Appeal approved', status_changed_at = ?, locked_until = NULL WHERE id = ? AND status = 'suspended'").bind(now, appeal.account_id),
+    ]);
+    if (!writes[0].meta.changes) return c.json({ error: "appeal already decided" }, 409);
+    const email = await sendEmailDetailed(c.env, { to: appeal.email, emailKind: "appeal-approved", senderName: "blognice", ...appealApprovedEmail({ note: trimmed }) }).catch((e) => ({ ok: false as const, detail: String((e as Error)?.message || e).slice(0, 200) }));
+    await audit(c, staff, { action: "appeal-approve", targetType: "suspension_appeal", targetId: String(id), result: email.ok ? "success" : "success-email-failed", before: { status: "pending" }, after: { status: "approved", account_id: appeal.account_id, account_unsuspended: (writes[1].meta.changes ?? 0) > 0, email_detail: email.ok ? null : (email as { detail?: string }).detail } });
+    return c.json({ ok: true, emailed: email.ok });
+  }
+  const updated = await c.env.DB.prepare("UPDATE suspension_appeals SET status = 'denied', staff_note = ?, decided_at = ? WHERE id = ? AND status = 'pending'").bind(trimmed, now, id).run();
+  if (!updated.meta.changes) return c.json({ error: "appeal already decided" }, 409);
+  const reappealDate = new Date((now + APPEAL_COOLDOWN_DAYS * 86400) * 1000).toISOString().slice(0, 10);
+  const email = await sendEmailDetailed(c.env, { to: appeal.email, emailKind: "appeal-denied", senderName: "blognice", ...appealDeniedEmail({ note: trimmed, reappealDate }) }).catch((e) => ({ ok: false as const, detail: String((e as Error)?.message || e).slice(0, 200) }));
+  await audit(c, staff, { action: "appeal-deny", targetType: "suspension_appeal", targetId: String(id), reason: trimmed, result: email.ok ? "success" : "success-email-failed", before: { status: "pending" }, after: { status: "denied", email_detail: email.ok ? null : (email as { detail?: string }).detail } });
+  return c.json({ ok: true, emailed: email.ok });
+}
+
+app.post("/api/appeals/:id/approve", async (c) => decideAppeal(c, Number(c.req.param("id")), "approved", String((await c.req.json().catch(() => ({}))).note || "")));
+app.post("/api/appeals/:id/deny", async (c) => decideAppeal(c, Number(c.req.param("id")), "denied", String((await c.req.json().catch(() => ({}))).note || "")));
 
 app.post("/api/test-email", async (c) => {
   const staff = c.get("staff") as StaffIdentity;

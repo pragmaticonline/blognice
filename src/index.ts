@@ -96,6 +96,8 @@ import {
   bloggerImportPage,
   shell,
   suspendedAccountPage,
+  appealPage,
+  appealStatusPage,
   type MediaItem,
 } from "./admin";
 import { tenantDb } from "./db";
@@ -3318,6 +3320,60 @@ async function applyPasswordResetHandler(c: Context<{ Bindings: Bindings }>) {
 }
 app.post("/admin/reset", applyPasswordResetHandler);
 app.post("/admin/reset-password", applyPasswordResetHandler);
+
+// --- Suspension appeals ----------------------------------------------------
+// Suspended users can still log in (every route just shows the suspended
+// page), so the appeal form is session-authenticated — no magic link needed.
+const APPEAL_COOLDOWN_DAYS = 30;
+const APPEAL_TEXT_MAX = 5000;
+
+type AppealState = { state: "eligible" } | { state: "pending" } | { state: "denied"; note: string; reappealAt: number };
+
+async function appealState(db: D1Database, accountId: number, now: number): Promise<AppealState> {
+  const pending = await db.prepare("SELECT id FROM suspension_appeals WHERE account_id = ? AND status = 'pending'").bind(accountId).first();
+  if (pending) return { state: "pending" };
+  const last = await db.prepare("SELECT staff_note, decided_at FROM suspension_appeals WHERE account_id = ? AND status = 'denied' ORDER BY decided_at DESC LIMIT 1").bind(accountId).first<{ staff_note: string; decided_at: number }>();
+  if (last && last.decided_at + APPEAL_COOLDOWN_DAYS * 86400 > now) {
+    return { state: "denied", note: last.staff_note || "", reappealAt: last.decided_at + APPEAL_COOLDOWN_DAYS * 86400 };
+  }
+  return { state: "eligible" };
+}
+
+function appealDate(ts: number): string {
+  return new Date(ts * 1000).toISOString().slice(0, 10);
+}
+
+app.get("/admin/appeal", async (c) => {
+  const account = await currentAccount(c);
+  if (!account) return c.redirect("/admin/login");
+  if (!isSuspended(account)) return c.redirect("/admin");
+  const state = await appealState(c.env.DB, account.id, Math.floor(Date.now() / 1000));
+  if (state.state === "pending") return c.html(appealStatusPage(account, { state: "pending" }));
+  if (state.state === "denied") return c.html(appealStatusPage(account, { state: "denied", note: state.note, reappealDate: appealDate(state.reappealAt) }));
+  return c.html(appealPage(account));
+});
+
+app.post("/admin/appeal", async (c) => {
+  const account = await currentAccount(c);
+  if (!account) return c.redirect("/admin/login");
+  if (!isSuspended(account)) return c.redirect("/admin");
+  const now = Math.floor(Date.now() / 1000);
+  const state = await appealState(c.env.DB, account.id, now);
+  if (state.state === "pending") return c.html(appealStatusPage(account, { state: "pending" }));
+  if (state.state === "denied") return c.html(appealStatusPage(account, { state: "denied", note: state.note, reappealDate: appealDate(state.reappealAt) }), 429);
+  const form = await c.req.formData();
+  const text = String(form.get("text") || "").trim();
+  if (!text) return c.html(appealPage(account, "Please write a few sentences about why the suspension should be lifted."), 400);
+  if (text.length > APPEAL_TEXT_MAX) return c.html(appealPage(account, `Appeals are limited to ${APPEAL_TEXT_MAX} characters.`, text.slice(0, APPEAL_TEXT_MAX)), 400);
+  try {
+    await c.env.DB.prepare("INSERT INTO suspension_appeals (account_id, status, appeal_text, created_at) VALUES (?, 'pending', ?, ?)").bind(account.id, text, now).run();
+  } catch (e) {
+    // UNIQUE race: a pending appeal landed between the check and the insert.
+    if (String((e as Error)?.message || "").includes("UNIQUE")) return c.html(appealStatusPage(account, { state: "pending" }));
+    throw e;
+  }
+  return c.html(appealStatusPage(account, { state: "pending" }));
+});
 
 // --- API key management (session-authenticated) ----------------------------
 

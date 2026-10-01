@@ -1085,3 +1085,17 @@ CREATE TABLE IF NOT EXISTS platform_settings (
   value TEXT NOT NULL,
   updated_at INTEGER NOT NULL
 );
+
+-- Suspension appeals (migration 089).
+CREATE TABLE IF NOT EXISTS suspension_appeals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'pending',
+  appeal_text TEXT NOT NULL,
+  staff_note TEXT NOT NULL DEFAULT '',
+  decided_by INTEGER NULL REFERENCES accounts(id) ON DELETE SET NULL,
+  created_at INTEGER NOT NULL,
+  decided_at INTEGER NULL
+);
+CREATE INDEX IF NOT EXISTS idx_suspension_appeals_account ON suspension_appeals(account_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_suspension_appeals_pending ON suspension_appeals(account_id) WHERE status = 'pending';

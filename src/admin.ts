@@ -685,7 +685,7 @@ export function suspendedAccountPage(account: Account): string {
         Your account is currently suspended and you should contact support.
       </div>
       ${reason ? `<p style="color:var(--muted);font-size:0.9rem">Reason: ${esc(reason)}</p>` : ""}
-      <p style="color:var(--muted);font-size:0.9rem">If you believe this is a mistake, please contact <a href="mailto:support@blognice.com">support@blognice.com</a>.</p>
+      <p style="color:var(--muted);font-size:0.9rem">If you believe this is a mistake, you can <a href="/admin/appeal">appeal this decision</a> or contact <a href="mailto:support@blognice.com">support@blognice.com</a>.</p>
       <form method="post" action="/admin/logout" style="margin-top:1.5rem">
         <button class="btn" type="submit">Log out</button>
       </form>
@@ -1223,6 +1223,22 @@ export function forgotPasswordPage(message = "", error = ""): string {
     "Reset password",
     `<div class="page narrow"><h1>Reset your password</h1>${message ? `<div class="notice">${esc(message)}</div>` : ""}${error ? `<div class="error">${esc(error)}</div>` : ""}<p style="color:var(--muted)">Enter your account email and, if it matches an account, we'll send a reset link.</p><form method="post" action="/admin/forgot"><label for="reset-email">Email</label><input id="reset-email" name="email" type="email" autocomplete="email" required><button class="btn" type="submit">Send reset link</button></form><p style="margin-top:1.4rem;color:var(--muted);font-size:.9rem"><a href="/admin/login">Back to sign in</a></p></div>`
   );
+}
+
+export function appealPage(account: Account, error = "", previousText = ""): string {
+  const reason = account.status_reason?.trim();
+  return shell(
+    "Appeal suspension",
+    `<div class="page narrow"><h1>Appeal your suspension</h1>${error ? `<div class="error">${esc(error)}</div>` : ""}${reason ? `<p style="color:var(--muted);font-size:0.9rem">Suspension reason: ${esc(reason)}</p>` : ""}<p style="color:var(--muted)">Tell us why you believe the suspension should be lifted. A member of our team will review it.</p><form method="post" action="/admin/appeal"><label for="appeal-text">Your appeal</label><textarea id="appeal-text" name="text" rows="6" maxlength="5000" required>${esc(previousText)}</textarea><button class="btn" type="submit">Submit appeal</button></form></div>`,
+    account
+  );
+}
+
+export function appealStatusPage(account: Account, status: { state: "pending" } | { state: "denied"; note: string; reappealDate: string }): string {
+  const body = status.state === "pending"
+    ? `<div class="notice">Your appeal is under review. We'll email you at ${esc(account.email)} when we've made a decision.</div>`
+    : `<div class="error">Your appeal was denied.</div>${status.note ? `<p><strong>What our team said:</strong></p><p style="color:var(--muted)">${esc(status.note)}</p>` : ""}<p style="color:var(--muted)">You can submit a new appeal after ${esc(status.reappealDate)}.</p>`;
+  return shell("Suspension appeal", `<div class="page narrow"><h1>Suspension appeal</h1>${body}<form method="post" action="/admin/logout" style="margin-top:1.5rem"><button class="btn" type="submit">Log out</button></form></div>`, account);
 }
 
 export function resetPasswordPage(token: string, error = ""): string {

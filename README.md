@@ -325,6 +325,14 @@ request, a reason where applicable, and an audit record. Financial, identity,
 impersonation, export, and deletion actions should be treated as privileged
 operations and exercised through the documented UI controls.
 
+Suspended accounts can appeal from `/admin/appeal` (suspended users can still
+log in; every other route shows the suspended page). One appeal may be pending
+at a time (DB-enforced); a denial starts a 30-day cooldown (`APPEAL_COOLDOWN_DAYS`)
+before the next appeal. Staff decide from the **Suspension appeals** console
+page: approve lifts the suspension immediately and emails the user, deny keeps
+it and emails the staff note with the re-appeal date. Decisions are audited as
+`appeal-approve` / `appeal-deny`.
+
 Support and admin staff can use an account detail page's **Send test email**
 button to verify transactional email delivery. The action sends a fixed test
 message only to that account's registered address and records an audit event.
