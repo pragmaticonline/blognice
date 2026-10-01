@@ -4441,7 +4441,7 @@ async function processAudioJob(env: Bindings, jobKey: string): Promise<void> {
       await writer.abort(error).catch(() => undefined);
       throw error;
     }
-    const attached = await pdb.prepare("UPDATE posts SET audio_key = ?, updated_at = ? WHERE id = ? AND tenant_id = ? AND audio_generation_id = ? AND audio_key IS NULL")
+    const attached = await pdb.prepare("UPDATE posts SET audio_key = ?, audio_generation_id = NULL, updated_at = ? WHERE id = ? AND tenant_id = ? AND audio_generation_id = ? AND audio_key IS NULL")
       .bind(audioKey, Math.floor(Date.now() / 1000), job.postId, job.tenantId, job.jobId).run();
     if (!attached.meta.changes) {
       await env.MEDIA.delete(audioKey).catch(() => undefined);
@@ -5018,9 +5018,21 @@ async function releaseTerminalAudioGeneration(env: Bindings, jobKey: string): Pr
     const job = await readAudioJob(env, jobKey);
     const tenant = await tenantById(env, job.tenantId);
     if (!tenant) return;
-    await tenantDb(env, tenant).prepare(
-      "UPDATE posts SET audio_generation_id = NULL, updated_at = ? WHERE id = ? AND tenant_id = ? AND audio_generation_id = ?"
-    ).bind(Math.floor(Date.now() / 1000), job.postId, tenant.id, job.jobId).run();
+    // A single swallowed D1 failure here strands the lock with no live job
+    // left to release it (proven 2026-10-01). Retry, then log loudly.
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await tenantDb(env, tenant).prepare(
+          "UPDATE posts SET audio_generation_id = NULL, updated_at = ? WHERE id = ? AND tenant_id = ? AND audio_generation_id = ?"
+        ).bind(Math.floor(Date.now() / 1000), job.postId, tenant.id, job.jobId).run();
+        return;
+      } catch (error) {
+        lastError = error;
+        await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+      }
+    }
+    console.error(JSON.stringify({ message: "terminal audio generation lock cleanup failed after retries", jobKey, error: lastError instanceof Error ? lastError.message : String(lastError) }));
   } catch (error) {
     console.error(JSON.stringify({ message: "terminal audio generation lock cleanup failed", jobKey, error: error instanceof Error ? error.message : String(error) }));
   }

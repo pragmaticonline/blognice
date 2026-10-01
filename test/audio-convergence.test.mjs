@@ -145,8 +145,9 @@ test("a cut segment is retried and the narration still attaches", async () => {
     const job = JSON.parse(await (await media.get(jobKey)).text());
     assert.equal(job.status, "complete", "job completes after segment retries");
     assert.ok(job.audioKey, "audio attaches");
-    const post = await postsDb.prepare("SELECT audio_key FROM posts WHERE id = 11").first();
+    const post = await postsDb.prepare("SELECT audio_key, audio_generation_id FROM posts WHERE id = 11").first();
     assert.equal(post.audio_key, job.audioKey);
+    assert.equal(post.audio_generation_id, null, "successful attach releases the claim (stuck locks blocked 98 regenerations)");
     for (const [, count] of calls) assert.ok(count >= 2, "each cut segment was resynthesized");
   } finally {
     await mf.dispose();

@@ -34,6 +34,17 @@ test("narration text keeps readable content and removes markdown plumbing", () =
   assert.equal(TTS_TEXT_MAX, 20_000);
 });
 
+test("narration strips hash markers without a space (MeloTTS 8005s on leading #)", () => {
+  const text = narrationText(
+    "Who Owns the Age of Abundance?",
+    "##Abundance.\n\n#hashtag opener\n\n###\n\nA normal paragraph."
+  ).replaceAll(TTS_HARD_PAUSE, "");
+  assert.match(text, /Abundance/);
+  assert.match(text, /hashtag opener/);
+  assert.match(text, /A normal paragraph/);
+  assert.doesNotMatch(text, /#/);
+});
+
 test("narration drops trailing citation-link clusters but keeps prose links", () => {
   const text = narrationText(
     "Safety pause",

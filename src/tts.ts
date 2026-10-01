@@ -315,6 +315,12 @@ export function removeSourcesSection(markdown: string): string {
   return lines.slice(0, marker).join("\n");
 }
 
+// Belt-and-braces for anything the heading pass missed (bare ### lines,
+// single #): a leading hash 8005s MeloTTS, mid-line hashes are fine.
+function stripLeadingHashes(value: string): string {
+  return value.replace(/(^|[\n\u241E])\s*#+\s*/g, "$1");
+}
+
 export function narrationSections(title: string, markdown: string, overrides: PronunciationReplacement[] = []): { title: string; body: string } {
   const cleaned = removeMarkdownTables(removeCitationClusters(decodeEntities(removeSourcesSection(markdown))
     .replace(/```[\s\S]*?```/g, " ")
@@ -330,7 +336,9 @@ export function narrationSections(title: string, markdown: string, overrides: Pr
   const blocks = cleaned.split(/\n\s*\n+/).map((block) => {
     let containsList = false;
     const lines = block.split("\n").map((line) => {
-      const heading = line.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/);
+      // The space after the hashes is optional: writers emit ##Headings and
+      // MeloTTS 8005s on any segment starting with #.
+      const heading = line.match(/^\s{0,3}#{1,6}\s*(.+?)\s*#*\s*$/);
       if (heading) {
         const numberedHeading = heading[1].match(/^(\d{1,6})[.)](?:\s+(.*))?$/);
         if (numberedHeading) {
@@ -358,8 +366,8 @@ export function narrationSections(title: string, markdown: string, overrides: Pr
   }).filter(Boolean);
   return {
     // A short, standalone statement gives MeloTTS its most neutral title delivery.
-    title: cleanSpeech(finishPhrase(decodeEntities(title)), overrides),
-    body: cleanSpeech(blocks.join(` ${TTS_HARD_PAUSE} `), overrides),
+    title: stripLeadingHashes(cleanSpeech(finishPhrase(decodeEntities(title)), overrides)),
+    body: stripLeadingHashes(cleanSpeech(blocks.join(` ${TTS_HARD_PAUSE} `), overrides)),
   };
 }
 
