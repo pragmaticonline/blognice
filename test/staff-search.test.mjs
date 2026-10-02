@@ -37,9 +37,11 @@ function staffJwt(sub) {
 
 // Mock D1 that enforces real D1 binding-count semantics: binding fewer or
 // more args than there are `?` placeholders throws, exactly as D1 does.
-function strictDb() {
+// Records every prepared statement on `seen` for WHERE-clause assertions.
+function strictDb(seen) {
   return {
     prepare(sql) {
+      seen.push(sql);
       return {
         bind(...args) {
           const placeholders = (sql.match(/\?/g) || []).length;
@@ -57,7 +59,9 @@ function strictDb() {
               if (sql.includes("FROM accounts a")) {
                 return {
                   results: [
-                    { id: 70, email: "brent@codeandsea.com", status: "active", created_at: NOW - 100, blog_count: 1 },
+                    { id: 70, email: "brent@codeandsea.com", status: "active", created_at: NOW - 100, blog_count: 1, billing_status: "active", billing_price_id: null, crypto_paid_through: null, vip_granted_at: null, vip_expires_at: null },
+                    { id: 71, email: "vip@example.com", status: "active", created_at: NOW - 200, blog_count: 2, billing_status: "inactive", billing_price_id: null, crypto_paid_through: null, vip_granted_at: NOW - 300, vip_expires_at: null },
+                    { id: 72, email: "free@example.com", status: "active", created_at: NOW - 300, blog_count: 0, billing_status: "inactive", billing_price_id: null, crypto_paid_through: null, vip_granted_at: null, vip_expires_at: null },
                   ],
                 };
               }
@@ -73,7 +77,8 @@ function strictDb() {
 
 test("staff account search renders for ?q= (page and API)", async () => {
   const staffApp = (await import("../src/staff.ts")).default;
-  const db = strictDb();
+  const seen = [];
+  const db = strictDb(seen);
   const env = { DB: db, POSTS: db, ROOT_DOMAIN: "blognice.test", ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD };
   const executionCtx = { waitUntil() {}, passThroughOnException() {} };
   const originalFetch = globalThis.fetch;
@@ -97,7 +102,72 @@ test("staff account search renders for ?q= (page and API)", async () => {
     const api = await staffApp.request(req("/api/accounts?q=brentvardy"), undefined, env, executionCtx);
     assert.equal(api.status, 200);
     const json = await api.json();
-    assert.equal(json.accounts.length, 1);
+    assert.equal(json.accounts.length, 3);
+    assert.equal(json.plan, "all");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("staff accounts filter by plan (paying, vip, free)", async () => {
+  const staffApp = (await import("../src/staff.ts")).default;
+  const seen = [];
+  const db = strictDb(seen);
+  const env = { DB: db, POSTS: db, ROOT_DOMAIN: "blognice.test", ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD };
+  const executionCtx = { waitUntil() {}, passThroughOnException() {} };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("/cdn-cgi/access/certs")) {
+      return new Response(JSON.stringify({ keys: [publicJwk] }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return new Response("not found", { status: 404 });
+  };
+  const headers = { host: "staff.test", Origin: "https://staff.test", "Cf-Access-Jwt-Assertion": staffJwt("staff-admin-1") };
+  const req = (path) => new Request(`https://staff.test${path}`, { headers });
+  const lastSql = () => seen.filter((s) => s.includes("FROM accounts a")).at(-1);
+  // Outer FROM clause only: the SELECT's COUNT subquery has its own WHERE.
+  const lastFromClause = () => {
+    const sql = lastSql();
+    return sql.slice(sql.indexOf("FROM accounts a"), sql.indexOf("ORDER BY"));
+  };
+  const lastWhere = () => {
+    const clause = lastFromClause();
+    return clause.includes("WHERE") ? clause.slice(clause.indexOf("WHERE")) : "";
+  };
+  try {
+    for (const [plan, needle] of [["paying", "billing_status"], ["vip", "vip_granted_at"], ["free", "NOT ("]]) {
+      seen.length = 0;
+      const res = await staffApp.request(req(`/?plan=${plan}`), undefined, env, executionCtx);
+      assert.equal(res.status, 200);
+      assert.match(lastWhere(), new RegExp(needle.replace(/[()]/g, "\\$&")));
+    }
+
+    // Paying + search combine: the search OR-chain is parenthesized under AND.
+    seen.length = 0;
+    const combined = await staffApp.request(req("/?q=brentvardy&plan=vip"), undefined, env, executionCtx);
+    assert.equal(combined.status, 200);
+    assert.match(lastWhere(), /\) AND \(/);
+
+    // Unknown plan falls back to all: no WHERE at all without q.
+    seen.length = 0;
+    const bogus = await staffApp.request(req("/?plan=bogus"), undefined, env, executionCtx);
+    assert.equal(bogus.status, 200);
+    assert.equal(lastFromClause().includes("WHERE"), false);
+
+    // Plan badges render per account kind and the filter preserves q.
+    const html = await combined.text();
+    assert.match(html, />Pro</);
+    assert.match(html, />VIP</);
+    assert.match(html, />Free</);
+    assert.match(html, /\?q=brentvardy&plan=paying/);
+    assert.match(html, /<strong>VIP<\/strong>/);
+
+    // API honors the same filter and echoes it.
+    seen.length = 0;
+    const api = await staffApp.request(req("/api/accounts?plan=free"), undefined, env, executionCtx);
+    assert.equal(api.status, 200);
+    assert.equal((await api.json()).plan, "free");
+    assert.match(lastWhere(), /NOT \(/);
   } finally {
     globalThis.fetch = originalFetch;
   }

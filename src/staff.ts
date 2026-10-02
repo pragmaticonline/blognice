@@ -122,6 +122,56 @@ function boundedPage(value: string | undefined): number {
   return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 10_000_000 ? parsed : 1;
 }
 
+type PlanFilter = "all" | "paying" | "vip" | "free";
+
+function parsePlanFilter(value: unknown): PlanFilter {
+  const normalized = String(value || "all").trim().toLowerCase();
+  return normalized === "paying" || normalized === "vip" || normalized === "free" ? normalized : "all";
+}
+
+// Search OR-chain shared by the accounts page and /api/accounts. Keep
+// ACCOUNT_SEARCH_PLACEHOLDERS in sync: every `?` here needs one bound pattern.
+const ACCOUNT_SEARCH_CHAIN = "a.email LIKE ? ESCAPE '\\' OR CAST(a.id AS TEXT) LIKE ? ESCAPE '\\' OR COALESCE(a.signup_ip,'') LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM memberships sm JOIN tenants st ON st.id = sm.tenant_id WHERE sm.account_id = a.id AND (st.title LIKE ? ESCAPE '\\' OR st.slug LIKE ? ESCAPE '\\' OR st.custom_domain LIKE ? ESCAPE '\\' OR st.public_id LIKE ? ESCAPE '\\' OR COALESCE(sm.display_name,'') LIKE ? ESCAPE '\\')) OR EXISTS (SELECT 1 FROM sessions sess WHERE sess.account_id=a.id AND COALESCE(sess.ip,'') LIKE ? ESCAPE '\\')";
+const ACCOUNT_SEARCH_PLACEHOLDERS = 9;
+
+// Mirrors accountIsVip / accountHasPaidPlan in auth.ts: VIP is a grant,
+// paying is Stripe active/trialing/past_due or crypto paid-through.
+function planFilterCondition(plan: PlanFilter): string {
+  const vip = "(COALESCE(a.vip_granted_at,0) > 0 AND (a.vip_expires_at IS NULL OR a.vip_expires_at > ?))";
+  const paid = "(COALESCE(a.billing_status,'inactive') IN ('active','trialing','past_due') OR COALESCE(a.crypto_paid_through,0) > ?)";
+  if (plan === "paying") return paid;
+  if (plan === "vip") return vip;
+  if (plan === "free") return `NOT (${vip} OR ${paid})`;
+  return "";
+}
+
+function accountListWhere(q: string, plan: PlanFilter): { sql: string; params: unknown[] } {
+  const conds: string[] = [];
+  const params: unknown[] = [];
+  if (q) {
+    const pattern = `%${q.replace(/[\\%_]/g, "\\$&")}%`;
+    conds.push(`(${ACCOUNT_SEARCH_CHAIN})`);
+    for (let i = 0; i < ACCOUNT_SEARCH_PLACEHOLDERS; i++) params.push(pattern);
+  }
+  const planCond = planFilterCondition(plan);
+  if (planCond) {
+    conds.push(`(${planCond})`);
+    const now = Math.floor(Date.now() / 1000);
+    for (let i = 0; i < (planCond.match(/\?/g) || []).length; i++) params.push(now);
+  }
+  return { sql: conds.length ? `WHERE ${conds.join(" AND ")}` : "", params };
+}
+
+function planBadge(account: { billing_status?: unknown; crypto_paid_through?: unknown; vip_granted_at?: unknown; vip_expires_at?: unknown }): string {
+  const now = Math.floor(Date.now() / 1000);
+  const vipActive = Number(account.vip_granted_at || 0) > 0 && (account.vip_expires_at == null || Number(account.vip_expires_at) > now);
+  if (vipActive) return `<span class="badge warn">VIP</span>`;
+  const stripeActive = ["active", "trialing", "past_due"].includes(String(account.billing_status || "inactive"));
+  const cryptoActive = Number(account.crypto_paid_through || 0) > now;
+  if (stripeActive || cryptoActive) return `<span class="badge">Pro</span>`;
+  return `<span class="muted">Free</span>`;
+}
+
 function sameOrigin(c: any): boolean {
   const origin = c.req.header("Origin");
   const requestUrl = new URL(c.req.url);
@@ -269,16 +319,16 @@ app.use("*", async (c, next) => {
 app.get("/api/accounts", async (c) => {
   const q = String(c.req.query("q") || "").trim().slice(0, 100);
   const page = boundedPage(c.req.query("page"));
+  const plan = parsePlanFilter(c.req.query("plan"));
   const limit = 50;
-  const pattern = `%${q.replace(/[\\%_]/g, "\\$&")}%`;
-  const where = q ? "WHERE a.email LIKE ? ESCAPE '\\' OR CAST(a.id AS TEXT) LIKE ? ESCAPE '\\' OR COALESCE(a.signup_ip,'') LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM memberships sm JOIN tenants st ON st.id = sm.tenant_id WHERE sm.account_id = a.id AND (st.title LIKE ? ESCAPE '\\' OR st.slug LIKE ? ESCAPE '\\' OR st.custom_domain LIKE ? ESCAPE '\\' OR st.public_id LIKE ? ESCAPE '\\' OR COALESCE(sm.display_name,'') LIKE ? ESCAPE '\\')) OR EXISTS (SELECT 1 FROM sessions sess WHERE sess.account_id=a.id AND COALESCE(sess.ip,'') LIKE ? ESCAPE '\\')" : "";
-  const params = q ? [pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern] : [];
+  const { sql: where, params } = accountListWhere(q, plan);
   const rows = await c.env.DB.prepare(
     `SELECT a.id, a.email, COALESCE(a.status, 'active') AS status, a.created_at,
+            a.billing_status, a.billing_price_id, a.crypto_paid_through, a.vip_granted_at, a.vip_expires_at,
             (SELECT COUNT(*) FROM memberships m WHERE m.account_id = a.id) AS blog_count
        FROM accounts a ${where} ORDER BY a.created_at DESC, a.id DESC LIMIT ? OFFSET ?`
   ).bind(...params, limit, (page - 1) * limit).all();
-  return c.json({ page, limit, accounts: rows.results });
+  return c.json({ page, limit, plan, accounts: rows.results });
 });
 
 app.get("/api/accounts/:id", async (c) => {
@@ -1335,17 +1385,21 @@ app.get("/", async (c) => {
   const staff = c.get("staff") as StaffIdentity;
   const q = String(c.req.query("q") || "").trim().slice(0, 100);
   const page = boundedPage(c.req.query("page"));
+  const plan = parsePlanFilter(c.req.query("plan"));
   const limit = 50;
-  const pattern = `%${q.replace(/[\\%_]/g, "\\$&")}%`;
-  const where = q ? "WHERE a.email LIKE ? ESCAPE '\\' OR CAST(a.id AS TEXT) LIKE ? ESCAPE '\\' OR COALESCE(a.signup_ip,'') LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM memberships sm JOIN tenants st ON st.id = sm.tenant_id WHERE sm.account_id = a.id AND (st.title LIKE ? ESCAPE '\\' OR st.slug LIKE ? ESCAPE '\\' OR st.custom_domain LIKE ? ESCAPE '\\' OR st.public_id LIKE ? ESCAPE '\\' OR COALESCE(sm.display_name,'') LIKE ? ESCAPE '\\')) OR EXISTS (SELECT 1 FROM sessions sess WHERE sess.account_id=a.id AND COALESCE(sess.ip,'') LIKE ? ESCAPE '\\')" : "";
+  const { sql: where, params } = accountListWhere(q, plan);
   const accounts = await c.env.DB.prepare(
     `SELECT a.id, a.email, COALESCE(a.status, 'active') AS status, a.created_at,
+            a.billing_status, a.billing_price_id, a.crypto_paid_through, a.vip_granted_at, a.vip_expires_at,
             (SELECT COUNT(*) FROM memberships m WHERE m.account_id = a.id) AS blog_count
        FROM accounts a ${where} ORDER BY a.created_at DESC, a.id DESC LIMIT ? OFFSET ?`
-  ).bind(...(q ? [pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern, limit, (page - 1) * limit] : [limit, (page - 1) * limit])).all<{ id: number; email: string; status: string; created_at: number; blog_count: number }>();
-  const rows = accounts.results.map((account) => `<tr><td><a href="/accounts/${account.id}">${esc(account.email)}</a><br><small>#${account.id}</small></td><td><span class="badge ${account.status === "suspended" ? "suspended" : ""}">${esc(account.status)}</span></td><td>${account.blog_count}</td><td>${new Date(account.created_at * 1000).toISOString().slice(0, 10)}</td></tr>`).join("");
-  const pageLinks = `<p class="pagination" style="display:flex;align-items:center;gap:10px;justify-content:flex-end"><span>Page ${page}</span>${page > 1 ? `<a class="btn" href="/?q=${encodeURIComponent(q)}&page=${page - 1}">← Previous</a>` : ""}${accounts.results.length === limit ? `<a class="btn" href="/?q=${encodeURIComponent(q)}&page=${page + 1}">Next →</a>` : ""}</p>`;
-  return c.html(staffPage("Accounts", `${staffHeader(staff)}<h2>Accounts</h2><p class="muted">Search by email, account ID, blog title, Blognice address, or custom domain.</p><form class="search" method="get"><input name="q" value="${esc(q)}" placeholder="Search accounts, blogs, or domains"><button class="btn" type="submit">Search</button></form><div class="card"><table><thead><tr><th>Account</th><th>Status</th><th>Blogs</th><th>Created</th></tr></thead><tbody>${rows || `<tr><td colspan="4" class="empty">No accounts found.</td></tr>`}</tbody></table></div>${pageLinks}`));
+  ).bind(...params, limit, (page - 1) * limit).all<{ id: number; email: string; status: string; created_at: number; blog_count: number; billing_status: string | null; billing_price_id: string | null; crypto_paid_through: number | null; vip_granted_at: number | null; vip_expires_at: number | null }>();
+  const rows = accounts.results.map((account) => `<tr><td><a href="/accounts/${account.id}">${esc(account.email)}</a><br><small>#${account.id}</small></td><td><span class="badge ${account.status === "suspended" ? "suspended" : ""}">${esc(account.status)}</span></td><td>${planBadge(account)}</td><td>${account.blog_count}</td><td>${new Date(account.created_at * 1000).toISOString().slice(0, 10)}</td></tr>`).join("");
+  const planQuery = (value: PlanFilter) => `/?q=${encodeURIComponent(q)}&plan=${value}`;
+  const planLink = (value: PlanFilter, label: string) => plan === value ? `<strong>${label}</strong>` : `<a href="${planQuery(value)}">${label}</a>`;
+  const planFilter = `<p class="muted">Show: ${planLink("all", "All")} · ${planLink("paying", "Paying")} · ${planLink("vip", "VIP")} · ${planLink("free", "Free")}</p>`;
+  const pageLinks = `<p class="pagination" style="display:flex;align-items:center;gap:10px;justify-content:flex-end"><span>Page ${page}</span>${page > 1 ? `<a class="btn" href="/?q=${encodeURIComponent(q)}&plan=${plan}&page=${page - 1}">← Previous</a>` : ""}${accounts.results.length === limit ? `<a class="btn" href="/?q=${encodeURIComponent(q)}&plan=${plan}&page=${page + 1}">Next →</a>` : ""}</p>`;
+  return c.html(staffPage("Accounts", `${staffHeader(staff)}<h2>Accounts</h2><p class="muted">Search by email, account ID, blog title, Blognice address, or custom domain.</p><form class="search" method="get"><input name="q" value="${esc(q)}" placeholder="Search accounts, blogs, or domains">${plan !== "all" ? `<input type="hidden" name="plan" value="${esc(plan)}">` : ""}<button class="btn" type="submit">Search</button></form>${planFilter}<div class="card"><table><thead><tr><th>Account</th><th>Status</th><th>Plan</th><th>Blogs</th><th>Created</th></tr></thead><tbody>${rows || `<tr><td colspan="5" class="empty">No accounts found.</td></tr>`}</tbody></table></div>${pageLinks}`));
 });
 
 app.get("/accounts/:id", async (c) => {
