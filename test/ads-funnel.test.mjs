@@ -451,8 +451,8 @@ test("x landing page renders headline, tag, FAQ, and no custom scripts", async (
     assert.equal(res.status, 200);
     const html = await res.text();
     assert.equal(html.match(/<h1>/g).length, 1);
-    assert.match(html, /<h1>Turn your threads into a blog you own<\/h1>/);
-    assert.match(html, /<title>Turn Threads Into a Blog You Own \| Blognice<\/title>/);
+    assert.match(html, /<h1>Turn your thoughts into a blog you own<\/h1>/);
+    assert.match(html, /<title>Turn Thoughts Into a Blog You Own \| Blognice<\/title>/);
     assert.match(html, /rel="canonical" href="https:\/\/www\.blognice\.com\/x"/);
     assert.match(html, /Start your free blog/);
     assert.match(html, /href="\/signup"/);
