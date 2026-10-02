@@ -11,9 +11,12 @@ import {
   adsBaseTag,
   adsConversionScript,
   injectAdsClickParams,
+  injectXClickParams,
   parseAdsClickFields,
   parseAdsClickParams,
   parseAdsLanding,
+  parseXClickId,
+  sendXServerConversion,
   xAdsBaseTag,
   xAdsConversionScript,
 } from "../src/ads-funnel.ts";
@@ -40,6 +43,10 @@ test("ads click parameters validate and allowlisted landings only", () => {
   assert.equal(parseAdsLanding(42), null);
   assert.deepEqual(parseAdsClickFields({ gclid: "g1", gbraid: "", wbraid: null }), { gclid: "g1", gbraid: undefined, wbraid: undefined });
   assert.equal(parseAdsClickFields({}), null);
+  assert.equal(parseXClickId(new URL("https://x.test/?twclid=abc_123-XYZ")), "abc_123-XYZ");
+  assert.equal(parseXClickId(new URL("https://x.test/")), null);
+  assert.equal(parseXClickId(new URL("https://x.test/?twclid=bad!chars")), null);
+  assert.equal(parseAdsLanding("/x"), "/x");
 });
 
 test("signup-link injection forwards click params and nothing else", () => {
@@ -49,6 +56,10 @@ test("signup-link injection forwards click params and nothing else", () => {
   assert.ok(out.includes('/signup?gclid=g1&wbraid=w2&ads_landing=%2Fblogger-alternative'));
   assert.equal(out.split("/press").length, 2);
   assert.equal(injectAdsClickParams(html, null, null), html);
+  const xOut = injectXClickParams(html, "abc_123", "/x");
+  assert.ok(xOut.includes('/signup?twclid=abc_123&ads_landing=%2Fx'));
+  assert.equal(xOut.split("/press").length, 2);
+  assert.equal(injectXClickParams(html, null, null), html);
 });
 
 test("ads snippets carry the tag id, real value, and sanitized fields", () => {
@@ -81,6 +92,44 @@ test("x snippets carry the pixel id, event id, value, and sanitized fields", () 
   assert.match(dirty, /value: 0\.00/);
   assert.match(dirty, /currency: 'USD'/);
   assert.match(dirty, /conversion_id: 'abc'/);
+});
+
+test("x server conversion posts the documented payload, skips without token", async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url: String(url), init });
+    return new Response("{}", { status: 200 });
+  };
+  const out = await sendXServerConversion(fetchImpl, {
+    token: "tok_123",
+    conversion: {
+      conversionTime: "2024-06-01T12:34:56.000Z", eventId: "tw-rgaz3-rgb4j",
+      eventSourceUrl: "https://www.blognice.test/admin/billing/success",
+      conversionId: "cs_test_1", twclid: "abc_123", ipAddress: "192.0.2.1", userAgent: "UA/1.0",
+    },
+  });
+  assert.deepEqual(out, { ok: true, status: 200 });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "https://ads-api.x.com/12/measurement/conversions/rgaz3");
+  assert.equal(calls[0].init.method, "POST");
+  assert.equal(calls[0].init.headers["X-Pixel-Token"], "tok_123");
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    conversions: [{
+      conversion_time: "2024-06-01T12:34:56.000Z", event_id: "tw-rgaz3-rgb4j",
+      event_source_url: "https://www.blognice.test/admin/billing/success",
+      conversion_id: "cs_test_1",
+      identifiers: [{ twclid: "abc_123", ip_address: "192.0.2.1", user_agent: "UA/1.0" }],
+    }],
+  });
+  assert.deepEqual(await sendXServerConversion(fetchImpl, {
+    token: undefined,
+    conversion: { conversionTime: "t", eventId: "e" },
+  }), { ok: false, status: 0 });
+  assert.equal(calls.length, 1);
+  const failing = await sendXServerConversion(async () => { throw new Error("down"); }, {
+    token: "tok_123", conversion: { conversionTime: "t", eventId: "e" },
+  });
+  assert.deepEqual(failing, { ok: false, status: 0 });
 });
 
 test("ads funnel events write aggregate-safe datapoints", () => {
@@ -302,6 +351,32 @@ test("signup carries click params into hidden fields and stores attribution", as
   }
 });
 
+test("signup carries twclid into hidden fields and stores attribution", async () => {
+  const { blogniceApp, mf, indexDb, env, ctx } = await setupFunnel();
+  try {
+    const form = await (await blogniceApp.request(
+      "https://www.blognice.test/signup?twclid=abc_123&ads_landing=/x", undefined, env, ctx,
+    )).text();
+    assert.match(form, /<input type="hidden" name="twclid" value="abc_123">/);
+    assert.match(form, /<input type="hidden" name="ads_landing" value="\/x">/);
+
+    const signup = new FormData();
+    signup.set("email", "x-reader@example.com");
+    signup.set("password", "correct horse battery staple");
+    signup.set("twclid", "abc_123");
+    signup.set("ads_landing", "/x");
+    const res = await blogniceApp.request(new Request("https://www.blognice.test/signup", {
+      method: "POST", body: signup, headers: { "CF-Connecting-IP": "203.0.113.92" },
+    }), undefined, env, ctx);
+    assert.equal(res.status, 302);
+    const account = await indexDb.prepare("SELECT id FROM accounts WHERE email = 'x-reader@example.com'").first();
+    const stored = await indexDb.prepare("SELECT twclid, landing_path FROM ads_attributions WHERE account_id = ?").bind(account.id).first();
+    assert.deepEqual(stored, { twclid: "abc_123", landing_path: "/x" });
+  } finally {
+    await mf.dispose();
+  }
+});
+
 test("plan checkout points at the verified success page and records checkout start", async () => {
   const { blogniceApp, mf, indexDb, env, ctx, events } = await setupFunnel();
   const originalFetch = globalThis.fetch;
@@ -486,6 +561,8 @@ test("x landing page renders headline, tag, FAQ, and no custom scripts", async (
 
     const attributed = await blogniceApp.request("https://www.blognice.test/x?twclid=abc_123", undefined, env, ctx);
     assert.equal(attributed.status, 200);
+    const attributedHtml = await attributed.text();
+    assert.ok(attributedHtml.includes('href="/signup?twclid=abc_123&ads_landing=%2Fx"'));
     assert.ok(events.some((p) => p.blobs[0] === "ads:landing_view" && p.blobs[1] === "/x" && p.blobs[2] === "attributed"));
     const junk = await blogniceApp.request("https://www.blognice.test/x?twclid=bad!chars", undefined, env, ctx);
     assert.equal(junk.status, 200);
@@ -509,6 +586,76 @@ test("x pixel lives on the funnel page and success page, never elsewhere", async
     assert.equal(blog.status, 200);
     assert.doesNotMatch(await blog.text(), /twq\(/);
   } finally {
+    await mf.dispose();
+  }
+});
+
+test("billing success sends the server conversion with twclid and shared id", async () => {
+  const { blogniceApp, mf, indexDb, env, ctx } = await setupFunnel();
+  const originalFetch = globalThis.fetch;
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    await indexDb.prepare("INSERT INTO ads_attributions (account_id, twclid, landing_path, created_at) VALUES (1, 'abc_123', '/x', ?)").bind(now).run();
+    const capiCalls = [];
+    globalThis.fetch = async (url, init = {}) => {
+      if (String(url).includes("ads-api.x.com")) {
+        capiCalls.push({ url: String(url), init });
+        return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+      }
+      return new Response(JSON.stringify({
+        id: "cs_test_capi1", status: "complete", payment_status: "paid",
+        amount_total: 3600, currency: "usd", client_reference_id: "1",
+        subscription: { id: "sub_c", status: "active" },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    };
+    const background = [];
+    const res = await blogniceApp.request(new Request("https://www.blognice.test/admin/billing/success?session_id=cs_test_capi1", {
+      headers: { cookie: "bn_session=ads-session", "CF-Connecting-IP": "192.0.2.1", "User-Agent": "UA/9.9" },
+    }), undefined, { ...env, X_PIXEL_TOKEN: "tok_test" }, { ...ctx, waitUntil(p) { background.push(Promise.resolve(p).catch(() => {})); } });
+    assert.equal(res.status, 200);
+    const html = await res.text();
+    assert.match(html, /conversion_id: 'cs_test_capi1'/);
+    await Promise.all(background);
+    assert.equal(capiCalls.length, 1);
+    assert.equal(capiCalls[0].url, "https://ads-api.x.com/12/measurement/conversions/rgaz3");
+    assert.equal(capiCalls[0].init.headers["X-Pixel-Token"], "tok_test");
+    const body = JSON.parse(capiCalls[0].init.body);
+    assert.equal(body.conversions.length, 1);
+    assert.equal(body.conversions[0].event_id, "tw-rgaz3-rgb4j");
+    assert.equal(body.conversions[0].conversion_id, "cs_test_capi1");
+    assert.deepEqual(body.conversions[0].identifiers, [{ twclid: "abc_123", ip_address: "192.0.2.1", user_agent: "UA/9.9" }]);
+    assert.doesNotMatch(capiCalls[0].init.body, /hashed_email|hashed_phone/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await mf.dispose();
+  }
+});
+
+test("billing success skips the server conversion without a token", async () => {
+  const { blogniceApp, mf, indexDb, env, ctx } = await setupFunnel();
+  const originalFetch = globalThis.fetch;
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    await indexDb.prepare("INSERT INTO ads_attributions (account_id, twclid, landing_path, created_at) VALUES (1, 'abc_123', '/x', ?)").bind(now).run();
+    const capiCalls = [];
+    globalThis.fetch = async (url, init = {}) => {
+      if (String(url).includes("ads-api.x.com")) capiCalls.push({ url: String(url), init });
+      return new Response(JSON.stringify({
+        id: "cs_test_notok1", status: "complete", payment_status: "paid",
+        amount_total: 3600, currency: "usd", client_reference_id: "1",
+        subscription: { id: "sub_n", status: "active" },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    };
+    const background = [];
+    const res = await blogniceApp.request("https://www.blognice.test/admin/billing/success?session_id=cs_test_notok1", {
+      headers: { cookie: "bn_session=ads-session" },
+    }, env, { ...ctx, waitUntil(p) { background.push(Promise.resolve(p).catch(() => {})); } });
+    assert.equal(res.status, 200);
+    assert.match(await res.text(), /tw-rgaz3-rgb4j/);
+    await Promise.all(background);
+    assert.equal(capiCalls.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
     await mf.dispose();
   }
 });

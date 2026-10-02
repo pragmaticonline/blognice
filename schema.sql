@@ -168,6 +168,7 @@ CREATE TABLE IF NOT EXISTS ads_attributions (
   gclid       TEXT,
   gbraid      TEXT,
   wbraid      TEXT,
+  twclid      TEXT,
   landing_path TEXT NOT NULL DEFAULT '',
   created_at  INTEGER NOT NULL
 );
@@ -179,6 +180,14 @@ CREATE TABLE IF NOT EXISTS ads_conversions (
   reported_at    INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ads_conversions_reported ON ads_conversions (reported_at);
+CREATE TABLE IF NOT EXISTS x_ads_conversions (
+  account_id     INTEGER PRIMARY KEY,
+  transaction_id TEXT    NOT NULL,
+  value_minor    INTEGER NOT NULL DEFAULT 0,
+  currency       TEXT    NOT NULL DEFAULT 'USD',
+  reported_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_x_ads_conversions_reported ON x_ads_conversions (reported_at);
 
 CREATE TABLE affiliate_attributions (
   id                  INTEGER PRIMARY KEY,

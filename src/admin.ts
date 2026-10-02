@@ -700,12 +700,12 @@ export function signupPage(
   error?: string,
   inviteToken?: string,
   inviteInfo?: { title: string; role: string; email: string },
-  adsAttribution?: { gclid?: string; gbraid?: string; wbraid?: string; ads_landing?: string }
+  adsAttribution?: { gclid?: string; gbraid?: string; wbraid?: string; twclid?: string; ads_landing?: string }
 ): string {
   void rootDomain;
   const email = esc(values?.email ?? inviteInfo?.email ?? "");
   const adsFields = adsAttribution
-    ? (["gclid", "gbraid", "wbraid", "ads_landing"] as const)
+    ? (["gclid", "gbraid", "wbraid", "twclid", "ads_landing"] as const)
         .map((key) => (adsAttribution[key] ? `<input type="hidden" name="${key}" value="${esc(adsAttribution[key]!)}">` : ""))
         .join("")
     : "";

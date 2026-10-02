@@ -13,7 +13,7 @@ export type AdsClickParams = { gclid?: string; gbraid?: string; wbraid?: string 
 
 const CLICK_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 
-function cleanClickId(value: unknown): string | undefined {
+export function cleanClickId(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return CLICK_ID_PATTERN.test(trimmed) ? trimmed : undefined;
@@ -31,11 +31,70 @@ export function parseAdsClickParams(url: URL): AdsClickParams | null {
   return params;
 }
 
-// X click id presence for landing-view reporting. Unlike Google, X needs
-// no server-side passthrough: the base pixel's first-party cookie carries
-// attribution, so this only labels the funnel event attributed/organic.
+// X click id, validated like the Google click ids. Captured on the /x
+// landing page, forwarded into signup links, stored on the attribution row,
+// and sent back as the Conversion API identifier for server-side purchase
+// events. Absent for organic visits.
+export function parseXClickId(url: URL): string | null {
+  return cleanClickId(url.searchParams.get("twclid")) ?? null;
+}
+
 export function hasXClickId(url: URL): boolean {
-  return cleanClickId(url.searchParams.get("twclid")) !== undefined;
+  return parseXClickId(url) !== null;
+}
+
+// Rewrite bare /signup links so the X click id survives the landing →
+// signup hop without JavaScript. Only exact href="/signup" links are touched.
+export function injectXClickParams(html: string, twclid: string | null, landing: string | null): string {
+  if (!twclid) return html;
+  const query = new URLSearchParams();
+  query.set("twclid", twclid);
+  if (landing) query.set("ads_landing", landing);
+  return html.replaceAll('href="/signup"', `href="/signup?${query.toString()}"`);
+}
+
+export interface XServerConversion {
+  conversionTime: string;
+  eventId: string;
+  eventSourceUrl?: string;
+  conversionId?: string;
+  twclid?: string | null;
+  ipAddress?: string;
+  userAgent?: string;
+}
+
+// Server-side purchase event for the X Conversion API. The conversion_id
+// must equal the transaction id the web pixel sends so X counts the pair
+// once. Resolves false (never throws) when the token is missing or the
+// call fails — server attribution is best-effort next to the pixel.
+export async function sendXServerConversion(
+  fetchImpl: typeof fetch,
+  input: { token: string | undefined; conversion: XServerConversion },
+): Promise<{ ok: boolean; status: number }> {
+  const token = (input.token ?? "").trim();
+  if (!token) return { ok: false, status: 0 };
+  const c = input.conversion;
+  const identifiers: Record<string, string> = {};
+  if (c.twclid) identifiers.twclid = c.twclid;
+  if (c.ipAddress) identifiers.ip_address = c.ipAddress;
+  if (c.userAgent) identifiers.user_agent = c.userAgent;
+  const body: Record<string, unknown> = {
+    conversion_time: c.conversionTime,
+    event_id: c.eventId,
+    identifiers: [identifiers],
+  };
+  if (c.eventSourceUrl) body.event_source_url = c.eventSourceUrl;
+  if (c.conversionId) body.conversion_id = c.conversionId;
+  try {
+    const res = await fetchImpl(`https://ads-api.x.com/12/measurement/conversions/${X_PIXEL_ID}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Pixel-Token": token },
+      body: JSON.stringify({ conversions: [body] }),
+    });
+    return { ok: res.ok, status: res.status };
+  } catch {
+    return { ok: false, status: 0 };
+  }
 }
 
 export function parseAdsClickFields(fields: { gclid?: unknown; gbraid?: unknown; wbraid?: unknown }): AdsClickParams | null {
@@ -59,7 +118,7 @@ export function adsClickQuery(params: AdsClickParams, landing: string | null): s
 
 // Landing pages allowed to stamp attribution. Attribution links only ever
 // originate from these pages, so anything else is dropped as forged.
-export const ADS_LANDING_PATHS = ["/blogger-alternative"] as const;
+export const ADS_LANDING_PATHS = ["/blogger-alternative", "/x"] as const;
 
 export function parseAdsLanding(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -109,7 +168,12 @@ export function xAdsConversionScript(input: { valueMinor: number; currency: stri
 
 export async function ensureAdsTables(db: D1Database): Promise<void> {
   try {
-    await db.prepare("CREATE TABLE IF NOT EXISTS ads_attributions (account_id INTEGER PRIMARY KEY, gclid TEXT, gbraid TEXT, wbraid TEXT, landing_path TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL)").run();
+    await db.prepare("CREATE TABLE IF NOT EXISTS ads_attributions (account_id INTEGER PRIMARY KEY, gclid TEXT, gbraid TEXT, wbraid TEXT, twclid TEXT, landing_path TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL)").run();
+  } catch {}
+  try {
+    // Migration 090 for databases created before the twclid column existed.
+    // Throws (duplicate column) on databases that already have it.
+    await db.prepare("ALTER TABLE ads_attributions ADD COLUMN twclid TEXT").run();
   } catch {}
   try {
     await db.prepare("CREATE TABLE IF NOT EXISTS ads_conversions (account_id INTEGER PRIMARY KEY, transaction_id TEXT NOT NULL, value_minor INTEGER NOT NULL DEFAULT 0, currency TEXT NOT NULL DEFAULT 'USD', reported_at INTEGER NOT NULL)").run();

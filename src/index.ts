@@ -187,7 +187,7 @@ import { AI_MARKDOWN_TEXT_MAX, confidentLocalMarkdownFormat, conservativeMarkdow
 import { applySubscriberConfirmation, requestSubscriberConfirmation } from "./subscriber-optin";
 import { refreshPostPopularity } from "./popularity";
 import { BLOGGER_SOURCE, BloggerImportError, parseBloggerExport } from "./blogger-import";
-import { adsBaseTag, adsConversionScript, ensureAdsTables, hasXClickId, injectAdsClickParams, parseAdsClickFields, parseAdsClickParams, parseAdsLanding, xAdsBaseTag, xAdsConversionScript } from "./ads-funnel";
+import { adsBaseTag, adsConversionScript, cleanClickId, ensureAdsTables, injectAdsClickParams, injectXClickParams, parseAdsClickFields, parseAdsClickParams, parseAdsLanding, parseXClickId, sendXServerConversion, xAdsBaseTag, xAdsConversionScript, X_CONVERSION_EVENT_ID } from "./ads-funnel";
 
 import { handleMcpRequest, aiPluginManifest } from "./mcp";
 import { OPENAPI_YAML } from "./openapi-data";
@@ -225,6 +225,7 @@ type Bindings = {
   METRICS_ARCHIVE: R2Bucket; // aggregate daily metrics retained beyond 90 days
   ROOT_DOMAIN: string; // e.g. "blognice.com"
   API_TOKEN?: string; // secret; authorizes the /api routes
+  X_PIXEL_TOKEN?: string; // secret; X Conversion API token (wrangler secret put X_PIXEL_TOKEN)
   DEV_TENANT?: string; // dev only: force a tenant regardless of Host
 
   // Cloudflare for SaaS (custom domains). See src/cloudflare.ts.
@@ -6294,7 +6295,10 @@ app.get("/signup", async (c) => {
   }
   const adsParams = parseAdsClickParams(new URL(c.req.url));
   const adsLanding = parseAdsLanding(c.req.query("ads_landing"));
-  const adsAttribution = adsParams ? { ...adsParams, ...(adsLanding ? { ads_landing: adsLanding } : {}) } : undefined;
+  const twclid = parseXClickId(new URL(c.req.url));
+  const adsAttribution = adsParams || twclid
+    ? { ...(adsParams ?? {}), ...(twclid ? { twclid } : {}), ...(adsLanding ? { ads_landing: adsLanding } : {}) }
+    : undefined;
   return c.html(signupPage(c.env.ROOT_DOMAIN, undefined, undefined, inviteToken, inviteInfo, adsAttribution));
 });
 
@@ -6323,7 +6327,10 @@ app.post("/signup", async (c) => {
   const inviteToken = String(form.get("invite") ?? "").trim();
   const adsParams = parseAdsClickFields({ gclid: form.get("gclid"), gbraid: form.get("gbraid"), wbraid: form.get("wbraid") });
   const adsLanding = parseAdsLanding(form.get("ads_landing"));
-  const adsAttribution = adsParams ? { ...adsParams, ...(adsLanding ? { ads_landing: adsLanding } : {}) } : undefined;
+  const twclid = cleanClickId(form.get("twclid")) ?? null;
+  const adsAttribution = adsParams || twclid
+    ? { ...(adsParams ?? {}), ...(twclid ? { twclid } : {}), ...(adsLanding ? { ads_landing: adsLanding } : {}) }
+    : undefined;
   const values = { email };
   // Rate limit: 5/hour per IP, 3/hour per email
   const rl = await checkSignupRateLimit(c, ip, email);
@@ -6379,12 +6386,12 @@ app.post("/signup", async (c) => {
 
   // Paid-ads attribution survives signup in the account record, so later
   // redirects (verification, login) cannot drop it.
-  if (adsParams) {
+  if (adsParams || twclid) {
     try {
       await ensureAdsTables(c.env.DB);
       await c.env.DB.prepare(
-        "INSERT OR IGNORE INTO ads_attributions (account_id, gclid, gbraid, wbraid, landing_path, created_at) VALUES (?, ?, ?, ?, ?, ?)"
-      ).bind(accountId, adsParams.gclid ?? null, adsParams.gbraid ?? null, adsParams.wbraid ?? null, adsLanding || "", now).run();
+        "INSERT OR IGNORE INTO ads_attributions (account_id, gclid, gbraid, wbraid, twclid, landing_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      ).bind(accountId, adsParams?.gclid ?? null, adsParams?.gbraid ?? null, adsParams?.wbraid ?? null, twclid, adsLanding || "", now).run();
       recordAdsFunnelEvent(c.env, { name: "signup", landing: adsLanding || "", detail: "attributed" });
     } catch {}
   }
@@ -7205,12 +7212,12 @@ app.get("/blogger-alternative", (c) => {
 });
 
 // X Ads funnel page: same static-page pattern, X base pixel baked in. The
-// page works without JavaScript; the pixel's own cookie attributes clicks,
-// so no click-id forwarding into signup links is needed.
+// page works without JavaScript; the twclid is forwarded into signup links
+// so the stored click id can identify the server-side purchase event.
 app.get("/x", (c) => {
-  const attributed = hasXClickId(new URL(c.req.url));
-  try { recordAdsFunnelEvent(c.env, { name: "landing_view", landing: "/x", detail: attributed ? "attributed" : "organic" }); } catch {}
-  return new Response(xLandingPage, {
+  const twclid = parseXClickId(new URL(c.req.url));
+  try { recordAdsFunnelEvent(c.env, { name: "landing_view", landing: "/x", detail: twclid ? "attributed" : "organic" }); } catch {}
+  return new Response(injectXClickParams(xLandingPage, twclid, "/x"), {
     headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60, s-maxage=300" },
   });
 });
@@ -7892,7 +7899,7 @@ app.get("/admin/billing/success", async (c) => {
     const valueMinor = Number.isSafeInteger(session.amount_total) ? Math.max(0, session.amount_total as number) : 0;
     const currency = typeof session.currency === "string" && /^[A-Za-z]{3}$/.test(session.currency) ? session.currency.toUpperCase() : "USD";
     const now = Math.floor(Date.now() / 1000);
-    const attributed = await c.env.DB.prepare("SELECT landing_path FROM ads_attributions WHERE account_id = ?").bind(account.id).first<{ landing_path: string }>();
+    const attributed = await c.env.DB.prepare("SELECT landing_path, twclid FROM ads_attributions WHERE account_id = ?").bind(account.id).first<{ landing_path: string; twclid: string | null }>();
     if (attributed) {
       const claimed = await c.env.DB.prepare(
         "INSERT OR IGNORE INTO ads_conversions (account_id, transaction_id, value_minor, currency, reported_at) VALUES (?, ?, ?, ?, ?)"
@@ -7906,7 +7913,25 @@ app.get("/admin/billing/success", async (c) => {
       const xClaimed = await c.env.DB.prepare(
         "INSERT OR IGNORE INTO x_ads_conversions (account_id, transaction_id, value_minor, currency, reported_at) VALUES (?, ?, ?, ?, ?)"
       ).bind(account.id, session.id, valueMinor, currency, now).run();
-      if (xClaimed.meta.changes === 1) xConversion = { valueMinor, currency, transactionId: session.id };
+      if (xClaimed.meta.changes === 1) {
+        xConversion = { valueMinor, currency, transactionId: session.id };
+        // Server-side twin of the pixel event, deduped by the shared
+        // transaction id. Twclid when captured, otherwise IP + user agent;
+        // never email or phone. Best-effort: the pixel already reported.
+        const token = c.env.X_PIXEL_TOKEN;
+        if (token) {
+          const payload = {
+            conversionId: session.id,
+            conversionTime: new Date().toISOString(),
+            eventId: X_CONVERSION_EVENT_ID,
+            eventSourceUrl: c.req.url.split("?")[0],
+            ipAddress: c.req.header("CF-Connecting-IP") || undefined,
+            twclid: attributed?.twclid ?? null,
+            userAgent: c.req.header("User-Agent") || undefined,
+          };
+          c.executionCtx.waitUntil(sendXServerConversion(fetch, { token, conversion: payload }).catch(() => ({ ok: false, status: 0 })));
+        }
+      }
     }
   } catch {}
   const trialDays = status === "trialing" && subscription?.trial_end

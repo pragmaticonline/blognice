@@ -21,3 +21,8 @@ DYNADOT_SANDBOX = "false"
 # GOOGLE_CLIENT_SECRET secret (wrangler secret put ...).
 GOOGLE_CLIENT_ID = "your-google-client-id.apps.googleusercontent.com"
 GOOGLE_CLIENT_SECRET = "your-google-client-secret"
+
+# X Conversion API (server-side purchase events). Generate in X Ads Manager
+# (Events Manager → Conversions API → Generate access token) and set with
+# `wrangler secret put X_PIXEL_TOKEN`. Without it the web pixel still fires.
+X_PIXEL_TOKEN = "your-x-pixel-token"
