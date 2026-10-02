@@ -93,6 +93,9 @@ test("post pages server-render comment threads with tombstones and depth caps", 
     assert.match(html, /Comments \(32\)/);
     // Nesting renders parent before child.
     assert.ok(html.indexOf("TopLevelBody.") < html.indexOf("ReplyLevelTwo."), "replies nest under parents");
+    // Threads render newest first; replies stay chronological inside a thread.
+    assert.ok(html.indexOf("Flat 24.") < html.indexOf("Flat 0."), "newest thread first");
+    assert.ok(html.indexOf("Flat 0.") < html.indexOf("TopLevelBody."), "oldest chain root last");
     // Markup in author names is escaped, never executed.
     assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/);
     assert.match(html, /&lt;script&gt;/);
@@ -130,7 +133,7 @@ test("post pages server-render comment threads with tombstones and depth caps", 
     assert.match(html, /1 min ago/);
     // Flattened, not nested: the 1->2->3 chain renders a single
     // comment-children container holding every descendant as a sibling.
-    const chain = html.slice(html.indexOf('data-comment="1"'), html.indexOf('data-comment="10"'));
+    const chain = html.slice(html.indexOf('data-comment="1"'), html.indexOf("data-comment-dialog"));
     assert.equal(chain.match(/<div class="comment-children">/g).length, 1);
     // The container opens before the root closes: sorting a thread moves its
     // replies with it instead of stranding them above their parent.
@@ -159,11 +162,13 @@ test("post pages server-render comment threads with tombstones and depth caps", 
     assert.match(html, /comment-avatar[^>]*>B</); // reply author's initial
     assert.match(html, /comment-avatar[^>]*>&lt;</); // markup author's initial is escaped
     assert.match(html, /comment-actions/);
-    // jquery-comments-style sort tabs above the thread; oldest matches the
-    // server order, newest re-orders client-side without a reload.
+    // jquery-comments-style sort tabs above the thread; newest is the
+    // default and matches the server order, oldest re-orders client-side.
     assert.match(html, /data-sort-tabs/);
     assert.match(html, /data-sort-tab="newest"/);
     assert.match(html, /data-sort-tab="oldest"/);
+    assert.match(html, /data-sort-tab="newest" class="active"/, "newest tab is active by default");
+    assert.doesNotMatch(html, /data-sort-tab="oldest" class="active"/);
 
     // Comments disabled: no section at all.
     state.tenant.comments_enabled = 0;
@@ -266,15 +271,18 @@ test("comment cursor endpoint pages top-level threads and catches up", async () 
     const json1 = await page1.json();
     assert.equal(json1.comments.length, 20);
     assert.ok(json1.next_cursor, "more pages remain");
-    // First top-level node carries its subtree.
-    const chain = json1.comments.find((c) => c.id === 1);
-    assert.ok(chain, "chain root on first page");
-    assert.equal(chain.replies[0].replies[0].id, 3);
+    // Pages serve newest threads first.
+    assert.equal(json1.comments[0].id, 124, "page one starts with the newest thread");
+    assert.ok(json1.comments.every((c, i, arr) => i === 0 || arr[i - 1].id > c.id), "page one roots descend");
 
     const page2 = await blogniceApp.request(req(`/live-post/comments?cursor=${json1.next_cursor}`), undefined, env, executionCtx);
     const json2 = await page2.json();
     assert.ok(json2.comments.length > 0 && json2.comments.length <= 20);
     assert.equal(json2.next_cursor, null);
+    // The oldest chain root lands on the last page carrying its subtree.
+    const chain = json2.comments.find((c) => c.id === 1);
+    assert.ok(chain, "chain root on last page");
+    assert.equal(chain.replies[0].replies[0].id, 3);
 
     // Catch-up: everything approved after a known id, flat with parent links.
     const since = await blogniceApp.request(req("/live-post/comments?since_id=11"), undefined, env, executionCtx);

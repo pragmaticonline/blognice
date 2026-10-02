@@ -1579,8 +1579,9 @@ export function buildCommentTree(rows: CommentRow[]): { roots: CommentNode[]; co
     if (parent) parent.children.push(node);
     else roots.push(node);
   }
+  // Threads newest first; replies stay chronological inside a thread.
   const byId = (a: CommentNode, b: CommentNode) => a.id - b.id;
-  roots.sort(byId);
+  roots.sort((a, b) => b.id - a.id);
   for (const node of nodes.values()) node.children.sort(byId);
   let count = 0;
   for (const node of nodes.values()) if (!node.tombstone) count++;
@@ -1831,7 +1832,7 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
   if(dialogClose)dialogClose.addEventListener("click",function(){resetForm();});
   if(dialog)dialog.addEventListener("click",function(e){if(e.target===dialog)resetForm();});
   if(dialog)dialog.addEventListener("close",function(){resetForm();});
-  var sortMode="oldest";
+  var sortMode="newest";
   try{var savedSort=localStorage.getItem("bn_comment_sort");if(savedSort==="newest"||savedSort==="oldest")sortMode=savedSort;}catch(e){}
   function threadTime(el){var t=el.querySelector(":scope > summary time");var dt=t?t.getAttribute("datetime"):"";var n=Date.parse(dt||"");return isNaN(n)?0:n;}
   function applySort(){
@@ -2144,7 +2145,7 @@ export function renderCommentSection(post: { id: number; slug: string }, rows: C
     + `<button type="submit">Send</button>`
     + `<p class="form-note" data-form-note hidden></p>`
     + `</form></div>`
-    + `<div class="sort-tabs" data-sort-tabs><button type="button" data-sort-tab="newest">Newest</button><button type="button" data-sort-tab="oldest" class="active">Oldest</button><button type="button" data-settings-cog aria-label="Comment settings" title="Comment settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.4-2.4c.4-.4.4-1 0-1.4Z"/></svg></button></div>`
+    + `<div class="sort-tabs" data-sort-tabs><button type="button" data-sort-tab="newest" class="active">Newest</button><button type="button" data-sort-tab="oldest">Oldest</button><button type="button" data-settings-cog aria-label="Comment settings" title="Comment settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.4-2.4c.4-.4.4-1 0-1.4Z"/></svg></button></div>`
     + `<div class="comment-list">${list}</div>`
     + `<dialog class="comment-dialog" data-comment-dialog aria-label="Leave a comment">`
     + `<button type="button" class="dialog-close" data-dialog-close aria-label="Close">×</button>`
