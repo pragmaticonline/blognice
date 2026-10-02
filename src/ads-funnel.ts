@@ -7,7 +7,7 @@ export const ADS_TAG_ID = "AW-16852730460";
 export const ADS_CONVERSION_SEND_TO = "AW-16852730460/HbVaCKq-iYkdENyEgeQ-";
 
 export const X_PIXEL_ID = "rgaz3";
-export const X_CONVERSION_EVENT_ID = "tw-rgaz3-rgb4j";
+export const X_CONVERSION_EVENT_ID = "tw-rgaz3-rgbbq";
 
 export type AdsClickParams = { gclid?: string; gbraid?: string; wbraid?: string };
 

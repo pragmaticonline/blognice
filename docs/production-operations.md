@@ -135,7 +135,7 @@ once per attributed account (trials report 0 until the first charge). Google
 click IDs captured at signup are stored in `ads_attributions`; reported
 conversions in `ads_conversions` (migration `083-ads-funnel.sql`, INDEX
 database). The X funnel mirrors it: base pixel (`rgaz3`) baked into the `/x`
-landing page only, purchase event `tw-rgaz3-rgb4j` on billing success with
+landing page only, purchase event `tw-rgaz3-rgbbq` on billing success with
 value/currency/transaction ID for every paid first purchase ($0 trials
 skipped), claimed once per account in `x_ads_conversions`. The `twclid` click
 id flows landing → signup → `ads_attributions.twclid` (migration

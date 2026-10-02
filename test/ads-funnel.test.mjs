@@ -81,12 +81,12 @@ test("ads snippets carry the tag id, real value, and sanitized fields", () => {
 
 test("x snippets carry the pixel id, event id, value, and sanitized fields", () => {
   assert.equal(X_PIXEL_ID, "rgaz3");
-  assert.equal(X_CONVERSION_EVENT_ID, "tw-rgaz3-rgb4j");
+  assert.equal(X_CONVERSION_EVENT_ID, "tw-rgaz3-rgbbq");
   assert.match(xAdsBaseTag(), /static\.ads-twitter\.com\/uwt\.js/);
   assert.match(xAdsBaseTag(), /twq\('config','rgaz3'\)/);
-  assert.doesNotMatch(xAdsBaseTag(), /tw-rgaz3-rgb4j/);
+  assert.doesNotMatch(xAdsBaseTag(), /tw-rgaz3-rgbbq/);
   const event = xAdsConversionScript({ valueMinor: 3600, currency: "USD", transactionId: "cs_test_123" });
-  assert.match(event, /twq\('event', 'tw-rgaz3-rgb4j', \{value: 36\.00, currency: 'USD', conversion_id: 'cs_test_123'\}\)/);
+  assert.match(event, /twq\('event', 'tw-rgaz3-rgbbq', \{value: 36\.00, currency: 'USD', conversion_id: 'cs_test_123'\}\)/);
   assert.doesNotMatch(event, /email|phone/i);
   const dirty = xAdsConversionScript({ valueMinor: -5, currency: "xx", transactionId: "a'b\"<c>" });
   assert.match(dirty, /value: 0\.00/);
@@ -103,7 +103,7 @@ test("x server conversion posts the documented payload, skips without token", as
   const out = await sendXServerConversion(fetchImpl, {
     token: "tok_123",
     conversion: {
-      conversionTime: "2024-06-01T12:34:56.000Z", eventId: "tw-rgaz3-rgb4j",
+      conversionTime: "2024-06-01T12:34:56.000Z", eventId: "tw-rgaz3-rgbbq",
       eventSourceUrl: "https://www.blognice.test/admin/billing/success",
       conversionId: "cs_test_1", twclid: "abc_123", ipAddress: "192.0.2.1", userAgent: "UA/1.0",
     },
@@ -115,7 +115,7 @@ test("x server conversion posts the documented payload, skips without token", as
   assert.equal(calls[0].init.headers["X-Pixel-Token"], "tok_123");
   assert.deepEqual(JSON.parse(calls[0].init.body), {
     conversions: [{
-      conversion_time: "2024-06-01T12:34:56.000Z", event_id: "tw-rgaz3-rgb4j",
+      conversion_time: "2024-06-01T12:34:56.000Z", event_id: "tw-rgaz3-rgbbq",
       event_source_url: "https://www.blognice.test/admin/billing/success",
       conversion_id: "cs_test_1",
       identifiers: [{ twclid: "abc_123", ip_address: "192.0.2.1", user_agent: "UA/1.0" }],
@@ -432,7 +432,7 @@ test("billing success fires the conversion once with the real Stripe value", asy
     assert.match(html, /'currency': 'USD'/);
     assert.match(html, /'transaction_id': 'cs_test_paid1'/);
     assert.match(html, /twq\('config','rgaz3'\)/);
-    assert.match(html, /twq\('event', 'tw-rgaz3-rgb4j', \{value: 36\.00, currency: 'USD', conversion_id: 'cs_test_paid1'\}\)/);
+    assert.match(html, /twq\('event', 'tw-rgaz3-rgbbq', \{value: 36\.00, currency: 'USD', conversion_id: 'cs_test_paid1'\}\)/);
     const row = await indexDb.prepare("SELECT transaction_id, value_minor, currency FROM ads_conversions WHERE account_id = 1").first();
     assert.deepEqual(row, { transaction_id: "cs_test_paid1", value_minor: 3600, currency: "USD" });
     assert.ok(events.some((p) => p.blobs[0] === "ads:conversion" && p.blobs[2] === "USD"));
@@ -443,7 +443,7 @@ test("billing success fires the conversion once with the real Stripe value", asy
     assert.equal(refresh.status, 200);
     const refreshHtml = await refresh.text();
     assert.doesNotMatch(refreshHtml, /send_to/);
-    assert.doesNotMatch(refreshHtml, /tw-rgaz3-rgb4j/);
+    assert.doesNotMatch(refreshHtml, /tw-rgaz3-rgbbq/);
   } finally {
     globalThis.fetch = originalFetch;
     await mf.dispose();
@@ -508,7 +508,7 @@ test("unattributed paid buyers fire X but stay silent on Google", async () => {
     }, env, ctx);
     assert.equal(res.status, 200);
     const html = await res.text();
-    assert.match(html, /twq\('event', 'tw-rgaz3-rgb4j', \{value: 5\.00, currency: 'USD', conversion_id: 'cs_test_organic1'\}\)/);
+    assert.match(html, /twq\('event', 'tw-rgaz3-rgbbq', \{value: 5\.00, currency: 'USD', conversion_id: 'cs_test_organic1'\}\)/);
     assert.doesNotMatch(html, /send_to/);
     const xRow = await indexDb.prepare("SELECT transaction_id, value_minor, currency FROM x_ads_conversions WHERE account_id = 1").first();
     assert.deepEqual(xRow, { transaction_id: "cs_test_organic1", value_minor: 500, currency: "USD" });
@@ -546,7 +546,7 @@ test("x landing page renders headline, tag, FAQ, and no custom scripts", async (
     // Funnel-scoped X tag present; no other scripts, so the page works without JS.
     assert.match(html, /static\.ads-twitter\.com\/uwt\.js/);
     assert.match(html, /twq\('config','rgaz3'\)/);
-    assert.doesNotMatch(html, /tw-rgaz3-rgb4j/);
+    assert.doesNotMatch(html, /tw-rgaz3-rgbbq/);
     assert.doesNotMatch(html, /AW-16852730460/);
     const stripped = html
       .replace(/<script>\n!function\(e,t,n,s,u,a\)[\s\S]*?<\/script>/, "")
@@ -621,7 +621,7 @@ test("billing success sends the server conversion with twclid and shared id", as
     assert.equal(capiCalls[0].init.headers["X-Pixel-Token"], "tok_test");
     const body = JSON.parse(capiCalls[0].init.body);
     assert.equal(body.conversions.length, 1);
-    assert.equal(body.conversions[0].event_id, "tw-rgaz3-rgb4j");
+    assert.equal(body.conversions[0].event_id, "tw-rgaz3-rgbbq");
     assert.equal(body.conversions[0].conversion_id, "cs_test_capi1");
     assert.deepEqual(body.conversions[0].identifiers, [{ twclid: "abc_123", ip_address: "192.0.2.1", user_agent: "UA/9.9" }]);
     assert.doesNotMatch(capiCalls[0].init.body, /hashed_email|hashed_phone/);
@@ -651,7 +651,7 @@ test("billing success skips the server conversion without a token", async () => 
       headers: { cookie: "bn_session=ads-session" },
     }, env, { ...ctx, waitUntil(p) { background.push(Promise.resolve(p).catch(() => {})); } });
     assert.equal(res.status, 200);
-    assert.match(await res.text(), /tw-rgaz3-rgb4j/);
+    assert.match(await res.text(), /tw-rgaz3-rgbbq/);
     await Promise.all(background);
     assert.equal(capiCalls.length, 0);
   } finally {
@@ -677,7 +677,7 @@ test("trial checkouts confirm with trial days and a zero-value conversion", asyn
     const html = await res.text();
     assert.match(html, /Trial started: 14 days free, then your plan begins\. Cancel anytime before day 14\./);
     assert.match(html, /'value': 0\.00/);
-    assert.doesNotMatch(html, /tw-rgaz3-rgb4j/);
+    assert.doesNotMatch(html, /tw-rgaz3-rgbbq/);
   } finally {
     globalThis.fetch = originalFetch;
     await mf.dispose();
