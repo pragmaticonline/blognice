@@ -132,6 +132,7 @@ import securityPage from "../security.html";
 import pressPage from "../press.html";
 import pressLaunchPage from "../press-launch.html";
 import bloggerAlternativePage from "../blogger-alternative.html";
+import xLandingPage from "../x.html";
 import manifestoPage from "../manifesto.html";
 import affiliatePage from "../affiliate.html";
 
@@ -186,7 +187,7 @@ import { AI_MARKDOWN_TEXT_MAX, confidentLocalMarkdownFormat, conservativeMarkdow
 import { applySubscriberConfirmation, requestSubscriberConfirmation } from "./subscriber-optin";
 import { refreshPostPopularity } from "./popularity";
 import { BLOGGER_SOURCE, BloggerImportError, parseBloggerExport } from "./blogger-import";
-import { adsBaseTag, adsConversionScript, ensureAdsTables, injectAdsClickParams, parseAdsClickFields, parseAdsClickParams, parseAdsLanding } from "./ads-funnel";
+import { adsBaseTag, adsConversionScript, ensureAdsTables, hasXClickId, injectAdsClickParams, parseAdsClickFields, parseAdsClickParams, parseAdsLanding, xAdsBaseTag, xAdsConversionScript } from "./ads-funnel";
 
 import { handleMcpRequest, aiPluginManifest } from "./mcp";
 import { OPENAPI_YAML } from "./openapi-data";
@@ -7203,6 +7204,17 @@ app.get("/blogger-alternative", (c) => {
   });
 });
 
+// X Ads funnel page: same static-page pattern, X base pixel baked in. The
+// page works without JavaScript; the pixel's own cookie attributes clicks,
+// so no click-id forwarding into signup links is needed.
+app.get("/x", (c) => {
+  const attributed = hasXClickId(new URL(c.req.url));
+  try { recordAdsFunnelEvent(c.env, { name: "landing_view", landing: "/x", detail: attributed ? "attributed" : "organic" }); } catch {}
+  return new Response(xLandingPage, {
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60, s-maxage=300" },
+  });
+});
+
 app.get("/manifesto", (c) => {
   return new Response(manifestoPage, {
     headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60, s-maxage=300" },
@@ -7481,9 +7493,12 @@ app.get("/admin/b/:blogId/audit", async (c) => {
 // conversion — never on refresh, failure, or for unattributed accounts.
 function billingSuccessPage(
   account: Account,
-  opts: { trialDays?: number | null; alreadyActive?: boolean; conversion?: { valueMinor: number; currency: string; transactionId: string } | null },
+  opts: { trialDays?: number | null; alreadyActive?: boolean; conversion?: { valueMinor: number; currency: string; transactionId: string } | null; xConversion?: { valueMinor: number; currency: string; transactionId: string } | null },
 ): string {
-  const conversionScripts = opts.conversion ? `${adsBaseTag()}\n${adsConversionScript(opts.conversion)}` : "";
+  const conversionScripts = [
+    opts.conversion ? `${adsBaseTag()}\n${adsConversionScript(opts.conversion)}` : "",
+    opts.xConversion ? `${xAdsBaseTag()}\n${xAdsConversionScript(opts.xConversion)}` : "",
+  ].filter(Boolean).join("\n");
   const headline = opts.trialDays ? "Your trial has started" : "Subscription confirmed";
   const body = opts.trialDays
     ? `<div class="notice">Trial started: ${opts.trialDays} days free, then your plan begins. Cancel anytime before day ${opts.trialDays}.</div>`
@@ -7864,28 +7879,40 @@ app.get("/admin/billing/success", async (c) => {
   if (session.status !== "complete" || !owner || (status !== "active" && status !== "trialing")) {
     return c.redirect(`/admin/billing?message=${encodeURIComponent("That checkout is not complete. If you paid, access updates automatically.")}`);
   }
-  // Once per attributed account, ever: INSERT OR IGNORE claims the single
+  // Once per account per platform, ever: INSERT OR IGNORE claims the
   // conversion row, so refreshes and later subscriptions cannot re-fire.
+  // Google fires only for attributed accounts; X fires for every paid first
+  // purchase — its own first-party cookie (set by the base tag on the
+  // landing page) does the attribution matching, and $0 trials are skipped,
+  // not reported. Each platform keeps its own ledger row.
   let conversion: { valueMinor: number; currency: string; transactionId: string } | null = null;
+  let xConversion: { valueMinor: number; currency: string; transactionId: string } | null = null;
   try {
     await ensureAdsTables(c.env.DB);
+    const valueMinor = Number.isSafeInteger(session.amount_total) ? Math.max(0, session.amount_total as number) : 0;
+    const currency = typeof session.currency === "string" && /^[A-Za-z]{3}$/.test(session.currency) ? session.currency.toUpperCase() : "USD";
+    const now = Math.floor(Date.now() / 1000);
     const attributed = await c.env.DB.prepare("SELECT landing_path FROM ads_attributions WHERE account_id = ?").bind(account.id).first<{ landing_path: string }>();
     if (attributed) {
-      const valueMinor = Number.isSafeInteger(session.amount_total) ? Math.max(0, session.amount_total as number) : 0;
-      const currency = typeof session.currency === "string" && /^[A-Za-z]{3}$/.test(session.currency) ? session.currency.toUpperCase() : "USD";
       const claimed = await c.env.DB.prepare(
         "INSERT OR IGNORE INTO ads_conversions (account_id, transaction_id, value_minor, currency, reported_at) VALUES (?, ?, ?, ?, ?)"
-      ).bind(account.id, session.id, valueMinor, currency, Math.floor(Date.now() / 1000)).run();
+      ).bind(account.id, session.id, valueMinor, currency, now).run();
       if (claimed.meta.changes === 1) {
         conversion = { valueMinor, currency, transactionId: session.id };
         recordAdsFunnelEvent(c.env, { name: "conversion", landing: attributed.landing_path || "", detail: currency });
       }
     }
+    if (valueMinor > 0) {
+      const xClaimed = await c.env.DB.prepare(
+        "INSERT OR IGNORE INTO x_ads_conversions (account_id, transaction_id, value_minor, currency, reported_at) VALUES (?, ?, ?, ?, ?)"
+      ).bind(account.id, session.id, valueMinor, currency, now).run();
+      if (xClaimed.meta.changes === 1) xConversion = { valueMinor, currency, transactionId: session.id };
+    }
   } catch {}
   const trialDays = status === "trialing" && subscription?.trial_end
     ? Math.max(1, Math.ceil((subscription.trial_end - Math.floor(Date.now() / 1000)) / 86400))
     : null;
-  return c.html(billingSuccessPage(account, { trialDays, conversion }));
+  return c.html(billingSuccessPage(account, { trialDays, conversion, xConversion }));
 });
 
 app.post("/admin/billing/referral", async (c) => {

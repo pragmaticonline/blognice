@@ -6,12 +6,16 @@ import { Miniflare } from "miniflare";
 import {
   ADS_CONVERSION_SEND_TO,
   ADS_TAG_ID,
+  X_CONVERSION_EVENT_ID,
+  X_PIXEL_ID,
   adsBaseTag,
   adsConversionScript,
   injectAdsClickParams,
   parseAdsClickFields,
   parseAdsClickParams,
   parseAdsLanding,
+  xAdsBaseTag,
+  xAdsConversionScript,
 } from "../src/ads-funnel.ts";
 import { adsFunnelSeries, recordAdsFunnelEvent } from "../src/metrics.ts";
 
@@ -62,6 +66,21 @@ test("ads snippets carry the tag id, real value, and sanitized fields", () => {
   assert.match(dirty, /'value': 0\.00/);
   assert.match(dirty, /'currency': 'USD'/);
   assert.match(dirty, /'transaction_id': 'abc'/);
+});
+
+test("x snippets carry the pixel id, event id, value, and sanitized fields", () => {
+  assert.equal(X_PIXEL_ID, "rgaz3");
+  assert.equal(X_CONVERSION_EVENT_ID, "tw-rgaz3-rgb4j");
+  assert.match(xAdsBaseTag(), /static\.ads-twitter\.com\/uwt\.js/);
+  assert.match(xAdsBaseTag(), /twq\('config','rgaz3'\)/);
+  assert.doesNotMatch(xAdsBaseTag(), /tw-rgaz3-rgb4j/);
+  const event = xAdsConversionScript({ valueMinor: 3600, currency: "USD", transactionId: "cs_test_123" });
+  assert.match(event, /twq\('event', 'tw-rgaz3-rgb4j', \{value: 36\.00, currency: 'USD', conversion_id: 'cs_test_123'\}\)/);
+  assert.doesNotMatch(event, /email|phone/i);
+  const dirty = xAdsConversionScript({ valueMinor: -5, currency: "xx", transactionId: "a'b\"<c>" });
+  assert.match(dirty, /value: 0\.00/);
+  assert.match(dirty, /currency: 'USD'/);
+  assert.match(dirty, /conversion_id: 'abc'/);
 });
 
 test("ads funnel events write aggregate-safe datapoints", () => {
@@ -337,6 +356,8 @@ test("billing success fires the conversion once with the real Stripe value", asy
     assert.match(html, /'value': 36\.00/);
     assert.match(html, /'currency': 'USD'/);
     assert.match(html, /'transaction_id': 'cs_test_paid1'/);
+    assert.match(html, /twq\('config','rgaz3'\)/);
+    assert.match(html, /twq\('event', 'tw-rgaz3-rgb4j', \{value: 36\.00, currency: 'USD', conversion_id: 'cs_test_paid1'\}\)/);
     const row = await indexDb.prepare("SELECT transaction_id, value_minor, currency FROM ads_conversions WHERE account_id = 1").first();
     assert.deepEqual(row, { transaction_id: "cs_test_paid1", value_minor: 3600, currency: "USD" });
     assert.ok(events.some((p) => p.blobs[0] === "ads:conversion" && p.blobs[2] === "USD"));
@@ -345,7 +366,9 @@ test("billing success fires the conversion once with the real Stripe value", asy
       headers: { cookie: "bn_session=ads-session" },
     }, env, ctx);
     assert.equal(refresh.status, 200);
-    assert.doesNotMatch(await refresh.text(), /send_to/);
+    const refreshHtml = await refresh.text();
+    assert.doesNotMatch(refreshHtml, /send_to/);
+    assert.doesNotMatch(refreshHtml, /tw-rgaz3-rgb4j/);
   } finally {
     globalThis.fetch = originalFetch;
     await mf.dispose();
@@ -396,6 +419,100 @@ test("billing success stays silent on incomplete, foreign, unattributed, and ano
   }
 });
 
+test("unattributed paid buyers fire X but stay silent on Google", async () => {
+  const { blogniceApp, mf, indexDb, env, ctx } = await setupFunnel();
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      id: "cs_test_organic1", status: "complete", payment_status: "paid",
+      amount_total: 500, currency: "usd", client_reference_id: "1",
+      subscription: { id: "sub_o", status: "active" },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+    const res = await blogniceApp.request("https://www.blognice.test/admin/billing/success?session_id=cs_test_organic1", {
+      headers: { cookie: "bn_session=ads-session" },
+    }, env, ctx);
+    assert.equal(res.status, 200);
+    const html = await res.text();
+    assert.match(html, /twq\('event', 'tw-rgaz3-rgb4j', \{value: 5\.00, currency: 'USD', conversion_id: 'cs_test_organic1'\}\)/);
+    assert.doesNotMatch(html, /send_to/);
+    const xRow = await indexDb.prepare("SELECT transaction_id, value_minor, currency FROM x_ads_conversions WHERE account_id = 1").first();
+    assert.deepEqual(xRow, { transaction_id: "cs_test_organic1", value_minor: 500, currency: "USD" });
+    assert.equal(await indexDb.prepare("SELECT COUNT(*) AS count FROM ads_conversions").first().then((r) => r.count), 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await mf.dispose();
+  }
+});
+
+test("x landing page renders headline, tag, FAQ, and no custom scripts", async () => {
+  const { blogniceApp, mf, env, ctx, events } = await setupFunnel();
+  try {
+    const res = await blogniceApp.request("https://www.blognice.test/x", undefined, env, ctx);
+    assert.equal(res.status, 200);
+    const html = await res.text();
+    assert.equal(html.match(/<h1>/g).length, 1);
+    assert.match(html, /<h1>Turn your threads into a blog you own<\/h1>/);
+    assert.match(html, /<title>Turn Threads Into a Blog You Own \| Blognice<\/title>/);
+    assert.match(html, /rel="canonical" href="https:\/\/www\.blognice\.com\/x"/);
+    assert.match(html, /Start your free blog/);
+    assert.match(html, /href="\/signup"/);
+    assert.match(html, /Renting reach vs owning it/);
+    assert.match(html, /first 1,000 paying members/);
+    assert.match(html, /Pro free for 14 days/);
+    for (const question of ["Do I have to leave X?", "Can I use my own domain?", "How many blogs can I manage?", "Do I need to install anything?", "Can I export my content?", "Is Blognice open source?"]) {
+      assert.ok(html.includes(`<summary>${question}</summary>`), question);
+    }
+    const faqJson = JSON.parse(html.match(/<script type="application\/ld\+json">(\{"@context":"https:\/\/schema\.org","@type":"FAQPage".*?\})<\/script>/)[1]);
+    assert.equal(faqJson.mainEntity.length, 6);
+    for (const entry of faqJson.mainEntity) {
+      assert.ok(html.includes(`<summary>${entry.name}</summary>`));
+      assert.ok(html.includes(entry.acceptedAnswer.text.slice(0, 40)));
+    }
+    // Funnel-scoped X tag present; no other scripts, so the page works without JS.
+    assert.match(html, /static\.ads-twitter\.com\/uwt\.js/);
+    assert.match(html, /twq\('config','rgaz3'\)/);
+    assert.doesNotMatch(html, /tw-rgaz3-rgb4j/);
+    assert.doesNotMatch(html, /AW-16852730460/);
+    const stripped = html
+      .replace(/<script>\n!function\(e,t,n,s,u,a\)[\s\S]*?<\/script>/, "")
+      .replace(/<script type="application\/ld\+json">[\s\S]*?<\/script>/g, "");
+    assert.doesNotMatch(stripped, /<script/);
+    assert.ok(html.includes("<details>"));
+    assert.deepEqual(events, [{
+      indexes: ["0"],
+      blobs: ["ads:landing_view", "/x", "organic", "", "", ""],
+      doubles: [1],
+    }]);
+
+    const attributed = await blogniceApp.request("https://www.blognice.test/x?twclid=abc_123", undefined, env, ctx);
+    assert.equal(attributed.status, 200);
+    assert.ok(events.some((p) => p.blobs[0] === "ads:landing_view" && p.blobs[1] === "/x" && p.blobs[2] === "attributed"));
+    const junk = await blogniceApp.request("https://www.blognice.test/x?twclid=bad!chars", undefined, env, ctx);
+    assert.equal(junk.status, 200);
+    assert.ok(events.some((p) => p.blobs[0] === "ads:landing_view" && p.blobs[1] === "/x" && p.blobs[2] === "organic"));
+  } finally {
+    await mf.dispose();
+  }
+});
+
+test("x pixel lives on the funnel page and success page, never elsewhere", async () => {
+  const { blogniceApp, mf, env, ctx } = await setupFunnel();
+  try {
+    for (const url of ["https://www.blognice.test/", "https://www.blognice.test/signup", "https://www.blognice.test/press", "https://www.blognice.test/blogger-alternative"]) {
+      assert.doesNotMatch(await (await blogniceApp.request(url, {
+        headers: { host: "www.blognice.test" },
+      }, env, ctx)).text(), /twq\(/, url);
+    }
+    const blog = await blogniceApp.request("https://adsblog.blognice.test/hello", {
+      headers: { host: "adsblog.blognice.test" },
+    }, env, ctx);
+    assert.equal(blog.status, 200);
+    assert.doesNotMatch(await blog.text(), /twq\(/);
+  } finally {
+    await mf.dispose();
+  }
+});
+
 test("trial checkouts confirm with trial days and a zero-value conversion", async () => {
   const { blogniceApp, mf, indexDb, env, ctx } = await setupFunnel();
   const originalFetch = globalThis.fetch;
@@ -413,6 +530,7 @@ test("trial checkouts confirm with trial days and a zero-value conversion", asyn
     const html = await res.text();
     assert.match(html, /Trial started: 14 days free, then your plan begins\. Cancel anytime before day 14\./);
     assert.match(html, /'value': 0\.00/);
+    assert.doesNotMatch(html, /tw-rgaz3-rgb4j/);
   } finally {
     globalThis.fetch = originalFetch;
     await mf.dispose();

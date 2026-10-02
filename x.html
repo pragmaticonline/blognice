@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Turn Threads Into a Blog You Own | Blognice</title>
+<meta name="description" content="Your best X threads vanish into the feed in hours. Blognice gives them a permanent, searchable home you own — custom domain, subscribers, no algorithm.">
+<link rel="canonical" href="https://www.blognice.com/x">
+<meta name="theme-color" content="#1a8917">
+<meta property="og:site_name" content="blognice">
+<meta property="og:title" content="Turn Threads Into a Blog You Own | Blognice">
+<meta property="og:description" content="Your best threads, grown into a permanent blog you own — no algorithm, no character limits.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://www.blognice.com/x">
+<meta property="og:image" content="https://www.blognice.com/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="blognice">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Turn Threads Into a Blog You Own | Blognice">
+<meta name="twitter:description" content="Your best threads, grown into a permanent blog you own — no algorithm, no character limits.">
+<meta name="twitter:image" content="https://www.blognice.com/og-image.jpg">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<script>
+!function(e,t,n,s,u,a){e.twq||(s=e.twq=function(){s.exe?s.exe.apply(s,arguments):s.queue.push(arguments);},s.version='1.1',s.queue=[],u=t.createElement(n),u.async=!0,u.src='https://static.ads-twitter.com/uwt.js',a=t.getElementsByTagName(n)[0],a.parentNode.insertBefore(u,a))}(window,document,'script');
+twq('config','rgaz3');
+</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"Turn Threads Into a Blog You Own | Blognice","url":"https://www.blognice.com/x","description":"Your best X threads vanish into the feed in hours. Blognice gives them a permanent, searchable home you own — custom domain, subscribers, no algorithm."}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Do I have to leave X?","acceptedAnswer":{"@type":"Answer","text":"No. Keep posting where your audience is — expand your best threads into full posts on a blog you own, then link back."}},{"@type":"Question","name":"Can I use my own domain?","acceptedAnswer":{"@type":"Answer","text":"Yes. Connect a domain such as blog.yourcompany.com in Blog Settings → Domains, add the CNAME record shown, and SSL is automatic."}},{"@type":"Question","name":"How many blogs can I manage?","acceptedAnswer":{"@type":"Answer","text":"One account holds one blog for free and up to five blogs on Pro, all managed from the same login."}},{"@type":"Question","name":"Do I need to install anything?","acceptedAnswer":{"@type":"Answer","text":"No. Blognice runs entirely in your browser — no hosting to arrange, no plugins to install, and no updates to apply."}},{"@type":"Question","name":"Can I export my content?","acceptedAnswer":{"@type":"Answer","text":"Yes. Owners download a full export any time: posts and pages as Markdown, images, subscribers.csv, and comments.json."}},{"@type":"Question","name":"Is Blognice open source?","acceptedAnswer":{"@type":"Answer","text":"Yes. Blognice is open source under the AGPL-3.0 license, so you can self-host it free or use the hosted service."}}]}</script>
+<style>
+:root{
+  --bg:#FFFFFF; --paper:#F7F8F3; --ink:#15170F; --ink-soft:#5C6455; --ink-faint:#8A9182;
+  --green:#1a8917; --green-deep:#0E5A0C; --green-mist:#EEF5EC; --green-wash:#DCEBDA;
+  --amber:#b7791f; --clay:#c2412d; --gray-ink:#6B7268; --gray:#B7BDB6; --gray-soft:#D8DCD6;
+  --gray-wash:#EDEFEA; --rule:#E3E7DD;
+  --display:Georgia, 'Times New Roman', serif;
+  --body:system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box;}
+html,body,h1,h2,h3,p,ul,ol,table,figure,details,summary,div,section,header,footer,main,nav{margin:0;}
+ul,ol{padding:0;list-style:none;}
+html{scroll-behavior:smooth; scroll-padding-top:74px;}
+body{background:var(--bg); color:var(--ink); font-family:var(--body); line-height:1.6; -webkit-font-smoothing:antialiased;}
+::selection{background:var(--green); color:#fff;}
+img,svg{display:block; max-width:100%;}
+a{color:inherit; text-decoration:none;}
+.wrap{max-width:1120px; margin:0 auto; padding:0 28px; position:relative; z-index:2;}
+:focus-visible{outline:2px solid var(--green); outline-offset:3px; border-radius:3px;}
+.visually-hidden{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap;}
+.skip{position:absolute; left:-9999px; top:0; background:var(--ink); color:#fff; padding:10px 16px; border-radius:0 0 7px 0; z-index:200;}
+.skip:focus{left:0;}
+@keyframes ba-float{0%,100%{transform:translateY(-6px)}50%{transform:translateY(6px)}}
+@keyframes ba-twinkle{0%,100%{opacity:.25;transform:scale(.7) rotate(0deg)}50%{opacity:1;transform:scale(1.1) rotate(12deg)}}
+@keyframes ba-drift{from{transform:translateX(-14px)}to{transform:translateX(14px)}}
+@keyframes ba-march{to{stroke-dashoffset:-64}}
+@keyframes ba-spin-slow{to{transform:rotate(360deg)}}
+@keyframes ba-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+@keyframes ba-flutter{0%,100%{transform:rotate(-5deg)}50%{transform:rotate(7deg)}}
+@keyframes ba-bounce{0%,100%{transform:translateY(0);opacity:.65}50%{transform:translateY(7px);opacity:1}}
+@keyframes ba-rise{from{opacity:0;transform:translateY(26px)}}
+@keyframes ba-wipe{from{clip-path:inset(-3% 0 -3% 3%)}to{clip-path:inset(-3% 0 -3% 97%)}}
+@keyframes ba-ride{from{left:3%}to{left:97%}}
+@keyframes ba-pop{from{opacity:0;transform:translateY(-6px)}}
+@keyframes ba-enter{from{opacity:0;transform:translateY(22px)}}
+@keyframes ba-marquee{to{transform:translateX(-50%)}}
+@keyframes ba-shine{0%{left:-70%}55%,100%{left:140%}}
+@keyframes ba-glow-pulse{0%,100%{box-shadow:0 0 0 0 rgba(26,137,23,.35)}50%{box-shadow:0 0 0 12px rgba(26,137,23,0)}}
+@keyframes ba-morph{0%,100%{transform:translate(0,0) scale(1);border-radius:46% 54% 58% 42%/52% 44% 56% 48%}50%{transform:translate(26px,-20px) scale(1.12);border-radius:58% 42% 44% 56%/44% 58% 42% 56%}}
+@keyframes ba-spin-rays{to{transform:translate(-50%,-50%) rotate(360deg)}}
+@keyframes ba-skyshift{from{opacity:0}to{opacity:.13}}
+@keyframes ba-fly{0%{transform:translate(0,0) rotate(-10deg) scale(.65);opacity:0}10%{opacity:1}42%{transform:translate(44px,-58px) rotate(7deg) scale(.85);opacity:1}68%{transform:translate(84px,-8px) rotate(-2deg) scale(1);opacity:1}84%{transform:translate(84px,-8px) rotate(-2deg) scale(1);opacity:1}100%{transform:translate(84px,-8px) rotate(-2deg) scale(1);opacity:0}}
+@keyframes ba-tint{0%,25%{fill:#C9CFC6}60%,100%{fill:#1a8917}}
+@keyframes ba-trail{0%,100%{opacity:.35;transform:scale(.75)}50%{opacity:1;transform:scale(1.15)}}
+.ba-anim{transform-box:fill-box; transform-origin:center;}
+.tw1{animation:ba-twinkle 2.6s ease-in-out infinite;}
+.tw2{animation:ba-twinkle 3.4s ease-in-out -0.9s infinite;}
+.tw3{animation:ba-twinkle 2.1s ease-in-out -1.4s infinite;}
+.float1{animation:ba-float 5s ease-in-out infinite;}
+.float2{animation:ba-float 6.5s ease-in-out -2s infinite;}
+.float3{animation:ba-float 7.4s ease-in-out -4s infinite;}
+.march{animation:ba-march 1.6s linear infinite;}
+.spin-slow{animation:ba-spin-slow 28s linear infinite;}
+.bob{animation:ba-bob 5.2s ease-in-out infinite;}
+.flutter{animation:ba-flutter 3.2s ease-in-out infinite; transform-origin:100% 50%;}
+.drift{animation:ba-drift 7s ease-in-out infinite alternate;}
+.fly1{animation:ba-fly 7.2s ease-in-out infinite;}
+.fly2{animation:ba-fly 7.2s ease-in-out -2.4s infinite;}
+.fly3{animation:ba-fly 7.2s ease-in-out -4.8s infinite;}
+.fly1 .tint{animation:ba-tint 7.2s ease-in-out infinite;}
+.fly2 .tint{animation:ba-tint 7.2s ease-in-out -2.4s infinite;}
+.fly3 .tint{animation:ba-tint 7.2s ease-in-out -4.8s infinite;}
+details[open] .answer{animation:ba-pop .25s ease;}
+@media (prefers-reduced-motion: reduce){
+  html{scroll-behavior:auto;}
+  *,*::before,*::after{animation:none !important; transition:none !important;}
+}
+.announce{background:var(--ink); color:#fff; text-align:center; font-size:13.5px; padding:9px 16px;}
+.announce a{text-decoration:underline; text-underline-offset:3px; font-weight:600;}
+.nav{position:sticky; top:0; z-index:50; background:rgba(255,255,255,0.92); backdrop-filter:blur(10px); border-bottom:1px solid var(--rule);}
+.nav-inner{display:flex; align-items:center; justify-content:space-between; height:74px; gap:16px;}
+.logo{font-family:var(--display); font-weight:600; font-size:20px; letter-spacing:-0.01em;}
+.nav-links{display:flex; align-items:center; gap:26px;}
+.nav-links a{font-size:14px; color:var(--ink-soft); padding-bottom:3px;}
+.nav-links a:hover{color:var(--ink);}
+.nav-actions{display:flex; align-items:center; gap:10px; flex-shrink:0;}
+.btn{display:inline-flex; align-items:center; gap:8px; padding:11px 20px; border-radius:7px; font-size:14.5px; font-weight:600; transition:background .15s ease, color .15s ease, border-color .15s ease, transform .15s ease, box-shadow .15s ease;}
+.btn-solid{background:var(--ink); color:#fff;}
+.btn-solid:hover{background:var(--green-deep);}
+.btn-line{border:1px solid var(--rule); color:var(--ink); background:#fff;}
+.btn-line:hover{border-color:var(--ink);}
+.btn-green{background:var(--green); color:#fff; padding:14px 28px; font-size:16px; position:relative; overflow:hidden; isolation:isolate;}
+.btn-green:hover{background:var(--green-deep); transform:translateY(-1px); box-shadow:0 12px 24px -12px rgba(26,137,23,.5);}
+.btn-green::after{content:''; position:absolute; top:-20%; bottom:-20%; width:36%; left:-70%; background:linear-gradient(105deg, transparent, rgba(255,255,255,.5), transparent); transform:skewX(-20deg); animation:ba-shine 4.5s ease-in-out infinite; z-index:1;}
+.link-underline{text-decoration:underline; text-underline-offset:4px; text-decoration-thickness:1px; color:var(--ink-soft); font-weight:600;}
+.link-underline:hover{color:var(--green-deep);}
+.hero{padding:64px 0 56px; border-bottom:1px solid var(--rule); overflow:clip; position:relative; background:radial-gradient(640px 340px at 88% 12%, var(--green-mist), transparent 70%), radial-gradient(520px 300px at 4% 96%, #FBF6E9, transparent 70%);}
+.hero::before{content:''; position:absolute; width:420px; height:420px; right:-140px; top:-120px; background:radial-gradient(circle, rgba(26,137,23,.16), transparent 65%); filter:blur(30px); animation:ba-morph 14s ease-in-out infinite; z-index:0;}
+.hero::after{content:''; position:absolute; width:360px; height:360px; left:-130px; bottom:-160px; background:radial-gradient(circle, rgba(183,121,31,.14), transparent 65%); filter:blur(30px); animation:ba-morph 18s ease-in-out -6s infinite reverse; z-index:0;}
+.hero-grid{display:grid; grid-template-columns:1.02fr .98fr; gap:48px; align-items:center;}
+.hero h1{font-family:var(--display); font-weight:600; font-size:clamp(34px, 5.4vw, 56px); line-height:1.08; letter-spacing:-0.02em; text-wrap:balance; animation:ba-enter .7s ease both;}
+.hero-sub{font-size:18px; color:var(--ink-soft); margin:18px 0 28px; max-width:32em; animation:ba-enter .7s ease .12s both;}
+.hero-ctas{display:flex; align-items:center; gap:22px; flex-wrap:wrap; animation:ba-enter .7s ease .24s both;}
+.hero-note{margin-top:16px; font-size:14px; color:var(--ink-faint); animation:ba-enter .7s ease .34s both;}
+.ticker{background:var(--ink); color:#fff; overflow:hidden; white-space:nowrap; padding:13px 0; border-bottom:1px solid var(--rule);}
+.ticker-track{display:inline-flex; max-width:none; width:max-content; animation:ba-marquee 26s linear infinite;}
+.ticker-track span{font-size:14px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; padding-right:12px;}
+.ticker-track b{color:#9BE29A; font-weight:600; padding:0 18px;}
+.scroll-hint{margin-top:30px; font-size:13px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--ink-faint); display:flex; align-items:center; gap:10px;}
+.scroll-hint i{width:9px; height:9px; border-right:2.5px solid var(--green); border-bottom:2.5px solid var(--green); transform:rotate(45deg); animation:ba-bounce 1.8s ease-in-out infinite;}
+.hero-scene{position:relative;}
+.hero-scene svg{width:100%; height:auto;}
+.scene-caption{margin-top:10px; text-align:center; font-size:13.5px; color:var(--ink-faint);}
+section.block{padding:64px 0; border-bottom:1px solid var(--rule);}
+section.block h2{font-family:var(--display); font-weight:600; font-size:clamp(26px, 3.4vw, 34px); letter-spacing:-0.015em; margin-bottom:10px; text-wrap:balance; text-align:center;}
+.section-sub{font-size:16px; color:var(--ink-soft); max-width:38em; margin-bottom:32px; margin-inline:auto; text-align:center;}
+.feature-list{display:grid; grid-template-columns:1fr 1fr; gap:26px 48px; max-width:960px; margin-inline:auto; counter-reset:feat;}
+.feature-list li{padding-top:18px; border-top:2px solid var(--ink); counter-increment:feat; transition:border-color .2s ease, transform .2s ease;}
+.feature-list li::before{content:'0' counter(feat); display:block; font-size:13px; font-weight:700; letter-spacing:.12em; color:var(--green); margin-bottom:4px;}
+.feature-list li:hover{border-top-color:var(--green); transform:translateX(5px);}
+.feature-list strong{display:block; font-size:16px; margin-bottom:4px;}
+.feature-list span{font-size:14.5px; color:var(--ink-soft);}
+.stage-head{max-width:1120px; margin:0 auto; padding:64px 28px 8px; text-align:center;}
+.stage-head h2{font-family:var(--display); font-weight:600; font-size:clamp(26px, 3.4vw, 34px); letter-spacing:-0.015em; margin-bottom:10px; text-wrap:balance;}
+.stage{position:relative; height:260vh;}
+.stage-sticky{position:sticky; top:0; height:100svh; min-height:600px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; overflow:clip;}
+.scene-wrap{position:relative; width:min(980px, 94vw);}
+.scene-wrap svg.w{width:100%; height:auto; border-radius:16px; border:1px solid var(--rule); background:var(--paper); box-shadow:0 30px 60px -30px rgba(21,23,15,.25);}
+.old-world{clip-path:inset(-3% 0 -3% 44%);}
+.rider{position:absolute; top:-6%; bottom:6%; left:44%; width:0; z-index:3;}
+.rider-bar{position:absolute; top:0; bottom:0; left:-2px; width:4px; border-radius:4px; background:var(--green); box-shadow:0 0 18px 3px rgba(26,137,23,.45);}
+.rider-bar::before,.rider-bar::after{content:''; position:absolute; left:50%; width:11px; height:11px; margin-left:-5.5px; border-radius:50%; background:#fff; border:2.5px solid var(--green); box-shadow:0 0 12px 2px rgba(26,137,23,.5);}
+.rider-bar::before{top:16%; animation:ba-trail 2.2s ease-in-out infinite;}
+.rider-bar::after{bottom:22%; animation:ba-trail 2.8s ease-in-out -1.1s infinite;}
+.sky-veil{pointer-events:none;}
+.rider-page{position:absolute; bottom:62%; left:0; transform:translateX(-50%); width:clamp(92px, 12vw, 132px);}
+.rider-page svg{width:100%; height:auto; overflow:visible;}
+.corner{position:absolute; bottom:12px; font-size:12.5px; font-weight:700; padding:5px 12px; border-radius:99px; background:rgba(255,255,255,.88); border:1px solid var(--rule); z-index:2;}
+.corner.left{left:12px; color:var(--green-deep);}
+.corner.right{right:12px; color:var(--ink-faint);}
+.stage-cap{font-size:14px; color:var(--ink-soft); text-align:center; padding:0 28px;}
+@supports (animation-timeline: scroll()) and (view-timeline-name: --stage){
+  .stage{view-timeline-name:--stage; view-timeline-axis:block;}
+  .old-world{animation:ba-wipe linear both; animation-timeline:--stage; animation-range:cover 6% cover 94%;}
+  .rider{animation:ba-ride linear both; animation-timeline:--stage; animation-range:cover 6% cover 94%;}
+  .sky-veil{animation:ba-skyshift linear both; animation-timeline:--stage; animation-range:cover 6% cover 94%;}
+  .reveal{animation:ba-rise linear both; animation-timeline:view(); animation-range:entry 0% cover 30%;}
+}
+.compare-words{font-size:17px; max-width:42em; margin-bottom:28px; margin-inline:auto; text-align:center;}
+.compare-table{width:100%; max-width:860px; border-collapse:collapse; font-size:15px; margin-inline:auto;}
+.compare-table th, .compare-table td{text-align:left; padding:12px 14px; border-bottom:1px solid var(--rule); vertical-align:top;}
+.compare-table thead th{font-family:var(--display); font-size:16px; border-bottom:2px solid var(--ink);}
+.compare-table thead th:last-child{color:var(--green-deep);}
+.compare-table tbody th{font-weight:600; white-space:nowrap;}
+.compare-table td{color:var(--ink-soft);}
+.compare-table td:last-child, .compare-table th:last-child{background:var(--green-mist);}
+.compare-table td:last-child{color:var(--ink);}
+.compare-table tbody tr{transition:background .15s ease;}
+.compare-table tbody tr:hover th, .compare-table tbody tr:hover td{background:var(--paper);}
+.compare-table tbody tr:hover td:last-child{background:var(--green-wash);}
+.compare-note{margin-top:14px; font-size:13.5px; color:var(--ink-faint); max-width:60em; margin-inline:auto; text-align:center;}
+.plans{display:grid; grid-template-columns:1fr 1fr; gap:20px; max-width:860px; margin-bottom:24px; margin-inline:auto;}
+.plan{border:1px solid var(--rule); border-radius:12px; padding:28px; background:#fff; transition:transform .2s ease, box-shadow .2s ease;}
+.plan:hover{transform:translateY(-4px); box-shadow:0 18px 40px -18px rgba(21,23,15,.25);}
+.plan.recommended{border:2px solid var(--green); background:var(--green-mist); animation:ba-glow-pulse 3.6s ease-in-out infinite;}
+.plan h3{font-family:var(--display); font-size:20px; font-weight:600;}
+.plan .price{font-family:var(--display); font-size:38px; font-weight:600; margin:8px 0 2px;}
+.plan .price small{font-family:var(--body); font-size:14px; font-weight:400; color:var(--ink-soft);}
+.plan .was{font-size:14px; color:var(--ink-faint);}
+.plan .was s{margin-right:6px;}
+.plan ul{margin:16px 0 22px; display:flex; flex-direction:column; gap:9px; font-size:14.5px; color:var(--ink-soft);}
+.plan ul li{padding-left:20px; position:relative;}
+.plan ul li::before{content:'✓'; position:absolute; left:0; color:var(--green); font-weight:700;}
+.plan .btn{width:100%; justify-content:center;}
+.plan-note{font-size:14px; color:var(--ink-soft); max-width:60em; margin-inline:auto; text-align:center;}
+.plan-note strong{color:var(--ink);}
+.faq{max-width:700px; margin-inline:auto;}
+.faq details{border-bottom:1px solid var(--rule); padding:2px 0;}
+.faq details:first-of-type{border-top:1px solid var(--rule);}
+.faq summary{cursor:pointer; font-weight:600; font-size:16.5px; padding:16px 8px 16px 0; list-style:none; display:flex; align-items:center; justify-content:space-between; gap:16px; transition:color .15s ease, padding-left .2s ease;}
+.faq summary:hover{color:var(--green-deep); padding-left:8px;}
+.faq summary::-webkit-details-marker{display:none;}
+.faq summary::after{content:'+'; font-size:22px; font-weight:400; color:var(--green-deep); flex-shrink:0; line-height:1; transition:transform .2s ease;}
+.faq details[open] summary::after{content:'–'; transform:rotate(180deg);}
+.faq .answer{padding:0 8px 20px 0; font-size:15px; color:var(--ink-soft); max-width:40em;}
+.faq .answer a{text-decoration:underline; text-underline-offset:3px;}
+.final{padding:96px 0; text-align:center; position:relative; overflow:clip; background:radial-gradient(560px 280px at 50% 100%, var(--green-mist), transparent 70%);}
+.final::before{content:''; position:absolute; left:50%; top:50%; width:130vmax; height:130vmax; transform:translate(-50%,-50%); background:repeating-conic-gradient(from 0deg, rgba(26,137,23,.055) 0 5deg, transparent 5deg 11deg); -webkit-mask-image:radial-gradient(circle, #000 0%, transparent 62%); mask-image:radial-gradient(circle, #000 0%, transparent 62%); animation:ba-spin-rays 70s linear infinite;}
+.final h2{font-family:var(--display); font-weight:600; font-size:clamp(28px, 4vw, 40px); letter-spacing:-0.015em; margin-bottom:12px; text-wrap:balance;}
+.final p{color:var(--ink-soft); margin-bottom:26px;}
+footer{border-top:1px solid var(--rule); padding:36px 0 44px;}
+.footer-inner{display:flex; align-items:flex-start; justify-content:space-between; gap:28px; flex-wrap:wrap;}
+.footer-brand small{display:block; color:var(--ink-faint); font-size:13px; margin-top:6px;}
+.footer-links{display:flex; gap:20px; flex-wrap:wrap; font-size:14px; color:var(--ink-soft);}
+.footer-links a:hover{color:var(--ink);}
+.footer-actions{display:flex; gap:14px; align-items:center;}
+.footer-social{display:flex; gap:12px; margin-top:14px;}
+.footer-social a{display:inline-flex; width:26px; height:26px; opacity:.72; transition:opacity .15s ease, transform .15s ease;}
+.footer-social a:hover{opacity:1; transform:translateY(-2px);}
+.footer-social svg,.footer-social img{width:26px; height:26px; display:block;}
+@media (max-width:900px){
+  .hero-grid{grid-template-columns:1fr; gap:32px;}
+  .hero-scene{max-width:520px; margin:0 auto; width:100%;}
+}
+@media (max-width:760px){
+  .nav-links{display:none;}
+  .nav-inner{gap:10px;}
+  .logo{font-size:18px;}
+  .nav-actions{gap:8px;}
+  .nav-actions .btn{padding:9px 12px; font-size:13px; white-space:nowrap;}
+  .feature-list{grid-template-columns:1fr;}
+  .plans{grid-template-columns:1fr;}
+  .hero{padding:52px 0 44px;}
+  section.block{padding:48px 0;}
+  .compare-table thead th:first-child{font-size:0;}
+  .compare-table tbody th{white-space:normal;}
+  .stage-head{padding:48px 28px 4px;}
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="announce">Founding pricing — try Pro free for 14 days, then $36/year locked. <a href="#pricing">See plans</a></div>
+<nav class="nav" aria-label="Primary">
+  <div class="wrap nav-inner">
+    <a class="logo" href="/">blognice</a>
+    <div class="nav-links">
+      <a href="#features">Why Blognice</a>
+      <a href="#compare">Compare</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#faq">FAQ</a>
+    </div>
+    <div class="nav-actions">
+      <a href="/admin/login" class="btn btn-line">Log in</a>
+      <a href="/signup" class="btn btn-solid">Start your free blog</a>
+    </div>
+  </div>
+</nav>
+<main id="main">
+<header class="hero">
+  <div class="wrap hero-grid">
+    <div class="hero-copy">
+      <h1>Turn your threads into a blog you own</h1>
+      <p class="hero-sub">Your best posts vanish into the feed in hours. Give them a permanent, searchable home — your domain, your subscribers, no algorithm deciding who sees them.</p>
+      <div class="hero-ctas">
+        <a href="/signup" class="btn btn-green">Start your free blog</a>
+        <a href="#compare" class="link-underline">See how owning compares to renting reach</a>
+      </div>
+      <p class="hero-note">Your first blog is free to try · Pro free for 14 days · No charge during the trial.</p>
+      <p class="scroll-hint" aria-hidden="true"><span>Scroll to see the difference</span><i></i></p>
+    </div>
+    <div class="hero-scene">
+<svg viewBox="0 0 440 460" role="img" aria-label="Scattered gray posts gathering into a polished green Blognice blog">
+<defs>
+<path id="spark" d="M0 -9 C 1.2 -2.5, 2.5 -1.2, 9 0 C 2.5 1.2, 1.2 2.5, 0 9 C -1.2 2.5, -2.5 1.2, -9 0 C -2.5 -1.2, -1.2 -2.5, 0 -9 Z"/>
+</defs>
+<circle cx="220" cy="230" r="185" fill="#EEF5EC"/>
+<g class="spin-slow ba-anim">
+<circle cx="220" cy="230" r="185" fill="none" stroke="#E3E7DD" stroke-width="2" stroke-dasharray="3 9"/>
+<g transform="translate(220,45)"><g class="tw1 ba-anim"><use href="#spark" fill="#b7791f"/></g></g>
+<g transform="translate(220,415)"><g class="tw2 ba-anim"><use href="#spark" fill="#1a8917"/></g></g>
+</g>
+<g transform="rotate(-4 110 238)">
+<rect x="48" y="190" width="124" height="96" rx="10" fill="#ffffff" stroke="#C9CFC6" stroke-width="2"/>
+<line x1="48" y1="214" x2="172" y2="214" stroke="#C9CFC6" stroke-width="2"/>
+<circle cx="60" cy="202" r="4" fill="#C9CFC6"/><circle cx="72" cy="202" r="4" fill="#C9CFC6"/><circle cx="84" cy="202" r="4" fill="#C9CFC6"/>
+<rect x="60" y="228" width="100" height="10" rx="5" fill="#DDE1DA"/>
+<rect x="60" y="244" width="72" height="10" rx="5" fill="#DDE1DA"/>
+<rect x="60" y="260" width="86" height="10" rx="5" fill="#DDE1DA"/>
+<path d="M140 232 l10 10 M150 232 l-10 10" stroke="#C9CFC6" stroke-width="3" stroke-linecap="round"/>
+</g>
+<g class="float3 ba-anim"><g>
+<rect x="107" y="297" width="26" height="26" rx="4" fill="#C9CFC6" transform="rotate(14 120 310)"/>
+</g></g>
+<g class="float2 ba-anim"><g>
+<ellipse cx="86" cy="152" rx="26" ry="14" fill="#D8DCD6"/>
+<ellipse cx="108" cy="146" rx="20" ry="16" fill="#D8DCD6"/>
+<ellipse cx="66" cy="148" rx="16" ry="12" fill="#D8DCD6"/>
+</g></g>
+<ellipse cx="350" cy="404" rx="112" ry="66" fill="#1a8917" opacity="0.14"/>
+<ellipse cx="372" cy="424" rx="88" ry="58" fill="#1a8917" opacity="0.2"/>
+<g>
+<circle cx="350" cy="118" r="24" fill="#b7791f"/>
+<g class="spin-slow ba-anim" stroke="#b7791f" stroke-width="4" stroke-linecap="round">
+<line x1="350" y1="78" x2="350" y2="88"/><line x1="350" y1="148" x2="350" y2="158"/>
+<line x1="310" y1="118" x2="320" y2="118"/><line x1="380" y1="118" x2="390" y2="118"/>
+<line x1="322" y1="90" x2="329" y2="97"/><line x1="371" y1="139" x2="378" y2="146"/>
+<line x1="378" y1="90" x2="371" y2="97"/><line x1="329" y1="139" x2="322" y2="146"/>
+</g>
+</g>
+<path d="M292 172 q7 -7 14 0 M312 164 q7 -7 14 0" stroke="#15170F" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+<g class="float1 ba-anim"><g transform="translate(56,326)">
+<rect x="0" y="0" width="66" height="46" rx="7" fill="#ffffff" stroke="#E3E7DD" stroke-width="2"/>
+<rect x="8" y="8" width="34" height="7" rx="3.5" fill="#1a8917"/>
+<rect x="8" y="21" width="50" height="5" rx="2.5" fill="#DDE1DA"/>
+<rect x="8" y="30" width="38" height="5" rx="2.5" fill="#DDE1DA"/>
+</g></g>
+<g class="float2 ba-anim"><g transform="translate(140,348)">
+<rect x="0" y="0" width="66" height="46" rx="7" fill="#ffffff" stroke="#E3E7DD" stroke-width="2"/>
+<rect x="8" y="8" width="28" height="7" rx="3.5" fill="#1a8917"/>
+<rect x="8" y="21" width="50" height="5" rx="2.5" fill="#DDE1DA"/>
+<rect x="8" y="30" width="42" height="5" rx="2.5" fill="#DDE1DA"/>
+</g></g>
+<g class="float3 ba-anim"><g transform="translate(228,336)">
+<rect x="0" y="0" width="66" height="46" rx="7" fill="#ffffff" stroke="#E3E7DD" stroke-width="2"/>
+<rect x="8" y="8" width="38" height="7" rx="3.5" fill="#1a8917"/>
+<rect x="8" y="21" width="44" height="5" rx="2.5" fill="#DDE1DA"/>
+<rect x="8" y="30" width="50" height="5" rx="2.5" fill="#DDE1DA"/>
+</g></g>
+<g class="bob ba-anim"><g>
+<rect x="248" y="198" width="156" height="118" rx="12" fill="#ffffff" stroke="#1a8917" stroke-width="2.5"/>
+<rect x="248" y="198" width="156" height="26" rx="12" fill="#1a8917"/>
+<rect x="248" y="210" width="156" height="14" fill="#1a8917"/>
+<circle cx="262" cy="211" r="4" fill="#ffffff" opacity="0.9"/><circle cx="274" cy="211" r="4" fill="#ffffff" opacity="0.9"/><circle cx="286" cy="211" r="4" fill="#ffffff" opacity="0.9"/>
+<rect x="260" y="236" width="90" height="11" rx="5.5" fill="#1a8917"/>
+<rect x="260" y="254" width="132" height="8" rx="4" fill="#DDE1DA"/>
+<rect x="260" y="268" width="104" height="8" rx="4" fill="#DDE1DA"/>
+<rect x="260" y="282" width="120" height="8" rx="4" fill="#DDE1DA"/>
+<circle cx="382" cy="296" r="13" fill="#1a8917"/>
+<path d="M376 296 l4.5 4.5 L389 292" stroke="#ffffff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</g></g>
+<path d="M180 228 C 202 222, 222 222, 244 230" stroke="#1a8917" stroke-width="4" stroke-dasharray="7 9" stroke-linecap="round" fill="none" class="march"/>
+<path d="M180 262 C 202 264, 222 264, 244 260" stroke="#9AA096" stroke-width="3" stroke-dasharray="5 8" stroke-linecap="round" fill="none" class="march"/>
+<path d="M244 230 l-9 -1 M244 230 l-6 7" stroke="#1a8917" stroke-width="4" stroke-linecap="round"/>
+<g transform="translate(168,246)"><g class="fly1 ba-anim">
+<rect x="0" y="0" width="42" height="32" rx="5" fill="#ffffff" stroke="#9AA096" stroke-width="2"/>
+<rect class="tint" x="6" y="6" width="22" height="6" rx="3" fill="#C9CFC6"/>
+<rect x="6" y="16" width="30" height="4" rx="2" fill="#DDE1DA"/>
+<rect x="6" y="23" width="22" height="4" rx="2" fill="#DDE1DA"/>
+</g></g>
+<g transform="translate(168,246)"><g class="fly2 ba-anim">
+<rect x="0" y="0" width="42" height="32" rx="5" fill="#ffffff" stroke="#9AA096" stroke-width="2"/>
+<rect class="tint" x="6" y="6" width="18" height="6" rx="3" fill="#C9CFC6"/>
+<rect x="6" y="16" width="30" height="4" rx="2" fill="#DDE1DA"/>
+<rect x="6" y="23" width="26" height="4" rx="2" fill="#DDE1DA"/>
+</g></g>
+<g transform="translate(168,246)"><g class="fly3 ba-anim">
+<rect x="0" y="0" width="42" height="32" rx="5" fill="#ffffff" stroke="#9AA096" stroke-width="2"/>
+<rect class="tint" x="6" y="6" width="24" height="6" rx="3" fill="#C9CFC6"/>
+<rect x="6" y="16" width="28" height="4" rx="2" fill="#DDE1DA"/>
+<rect x="6" y="23" width="30" height="4" rx="2" fill="#DDE1DA"/>
+</g></g>
+<g transform="translate(220,52)"><g class="tw1 ba-anim"><use href="#spark" fill="#b7791f"/></g></g>
+<path d="M168 196 C 200 176, 226 176, 256 192" stroke="#b7791f" stroke-width="3.5" stroke-dasharray="6 9" stroke-linecap="round" fill="none" class="march"/>
+<circle cx="256" cy="192" r="4" fill="#b7791f"/>
+<g transform="translate(318,212)"><g class="tw2 ba-anim"><use href="#spark" fill="#1a8917"/></g></g>
+<g transform="translate(120,120)"><g class="tw3 ba-anim"><use href="#spark" fill="#b7791f"/></g></g>
+<g transform="translate(392,180)"><g class="tw1 ba-anim"><use href="#spark" fill="#1a8917"/></g></g>
+</svg>
+      <p class="scene-caption">Posts that used to vanish into the feed — grown into a blog that lasts.</p>
+    </div>
+  </div>
+</header>
+<div class="ticker" aria-hidden="true"><div class="ticker-track"><span>No hosting <b>✦</b> No plugins <b>✦</b> No updates <b>✦</b> Own your audience <b>✦</b> Free to start <b>✦</b> No algorithm <b>✦</b>&nbsp;</span><span>No hosting <b>✦</b> No plugins <b>✦</b> No updates <b>✦</b> Own your audience <b>✦</b> Free to start <b>✦</b> No algorithm <b>✦</b>&nbsp;</span></div></div>
+<section class="block" id="features" aria-labelledby="features-h">
+  <div class="wrap">
+    <h2 id="features-h" class="reveal">One calm home for all your blogs</h2>
+    <p class="section-sub reveal">Everything lives under a single login. No control panels, plugin updates, or hosting bills — just writing and publishing.</p>
+    <ul class="feature-list reveal">
+      <li><strong>Up to five blogs from one account</strong><span>Run several blogs side by side and switch between them in one click. One blog is free; up to five on Pro.</span></li>
+      <li><strong>Unlimited posts and images</strong><span>Publish as much as you like. Images are optimized automatically and served fast.</span></li>
+      <li><strong>Custom domains</strong><span>Point blog.yourcompany.com at your blog with a guided DNS setup and automatic SSL.</span></li>
+      <li><strong>Markdown writing and preview</strong><span>A clean editor with a Write/Preview toggle — what you write is what readers get.</span></li>
+      <li><strong>Fast server-rendered pages</strong><span>Pages render on the server and cache at the edge, so readers see content immediately.</span></li>
+      <li><strong>Subscriber tools and analytics</strong><span>Collect subscribers with built-in signup forms and see privacy-first reading stats.</span></li>
+      <li><strong>Full content export</strong><span>Download everything any time: posts and pages as Markdown, images, subscribers, and comments.</span></li>
+      <li><strong>Open-source self-hosted version</strong><span>Blognice is open source under the AGPL-3.0 license. Host it yourself free, or let us run it.</span></li>
+      <li><strong>Privacy-first, no advertising or tracking</strong><span>No ads on your blog and no third-party tracking of your readers. Analytics are first-party and anonymous.</span></li>
+    </ul>
+  </div>
+</section>
+
+<section class="block" id="compare" aria-labelledby="compare-h">
+  <div class="wrap">
+    <h2 id="compare-h" class="reveal">Renting reach vs owning it</h2>
+    <p class="compare-words reveal">Posting only on X means renting your audience from an algorithm. A Blognice blog gives the same ideas a permanent address — every post searchable, shareable, and yours whatever the feed decides.</p>
+    <table class="compare-table reveal">
+      <thead><tr><th scope="col"><span class="visually-hidden">Feature</span></th><th scope="col">Feed only</th><th scope="col">Blognice</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Lifespan</th><td>Hours in the feed, then buried</td><td>Permanent, searchable archive</td></tr>
+        <tr><th scope="row">Reach</th><td>Decided by the algorithm</td><td>Every subscriber notified of every post</td></tr>
+        <tr><th scope="row">Format</th><td>Short posts and threaded workarounds</td><td>Full-length writing in Markdown with preview</td></tr>
+        <tr><th scope="row">Address</th><td>Your handle, on their domain</td><td>Your own domain with automatic SSL</td></tr>
+        <tr><th scope="row">Audience data</th><td>Followers you cannot contact directly</td><td>Subscriber list you own and can export</td></tr>
+        <tr><th scope="row">Export</th><td>Hard to leave with your work intact</td><td>One-click full export: posts, pages, images, subscribers, comments</td></tr>
+        <tr><th scope="row">Cost</th><td>Free, paid for with ads and tracking</td><td>First blog free to try; Pro from $3/month billed annually</td></tr>
+      </tbody>
+    </table>
+    <p class="compare-note">Keep posting where your audience already is — a blog is where your best work lives on.</p>
+  </div>
+</section>
+
+<section class="block" id="pricing" aria-labelledby="pricing-h">
+  <div class="wrap">
+    <h2 id="pricing-h" class="reveal">Founding member pricing</h2>
+    <p class="section-sub reveal">Limited to the first 1,000 paying members. Your price stays locked while your subscription stays active.</p>
+    <div class="plans reveal">
+      <div class="plan recommended">
+        <h3>Founding Annual</h3>
+        <p class="price">$36<small>/year</small></p>
+        <p class="was"><s>$119/year</s> save 70%</p>
+        <ul>
+          <li>Up to 5 blogs, unlimited posts &amp; images</li>
+          <li>Custom domains and full export</li>
+          <li>Pro free for 14 days — no charge during the trial</li>
+          <li>Cancel during the trial any time</li>
+        </ul>
+        <a href="/signup" class="btn btn-green">Start your free blog</a>
+      </div>
+      <div class="plan">
+        <h3>Founding Monthly</h3>
+        <p class="price">$5<small>/month</small></p>
+        <p class="was"><s>$12.99/month</s> save 62%</p>
+        <ul>
+          <li>Up to 5 blogs, unlimited posts &amp; images</li>
+          <li>Custom domains and full export</li>
+          <li>Pro free for 14 days — no charge during the trial</li>
+          <li>Cancel during the trial any time</li>
+        </ul>
+        <a href="/signup" class="btn btn-line">Start your free blog</a>
+      </div>
+    </div>
+    <p class="plan-note"><strong>First blog free to try.</strong> Start writing in minutes; upgrade only when you are ready. Founding prices never increase while your subscription stays active.</p>
+  </div>
+</section>
+
+<section class="block" id="faq" aria-labelledby="faq-h">
+  <div class="wrap">
+    <h2 id="faq-h" class="reveal">Questions, answered</h2>
+    <p class="section-sub reveal">The essentials for writers coming from X.</p>
+    <div class="faq reveal">
+      <details>
+        <summary>Do I have to leave X?</summary>
+        <div class="answer">No. Keep posting where your audience is — expand your best threads into full posts on a blog you own, then link back.</div>
+      </details>
+      <details>
+        <summary>Can I use my own domain?</summary>
+        <div class="answer">Yes. Connect a domain such as blog.yourcompany.com in Blog Settings → Domains, add the CNAME record shown, and SSL is automatic.</div>
+      </details>
+      <details>
+        <summary>How many blogs can I manage?</summary>
+        <div class="answer">One account holds one blog for free and up to five blogs on Pro, all managed from the same login.</div>
+      </details>
+      <details>
+        <summary>Do I need to install anything?</summary>
+        <div class="answer">No. Blognice runs entirely in your browser — no hosting to arrange, no plugins to install, and no updates to apply.</div>
+      </details>
+      <details>
+        <summary>Can I export my content?</summary>
+        <div class="answer">Yes. Owners download a full export any time: posts and pages as Markdown, images, subscribers.csv, and comments.json.</div>
+      </details>
+      <details>
+        <summary>Is Blognice open source?</summary>
+        <div class="answer">Yes. Blognice is open source under the AGPL-3.0 license, so you can <a href="https://github.com/pragmaticonline/blognice">self-host it free</a> or use the hosted service.</div>
+      </details>
+    </div>
+  </div>
+</section>
+
+<div class="final">
+  <div class="wrap">
+    <h2 class="reveal">Your threads deserve a permanent home</h2>
+    <p class="reveal">Start your first blog free — your best posts, finally searchable.</p>
+    <a href="/signup" class="btn btn-green reveal">Start your free blog</a>
+  </div>
+</div>
+</main>
+<footer>
+  <div class="wrap footer-inner">
+    <div class="footer-brand"><a class="logo" href="/">blognice</a><small>© 2026 Pragmatic Online Co., Ltd.</small>
+    <div class="footer-social" aria-label="Social">
+      <a href="https://www.reddit.com/r/BlogNiceOfficial/" target="_blank" rel="noopener" aria-label="Blognice on Reddit"><svg aria-hidden="true" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="m221.079 294.6a28.433 28.433 0 1 0 -28.264 28.266 28.372 28.372 0 0 0 28.264-28.266z"/><path d="m256 6c-138.071 0-250 111.929-250 250s111.929 250 250 250 250-111.929 250-250-111.929-250-250-250zm151.611 284.61a69.74 69.74 0 0 1 2.274 18.316c0 61.242-68.793 110.8-153.62 110.8-84.485 0-153.278-49.555-153.278-110.8a78.842 78.842 0 0 1 1.932-18.091c-37.068-18.654-23.765-73.153 16.716-73.153a38.507 38.507 0 0 1 27.972 11.911c26.039-17.979 60.72-29.665 99.267-31.239l22.173-100.57c1.024-3.6 4.548-6.068 8.074-5.169l70.954 15.732a28.853 28.853 0 1 1 25.7 41.913 28.7 28.7 0 0 1 -28.541-28.654l-64.245-14.5-20.126 91.132c38.888 1.236 73.91 12.923 99.835 30.9a38.775 38.775 0 0 1 27.631-11.574c40.365.006 53.671 54.168 17.282 73.046z"/><path d="m319.375 266a28.434 28.434 0 1 0 28.6 28.6 28.442 28.442 0 0 0 -28.6-28.6z"/><path d="m310.433 352.863c-10.527 10.515-32.463 15.709-54.338 15.714s-43.811-5.2-54.339-15.714a6.954 6.954 0 1 0 -9.665 10c13.262 13.331 38.633 19.987 64 19.973 25.371.014 50.742-6.642 64-19.973a6.954 6.954 0 0 0 -9.665-10z"/></svg></a>
+      <a href="https://x.com/blognice_com" target="_blank" rel="noopener" aria-label="Blognice on X"><svg aria-hidden="true" viewBox="0 0 1227 1227" xmlns="http://www.w3.org/2000/svg"><g><path d="m613.5 0c-338.815 0-613.5 274.685-613.5 613.5s274.685 613.5 613.5 613.5 613.5-274.685 613.5-613.5-274.685-613.5-613.5-613.5z"/><path d="m680.617 557.98 262.632-305.288h-62.235l-228.044 265.078-182.137-265.078h-210.074l275.427 400.844-275.427 320.142h62.239l240.82-279.931 192.35 279.931h210.074l-285.641-415.698zm-335.194-258.435h95.595l440.024 629.411h-95.595z" fill="#fff"/></g><g/><g/><g/><g/><g/><g/><g/><g/><g/><g/><g/><g/><g/><g/><g/></svg></a>
+      <a href="https://www.threads.com/@blognice_com" target="_blank" rel="noopener" aria-label="Blognice on Threads"><svg aria-hidden="true" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="m256 0c-141.38 0-256 114.62-256 256s114.62 256 256 256 256-114.62 256-256-114.62-256-256-256z"/><path d="m259.01 450.334h-.112c-57.989-.393-102.57-19.512-132.523-56.842-26.664-33.216-40.409-79.433-40.871-137.352v-.281c.462-57.933 14.207-104.137 40.871-137.352 29.939-37.33 74.534-56.45 132.509-56.842h.224c44.454.294 81.644 11.729 110.547 33.957 27.168 20.898 46.288 50.683 56.842 88.545l-33.033 9.21c-17.874-64.12-63.111-96.901-134.469-97.419-47.114.336-82.736 15.145-105.901 44.007-21.695 27.028-32.907 66.066-33.313 116.021.42 49.969 11.631 89.006 33.313 116.022 23.165 28.861 58.787 43.669 105.901 44.005 42.466-.308 70.573-10.203 93.948-33.102 26.677-26.133 26.188-58.186 17.65-77.683-5.025-11.492-14.152-21.066-26.455-28.317-3.092 21.864-10.05 39.612-20.799 52.98-14.333 17.845-34.656 27.602-60.383 28.987-19.47 1.049-38.226-3.554-52.783-12.975-17.216-11.142-27.294-28.191-28.372-48.01-1.05-19.273 6.593-36.994 21.513-49.9 14.263-12.331 34.321-19.567 58.018-20.897 17.468-.98 33.802-.21 48.905 2.31-2.002-12.023-6.06-21.555-12.107-28.442-8.315-9.476-21.178-14.319-38.212-14.431h-.476c-13.675 0-32.249 3.751-44.091 21.359l-28.456-19.134c15.845-23.557 41.585-36.518 72.532-36.518h.7c51.747.322 82.555 31.969 85.621 87.243 1.762.743 3.485 1.511 5.192 2.31 24.145 11.352 41.795 28.541 51.061 49.704 12.906 29.505 14.095 77.585-25.082 115.936-29.926 29.309-66.262 42.537-117.813 42.887h-.112l.014.014zm16.237-189.338c-3.919 0-7.895.112-11.954.35-29.743 1.68-48.275 15.299-47.225 34.698 1.106 20.324 23.529 29.771 45.07 28.61 19.833-1.065 45.645-8.777 49.969-60.09-10.946-2.336-22.982-3.569-35.86-3.569z" fill="#fff"/></svg></a>
+      <a href="https://www.facebook.com/BlogniceOfficial/" target="_blank" rel="noopener" aria-label="Blognice on Facebook"><svg aria-hidden="true" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="m255.1824 7.7579q69.23.79 125.0851 34.0293a249.7343 249.7343 0 0 1 88.8909 89.4346q33.0371 56.1914 33.8244 125.8428-1.962 95.3-60.1167 162.791c-38.77 44.9941-88.425 72.83-139.8274 83.5009v-178.1275h48.5969l10.99-70h-73.5869v-45.8481a39.844 39.844 0 0 1 8.4739-26.3232q8.8275-11.2527 31.0895-11.8287h44.4366v-61.3184q-.9563-.3077-18.15-2.4336a360.7434 360.7434 0 0 0 -39.16-2.4336q-44.4328.205-70.2811 25.0674-25.8488 24.8554-26.4085 71.9209v53.1973h-56v70h56v178.1275c-63.1149-10.6709-112.77-38.5068-151.54-83.5009s-58.808-99.2578-60.1162-162.791q.7851-69.6546 33.8236-125.8428a249.7389 249.7389 0 0 1 88.8917-89.4346q55.8534-33.2329 125.0842-34.0293z" fill-rule="evenodd"/></svg></a>
+      <a href="https://bsky.app/profile/blognice.bsky.social" target="_blank" rel="noopener" aria-label="Blognice on Bluesky"><img src="data:image/webp;base64,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" alt="" aria-hidden="true"></a>
+      <a href="https://www.instagram.com/blognice_com/" target="_blank" rel="noopener" aria-label="Blognice on Instagram"><img src="https://hamsterpost.b-cdn.net/social%20media%20icon/instagram.svg" alt="" aria-hidden="true" loading="lazy"></a>
+    </div></div>
+    <div class="footer-links" aria-label="Product">
+      <a href="#features">Features</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#faq">FAQ</a>
+      <a href="https://github.com/pragmaticonline/blognice">Source</a>
+    </div>
+    <div class="footer-links" aria-label="Legal"><a href="/privacy">Privacy</a><a href="/manifesto">Manifesto</a><a href="/terms">Terms</a><a href="/cookies">Cookies</a><a href="/security">Security</a></div>
+    <div class="footer-actions"><a class="link-underline" href="/admin/login">Sign in</a><a class="btn btn-solid" href="/signup">Create your blog</a></div>
+  </div>
+</footer>
+</body>
+</html>
