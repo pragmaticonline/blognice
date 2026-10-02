@@ -1736,6 +1736,9 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
   // longer matches the latest tap for that comment is ignored, so rapid
   // like-then-dislike can never settle on the stale answer. Failures revert
   // to the pre-tap snapshot instead of stranding a wrong count.
+  // TODO: at high vote volume, per-vote edge purges keep the post page
+  // effectively uncacheable. Better design: leave the HTML cached and have
+  // the browser fetch fresh counts via a small JSON call on load.
   var VOTES_KEY="bn_comment_votes",voteOps={};
   function myVotes(){try{return JSON.parse(localStorage.getItem(VOTES_KEY)||"{}")||{};}catch(e){return{};}}
   function setMyVote(id,v){try{var m=myVotes();if(v)m[id]=v;else delete m[id];localStorage.setItem(VOTES_KEY,JSON.stringify(m));}catch(e){}}

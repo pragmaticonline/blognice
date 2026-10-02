@@ -9558,6 +9558,9 @@ app.post("/:slug/comments/:commentId/vote", async (c) => {
     type: "comment-votes",
     comment: { id: target.id, likes, dislikes },
   }).catch(() => false));
+  // Counts are baked into the cached post HTML: purge so a reload right
+  // after voting shows the new totals instead of the stale copy.
+  c.executionCtx.waitUntil(purge(c, [`/${post.slug}`]).catch(() => {}));
   return c.json({ comment: { id: target.id, likes, dislikes, my_vote: next }, op });
 });
 

@@ -156,6 +156,42 @@ test("comment votes toggle, flip, clear, and broadcast counts", async () => {
   }
 });
 
+test("votes purge the post page so reloads show fresh counts", async () => {
+  const { blogniceApp } = await import("../src/index.ts");
+  const state = makeState();
+  state.identities = { reader: { email_hash: "r1", author_name: "Reader", cookie_hash: cookieHash("reader-cookie"), verified_at: NOW } };
+  const db = fakeDb(state);
+  const env = { DB: db, POSTS: db, ROOT_DOMAIN: "blognice.test" };
+  const background = [];
+  const executionCtx = { waitUntil(p) { background.push(Promise.resolve(p)); }, passThroughOnException() {} };
+  const deleted = [];
+  const originalCaches = globalThis.caches;
+  globalThis.caches = { default: { match: async () => undefined, put: async () => {}, delete: async (req) => { deleted.push(req.url); return true; } } };
+  const req = (path, opts = {}) => new Request(`https://commentblog.blognice.test${path}`, {
+    ...opts,
+    headers: { host: "commentblog.blognice.test", ...(opts.headers || {}) },
+  });
+  const vote = (id, body, cookie = "reader-cookie") => blogniceApp.request(req(`/live-post/comments/${id}/vote`, {
+    method: "POST", headers: { "content-type": "application/json", cookie: `bn_comment=${cookie}` },
+    body: JSON.stringify(body),
+  }), undefined, env, executionCtx);
+  try {
+    assert.equal((await vote(5, { vote: 1 })).status, 200);
+    await Promise.all(background.splice(0));
+    assert.ok(deleted.some((url) => url.startsWith("https://commentblog.blognice.test/live-post")), `purged post page, got: ${deleted.join(", ")}`);
+
+    // Rejected votes change nothing, so they purge nothing.
+    deleted.length = 0;
+    assert.equal((await vote(6, { vote: 1 })).status, 404);
+    assert.equal((await vote(5, { vote: 1 }, "nobody-cookie")).status, 401);
+    await Promise.all(background.splice(0));
+    assert.equal(deleted.length, 0);
+  } finally {
+    if (originalCaches === undefined) delete globalThis.caches;
+    else globalThis.caches = originalCaches;
+  }
+});
+
 test("effective votes emit one comment_voted point; no-ops and rejects do not", async () => {
   const { blogniceApp } = await import("../src/index.ts");
   const state = makeState();
