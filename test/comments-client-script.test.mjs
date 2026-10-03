@@ -29,6 +29,10 @@ test("served comment scripts parse and keep their regex escapes", async () => {
   assert.ok(client.includes("settleDialog"), "dialog open restores scroll after top-layer race");
   assert.ok(client.includes("data-sort-tab"), "sort tabs re-order threads without a reload");
   assert.ok(client.includes('var sortMode="newest"'), "newest is the default sort");
+  assert.ok(client.includes("status===202"), "held drafts report pending confirmation");
+  assert.ok(client.includes("will post automatically"), "draft submit promises auto-publish on click");
+  assert.ok(client.includes("now live"), "verify landing confirms cross-device publishes");
+  assert.ok(client.includes("This device is verified"), "device-only verify states the outcome");
   assert.ok(client.includes('closest(".comment-children")'), "live replies flatten into the level-1 container");
   assert.ok(client.includes("↩"), "live reply-to labels match the server style");
   assert.ok(client.includes('addEventListener("close"'), "dialog Escape returns the form to the thread");

@@ -42,11 +42,15 @@ Server to client JSON frames, each with `type`:
 
 ### Submit to broadcast path
 
-1. HTTP POST validates (verified identity, rate limits, duplicate check, parent checks) and writes the comment as `approved` in POSTS D1.
+1. HTTP POST validates (verified identity, rate limits, duplicate check, parent checks) and writes the comment as `approved` in POSTS D1. A submit without a usable cookie but with an identity in the payload is validated the same way and held as `unverified`; the verify click publishes it from any device (see cross-device confirmation below).
 2. The worker POSTs the event to the room's internal endpoint; the room broadcasts `comment-approved` to subscribers.
 3. On removal, the row is tombstoned (`removed`) and the room broadcasts `comment-removed`.
 
 If the broadcast POST fails, the comment is still approved and visible on next page load or poll — broadcast is best-effort enhancement, never required for correctness. The `pending` status is reserved for a future pre-moderation mode and unused in this version.
+
+### Cross-device confirmation
+
+First-time submits carry the commenter's identity in the payload. The server stores the comment as `unverified` (invisible to listing, feeds, votes, replies, moderation, and export) and mails the confirmation link. Clicking the link on any device marks the identity verified and flips that address's fresh drafts to `approved` with the normal publish side effects (purge, broadcast, reply notice), then lands on `?verified=1&published=N`. Resubmitting before confirming replaces the draft; re-tapping Send after another device already published only re-verifies the device (`already_posted`, no duplicate). Stale drafts are deleted on verify and swept daily after the 24-hour token TTL.
 
 ### Broadcast endpoint authentication (Disqus-style)
 
@@ -114,7 +118,7 @@ CREATE TABLE comments (
   author_name TEXT    NOT NULL,              -- display name chosen at verification
   email_hash  TEXT    NOT NULL,              -- sha-256 of the verified email; the address itself is never stored
   body        TEXT    NOT NULL,              -- plain text, length-capped in code
-  status      TEXT    NOT NULL DEFAULT 'approved', -- approved | removed (pending reserved for future pre-moderation)
+  status      TEXT    NOT NULL DEFAULT 'approved', -- approved | removed | unverified (pending reserved for future pre-moderation)
   created_at  INTEGER NOT NULL,
   decided_at  INTEGER,                       -- when moderation approved or removed
   UNIQUE (tenant_id, post_id, id)

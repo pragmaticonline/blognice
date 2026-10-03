@@ -1952,10 +1952,12 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
     var boxShown=!!(subRow&&!subRow.hidden);
     try{localStorage.setItem("bn_comment_identity",JSON.stringify({name:nameField.value,email:emailField.value,website:siteNow||""}));if(boxShown)localStorage.setItem(SUB_ASKED_KEY,"1");paintSubRow();}catch(err){}
     var payload={body:bodyText};
+    payload.email=emailField.value;payload.author_name=nameField.value;
+    if(siteNow)payload.website=siteNow;
     var replyParent=parentField.value||"";
     if(replyParent)payload.parent_id=Number(replyParent);
     var wantSub=subField&&subField.checked&&(boxShown||draftSub);
-    if(wantSub){payload.subscribe=true;payload.email=emailField.value;}
+    if(wantSub){payload.subscribe=true;payload.subscribe_email=emailField.value;}
     var photoNow=savedPhoto();
     var who=(nameField.value||"").trim()||"Someone";
     var tempId="pending-"+Date.now();
@@ -1982,6 +1984,13 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
           say(subState==="pending"?"Posted. Check your inbox to confirm your subscription.":"Posted.");
         });
       }
+      if(r.status===202){
+        return r.json().catch(function(){return null;}).then(function(j){
+          done();dropPending();bodyField.value=bodyText;
+          try{localStorage.removeItem("bn_comment_draft");}catch(e){}
+          say(j&&j.already_posted?"That comment is already live. Check your email to verify this device.":"Check your email for a confirmation link — your comment will post automatically once you confirm.");
+        });
+      }
       if(r.status===401){
         done();dropPending();bodyField.value=bodyText;
         try{localStorage.setItem("bn_comment_draft",JSON.stringify({name:nameField.value,email:emailField.value,website:siteNow||"",subscribe:!!wantSub,body:bodyText,parent:replyParent}));}catch(e){}
@@ -1998,14 +2007,20 @@ const COMMENT_CLIENT_SCRIPT = `<script>(function(){
   });
   try{
     if(/(^|[?&])verified=1(&|#|$)/.test(location.search+location.hash)){
+      var pubMatch=/(^|[?&])published=(\\d+)/.exec(location.search||"");
+      var pubCount=pubMatch?Number(pubMatch[2]):0;
       var draft=null;try{draft=JSON.parse(localStorage.getItem("bn_comment_draft")||"null");}catch(e){draft=null;}
-      if(draft){if(draft.parent&&!/^\\d+$/.test(draft.parent))draft.parent="";
+      if(pubCount>0){
+        try{localStorage.removeItem("bn_comment_draft");}catch(e){}
+        showInline("","");
+        say(pubCount===1?"Your comment is now live.":"Your "+pubCount+" comments are now live.");
+      } else if(draft){if(draft.parent&&!/^\\d+$/.test(draft.parent))draft.parent="";
         nameField.value=draft.name||"";emailField.value=draft.email||"";if(siteField)siteField.value=draft.website||"";if(subField)subField.checked=draft.subscribe!==false;draftSub=!!draft.subscribe;bodyField.value=draft.body||"";
         var rname="";
         if(draft.parent){var pa=section.querySelector('[data-comment="'+draft.parent+'"] .comment-author');if(pa)rname=pa.textContent;}
         showInline(draft.parent||"",rname);
-      } else showInline("","");
-      say("Email confirmed — press Send to publish your comment.");
+        say("Email confirmed — press Send to publish your comment.");
+      } else {showInline("","");say("This device is verified — you can comment now.");}
       try{history.replaceState(null,"",path+"#comments");}catch(e){}
     }
   }catch(e){}

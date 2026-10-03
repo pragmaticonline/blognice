@@ -32,6 +32,7 @@ function makeState() {
     comments: [
       { id: 1, tenant_id: 1, post_id: 7, parent_id: null, author_name: "Reader", email_hash: "e1", body: "Hello.", status: "approved", created_at: NOW - 50, decided_at: NOW - 50 },
       { id: 2, tenant_id: 1, post_id: 7, parent_id: 1, author_name: "Spammer", email_hash: "e2", body: "Buy now.", status: "approved", created_at: NOW - 40, decided_at: NOW - 40 },
+      { id: 3, tenant_id: 1, post_id: 7, parent_id: null, author_name: "Pending", email_hash: "e3", body: "Unconfirmed draft.", status: "unverified", created_at: NOW - 30, decided_at: null },
     ],
     purged: [],
   };
@@ -55,9 +56,10 @@ function fakeDb(state) {
               }
               if (sql.includes("FROM tenants")) return state.tenant;
               if (sql.includes("COUNT(*)") && sql.includes("comments")) {
-                const rows = args.length > 1
+                let rows = args.length > 1
                   ? state.comments.filter((c) => c.tenant_id === args[0] && c.post_id === args[1])
                   : state.comments.filter((c) => c.tenant_id === args[0]);
+                if (sql.includes("status != 'unverified'")) rows = rows.filter((c) => c.status !== "unverified");
                 return { count: rows.length };
               }
               if (sql.includes("FROM comments")) {
@@ -72,6 +74,7 @@ function fakeDb(state) {
               if (sql.includes("FROM comments")) {
                 // List binds end with (limit, offset); a post filter adds one bind after the tenant.
                 let rows = state.comments.filter((c) => c.tenant_id === args[0]);
+                if (sql.includes("status != 'unverified'")) rows = rows.filter((c) => c.status !== "unverified");
                 if (args.length === 4) rows = rows.filter((c) => c.post_id === args[1]);
                 rows = rows
                   .map((c) => ({ ...c, post_slug: state.posts[c.post_id]?.slug, post_title: state.posts[c.post_id]?.title }))
@@ -133,6 +136,15 @@ test("owners and editors moderate comments; authors cannot", async () => {
     assert.match(listHtml, /Buy now\./);
     assert.match(listHtml, />Comments</);
     assert.match(listHtml, /status-approved/, "approved rows read green");
+    // Unverified drafts never reach the queue: unlisted and untouchable.
+    assert.ok(!listHtml.includes("Unconfirmed draft."), "draft excluded from the queue");
+    const sneakForm = new FormData();
+    sneakForm.set("comment_id", "3");
+    const sneaked = await blogniceApp.request(adminReq(state, "/admin/b/b_comments/comments/3/remove", "owner-session", {
+      method: "POST", body: sneakForm,
+    }), undefined, env, executionCtx);
+    assert.ok([302, 303].includes(sneaked.status));
+    assert.equal(state.comments[2].status, "unverified", "direct moderation of a draft is refused");
 
     // Authors cannot moderate.
     const authorForm = new FormData();

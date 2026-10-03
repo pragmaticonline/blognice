@@ -71,6 +71,9 @@ test("one-click export bundles posts, pages, images, subscribers, comments", asy
     await postsDb.prepare(
       "INSERT INTO comments (id, tenant_id, post_id, parent_id, author_name, email_hash, body, status, created_at) VALUES (1, 1, 1, NULL, 'Reader', 'hash1', 'Nice post!', 'approved', ?)",
     ).bind(now).run();
+    await postsDb.prepare(
+      "INSERT INTO comments (id, tenant_id, post_id, parent_id, author_name, email_hash, body, status, created_at) VALUES (2, 1, 1, NULL, 'Pending', 'hash2', 'Unconfirmed draft.', 'unverified', ?)",
+    ).bind(now).run();
     await indexDb.prepare(
       "INSERT INTO subscribers (tenant_id, email, token, created_at, confirmed_at) VALUES (1, 'reader@example.com', 'tok1', ?, ?)",
     ).bind(now, now).run();
@@ -104,7 +107,7 @@ test("one-click export bundles posts, pages, images, subscribers, comments", asy
     assert.match(post, /images\/pic\.orig\.png/);
     assert.doesNotMatch(post, /\/media\//);
     const comments = JSON.parse(strFromU8(files["comments.json"]));
-    assert.equal(comments.length, 1);
+    assert.equal(comments.length, 1, "unverified drafts stay out of the export");
     assert.equal(comments[0].body, "Nice post!");
     assert.match(strFromU8(files["subscribers.csv"]), /reader@example\.com/);
   } finally {

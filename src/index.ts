@@ -5535,7 +5535,10 @@ app.get("/admin/b/:blogId/comments", async (c) => {
   const limit = 50;
   const offset = (page - 1) * limit;
   const db = tenantDb(c.env, ctx.tenant);
-  const where = filtered ? "WHERE c.tenant_id = ? AND c.post_id = ?" : "WHERE c.tenant_id = ?";
+  // Unverified drafts are not published; nothing to moderate until the click.
+  const where = filtered
+    ? "WHERE c.tenant_id = ? AND c.post_id = ? AND c.status != 'unverified'"
+    : "WHERE c.tenant_id = ? AND c.status != 'unverified'";
   const [paged, counted] = await Promise.all([
     db.prepare(
       `SELECT c.id, c.post_id, c.author_name, c.body, c.status, c.created_at, p.slug AS post_slug, p.title AS post_title
@@ -5573,8 +5576,8 @@ async function moderateComment(c: any, status: "removed" | "approved"): Promise<
   const id = Number(c.req.param("commentId"));
   if (!Number.isSafeInteger(id) || id <= 0) return c.text("Invalid comment.", 400);
   const db = tenantDb(c.env, ctx.tenant);
-  const row = await db.prepare("SELECT id, post_id, parent_id, author_name, body, created_at, avatar_hue, avatar_key, website, likes, dislikes FROM comments WHERE tenant_id = ? AND id = ?").bind(ctx.tenant.id, id).first<any>();
-  if (!row) return c.redirect(`/admin/b/${ctx.tenant.public_id}/comments`, 303);
+  const row = await db.prepare("SELECT id, post_id, parent_id, author_name, body, created_at, avatar_hue, avatar_key, website, likes, dislikes, status FROM comments WHERE tenant_id = ? AND id = ?").bind(ctx.tenant.id, id).first<any>();
+  if (!row || row.status === "unverified") return c.redirect(`/admin/b/${ctx.tenant.public_id}/comments`, 303);
   const now = Math.floor(Date.now() / 1000);
   await db.prepare("UPDATE comments SET status = ?, decided_at = ? WHERE tenant_id = ? AND id = ?").bind(status, now, ctx.tenant.id, id).run();
   queueBlogAudit(c, ctx.tenant.id, ctx.account.id, status === "removed" ? "comment_removed" : "comment_restored", "comments");
@@ -6014,7 +6017,7 @@ app.get("/admin/b/:blogId/export.zip", async (c) => {
   let commentRows: { results: any[] } = { results: [] };
   try {
     commentRows = await pdb.prepare(
-      "SELECT id, post_id, parent_id, author_name, email_hash, body, status, created_at FROM comments WHERE tenant_id = ? ORDER BY id"
+      "SELECT id, post_id, parent_id, author_name, email_hash, body, status, created_at FROM comments WHERE tenant_id = ? AND status != 'unverified' ORDER BY id"
     ).bind(tenant.id).all<any>();
   } catch { commentRows = { results: [] }; }
   add("comments.json", strToU8(JSON.stringify(commentRows.results.map((row: any) => ({
@@ -7434,6 +7437,24 @@ async function processPushFanout(env: Bindings, job: PushFanoutMessage): Promise
   if (retryableFailure) throw new Error("One or more browser push deliveries are retryable.");
   if (subscriptions.results.length === 50) await env.PUSH_QUEUE.send({ ...job, afterId: lastId });
   else await env.DB.prepare("UPDATE push_campaigns SET status = 'completed', completed_at = ? WHERE campaign_id = ? AND tenant_id = ? AND status = 'pending'").bind(Math.floor(Date.now() / 1000), job.campaignId, tenant.id).run();
+}
+
+// Stale drafts whose authors never confirmed: invisible everywhere, but
+// delete them so abandoned addresses don't accumulate rows.
+export async function cleanupUnverifiedComments(env: Bindings, now: number): Promise<void> {
+  let shards: { shard: string }[] = [{ shard: "primary" }];
+  try {
+    shards = (await env.DB.prepare("SELECT DISTINCT shard FROM tenants WHERE deleted_at IS NULL").all<{ shard: string }>()).results;
+  } catch { /* fall through to primary */ }
+  const seen = new Set<string>();
+  for (const row of shards) {
+    if (!row?.shard || seen.has(row.shard)) continue;
+    seen.add(row.shard);
+    try {
+      const db = tenantDb(env, { shard: row.shard } as Tenant);
+      await db.prepare("DELETE FROM comments WHERE status = 'unverified' AND created_at < ?").bind(now - COMMENT_TOKEN_TTL).run();
+    } catch { /* next shard */ }
+  }
 }
 
 async function cleanupPushState(env: Bindings): Promise<void> {
@@ -9052,6 +9073,7 @@ const COMMENT_SUBMIT_MAX = 20;
 const COMMENT_TENANT_WINDOW = 3600;
 const COMMENT_TENANT_MAX = 200;
 const COMMENT_DUPLICATE_WINDOW = 600;
+const COMMENT_UNVERIFIED_CAP = 10; // held drafts per address; confirmed on click or swept after the token TTL
 const COMMENT_VOTE_WINDOW = 60;
 const COMMENT_VOTE_MAX = 30;
 const COMMENT_IDENTITY_WINDOW = 3600;
@@ -9152,6 +9174,48 @@ export async function broadcastCommentEvent(env: Bindings, tenant: Tenant, postI
   }
 }
 
+// Issues (or rotates) the verification token for an address, restamps past
+// rows with a carried name/site, and mails the link. Shared by the explicit
+// /start route and by first-time submits, which verify the same way.
+async function sendCommentVerification(
+  c: any, db: any, tenant: Tenant, post: { slug: string },
+  input: { email: string; authorName: string; website: string | null; pendingSubscribe: string | null },
+): Promise<{ ok: true } | { ok: false; status: 429; error: string }> {
+  const now = Math.floor(Date.now() / 1000);
+  const emailHash = await sha256hex(input.email.toLowerCase());
+  const recent = await commentAttemptCount(c.env, tenant.id, "start", emailHash, now - COMMENT_START_WINDOW);
+  if (recent >= COMMENT_START_MAX) return { ok: false, status: 429, error: "Too many verification requests. Try again later." };
+  const token = commentRandomToken();
+  const tokenHash = await sha256hex(token);
+  // Re-verification rotates the token but never clears an existing verified_at.
+  const existing = await db.prepare(
+    "SELECT email_hash FROM comment_identities WHERE tenant_id = ? AND email_hash = ?"
+  ).bind(tenant.id, emailHash).first();
+  if (existing) {
+    await db.prepare(
+      "UPDATE comment_identities SET author_name = ?, website = ?, pending_subscribe_email = ?, token_hash = ?, token_expires_at = ? WHERE tenant_id = ? AND email_hash = ?"
+    ).bind(input.authorName, input.website, input.pendingSubscribe, tokenHash, now + COMMENT_TOKEN_TTL, tenant.id, emailHash).run();
+  } else {
+    await db.prepare(
+      "INSERT INTO comment_identities (tenant_id, email_hash, author_name, website, pending_subscribe_email, token_hash, token_expires_at, verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)"
+    ).bind(tenant.id, emailHash, input.authorName, input.website, input.pendingSubscribe, tokenHash, now + COMMENT_TOKEN_TTL, now).run();
+  }
+  // Re-verification carries a new name/site (new device): restamp past rows
+  // like a settings save, or history diverges by device.
+  await db.prepare(
+    "UPDATE comments SET author_name = ? WHERE tenant_id = ? AND email_hash = ?"
+  ).bind(input.authorName, tenant.id, emailHash).run();
+  await db.prepare(
+    "UPDATE comments SET website = ? WHERE tenant_id = ? AND email_hash = ?"
+  ).bind(input.website, tenant.id, emailHash).run();
+  await logCommentAttempt(c.env, tenant, "start", emailHash, now);
+  const verifyUrl = `${originOf(c)}/${post.slug}/comments/verify?token=${token}`;
+  c.executionCtx.waitUntil(sendEmailDetailed(c.env, { to: input.email, ...commentVerificationEmail({ blogTitle: tenant.title, verifyUrl, authorName: input.authorName, alsoSubscribing: input.pendingSubscribe != null }) }).then((result) => {
+    if (!result.ok) console.error(`comment verification email not delivered (tenant=${tenant.id} provider=${result.provider} detail=${result.detail ?? "unknown"})`);
+  }));
+  return { ok: true };
+}
+
 app.post("/:slug/comments/start", async (c) => {
   const tenant = await resolveTenant(c.env, c.req.header("host") || "");
   if (!tenant || !tenant.comments_enabled) return c.json({ error: "Comments are not available." }, 404);
@@ -9164,17 +9228,7 @@ app.post("/:slug/comments/start", async (c) => {
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || email.length > 254) return c.json({ error: "A valid email address is required." }, 400);
   if (!authorName || authorName.length > 60) return c.json({ error: "A display name up to 60 characters is required." }, 400);
   if (!emailEnabled(c.env)) return c.json({ error: "Comment verification email is not available." }, 503);
-  const now = Math.floor(Date.now() / 1000);
-  const emailHash = await sha256hex(email.toLowerCase());
-  const recent = await commentAttemptCount(c.env, tenant.id, "start", emailHash, now - COMMENT_START_WINDOW);
-  if (recent >= COMMENT_START_MAX) return c.json({ error: "Too many verification requests. Try again later." }, 429);
-  const token = commentRandomToken();
   const db = tenantDb(c.env, tenant);
-  const tokenHash = await sha256hex(token);
-  // Re-verification rotates the token but never clears an existing verified_at.
-  const existing = await db.prepare(
-    "SELECT email_hash FROM comment_identities WHERE tenant_id = ? AND email_hash = ?"
-  ).bind(tenant.id, emailHash).first();
   const rawSite = payload?.website;
   const website = rawSite == null || rawSite === "" ? null : normalizeCommentWebsite(rawSite);
   if (rawSite != null && rawSite !== "" && !website) return c.json({ error: "A website address must be a valid http(s) URL." }, 400);
@@ -9183,28 +9237,8 @@ app.post("/:slug/comments/start", async (c) => {
   const rawSubEmail = payload?.subscribe === true ? String(payload?.subscribe_email ?? "") : "";
   const subEmail = rawSubEmail.trim().toLowerCase();
   const pendingSubscribe = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(subEmail) && subEmail.length <= 254 ? subEmail : null;
-  if (existing) {
-    await db.prepare(
-      "UPDATE comment_identities SET author_name = ?, website = ?, pending_subscribe_email = ?, token_hash = ?, token_expires_at = ? WHERE tenant_id = ? AND email_hash = ?"
-    ).bind(authorName, website, pendingSubscribe, tokenHash, now + COMMENT_TOKEN_TTL, tenant.id, emailHash).run();
-  } else {
-    await db.prepare(
-      "INSERT INTO comment_identities (tenant_id, email_hash, author_name, website, pending_subscribe_email, token_hash, token_expires_at, verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)"
-    ).bind(tenant.id, emailHash, authorName, website, pendingSubscribe, tokenHash, now + COMMENT_TOKEN_TTL, now).run();
-  }
-  // Re-verification carries a new name/site (new device): restamp past rows
-  // like a settings save, or history diverges by device.
-  await db.prepare(
-    "UPDATE comments SET author_name = ? WHERE tenant_id = ? AND email_hash = ?"
-  ).bind(authorName, tenant.id, emailHash).run();
-  await db.prepare(
-    "UPDATE comments SET website = ? WHERE tenant_id = ? AND email_hash = ?"
-  ).bind(website, tenant.id, emailHash).run();
-  await logCommentAttempt(c.env, tenant, "start", emailHash, now);
-  const verifyUrl = `${originOf(c)}/${post.slug}/comments/verify?token=${token}`;
-  c.executionCtx.waitUntil(sendEmailDetailed(c.env, { to: email, ...commentVerificationEmail({ blogTitle: tenant.title, verifyUrl, authorName, alsoSubscribing: pendingSubscribe != null }) }).then((result) => {
-    if (!result.ok) console.error(`comment verification email not delivered (tenant=${tenant.id} provider=${result.provider} detail=${result.detail ?? "unknown"})`);
-  }));
+  const mailed = await sendCommentVerification(c, db, tenant, post, { email, authorName, website, pendingSubscribe });
+  if (!mailed.ok) return c.json({ error: mailed.error }, mailed.status);
   return c.json({ ok: true });
 });
 
@@ -9275,9 +9309,61 @@ app.get("/:slug/comments/verify", async (c) => {
       "UPDATE comment_identities SET pending_subscribe_email = NULL WHERE tenant_id = ? AND email_hash = ?"
     ).bind(tenant.id, identity.email_hash).run();
   }
+  const published = await publishUnverifiedComments(c, tenant, identity.email_hash, now);
   setCommentCookie(c, cookieToken);
-  return c.redirect(`/${post.slug}?verified=1#comments`, 302);
+  return c.redirect(`/${post.slug}?verified=1&published=${published}#comments`, 302);
 });
+
+// The verify click proves ownership of the address, so every fresh draft it
+// holds goes live — from any device, with no second Send press. Each row
+// flips under its own `status = 'unverified'` guard, so a double-clicked
+// link (or two racing requests) still notifies and broadcasts exactly once.
+async function publishUnverifiedComments(c: any, tenant: Tenant, emailHash: string, now: number): Promise<number> {
+  const db = tenantDb(c.env, tenant);
+  const drafts = await db.prepare(
+    "SELECT id, post_id, parent_id, author_name, body, created_at, avatar_hue, avatar_key, website FROM comments WHERE tenant_id = ? AND email_hash = ? AND status = 'unverified' AND created_at > ?"
+  ).bind(tenant.id, emailHash, now - COMMENT_TOKEN_TTL).all<any>();
+  let published = 0;
+  for (const draft of drafts.results) {
+    const post = await db.prepare("SELECT slug, title FROM posts WHERE tenant_id = ? AND id = ?").bind(tenant.id, draft.post_id).first<{ slug: string; title: string }>();
+    if (!post) continue;
+    let parentId: number | null = null;
+    let parentEmailHash: string | null = null;
+    if (draft.parent_id != null) {
+      const parent = await db.prepare("SELECT id, post_id, email_hash, status FROM comments WHERE tenant_id = ? AND id = ?").bind(tenant.id, draft.parent_id).first<any>();
+      // A reply whose parent vanished while it waited goes live top-level
+      // instead of dying with the thread.
+      if (parent && parent.post_id === draft.post_id && parent.status === "approved") {
+        parentId = parent.id;
+        parentEmailHash = parent.email_hash;
+      }
+    }
+    const live = await db.prepare(
+      "SELECT id FROM comments WHERE tenant_id = ? AND email_hash = ? AND body = ? AND status = 'approved' AND created_at > ?"
+    ).bind(tenant.id, emailHash, draft.body, now - COMMENT_DUPLICATE_WINDOW).first<{ id: number }>();
+    if (live) {
+      await db.prepare("DELETE FROM comments WHERE tenant_id = ? AND id = ? AND status = 'unverified'").bind(tenant.id, draft.id).run();
+      continue;
+    }
+    const flipped = await db.prepare(
+      "UPDATE comments SET status = 'approved', parent_id = ?, decided_at = ? WHERE tenant_id = ? AND id = ? AND status = 'unverified'"
+    ).bind(parentId, now, tenant.id, draft.id).run();
+    if (Number((flipped as any)?.meta?.changes ?? 0) !== 1) continue;
+    published++;
+    const comment = { id: draft.id, parent_id: parentId, author_name: draft.author_name, body: draft.body, created_at: draft.created_at, avatar_hue: draft.avatar_hue ?? null, avatar_key: draft.avatar_key ?? null, website: draft.website ?? null, likes: 0, dislikes: 0 };
+    c.executionCtx.waitUntil(purge(c, [`/${post.slug}`]).catch(() => {}));
+    c.executionCtx.waitUntil(broadcastCommentEvent(c.env, tenant, draft.post_id, { type: "comment-approved", comment }).catch(() => false));
+    try { recordCustomEvent(c.env, tenant.id, { name: "comment_posted", path: `/${post.slug}`, visitor: "", country: "", device: "", browser: "" }); } catch {}
+    if (parentId && parentEmailHash && parentEmailHash !== emailHash) {
+      c.executionCtx.waitUntil(notifyCommentReply(c.env, tenant, { slug: post.slug, title: post.title }, { id: draft.id, body: draft.body }, draft.author_name, parentEmailHash).catch(() => false));
+    }
+  }
+  // Stale drafts for this address never publish; clear them on the way out.
+  await db.prepare(
+    "DELETE FROM comments WHERE tenant_id = ? AND email_hash = ? AND status = 'unverified' AND created_at <= ?"
+  ).bind(tenant.id, emailHash, now - COMMENT_TOKEN_TTL).run();
+  return published;
+}
 
 // Reader settings: a verified reader renames their own display name.
 // The email stays the identity key, so only the name moves; future comments
@@ -9488,17 +9574,83 @@ async function notifyCommentReply(
   return true;
 }
 
+// First-time (or new-device) submit: no usable cookie. With an identity in
+// the payload the comment is held server-side as `unverified` and the
+// verification mail goes out; the verify click publishes it from any device,
+// so confirming on a different device than the one that wrote it just works.
+async function submitUnverifiedComment(c: any, tenant: Tenant, post: Post, payload: any): Promise<Response> {
+  const email = String(payload?.email ?? "").trim();
+  const authorName = String(payload?.author_name ?? "").trim();
+  if (!email || !authorName) return c.json({ error: "Verify your email address before commenting." }, 401);
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || email.length > 254) return c.json({ error: "A valid email address is required." }, 400);
+  if (authorName.length > 60) return c.json({ error: "A display name up to 60 characters is required." }, 400);
+  if (!emailEnabled(c.env)) return c.json({ error: "Comment verification email is not available." }, 503);
+  const body = String(payload?.body ?? "").trim();
+  if (!body || body.length > COMMENT_BODY_MAX) return c.json({ error: `Comment must be 1 to ${COMMENT_BODY_MAX} characters.` }, 400);
+  if (/[<>]/.test(body)) return c.json({ error: "Comments are plain text." }, 400);
+  const rawSite = payload?.website;
+  const website = rawSite == null || rawSite === "" ? null : normalizeCommentWebsite(rawSite);
+  if (rawSite != null && rawSite !== "" && !website) return c.json({ error: "A website address must be a valid http(s) URL." }, 400);
+  const db = tenantDb(c.env, tenant);
+  let parentId: number | null = null;
+  if (payload?.parent_id != null) {
+    if (!Number.isInteger(payload.parent_id)) return c.json({ error: "Invalid parent comment." }, 400);
+    const parent = await db.prepare("SELECT * FROM comments WHERE tenant_id = ? AND id = ?").bind(tenant.id, payload.parent_id).first<any>();
+    if (!parent || parent.post_id !== post.id || parent.status !== "approved") return c.json({ error: "Invalid parent comment." }, 400);
+    parentId = parent.id;
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const emailHash = await sha256hex(email.toLowerCase());
+  const recent = await commentAttemptCount(c.env, tenant.id, "submit", emailHash, now - COMMENT_SUBMIT_WINDOW);
+  if (recent >= COMMENT_SUBMIT_MAX) return c.json({ error: "Too many comments. Try again later." }, 429);
+  const tenantRecent = await commentAttemptCount(c.env, tenant.id, "submit", null, now - COMMENT_TENANT_WINDOW);
+  if (tenantRecent >= COMMENT_TENANT_MAX) return c.json({ error: "Too many comments. Try again later." }, 429);
+  // Already live (confirmed on another device, Send tapped again here):
+  // verify this device without storing a duplicate draft.
+  const live = await db.prepare(
+    "SELECT id FROM comments WHERE tenant_id = ? AND email_hash = ? AND body = ? AND status = 'approved' AND created_at > ?"
+  ).bind(tenant.id, emailHash, body, now - COMMENT_DUPLICATE_WINDOW).first<{ id: number }>();
+  const rawSubEmail = payload?.subscribe === true ? String(payload?.subscribe_email ?? "") : "";
+  const subEmail = rawSubEmail.trim().toLowerCase();
+  const pendingSubscribe = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(subEmail) && subEmail.length <= 254 ? subEmail : null;
+  if (!live) {
+    const held = await db.prepare(
+      "SELECT COUNT(*) AS count FROM comments WHERE tenant_id = ? AND email_hash = ? AND status = 'unverified'"
+    ).bind(tenant.id, emailHash).first<{ count: number }>();
+    if ((held?.count ?? 0) >= COMMENT_UNVERIFIED_CAP) return c.json({ error: "Too many unconfirmed comments. Confirm your email first." }, 429);
+    const hueRaw = payload?.avatar_hue;
+    const avatarHue = Number.isInteger(hueRaw) && hueRaw >= 0 && hueRaw < 360 ? hueRaw : null;
+    // One draft per thread slot: resubmitting before confirming replaces it.
+    const slots = await db.prepare(
+      "SELECT id, parent_id FROM comments WHERE tenant_id = ? AND post_id = ? AND email_hash = ? AND status = 'unverified'"
+    ).bind(tenant.id, post.id, emailHash).all<{ id: number; parent_id: number | null }>();
+    const slot = slots.results.find((row) => (row.parent_id ?? null) === parentId) ?? null;
+    if (slot) {
+      await db.prepare(
+        "UPDATE comments SET body = ?, author_name = ?, website = ?, avatar_hue = ?, created_at = ? WHERE tenant_id = ? AND id = ?"
+      ).bind(body, authorName, website, avatarHue, now, tenant.id, slot.id).run();
+    } else {
+      await db.prepare(
+        "INSERT INTO comments (tenant_id, post_id, parent_id, author_name, email_hash, body, status, created_at, decided_at, avatar_hue, avatar_key, website) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ).bind(tenant.id, post.id, parentId, authorName, emailHash, body, "unverified", now, null, avatarHue, null, website).run();
+    }
+  }
+  await logCommentAttempt(c.env, tenant, "submit", emailHash, now);
+  const mailed = await sendCommentVerification(c, db, tenant, post, { email, authorName, website, pendingSubscribe });
+  if (!mailed.ok) return c.json({ error: mailed.error }, mailed.status);
+  return live ? c.json({ pending: true, already_posted: true }, 202) : c.json({ pending: true }, 202);
+}
+
 app.post("/:slug/comments", async (c) => {
   const tenant = await resolveTenant(c.env, c.req.header("host") || "");
   if (!tenant || !tenant.comments_enabled) return c.json({ error: "Comments are not available." }, 404);
   const post = await commentPost(c, tenant);
   if (!post) return c.json({ error: "Comments are not available." }, 404);
   const cookie = getCookie(c, COMMENT_COOKIE);
-  if (!cookie) return c.json({ error: "Verify your email address before commenting." }, 401);
-  const identity = await commentIdentityByCookie(c.env, tenant, cookie);
-  if (!identity || !identity.verified_at) return c.json({ error: "Verify your email address before commenting." }, 401);
+  const identity = cookie ? await commentIdentityByCookie(c.env, tenant, cookie) : null;
   let payload: any = null;
   try { payload = await c.req.json(); } catch { return c.json({ error: "Invalid request." }, 400); }
+  if (!identity || !identity.verified_at) return submitUnverifiedComment(c, tenant, post, payload);
   const body = String(payload?.body ?? "").trim();
   if (!body || body.length > COMMENT_BODY_MAX) return c.json({ error: `Comment must be 1 to ${COMMENT_BODY_MAX} characters.` }, 400);
   if (/[<>]/.test(body)) return c.json({ error: "Comments are plain text." }, 400);
@@ -10280,7 +10432,7 @@ export default {
           ? termsReview.then(() => relayAffiliateEmailOutboxInDb(env.DB, env.EMAIL_QUEUE!))
           : Promise.resolve({ queued: 0 });
         ctx.waitUntil(
-          Promise.all([runAutopilotScheduled(env, now), archivePreviousDay(env, new Date(now * 1000)), archivePreviousDayEvents(env, new Date(now * 1000)), archivePreviousDayAffiliateEvents(env, new Date(now * 1000)), refreshPostPopularity(env), cleanupPushState(env), payoutPreparation, affiliateEmails]).catch((error) => {
+          Promise.all([runAutopilotScheduled(env, now), archivePreviousDay(env, new Date(now * 1000)), archivePreviousDayEvents(env, new Date(now * 1000)), archivePreviousDayAffiliateEvents(env, new Date(now * 1000)), refreshPostPopularity(env), cleanupPushState(env), cleanupUnverifiedComments(env, now), payoutPreparation, affiliateEmails]).catch((error) => {
         console.error(JSON.stringify({
           message: "scheduled metrics maintenance failed",
           error: error instanceof Error ? error.message : String(error),
