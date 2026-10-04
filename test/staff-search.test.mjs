@@ -59,9 +59,9 @@ function strictDb(seen) {
               if (sql.includes("FROM accounts a")) {
                 return {
                   results: [
-                    { id: 70, email: "brent@codeandsea.com", status: "active", created_at: NOW - 100, blog_count: 1, billing_status: "active", billing_price_id: null, crypto_paid_through: null, vip_granted_at: null, vip_expires_at: null },
-                    { id: 71, email: "vip@example.com", status: "active", created_at: NOW - 200, blog_count: 2, billing_status: "inactive", billing_price_id: null, crypto_paid_through: null, vip_granted_at: NOW - 300, vip_expires_at: null },
-                    { id: 72, email: "free@example.com", status: "active", created_at: NOW - 300, blog_count: 0, billing_status: "inactive", billing_price_id: null, crypto_paid_through: null, vip_granted_at: null, vip_expires_at: null },
+                    { id: 70, email: "brent@codeandsea.com", status: "active", created_at: NOW - 100, blog_count: 1, billing_status: "active", billing_price_id: null, crypto_paid_through: null, vip_granted_at: null, vip_expires_at: null, signup_country: "US" },
+                    { id: 71, email: "vip@example.com", status: "active", created_at: NOW - 200, blog_count: 2, billing_status: "inactive", billing_price_id: null, crypto_paid_through: null, vip_granted_at: NOW - 300, vip_expires_at: null, signup_country: "DE" },
+                    { id: 72, email: "free@example.com", status: "active", created_at: NOW - 300, blog_count: 0, billing_status: "inactive", billing_price_id: null, crypto_paid_through: null, vip_granted_at: null, vip_expires_at: null, signup_country: null },
                   ],
                 };
               }
@@ -95,6 +95,10 @@ test("staff account search renders for ?q= (page and API)", async () => {
     assert.equal(page.status, 200);
     const html = await page.text();
     assert.match(html, /brent@codeandsea\.com/);
+    assert.match(html, /<th>Country<\/th>/);
+    assert.match(html, />US</);
+    assert.match(html, />DE</);
+    assert.match(html, />—</);
 
     const empty = await staffApp.request(req("/"), undefined, env, executionCtx);
     assert.equal(empty.status, 200);
@@ -104,6 +108,7 @@ test("staff account search renders for ?q= (page and API)", async () => {
     const json = await api.json();
     assert.equal(json.accounts.length, 3);
     assert.equal(json.plan, "all");
+    assert.equal(json.accounts[0].signup_country, "US");
   } finally {
     globalThis.fetch = originalFetch;
   }

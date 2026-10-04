@@ -324,7 +324,7 @@ app.get("/api/accounts", async (c) => {
   const { sql: where, params } = accountListWhere(q, plan);
   const rows = await c.env.DB.prepare(
     `SELECT a.id, a.email, COALESCE(a.status, 'active') AS status, a.created_at,
-            a.billing_status, a.billing_price_id, a.crypto_paid_through, a.vip_granted_at, a.vip_expires_at,
+            a.billing_status, a.billing_price_id, a.crypto_paid_through, a.vip_granted_at, a.vip_expires_at, a.signup_country,
             (SELECT COUNT(*) FROM memberships m WHERE m.account_id = a.id) AS blog_count
        FROM accounts a ${where} ORDER BY a.created_at DESC, a.id DESC LIMIT ? OFFSET ?`
   ).bind(...params, limit, (page - 1) * limit).all();
@@ -1390,16 +1390,16 @@ app.get("/", async (c) => {
   const { sql: where, params } = accountListWhere(q, plan);
   const accounts = await c.env.DB.prepare(
     `SELECT a.id, a.email, COALESCE(a.status, 'active') AS status, a.created_at,
-            a.billing_status, a.billing_price_id, a.crypto_paid_through, a.vip_granted_at, a.vip_expires_at,
+            a.billing_status, a.billing_price_id, a.crypto_paid_through, a.vip_granted_at, a.vip_expires_at, a.signup_country,
             (SELECT COUNT(*) FROM memberships m WHERE m.account_id = a.id) AS blog_count
        FROM accounts a ${where} ORDER BY a.created_at DESC, a.id DESC LIMIT ? OFFSET ?`
-  ).bind(...params, limit, (page - 1) * limit).all<{ id: number; email: string; status: string; created_at: number; blog_count: number; billing_status: string | null; billing_price_id: string | null; crypto_paid_through: number | null; vip_granted_at: number | null; vip_expires_at: number | null }>();
-  const rows = accounts.results.map((account) => `<tr><td><a href="/accounts/${account.id}">${esc(account.email)}</a><br><small>#${account.id}</small></td><td><span class="badge ${account.status === "suspended" ? "suspended" : ""}">${esc(account.status)}</span></td><td>${planBadge(account)}</td><td>${account.blog_count}</td><td>${new Date(account.created_at * 1000).toISOString().slice(0, 10)}</td></tr>`).join("");
+  ).bind(...params, limit, (page - 1) * limit).all<{ id: number; email: string; status: string; created_at: number; blog_count: number; billing_status: string | null; billing_price_id: string | null; crypto_paid_through: number | null; vip_granted_at: number | null; vip_expires_at: number | null; signup_country: string | null }>();
+  const rows = accounts.results.map((account) => `<tr><td><a href="/accounts/${account.id}">${esc(account.email)}</a><br><small>#${account.id}</small></td><td><span class="badge ${account.status === "suspended" ? "suspended" : ""}">${esc(account.status)}</span></td><td>${planBadge(account)}</td><td>${account.signup_country ? esc(account.signup_country) : "—"}</td><td>${account.blog_count}</td><td>${new Date(account.created_at * 1000).toISOString().slice(0, 10)}</td></tr>`).join("");
   const planQuery = (value: PlanFilter) => `/?q=${encodeURIComponent(q)}&plan=${value}`;
   const planLink = (value: PlanFilter, label: string) => plan === value ? `<strong>${label}</strong>` : `<a href="${planQuery(value)}">${label}</a>`;
   const planFilter = `<p class="muted">Show: ${planLink("all", "All")} · ${planLink("paying", "Paying")} · ${planLink("vip", "VIP")} · ${planLink("free", "Free")}</p>`;
   const pageLinks = `<p class="pagination" style="display:flex;align-items:center;gap:10px;justify-content:flex-end"><span>Page ${page}</span>${page > 1 ? `<a class="btn" href="/?q=${encodeURIComponent(q)}&plan=${plan}&page=${page - 1}">← Previous</a>` : ""}${accounts.results.length === limit ? `<a class="btn" href="/?q=${encodeURIComponent(q)}&plan=${plan}&page=${page + 1}">Next →</a>` : ""}</p>`;
-  return c.html(staffPage("Accounts", `${staffHeader(staff)}<h2>Accounts</h2><p class="muted">Search by email, account ID, blog title, Blognice address, or custom domain.</p><form class="search" method="get"><input name="q" value="${esc(q)}" placeholder="Search accounts, blogs, or domains">${plan !== "all" ? `<input type="hidden" name="plan" value="${esc(plan)}">` : ""}<button class="btn" type="submit">Search</button></form>${planFilter}<div class="card"><table><thead><tr><th>Account</th><th>Status</th><th>Plan</th><th>Blogs</th><th>Created</th></tr></thead><tbody>${rows || `<tr><td colspan="5" class="empty">No accounts found.</td></tr>`}</tbody></table></div>${pageLinks}`));
+  return c.html(staffPage("Accounts", `${staffHeader(staff)}<h2>Accounts</h2><p class="muted">Search by email, account ID, blog title, Blognice address, or custom domain.</p><form class="search" method="get"><input name="q" value="${esc(q)}" placeholder="Search accounts, blogs, or domains">${plan !== "all" ? `<input type="hidden" name="plan" value="${esc(plan)}">` : ""}<button class="btn" type="submit">Search</button></form>${planFilter}<div class="card"><table><thead><tr><th>Account</th><th>Status</th><th>Plan</th><th>Country</th><th>Blogs</th><th>Created</th></tr></thead><tbody>${rows || `<tr><td colspan="6" class="empty">No accounts found.</td></tr>`}</tbody></table></div>${pageLinks}`));
 });
 
 app.get("/accounts/:id", async (c) => {
