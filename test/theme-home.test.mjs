@@ -12,6 +12,21 @@ test("blog homepage inherits the global light/dark theme variables", () => {
   assert.match(source, /html\[data-theme="dark"\]/);
 });
 
+test("blog shell follows system theme corrections when nothing is stored", () => {
+  const tenant = { id: 1, public_id: "t", slug: "s", custom_domain: null, title: "T", description: "", avatar_key: null, favicon_key: null, accent_color: null, topics_json: "[]", shard: "primary", created_at: 1, deleted_at: null };
+  const post = { id: 1, tenant_id: 1, slug: "hello", title: "Hello", featured_image_key: null, audio_key: null, body_md: "Hi.", tags_json: "[]", published: 1, created_at: 1, updated_at: 1 };
+  const html = renderPost(tenant, post, "<p>Hi.</p>", "https://s.blognice.test", "https://www.blognice.test");
+  // Regression: the first navigation in a fresh (incognito) window can evaluate
+  // prefers-color-scheme as dark before the browser corrects to light. With no
+  // stored preference the page must follow that correction instead of staying
+  // stuck on the stale evaluation — even when the correction lands before any
+  // change listener attaches or without dispatching an event at all.
+  assert.match(html, /matchMedia\("\(prefers-color-scheme: dark\)"\)/);
+  assert.match(html, /function sysApply\(\)\{var s=null;try\{s=localStorage\.getItem\("blognice-theme"\)/);
+  assert.match(html, /if\(s==="light"\|\|s==="dark"\)return;document\.documentElement\.dataset\.theme=mq\.matches\?"dark":"light";update\(\)\}/);
+  assert.match(html, /sysApply\(\);if\(mq&&mq\.addEventListener\)mq\.addEventListener\("change",sysApply\);window\.addEventListener\("load",sysApply\)/);
+});
+
 test("public pages provide a scroll-to-top control after scrolling", () => {
   assert.match(source, /id="to-top"/);
   assert.match(source, /scrollY\/max>\.35/);
