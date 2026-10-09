@@ -1,0 +1,28 @@
+# Dependabot: free dependency + Actions update automation.
+# Security updates arrive as pull requests as soon as fixes publish;
+# routine version bumps are grouped weekly to keep noise down.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    open-pull-requests-limit: 5
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      actions:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
