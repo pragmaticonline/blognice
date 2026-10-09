@@ -170,6 +170,129 @@ function disambiguateRead(value: string): string {
   return result;
 }
 
+// MeloTTS defaults to the adjective pronunciation ("lyve") for the
+// heteronym "live", so verb uses ("I live in Paris") come out wrong. The
+// word is genuinely ambiguous, so only rewrite constructions whose grammar
+// makes the verb ("liv") reading clear; adjective/adverb uses ("live
+// stream", "going live", "the show is live") are left untouched.
+const LIVE_VERB_PREPS = "in|with|at|on|near|by|for|together|alone|here|there|where|like|up|off|out|under|above|beyond|through";
+// "to live" and bare modals can precede a broadcast compound ("to live
+// stream", "can live blog") or a hyphenated one ("live-tweet"), all
+// pronounced "lyve", so those frames are excluded after the match.
+const LIVE_NOT_BROADCAST = "(?![-–])(?!\\s+(?:stream|broadcast|blog|tweet|chat|demo|migrat|updat|patch|reload)\\w*\\b)";
+// Inverted be/go questions ("are you live with us?") keep the adjective
+// reading despite the pronoun directly before "live".
+const LIVE_BE_GO_BEFORE = "am|are|is|was|were|be|being|been|going|go|goes|went|gone";
+
+function disambiguateLive(value: string): string {
+  let result = value;
+  const liv = (word: string) => (word === "LIVE" ? "LIV" : word[0] === "L" ? "Liv" : "liv");
+  // Pronoun + live + preposition ("I live in Paris", "you live on Main
+  // Street"). He/she/it take "lives", so only I/you/we/they anchor here.
+  result = result.replace(
+    new RegExp(`(\\b\\w+\\s+)?\\b(i|you|we|they)\\s+live\\s+(?:${LIVE_VERB_PREPS})\\b(?![-–])`, "gi"),
+    (match, prev) => {
+      if (prev && new RegExp(`^(?:${LIVE_BE_GO_BEFORE})$`, "i").test(String(prev).trim())) return match;
+      return match.replace(/\blive\b/i, liv);
+    },
+  );
+  const verbLive = [
+    // Pronoun + modal + live ("you can live with less"). The modal must
+    // follow a pronoun: a bare modal can head a clause whose subject starts
+    // with adjective "live" ("will live audiences return?").
+    new RegExp(`\\b(i|you|we|they)\\s+(?:can|could|will|would|should|must|may|might|shall)\\s+live\\b${LIVE_NOT_BROADCAST}`, "gi"),
+    // Infinitive + preposition ("to live in Paris"). The preposition is
+    // required: "to" can also be a preposition before adjective "live"
+    // ("listen to live music").
+    new RegExp(`\\bto\\s+live\\s+(?:${LIVE_VERB_PREPS})\\b(?![-–])`, "gi"),
+    // Do-support ("where do you live?", "does it live up to the hype?").
+    // The middle word is required: "does live music..." is the adjective.
+    new RegExp(`\\b(?:do|does|did)\\s+[a-z]+\\s+live\\b${LIVE_NOT_BROADCAST}`, "gi"),
+    // Relative clause ("people who live in Paris").
+    new RegExp(`\\b(?:who|that|which)\\s+live\\s+(?:${LIVE_VERB_PREPS})\\b(?![-–])`, "gi"),
+    // Coordinated verb ("work and live in Paris"). "on" is excluded: "and
+    // live on stage" can be the adverb.
+    new RegExp(`\\b(?:and|or)\\s+live\\s+(?:in|with|at|near|by|for|together|alone|here|there)\\b(?![-–])`, "gi"),
+  ];
+  for (const pattern of verbLive) {
+    result = result.replace(pattern, (match) => match.replace(/\blive\b/i, liv));
+  }
+  return result;
+}
+
+// "lives" is the same heteronym family as "live": the verb ("he lives in
+// Paris", "livz") versus the plural noun ("many lives", "lyves"). Only the
+// verb has an anchor clean enough to rewrite: he/she/it/who/that/which +
+// lives can only be the verb, while a proper noun before it stays ambiguous
+// ("Paris lives matter" is the noun).
+function disambiguateLives(value: string): string {
+  return value.replace(
+    new RegExp(`\\b(?:he|she|it|who|that|which)\\s+lives\\s+(?:${LIVE_VERB_PREPS})\\b(?![-–])`, "gi"),
+    (match) => match.replace(/\blives\b/i, (word) =>
+      word === "LIVES" ? "LIVZ" : word[0] === "L" ? "Livz" : "livz"),
+  );
+}
+
+// Noun "use" ("yuce") versus verb "use" ("yuze"). Only constructions that
+// can only be the noun are rewritten; bare "use" stays on the engine
+// default. "use of" can never follow a verb, a determiner can't precede
+// one, and "in"/"no" + "use" has no verb reading. The middle word in "of
+// use" is a closed adjective list: "millions of people use themes" is the
+// verb and must not match.
+function disambiguateUse(value: string): string {
+  let result = value;
+  const nounUse = [
+    /\buse\s+of\b/gi,
+    /\bin\s+use\b/gi,
+    /\bno\s+use\b/gi,
+    /\bof\s+(?:(?:great|good|little|much|real|practical|full|effective|limited)\s+)?use\b/gi,
+    /\b(?:a|an|the|this|that|these|those|each|every|another|your|their|our|its|per)\s+use\s+cases?\b/gi,
+  ];
+  for (const pattern of nounUse) {
+    result = result.replace(pattern, (match) => match.replace(/\buse\b/i, (word) =>
+      word === "USE" ? "UCE" : word[0] === "U" ? "Uce" : "uce"));
+  }
+  return result;
+}
+
+// Verb/noun "lead" ("leed": lead the team, take the lead, lead magnet)
+// versus metal "lead" ("led": lead pipes). Both senses are pinned because
+// each has frames the other can't appear in; "take/in the lead" still backs
+// off before paint/pipes/poisoning ("take the lead pipes out" is the
+// metal). "lead paint" and "lead levels" stay untouched: "lead paint
+// workshops" (verb) and sales-tier "lead levels" make those ambiguous.
+function disambiguateLead(value: string): string {
+  let result = value;
+  const notMetal = "(?!\\s+(?:paint|pipes?|poisoning)\\b)";
+  const verbLead = [
+    new RegExp(`\\b(?:take|takes|taking|took)\\s+the\\s+lead\\b${notMetal}`, "gi"),
+    new RegExp(`\\bin\\s+the\\s+lead\\b${notMetal}`, "gi"),
+    /\blead\s+(?:generation|magnets?|nurturing|scoring|capture|qualification|gen)\b/gi,
+    /\blead\s+(?:the|a|an|your|their|our|its|his|her|my|this|that|these|those)\b/gi,
+  ];
+  for (const pattern of verbLead) {
+    result = result.replace(pattern, (match) => match.replace(/\blead\b/i, (word) =>
+      word === "LEAD" ? "LEED" : word[0] === "L" ? "Leed" : "leed"));
+  }
+  result = result.replace(/\blead\s+(?:pipes?|poisoning)\b/gi, (match) => match.replace(/\blead\b/i, (word) =>
+    word === "LEAD" ? "LED" : word[0] === "L" ? "Led" : "led"));
+  return result;
+}
+
+// Verb "close" ("cloze": close the window) versus adjective "close", which
+// stays on the engine default (close friends, close to, up close). A
+// determiner or object pronoun after "close" can only be the
+// verb — an adjective can't precede one — and "to close" + determiner is
+// the infinitive, never the preposition + adjective ("listen to close
+// friends" has no determiner after close).
+function disambiguateClose(value: string): string {
+  return value.replace(
+    /\bclose\s+(?:the|a|an|your|their|our|its|his|her|my|this|that|these|those|it|them|him|her|me|us|all|every|both)\b/gi,
+    (match) => match.replace(/\bclose\b/i, (word) =>
+      word === "CLOSE" ? "CLOZE" : word[0] === "C" ? "Cloze" : "cloze"),
+  );
+}
+
 function finishPhrase(value: string): string {
   const clean = value.trim().replace(/,+$/, "");
   return clean && !/[.!?…␞:;]$/.test(clean) ? clean + "." : clean;
@@ -274,7 +397,7 @@ function removeMarkdownTables(value: string): string {
 }
 
 function cleanSpeech(value: string, overrides: PronunciationReplacement[] = []): string {
-  return disambiguateRead(spokenForms(applyManagedSpokenForms(spokenDomains(expandDecimalNumbers(removeNumericSeparators(removeEmoji(value)))), overrides)))
+  return disambiguateClose(disambiguateLead(disambiguateUse(disambiguateLives(disambiguateLive(disambiguateRead(spokenForms(applyManagedSpokenForms(spokenDomains(expandDecimalNumbers(removeNumericSeparators(removeEmoji(value)))), overrides))))))))
     .replace(/\s*[—–]\s*/g, ", ")
     .replace(/\s*&\s*/g, " and ")
     .replace(/\s+([.,!?;:])(?!\.\.)/g, "$1")

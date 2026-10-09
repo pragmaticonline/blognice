@@ -161,6 +161,99 @@ test("reading uses the present pronunciation in compound phrases", () => {
   assert.match(text, /Estimating reeding time helps/);
 });
 
+test("verb live uses the liv pronunciation in clear contexts", () => {
+  const text = narrationText(
+    "Cities you live in",
+    "I live in Paris. You can live with less. Where do you live? People who live in Paris work and live in Paris. We want to live in Paris. IF YOU LIVE IN PARIS, SAY HI.",
+  );
+  assert.match(text, /Cities you liv in\./);
+  assert.match(text, /I liv in Paris\./);
+  assert.match(text, /You can liv with less\./);
+  assert.match(text, /Where do you liv\?/);
+  assert.match(text, /who liv in Paris/);
+  assert.match(text, /and liv in Paris/);
+  assert.match(text, /to liv in Paris/);
+  assert.match(text, /IF YOU LIV IN PARIS/);
+});
+
+test("adjective live keeps the going-live pronunciation", () => {
+  const text = narrationText(
+    "Going live tonight",
+    "We are going live tonight. The show is live. Watch our live stream. Are you live with us? Do you live stream your games? Listen to live music. She works as a live-in nanny. We plan to live-stream the event.",
+  );
+  assert.match(text, /Going live tonight\./);
+  assert.match(text, /going live tonight/);
+  assert.match(text, /show is live/);
+  assert.match(text, /live stream/);
+  assert.match(text, /Are you live with us/);
+  assert.match(text, /Do you live stream your games/);
+  assert.match(text, /to live music/);
+  assert.match(text, /live-in nanny/);
+  assert.match(text, /to live-stream the event/);
+  assert.doesNotMatch(text, /\bliv\b/i);
+});
+
+test("verb lives uses the livz pronunciation; plural lives is untouched", () => {
+  const text = narrationText(
+    "Where he lives",
+    "He lives in Paris. She lives with her parents. It lives in the ocean. A person who lives in Paris stays. Many lives were saved. Daily lives matter. The accident claimed three lives.",
+  );
+  assert.match(text, /He livz in Paris\./);
+  assert.match(text, /She livz with her parents\./);
+  assert.match(text, /It livz in the ocean\./);
+  assert.match(text, /who livz in Paris/);
+  assert.match(text, /Many lives were saved\./);
+  assert.match(text, /Daily lives matter\./);
+  assert.match(text, /claimed three lives\./);
+});
+
+test("noun use speaks as uce; verb use is untouched", () => {
+  const text = narrationText(
+    "Tool in use",
+    "The tool is in use daily. Make use of the checklist. It is no use arguing. The idea is of great use to teams. Open the use case file. Use the editor daily. Millions of people use themes. To use the tool, sign in.",
+  );
+  assert.match(text, /Tool in uce\./);
+  assert.match(text, /is in uce daily/);
+  assert.match(text, /Make uce of the checklist/);
+  assert.match(text, /is no uce arguing/);
+  assert.match(text, /of great uce to teams/);
+  assert.match(text, /the uce case file/);
+  assert.match(text, /Use the editor daily/);
+  assert.match(text, /Millions of people use themes/);
+  assert.match(text, /To use the tool, sign in/);
+});
+
+test("verb lead speaks as leed; metal lead speaks as led", () => {
+  const text = narrationText(
+    "Take the lead",
+    "Take the lead on launch day. We are in the lead. Lead generation fills the pipeline. She will lead the team. Take the lead pipes out first. The house has lead pipes. Beware of lead poisoning. Lead paint is dangerous.",
+  );
+  assert.match(text, /Take the leed\./);
+  assert.match(text, /Take the leed on launch day/);
+  assert.match(text, /in the leed\./);
+  assert.match(text, /Leed generation fills/);
+  assert.match(text, /will leed the team/);
+  assert.match(text, /Take the led pipes out first/);
+  assert.match(text, /has led pipes\./);
+  assert.match(text, /led poisoning/);
+  // Ambiguous ("lead paint workshops" is the verb), so deliberately untouched.
+  assert.match(text, /Lead paint is dangerous/);
+});
+
+test("verb close speaks as cloze; adjective close is untouched", () => {
+  const text = narrationText(
+    "Close the window",
+    "Close the window to focus. Close your eyes and breathe. Please close all tabs. Stay close to friends. Take a close look. We are up close now.",
+  );
+  assert.match(text, /Cloze the window\./);
+  assert.match(text, /Cloze the window to focus/);
+  assert.match(text, /Cloze your eyes and breathe/);
+  assert.match(text, /cloze all tabs/);
+  assert.match(text, /Stay close to friends/);
+  assert.match(text, /a close look/);
+  assert.match(text, /up close now/);
+});
+
 test("login is spoken as the verb phrase log in", () => {
   const text = narrationText("Remember login details", "Remember login details when you return.");
   assert.equal(text, "Remember log in details. ... Remember log in details when you return.");
