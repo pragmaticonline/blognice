@@ -393,6 +393,26 @@ function expandCurrencyScale(value: string): string {
     });
 }
 
+// Clock times ("9am", "5 pm", "12:30pm") reach the TTS engine raw and get
+// misread, so expand them: hour in words, minutes when nonzero ("nine
+// thirty"; a leading zero is voiced: "nine oh five"), then the meridiem
+// spelled out ("aiay. em."). Runs before expandDecimalNumbers so it sees the
+// original digits. Bare "am"/"pm" without digits are left untouched.
+function expandClockTimes(value: string): string {
+  return value.replace(/\b(\d{1,2})(?::(\d{2}))?\s?(am|pm)\b\.?/gi,
+    (_match: string, hour: string, minutes: string | undefined, meridiem: string) => {
+      const spokenHour = numberWords(Number(hour));
+      const mins = minutes === undefined ? 0 : Number(minutes);
+      const spokenMinutes = minutes === undefined || mins === 0
+        ? ""
+        : mins < 10
+          ? ` oh ${numberWords(mins)}`
+          : ` ${numberWords(mins)}`;
+      const spokenMeridiem = meridiem.toLowerCase() === "am" ? "aiay. em." : "pee. em.";
+      return `${spokenHour}${spokenMinutes}. ${spokenMeridiem}`;
+    });
+}
+
 function spokenDomains(value: string): string {
   return value
     .replace(/\bhttps?:\/\/[^\s]+/gi, " ")
@@ -453,7 +473,7 @@ function removeMarkdownTables(value: string): string {
 }
 
 function cleanSpeech(value: string, overrides: PronunciationReplacement[] = []): string {
-  return disambiguateClose(disambiguateLead(disambiguateUse(disambiguateLives(disambiguateLive(disambiguateRead(spokenForms(applyManagedSpokenForms(spokenDomains(expandDecimalNumbers(expandModelNames(expandCurrencyScale(removeNumericSeparators(removeEmoji(value)))))), overrides))))))))
+  return disambiguateClose(disambiguateLead(disambiguateUse(disambiguateLives(disambiguateLive(disambiguateRead(spokenForms(applyManagedSpokenForms(spokenDomains(expandDecimalNumbers(expandModelNames(expandClockTimes(expandCurrencyScale(removeNumericSeparators(removeEmoji(value))))))), overrides))))))))
     .replace(/\s*[—–]\s*/g, ", ")
     .replace(/\s*&\s*/g, " and ")
     .replace(/\s+([.,!?;:])(?!\.\.)/g, "$1")
