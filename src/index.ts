@@ -159,7 +159,7 @@ import {
   type ImageContextMode,
   type ImageStyle,
 } from "./ai-image";
-import { applyPronunciations, assertEnglishText, classifyTtsError, mergeWav, narrationChunks, narrationSections, pronunciationReplacements, readTtsEngineSetting, readTtsVoiceSetting, selectTtsEngine, selectTtsVoice, ttsBytes, ttsChunkMax, ttsStreamToBytes, validWavAudio, wavAssembly, TTS_FALLBACK_MODEL, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_RETRY_DELAYS, TTS_TRUNCATED_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "./tts";
+import { applyPronunciations, assertEnglishText, buildAudioPrompts, classifyTtsError, mergeWav, narrationSections, pronunciationReplacements, readTtsEngineSetting, readTtsVoiceSetting, selectTtsEngine, selectTtsVoice, ttsBytes, ttsChunkMax, ttsStreamToBytes, validWavAudio, wavAssembly, TTS_FALLBACK_MODEL, TTS_HARD_PAUSE, TTS_MODEL, TTS_RETRY_DELAYS, TTS_TRUNCATED_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_TEXT_MAX } from "./tts";
 import {
   archivePreviousDay,
   archivePreviousDayAffiliateEvents,
@@ -4638,19 +4638,7 @@ async function createAudioJob(env: Bindings, tenant: Tenant, post: Pick<Post, "i
   // discovered one failed segment at a time by the queue consumer.
   const jobModel = selectTtsEngine(await readTtsEngineSetting(env.DB));
   const jobVoice = selectTtsVoice(await readTtsVoiceSetting(env.DB));
-  const prompts: Array<{ text: string; pauseAfter: number }> = [{ text: preparedTitle, pauseAfter: TTS_TITLE_PAUSE_SECONDS }];
-  const structuralParts = preparedBody.split(TTS_HARD_PAUSE);
-  for (let partIndex = 0; partIndex < structuralParts.length; partIndex++) {
-    const punctuationParts = structuralParts[partIndex].split(TTS_SOFT_PAUSE);
-    for (let punctuationIndex = 0; punctuationIndex < punctuationParts.length; punctuationIndex++) {
-      const chunks = narrationChunks(punctuationParts[punctuationIndex].trim(), ttsChunkMax(jobModel));
-      for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-        const isLastChunk = chunkIndex === chunks.length - 1;
-        const isLastPunctuationPart = punctuationIndex === punctuationParts.length - 1;
-        prompts.push({ text: chunks[chunkIndex], pauseAfter: isLastChunk && !isLastPunctuationPart ? TTS_PUNCTUATION_PAUSE_SECONDS : isLastChunk && partIndex < structuralParts.length - 1 ? TTS_STRUCTURE_PAUSE_SECONDS : 0 });
-      }
-    }
-  }
+  const prompts = buildAudioPrompts(preparedTitle, preparedBody, ttsChunkMax(jobModel));
   const jobId = crypto.randomUUID();
   const jobKey = `${tenant.id}/.audio-jobs/${jobId}.json`;
   const checkpointHash = await sha256hex(`${jobModel}\n${jobVoice}\n${preparedTitle}\n${preparedBody}`);
@@ -4725,25 +4713,7 @@ app.post("/admin/b/:blogId/audio/:id", async (c) => {
     // Chunk for the engine that will render this job (see createAudioJob).
     const jobModel = selectTtsEngine(await readTtsEngineSetting(c.env.DB));
     const jobVoice = selectTtsVoice(await readTtsVoiceSetting(c.env.DB));
-    const prompts: Array<{ text: string; pauseAfter: number }> = [{ text: preparedTitle, pauseAfter: TTS_TITLE_PAUSE_SECONDS }];
-    const structuralParts = preparedBody.split(TTS_HARD_PAUSE);
-    for (let partIndex = 0; partIndex < structuralParts.length; partIndex++) {
-      const punctuationParts = structuralParts[partIndex].split(TTS_SOFT_PAUSE);
-      for (let punctuationIndex = 0; punctuationIndex < punctuationParts.length; punctuationIndex++) {
-        const chunks = narrationChunks(punctuationParts[punctuationIndex].trim(), ttsChunkMax(jobModel));
-        for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-          const isLastChunk = chunkIndex === chunks.length - 1;
-          const isLastPunctuationPart = punctuationIndex === punctuationParts.length - 1;
-          prompts.push({
-            text: chunks[chunkIndex],
-            pauseAfter: isLastChunk && !isLastPunctuationPart
-              ? TTS_PUNCTUATION_PAUSE_SECONDS
-              : isLastChunk && partIndex < structuralParts.length - 1
-                ? TTS_STRUCTURE_PAUSE_SECONDS : 0,
-          });
-        }
-      }
-    }
+    const prompts = buildAudioPrompts(preparedTitle, preparedBody, ttsChunkMax(jobModel));
     jobId = crypto.randomUUID();
     const jobKey = `${ctx.tenant.id}/.audio-jobs/${jobId}.json`;
     const checkpointHash = await sha256hex(`${jobModel}\n${jobVoice}\n${preparedTitle}\n${preparedBody}`);
@@ -4796,28 +4766,7 @@ app.post("/admin/b/:blogId/audio/:id", async (c) => {
     const preparedBody = applyPronunciations(sections.body, replacements);
     // Generate the title independently for a short, neutral delivery, then add
     // body segments. The WAV assembler inserts a deterministic pause between them.
-    const prompts: Array<{ text: string; pauseAfter: number }> = [
-      { text: preparedTitle, pauseAfter: TTS_TITLE_PAUSE_SECONDS },
-    ];
-    const structuralParts = preparedBody.split(TTS_HARD_PAUSE);
-    for (let partIndex = 0; partIndex < structuralParts.length; partIndex++) {
-      const punctuationParts = structuralParts[partIndex].split(TTS_SOFT_PAUSE);
-      for (let punctuationIndex = 0; punctuationIndex < punctuationParts.length; punctuationIndex++) {
-        const chunks = narrationChunks(punctuationParts[punctuationIndex].trim());
-        for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-          const isLastChunk = chunkIndex === chunks.length - 1;
-          const isLastPunctuationPart = punctuationIndex === punctuationParts.length - 1;
-          prompts.push({
-            text: chunks[chunkIndex],
-            pauseAfter: isLastChunk && !isLastPunctuationPart
-              ? TTS_PUNCTUATION_PAUSE_SECONDS
-              : isLastChunk && partIndex < structuralParts.length - 1
-                ? TTS_STRUCTURE_PAUSE_SECONDS
-                : 0,
-          });
-        }
-      }
-    }
+    const prompts = buildAudioPrompts(preparedTitle, preparedBody, ttsChunkMax(TTS_MODEL));
     // Persist each completed segment under a key derived from the exact
     // narration text and model. A later attempt can resume instead of
     // regenerating the earlier segments of a long article.
