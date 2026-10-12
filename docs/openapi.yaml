@@ -85,6 +85,7 @@ components:
         author_name: { type: string, nullable: true }
         author_visible: { type: boolean }
         published: { type: boolean }
+        scheduled_at: { type: integer, nullable: true, description: 'Future publish time, unix seconds; null when unscheduled' }
         meta_description: { type: string, nullable: true }
     Error:
       type: object
@@ -162,6 +163,7 @@ paths:
                 body_md: { type: string }
                 slug: { type: string }
                 published: { type: boolean }
+                scheduled_at: { type: string, description: 'ISO-8601 with timezone offset, must be future; implies a draft' }
                 tags: { type: array, items: { type: string } }
                 author_name: { type: string, nullable: true }
                 author_visible: { type: boolean }
@@ -176,7 +178,7 @@ paths:
     patch:
       summary: Update post
       parameters: [{ name: blogId, in: path, required: true, schema: { type: string } }, { name: id, in: path, required: true, schema: { type: integer } }]
-      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { title: { type: string }, body_md: { type: string }, slug: { type: string }, published: { type: boolean }, tags: { type: array, items: { type: string } }, author_name: { type: string, nullable: true }, author_visible: { type: boolean }, featured_image_key: { type: string, nullable: true }, meta_description: { type: string } } } } } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { title: { type: string }, body_md: { type: string }, slug: { type: string }, published: { type: boolean }, scheduled_at: { type: string, nullable: true, description: 'ISO-8601 with timezone offset, must be future; null clears' }, tags: { type: array, items: { type: string } }, author_name: { type: string, nullable: true }, author_visible: { type: boolean }, featured_image_key: { type: string, nullable: true }, meta_description: { type: string } } } } } }
       responses: { '200': { description: OK } }
     delete:
       summary: Delete post

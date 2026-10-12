@@ -278,6 +278,7 @@ export type Post = {
   meta_description?: string | null;
   preview_token_hash?: string | null;
   preview_token_expires_at?: number | null;
+  scheduled_at?: number | null;
 };
 
 export type Page = {

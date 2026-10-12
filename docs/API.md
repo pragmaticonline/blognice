@@ -111,7 +111,7 @@ curl -X DELETE https://www.blognice.com/api/v1/blogs/ggh6gvgsgj4h \
 
 ### `GET /api/v1/blogs/:blogId/posts` · `GET /api/v1/blogs/:blogId/posts/:id`
 
-Requires membership (`forbidden` 403 otherwise). Lists/returns posts.
+Requires membership (`forbidden` 403 otherwise). Lists/returns posts. Responses include `scheduled_at` (unix seconds, `null` when unscheduled).
 
 ### `POST /api/v1/blogs/:blogId/posts` — create (requires `posts.create`, `posts.publish` to publish)
 
@@ -121,14 +121,15 @@ curl -X POST https://www.blognice.com/api/v1/blogs/ggh6gvgsgj4h/posts \
   -d '{"title":"Hello from the API","body_md":"# Hello\n\nWritten via Markdown.","tags":["api"],"author_name":"Fred & Bob AI","author_visible":true,"featured_image_key":"ggh6gvgsgj4h/image.jpg","meta_description":"Short summary","published":true}'
 ```
 
-Body: `title` (required), `body_md` (required), `slug` (auto from title, ≤80, unique), `published` (default true), `tags` ≤20, `author_name` ≤120 (null clears), `author_visible` bool, `featured_image_key` (must exist in media, validated via `checkedFeaturedImage`), `meta_description` ≤155.
+Body: `title` (required), `body_md` (required), `slug` (auto from title, ≤80, unique), `published` (default true), `scheduled_at` (ISO-8601 with explicit timezone offset, must be future; implies a draft), `tags` ≤20, `author_name` ≤120 (null clears), `author_visible` bool, `featured_image_key` (must exist in media, validated via `checkedFeaturedImage`), `meta_description` ≤155.
 
 - `published: true` purges `/:slug`, `/sitemap.xml`, queues IndexNow, queues subscriber + browser-push notifications.
 - Draft `published:false` skips notifications.
+- Scheduled posts (`scheduled_at` set, `published:false`) go live on the per-minute tick with the same side effects as publishing. `published:true` combined with `scheduled_at` is a 400, as is a past time or a missing timezone offset.
 
 ### `PATCH /api/v1/blogs/:blogId/posts/:id` — update (requires `posts.edit.any`/`own`, `posts.publish` to publish)
 
-Any of `title, body_md, slug, published, tags, author_name, author_visible, featured_image_key, meta_description`.
+Any of `title, body_md, slug, published, scheduled_at, tags, author_name, author_visible, featured_image_key, meta_description`. `scheduled_at` follows the POST rules; `scheduled_at:null` clears the schedule back to a plain draft, and publishing clears it. Scheduling a live post is a 400 — set `published:false` first.
 
 ### `DELETE /api/v1/blogs/:blogId/posts/:id` — delete (requires `posts.delete`)
 
