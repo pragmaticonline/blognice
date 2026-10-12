@@ -405,6 +405,31 @@ test("narration leaves plain currency amounts and bare scales to the engine", ()
   assert.match(text, /870 million/);
 });
 
+test("narration expands clock times into spelled-out words", () => {
+  const text = narrationText(
+    "Plans",
+    "Be at your keyboard at 9am on Tuesday. Doors open 9AM, lunch is 12:30pm, out by 5 pm, and I am happy.",
+  );
+  assert.match(text, /nine\.\s*aiay\.\s*em\./);
+  assert.match(text, /twelve thirty\.\s*pee\.\s*em\./);
+  assert.match(text, /five\.\s*pee\.\s*em\./);
+  assert.doesNotMatch(text, /9am|9AM|12:30pm|5 pm/);
+  assert.match(text, /I am happy/);
+});
+
+test("narration reads quarter hours and the top of the hour naturally", () => {
+  const text = narrationText("Schedule", "Standup at 9:05am, demos at 9:00am sharp.");
+  assert.match(text, /nine oh five\.\s*aiay\.\s*em\./);
+  assert.match(text, /nine\.\s*aiay\.\s*em\.\s*sharp/);
+  assert.doesNotMatch(text, /9:05am|9:00am/);
+});
+
+test("narration keeps a single period when a time ends the sentence", () => {
+  const text = narrationText("Evening", "We leave at 5pm.");
+  assert.match(text, /five\.\s*pee\.\s*em\.(?!\.)/);
+  assert.doesNotMatch(text, /5pm/);
+});
+
 test("hostnames are spoken with explicit dots", () => {
   const text = narrationText("Visit development.blognice.com", "Read development.blognice.com or https://www.blognice.com for more.");
   assert.doesNotMatch(text, /development dot blognice dot com/);
