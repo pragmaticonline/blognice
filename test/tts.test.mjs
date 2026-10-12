@@ -9,7 +9,7 @@ for (const extension of [".html", ".svg"]) {
     module.exports = readFileSync(filename, "utf8");
   };
 }
-import { applyManagedSpokenForms, applyPronunciations, classifyTtsError, mergeWav, narrationChunks, narrationSections, narrationText, pronunciationReplacements, removeCitationClusters, ttsBytes, ttsChunkMax, validWavAudio, wavAssembly, TTS_AURA_CHUNK_MAX, TTS_CHUNK_MAX, TTS_FALLBACK_MODEL, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_RETRY_DELAYS, TTS_TRUNCATED_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "../src/tts.ts";
+import { applyManagedSpokenForms, applyPronunciations, buildAudioPrompts, classifyTtsError, mergeWav, narrationChunks, narrationSections, narrationText, pronunciationReplacements, removeCitationClusters, splitSentences, ttsBytes, ttsChunkMax, validWavAudio, wavAssembly, TTS_AURA_CHUNK_MAX, TTS_CHUNK_MAX, TTS_FALLBACK_MODEL, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_RETRY_DELAYS, TTS_TRUNCATED_RETRY_DELAYS, TTS_SENTENCE_PAUSE_SECONDS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "../src/tts.ts";
 
 function wav(samples) {
   const bytes = new Uint8Array(44 + samples.length);
@@ -140,6 +140,12 @@ test("PNG is spelled out letter by letter", () => {
   assert.equal(sections.body, "Upload a P N G image.");
 });
 
+test("F1 metric reads letter-then-number", () => {
+  const text = narrationText("Scores", "The tuned model leads on precision, recall, F1 and dollar-weighted recall.");
+  assert.match(text, /recall, eff one and/);
+  assert.doesNotMatch(text, /\bF1\b/);
+});
+
 test("managed pronunciation entries apply to future narration", () => {
   assert.equal(applyManagedSpokenForms("Use UI in the editor.", [{ original: "UI", spoken: "U I" }]), "Use U I in the editor.");
   assert.equal(narrationText("UI guide", "Use UI in the editor.", [{ original: "UI", spoken: "U I" }]), "U I guide. ... Use U I in the editor.");
@@ -152,6 +158,19 @@ test("ambiguous read uses the present-tense pronunciation in clear contexts", ()
   );
   assert.match(text, /As you reed this guide\./);
   assert.match(text, /As you reed this guide, you can reed more/);
+  assert.match(text, /I read it yesterday/);
+});
+
+test("noun read uses the reed pronunciation; participle read is untouched", () => {
+  const text = narrationText(
+    "Market takes",
+    "Brian Armstrong's read: specialists win narrow tasks. Investors' read: costs matter. My read on the market is cautious. He's read the report already. Give her read access to the repo. I read it yesterday.",
+  );
+  assert.match(text, /Brian Armstrong's reed:/);
+  assert.match(text, /Investors' reed:/);
+  assert.match(text, /My reed on the market/);
+  assert.match(text, /He's read the report already/);
+  assert.match(text, /her read access/);
   assert.match(text, /I read it yesterday/);
 });
 
@@ -326,6 +345,45 @@ test("narration expands decimal numbers into spoken words", () => {
   assert.doesNotMatch(text, /4\.9/);
   assert.doesNotMatch(text, /48\.9/);
   // Dotted versions are not decimals; leave their handling unchanged.
+  assert.doesNotMatch(text, /one point/);
+});
+
+test("sentence splitting keeps abbreviation boundaries inline", () => {
+  assert.deepEqual(splitSentences("She lives in St.\n\nLouis."), ["She lives in St.\n\nLouis."]);
+  assert.deepEqual(splitSentences("On Jan.\n\n5 we ship."), ["On Jan.\n\n5 we ship."]);
+  assert.deepEqual(splitSentences("J.\n\nSmith crossed the U.S.\n\nOpenly."), ["J.\n\nSmith crossed the U.S.\n\nOpenly."]);
+  assert.deepEqual(splitSentences("Update to v1.0.\n\nNext steps."), ["Update to v1.0.", "Next steps."]);
+  assert.deepEqual(splitSentences("No.\n\nI disagree."), ["No.", "I disagree."]);
+  assert.deepEqual(splitSentences("Wait\n\nwhat?"), ["Wait", "what?"]);
+});
+
+test("audio prompts pause hardest at the strongest boundary", () => {
+  const prompts = buildAudioPrompts(
+    "Title.",
+    `First sentence.\n\nSecond sentence.${TTS_SOFT_PAUSE}After colon.${TTS_HARD_PAUSE}Final paragraph.`,
+    TTS_CHUNK_MAX,
+  );
+  assert.deepEqual(prompts, [
+    { text: "Title.", pauseAfter: TTS_TITLE_PAUSE_SECONDS },
+    { text: "First sentence.", pauseAfter: TTS_SENTENCE_PAUSE_SECONDS },
+    { text: "Second sentence.", pauseAfter: TTS_PUNCTUATION_PAUSE_SECONDS },
+    { text: "After colon.", pauseAfter: TTS_STRUCTURE_PAUSE_SECONDS },
+    { text: "Final paragraph.", pauseAfter: 0 },
+  ]);
+  assert.equal(TTS_SENTENCE_PAUSE_SECONDS, 0.2);
+});
+
+test("model names with version and size read as spoken words", () => {
+  const text = narrationText(
+    "Models",
+    "Coinbase took Qwen3.5-9B, an open weight model (Qwen3.5-9B), plus the Qwen3-8B variant, and beat Opus 4.5. See jev-1.13.0 for details.",
+  );
+  assert.match(text, /Qwen three point five nine bee/);
+  assert.match(text, /Qwen three eight bee/);
+  assert.match(text, /Opus four point five/);
+  assert.doesNotMatch(text, /Qwen3\.5-9B/);
+  assert.doesNotMatch(text, /Qwen3-8B/);
+  // Dotted versions are not model names; leave their handling unchanged.
   assert.doesNotMatch(text, /one point/);
 });
 
@@ -542,6 +600,7 @@ test("WAV assembly uses midpoint silence for unsigned 8-bit PCM", () => {
 
 test("narration is persisted safely and rendered only when assigned", () => {
   const index = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
+  const tts = readFileSync(new URL("../src/tts.ts", import.meta.url), "utf8");
   const admin = readFileSync(new URL("../src/admin.ts", import.meta.url), "utf8");
   const render = readFileSync(new URL("../src/render.ts", import.meta.url), "utf8");
   const schema = readFileSync(new URL("../schema-posts.sql", import.meta.url), "utf8");
@@ -562,10 +621,12 @@ test("narration is persisted safely and rendered only when assigned", () => {
   assert.match(index, /async function preparePronunciations/);
   assert.match(index, /pronunciationReplacements\(String\(result\.response/);
   assert.match(index, /Pronunciation preprocessing failed; using original narration/);
-  assert.match(index, /const structuralParts = preparedBody\.split\(TTS_HARD_PAUSE\)/);
-  assert.match(index, /const punctuationParts = structuralParts\[partIndex\]\.split\(TTS_SOFT_PAUSE\)/);
-  assert.match(index, /TTS_PUNCTUATION_PAUSE_SECONDS/);
-  assert.match(index, /isLastChunk && partIndex < structuralParts\.length - 1/);
+  assert.match(index, /buildAudioPrompts\(preparedTitle, preparedBody/);
+  assert.match(tts, /const structuralParts = preparedBody\.split\(TTS_HARD_PAUSE\)/);
+  assert.match(tts, /const punctuationParts = structuralParts\[partIndex\]\.split\(TTS_SOFT_PAUSE\)/);
+  assert.match(tts, /TTS_PUNCTUATION_PAUSE_SECONDS/);
+  assert.match(tts, /TTS_SENTENCE_PAUSE_SECONDS/);
+  assert.match(tts, /partIndex < structuralParts\.length - 1 \? TTS_STRUCTURE_PAUSE_SECONDS : 0/);
   assert.match(index, /async function generateSpeechWithRetry/);
   assert.match(index, /async function generateSpeechWithRecovery/);
   assert.match(index, /function splitSpeechPrompt/);

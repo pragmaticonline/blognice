@@ -54,6 +54,11 @@ export const TTS_TEXT_MAX = 20_000;
 export const TTS_TITLE_PAUSE_SECONDS = 1.5;
 export const TTS_STRUCTURE_PAUSE_SECONDS = 0.65;
 export const TTS_PUNCTUATION_PAUSE_SECONDS = 0.35;
+// Mid-paragraph periods are engine-rendered inside one synthesis call and land
+// barely longer than commas (~0.3s vs ~0.25s measured), so sentences are
+// synthesized as separate prompts with this added gap. It sits below the
+// colon/semicolon pause to keep the comma < period < colon < paragraph order.
+export const TTS_SENTENCE_PAUSE_SECONDS = 0.2;
 export const TTS_HARD_PAUSE = "\u241E";
 export const TTS_SOFT_PAUSE = "\u241F";
 
@@ -124,6 +129,8 @@ const SPOKEN_FORMS: Array<[RegExp, string]> = [
   [/\bSHA256\b/gi, "S H A two five six"],
   [/\bOWASP\b/gi, "O Wasp"],
   [/\bCPU\b/gi, "C P U"],
+  // The F1 classification score reads letter-then-number ("eff one").
+  [/\bF1\b/gi, "eff one"],
   [/\bUI\b/g, "U I"],
   [/\bAPI\b/g, "A P I"],
   [/\bHTML\b/g, "H T M L"],
@@ -163,7 +170,18 @@ function disambiguateRead(value: string): string {
     /\b(?:to|and|or)\s+read\b/gi,
     /\b(?:you|we|they)\s+read\s+(?:this|that|the|a|an|your|our|more|about|from|for|on|through)\b/gi,
   ];
-  for (const pattern of presentRead) {
+  // Noun "read" ("reed": Armstrong's read, my read on the market) versus the
+  // past participle ("red": he's read it, read access). A possessive
+  // determiner directly before read can only be the noun, but "read" plus a
+  // head noun ("read access", "read receipt") is the participle, so
+  // determiners only rewrite before a colon, clause punctuation, or a
+  // preposition/copula follower. 's is also ambiguous with has ("he's read
+  // it") and only rewrites before a colon, which a participle never takes.
+  const nounRead = [
+    /\b(?:my|your|his|her|its|our|their)\s+read(?=\s*(?::|,|[.!?;]|\b(?:on|of|about|is|was)\b)|\s*$)/gi,
+    /\b(?:'s|’s|'|’)\s+read\s*:/gi,
+  ];
+  for (const pattern of [...presentRead, ...nounRead]) {
     result = result.replace(pattern, (match) => match.replace(/\bread\b/i, (word) =>
       word === "READ" ? "REED" : word[0] === "R" ? "Reed" : "reed"));
   }
@@ -325,6 +343,23 @@ function removeNumericSeparators(value: string): string {
   return value.replace(/(?<=\d),(?=\d)/g, "");
 }
 
+// Model names ("Qwen3.5-9B") reach the TTS engine raw and get misread, so
+// expand them: the name is kept, the version reads as a decimal, and the
+// trailing parameter count reads letter by letter ("Qwen three point five
+// nine bee"). Only the full name-version-size shape rewrites, and it runs
+// before expandDecimalNumbers so the attached version never splits there;
+// dotted versions ("1.13.0") and bare decimals are still that pass's job.
+function expandModelNames(value: string): string {
+  return value
+    .replace(/\b([A-Za-z]+)(\d+)\.(\d+)-(\d+)([Bb])\b/g, (_match: string, name: string, major: string, minor: string, params: string) => {
+      const spokenMinor = minor.split("").map((digit) => numberWords(Number(digit))).join(" ");
+      return `${name} ${numberWords(Number(major))} point ${spokenMinor} ${numberWords(Number(params))} bee`;
+    })
+    .replace(/\b([A-Za-z]+)(\d+)-(\d+)([Bb])\b/g, (_match: string, name: string, version: string, params: string) => {
+      return `${name} ${numberWords(Number(version))} ${numberWords(Number(params))} bee`;
+    });
+}
+
 // Decimal numbers ("4.9") reach the TTS engine raw and get misread, so expand
 // them: integer part in words, each fraction digit spoken ("four point nine").
 // Dotted versions ("1.13.0") are skipped — only a lone decimal point counts.
@@ -418,7 +453,7 @@ function removeMarkdownTables(value: string): string {
 }
 
 function cleanSpeech(value: string, overrides: PronunciationReplacement[] = []): string {
-  return disambiguateClose(disambiguateLead(disambiguateUse(disambiguateLives(disambiguateLive(disambiguateRead(spokenForms(applyManagedSpokenForms(spokenDomains(expandDecimalNumbers(expandCurrencyScale(removeNumericSeparators(removeEmoji(value))))), overrides))))))))
+  return disambiguateClose(disambiguateLead(disambiguateUse(disambiguateLives(disambiguateLive(disambiguateRead(spokenForms(applyManagedSpokenForms(spokenDomains(expandDecimalNumbers(expandModelNames(expandCurrencyScale(removeNumericSeparators(removeEmoji(value)))))), overrides))))))))
     .replace(/\s*[—–]\s*/g, ", ")
     .replace(/\s*&\s*/g, " and ")
     .replace(/\s+([.,!?;:])(?!\.\.)/g, "$1")
@@ -591,6 +626,76 @@ export async function ttsStreamToBytes(output: unknown): Promise<Uint8Array> {
     return out;
   }
   return ttsBytes(output as Uint8Array | { audio: string });
+}
+
+// Periods after these never end a sentence ("St. Louis", "Jan. 5"), so
+// splitSentences keeps the boundary inline instead of inserting a sentence
+// pause mid-phrase. Deliberately excludes words whose sentence use is more
+// common in prose ("No.", "Fig."): missing a pause there is benign, while a
+// gap inside "St. Louis" is an audible bug.
+const SENTENCE_ABBREVIATIONS = new Set([
+  "st", "ave", "blvd", "rd", "ln", "dr", "mr", "mrs", "ms", "prof", "rev", "hon",
+  "jr", "sr", "inc", "ltd", "corp", "co",
+  "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept", "oct", "nov", "dec",
+  "mon", "tue", "tues", "wed", "thu", "thur", "fri", "sat", "sun",
+  "rep", "sen", "gov", "gen", "lt", "sgt", "col", "maj", "adm", "cmdr", "pres",
+]);
+
+function endsWithAbbreviation(segment: string): boolean {
+  const token = segment.match(/(\S+)\s*$/)?.[1] ?? "";
+  if (!token.endsWith(".")) return false;
+  const word = token.slice(0, -1);
+  if (!word) return false;
+  // Letter-dotted tokens ("U.S.", "Ph.D.") are abbreviations; digit-dotted
+  // ones ("v1.0.") are versions at a sentence end and still split.
+  if (word.includes(".")) return /[A-Za-z]$/.test(word);
+  if (/^[A-Z]$/.test(word)) return true;
+  return SENTENCE_ABBREVIATIONS.has(word.toLowerCase());
+}
+
+// Splits a prompt part on the paragraph breaks cleanSpeech emits after
+// sentence-ending periods, rejoining abbreviation boundaries ("St. Louis")
+// with the break intact so the engine still sees that input unchanged.
+export function splitSentences(text: string): string[] {
+  const sentences: string[] = [];
+  for (const part of text.split("\n\n")) {
+    const prev = sentences[sentences.length - 1];
+    if (prev !== undefined && endsWithAbbreviation(prev)) sentences[sentences.length - 1] = `${prev}\n\n${part}`;
+    else sentences.push(part);
+  }
+  return sentences;
+}
+
+export type AudioPrompt = { text: string; pauseAfter: number };
+
+// One place where narration text becomes synthesis segments: title first,
+// then body split on structural, punctuation, and sentence boundaries. A
+// segment's pause is the strongest boundary it ends at — sentence (0.2s),
+// then colon/semicolon (0.35s), then paragraph (0.65s) — so a sentence just
+// before a colon keeps the colon pause, not the sentence one.
+export function buildAudioPrompts(preparedTitle: string, preparedBody: string, chunkMax: number): AudioPrompt[] {
+  const prompts: AudioPrompt[] = [{ text: preparedTitle, pauseAfter: TTS_TITLE_PAUSE_SECONDS }];
+  const structuralParts = preparedBody.split(TTS_HARD_PAUSE);
+  for (let partIndex = 0; partIndex < structuralParts.length; partIndex++) {
+    const punctuationParts = structuralParts[partIndex].split(TTS_SOFT_PAUSE);
+    for (let punctuationIndex = 0; punctuationIndex < punctuationParts.length; punctuationIndex++) {
+      const sentences = splitSentences(punctuationParts[punctuationIndex].trim()).map((sentence) => sentence.trim()).filter(Boolean);
+      for (let sentenceIndex = 0; sentenceIndex < sentences.length; sentenceIndex++) {
+        const chunks = narrationChunks(sentences[sentenceIndex], chunkMax);
+        for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+          const isLastChunk = chunkIndex === chunks.length - 1;
+          const isLastSentence = sentenceIndex === sentences.length - 1;
+          const isLastPunctuationPart = punctuationIndex === punctuationParts.length - 1;
+          const pauseAfter = !isLastChunk ? 0
+            : !isLastSentence ? TTS_SENTENCE_PAUSE_SECONDS
+              : !isLastPunctuationPart ? TTS_PUNCTUATION_PAUSE_SECONDS
+                : partIndex < structuralParts.length - 1 ? TTS_STRUCTURE_PAUSE_SECONDS : 0;
+          prompts.push({ text: chunks[chunkIndex], pauseAfter });
+        }
+      }
+    }
+  }
+  return prompts;
 }
 
 export function narrationChunks(text: string, maxLength = TTS_CHUNK_MAX): string[] {
