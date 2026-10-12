@@ -106,6 +106,10 @@ async function ensurePostsMetaColumn(db: D1Database): Promise<void> {
   try { await db.prepare("ALTER TABLE posts ADD COLUMN meta_description TEXT").run(); } catch {}
 }
 
+async function ensurePostsScheduledColumn(db: D1Database): Promise<void> {
+  try { await db.prepare("ALTER TABLE posts ADD COLUMN scheduled_at INTEGER").run(); } catch {}
+}
+
 async function ensureImportRecordsTable(db: D1Database): Promise<void> {
   try {
     await db.prepare("CREATE TABLE IF NOT EXISTS import_records (tenant_id INTEGER NOT NULL, source TEXT NOT NULL, external_id TEXT NOT NULL, item_type TEXT NOT NULL, slug TEXT NOT NULL, legacy_path TEXT, created_at INTEGER NOT NULL, PRIMARY KEY (tenant_id, source, external_id))").run();
@@ -1265,6 +1269,19 @@ function normalizeApiPostTags(value: unknown): { tags: string[]; error?: string 
   return normalizePostTags(input);
 }
 
+/** Parse the ISO-8601 schedule time accepted by the public API into unix seconds. */
+function parseApiScheduledAt(value: unknown, now: number): { present: boolean; scheduledAt: number | null; error?: string } {
+  if (value === undefined) return { present: false, scheduledAt: null };
+  if (value === null) return { present: true, scheduledAt: null };
+  const text = String(value).trim();
+  if (!/([zZ]|[+-]\d{2}:?\d{2})$/.test(text)) return { present: true, scheduledAt: null, error: "scheduled_at must be ISO-8601 with an explicit timezone offset" };
+  const ms = Date.parse(text);
+  if (!Number.isFinite(ms)) return { present: true, scheduledAt: null, error: "scheduled_at must be ISO-8601 with an explicit timezone offset" };
+  const epoch = Math.floor(ms / 1000);
+  if (epoch <= now) return { present: true, scheduledAt: null, error: "scheduled_at must be in the future" };
+  return { present: true, scheduledAt: epoch };
+}
+
 function storedPostTags(value: unknown): string[] {
   try {
     const parsed = JSON.parse(String(value || "[]"));
@@ -1790,7 +1807,7 @@ app.get("/api/v1/blogs/:blogId/posts", async (c) => {
   const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
   if (!tenant) return c.json({ error: "blog not found" }, 404);
   const { results } = await tenantDb(c.env, tenant).prepare(
-    `SELECT id, slug, title, featured_image_key, tags_json, author_name, author_visible, published, created_at, updated_at
+    `SELECT id, slug, title, featured_image_key, tags_json, author_name, author_visible, published, scheduled_at, created_at, updated_at
        FROM posts WHERE tenant_id = ? ORDER BY created_at DESC`
   )
     .bind(tenant.id)
@@ -1822,7 +1839,7 @@ app.get("/api/v1/blogs/:blogId/posts/:id", async (c) => {
   } });
 });
 
-// Create a post. Body (JSON): { title, body_md, slug?, published?, tags?: string[], author_name?: string, author_visible?: boolean, featured_image_key?: string }
+// Create a post. Body (JSON): { title, body_md, slug?, published?, scheduled_at?, tags?: string[], author_name?: string, author_visible?: boolean, featured_image_key?: string }
 app.post("/api/v1/blogs/:blogId/posts", async (c) => {
   const account = await apiAccount(c);
   if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
@@ -1843,8 +1860,15 @@ app.post("/api/v1/blogs/:blogId/posts", async (c) => {
   if (!title || !body_md)
     return c.json({ error: "title and body_md are required" }, 400);
   let slug = (String(body?.slug ?? "").trim() || slugify(title)).slice(0, 80);
-  const published = body?.published === false ? 0 : 1;
-  if (published && !can(role, "posts.publish")) return c.json({ error: "publishing is not permitted for this role" }, 403);
+  const now = Math.floor(Date.now() / 1000);
+  const schedule = parseApiScheduledAt(body?.scheduled_at, now);
+  if (schedule.error) return c.json({ error: schedule.error }, 400);
+  const scheduledAt = schedule.present ? schedule.scheduledAt : null;
+  // A schedule time implies a draft; explicitly publishing at the same time is contradictory.
+  if (scheduledAt !== null && body?.published !== undefined && body.published !== false)
+    return c.json({ error: "cannot combine published:true with scheduled_at" }, 400);
+  const published = body?.published === false || scheduledAt !== null ? 0 : 1;
+  if ((published || scheduledAt !== null) && !can(role, "posts.publish")) return c.json({ error: "publishing is not permitted for this role" }, 403);
   let featuredImageKey: string | null;
   try {
     featuredImageKey = await checkedFeaturedImage(c.env, tenant.id, body?.featured_image_key);
@@ -1860,20 +1884,20 @@ app.post("/api/v1/blogs/:blogId/posts", async (c) => {
   const authorVisible = body?.author_visible === undefined ? 1 : (body.author_visible ? 1 : 0);
   const metaDescription = body?.meta_description !== undefined ? String(body.meta_description).trim().slice(0, 155) || null : null;
   if (metaDescription !== null && metaDescription.length > 155) return c.json({ error: "meta_description must be 155 characters or fewer" }, 400);
-  const now = Math.floor(Date.now() / 1000);
 
   const pdb = tenantDb(c.env, tenant);
   await ensurePostsMetaColumn(pdb);
+  await ensurePostsScheduledColumn(pdb);
   slug = await uniquePostSlug(pdb, tenant.id, slug);
 
   let res: any;
   for (let attempts = 0; attempts < 6; attempts++) {
     try {
       res = await pdb.prepare(
-        `INSERT INTO posts (tenant_id, slug, title, featured_image_key, body_md, tags_json, published, created_at, updated_at, author_account_id, author_name, author_visible, meta_description)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO posts (tenant_id, slug, title, featured_image_key, body_md, tags_json, published, created_at, updated_at, author_account_id, author_name, author_visible, meta_description, scheduled_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-        .bind(tenant.id, slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, now, now, account.id, authorName, authorVisible, metaDescription)
+        .bind(tenant.id, slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, now, now, account.id, authorName, authorVisible, metaDescription, scheduledAt)
         .run();
       break;
     } catch (e: any) {
@@ -1893,10 +1917,10 @@ app.post("/api/v1/blogs/:blogId/posts", async (c) => {
     c.executionCtx.waitUntil(queueSubscriberNotificationOnce(c.env, tenant, Number(res.meta.last_row_id), { slug, title }));
     c.executionCtx.waitUntil(queueBrowserPushNotificationOnce(c.env, tenant, Number(res.meta.last_row_id), { slug, title }));
   }
-  return c.json({ post: { id: res.meta.last_row_id, slug, title, featured_image_key: featuredImageKey, tags: normalizedTags.tags, author_name: authorName, author_visible: !!authorVisible, published: !!published } }, 201);
+  return c.json({ post: { id: res.meta.last_row_id, slug, title, featured_image_key: featuredImageKey, tags: normalizedTags.tags, author_name: authorName, author_visible: !!authorVisible, published: !!published, scheduled_at: scheduledAt } }, 201);
 });
 
-// Update a post. Body (JSON): any of { title, body_md, slug, published, tags, author_name, author_visible, featured_image_key }
+// Update a post. Body (JSON): any of { title, body_md, slug, published, scheduled_at, tags, author_name, author_visible, featured_image_key }
 app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
   const account = await apiAccount(c);
   if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
@@ -1908,6 +1932,7 @@ app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
 
   const pdb = tenantDb(c.env, tenant);
   await ensurePostsMetaColumn(pdb);
+  await ensurePostsScheduledColumn(pdb);
   const post = await pdb
     .prepare("SELECT * FROM posts WHERE id = ? AND tenant_id = ?")
     .bind(c.req.param("id"), tenant.id)
@@ -1952,6 +1977,15 @@ app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
   const metaDescription = body?.meta_description !== undefined ? (String(body.meta_description).trim().slice(0, 155) || null) : (post.meta_description ?? null);
   if (metaDescription !== null && metaDescription.length > 155) return c.json({ error: "meta_description must be 155 characters or fewer" }, 400);
   const now = Math.floor(Date.now() / 1000);
+  const schedule = parseApiScheduledAt(body?.scheduled_at, now);
+  if (schedule.error) return c.json({ error: schedule.error }, 400);
+  if (schedule.present && schedule.scheduledAt !== null && published)
+    return c.json({ error: "cannot schedule a published post; set published:false to schedule it" }, 400);
+  // Publishing now clears any schedule: live posts are never scheduled.
+  let scheduledAt: number | null = post.scheduled_at ?? null;
+  if (published) scheduledAt = null;
+  else if (schedule.present) scheduledAt = schedule.scheduledAt;
+  if (schedule.present && schedule.scheduledAt !== null && !can(role, "posts.publish")) return c.json({ error: "publishing is not permitted for this role" }, 403);
 
   if (slug !== post.slug) {
     slug = await uniquePostSlug(pdb, tenant.id, slug, post.id);
@@ -1961,10 +1995,10 @@ app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
   while (true) {
     try {
       await pdb.prepare(
-        `UPDATE posts SET title = ?, featured_image_key = ?, body_md = ?, tags_json = ?, slug = ?, published = ?, updated_at = ?, author_name = ?, author_visible = ?, meta_description = ?
+        `UPDATE posts SET title = ?, featured_image_key = ?, body_md = ?, tags_json = ?, slug = ?, published = ?, scheduled_at = ?, updated_at = ?, author_name = ?, author_visible = ?, meta_description = ?
       WHERE id = ? AND tenant_id = ?`
       )
-        .bind(title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), slug, published, now, authorName, authorVisible, metaDescription, post.id, tenant.id)
+        .bind(title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), slug, published, scheduledAt, now, authorName, authorVisible, metaDescription, post.id, tenant.id)
         .run();
       break;
     } catch (e: any) {
@@ -1985,7 +2019,7 @@ app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
     c.executionCtx.waitUntil(queueSubscriberNotificationOnce(c.env, tenant, post.id, { slug, title }));
     c.executionCtx.waitUntil(queueBrowserPushNotificationOnce(c.env, tenant, post.id, { slug, title }));
   }
-  return c.json({ post: { id: post.id, slug, title, featured_image_key: featuredImageKey, tags: normalizedTags.tags, author_name: authorName, author_visible: !!authorVisible, published: !!published } });
+  return c.json({ post: { id: post.id, slug, title, featured_image_key: featuredImageKey, tags: normalizedTags.tags, author_name: authorName, author_visible: !!authorVisible, published: !!published, scheduled_at: scheduledAt } });
 });
 
 // Delete a post.
@@ -4073,12 +4107,22 @@ app.post("/admin/b/:blogId/save", async (c) => {
   const published = form.get("published") ? 1 : 0;
   if (!idParam && !can(ctx.role, "posts.create")) return c.text("You do not have permission to create posts.", 403);
   if (published && !can(ctx.role, "posts.publish")) return c.text("You do not have permission to publish posts.", 403);
+  const now = Math.floor(Date.now() / 1000);
+  const scheduleInput = form.get("scheduled_at");
+  const schedule = parseApiScheduledAt(scheduleInput === null || String(scheduleInput).trim() === "" ? null : String(scheduleInput), now);
+  if (schedule.error)
+    return c.html(editorPage(ctx.account, ctx.tenant, c.env.ROOT_DOMAIN,
+      { id: idParam ? Number(idParam) : undefined, title, slug, body_md, published, featured_image_key: null, scheduled_at: null },
+      schedule.error), 400);
+  // Publishing now clears any schedule: live posts are never scheduled.
+  const scheduledAt: number | null = published ? null : schedule.scheduledAt;
+  if (scheduledAt !== null && !can(ctx.role, "posts.publish")) return c.text("You do not have permission to publish posts.", 403);
   let featuredImageKey: string | null;
   try {
     featuredImageKey = await checkedFeaturedImage(c.env, ctx.tenant.id, form.get("featured_image_key"));
   } catch (e: any) {
     return c.html(editorPage(ctx.account, ctx.tenant, c.env.ROOT_DOMAIN,
-      { id: idParam ? Number(idParam) : undefined, title, slug, body_md, published, featured_image_key: null },
+      { id: idParam ? Number(idParam) : undefined, title, slug, body_md, published, featured_image_key: null, scheduled_at: scheduledAt },
       e.message), 400);
   }
   if (!slug) slug = slugify(title);
@@ -4089,19 +4133,19 @@ app.post("/admin/b/:blogId/save", async (c) => {
         ctx.account,
         ctx.tenant,
         c.env.ROOT_DOMAIN,
-        { id: idParam ? Number(idParam) : undefined, title, slug, body_md, published, featured_image_key: featuredImageKey },
+        { id: idParam ? Number(idParam) : undefined, title, slug, body_md, published, featured_image_key: featuredImageKey, scheduled_at: scheduledAt },
         "A title is required (and it must produce a valid slug)."
       ),
       400
     );
   if (normalizedTags.error)
     return c.html(editorPage(ctx.account, ctx.tenant, c.env.ROOT_DOMAIN,
-      { id: idParam ? Number(idParam) : undefined, title, slug, body_md, published, featured_image_key: featuredImageKey, tags_json: JSON.stringify(normalizedTags.tags) },
+      { id: idParam ? Number(idParam) : undefined, title, slug, body_md, published, featured_image_key: featuredImageKey, tags_json: JSON.stringify(normalizedTags.tags), scheduled_at: scheduledAt },
       normalizedTags.error), 400);
 
-  const now = Math.floor(Date.now() / 1000);
   const pdb = tenantDb(c.env, ctx.tenant);
   await ensurePostsMetaColumn(pdb);
+  await ensurePostsScheduledColumn(pdb);
   let savedId = idParam ? Number(idParam) : undefined;
   let wasPublished = 0;
   let previousSlug = "";
@@ -4126,17 +4170,17 @@ app.post("/admin/b/:blogId/save", async (c) => {
     try {
       if (idParam) {
         const update = can(ctx.role, "posts.edit.any")
-          ? pdb.prepare(`UPDATE posts SET slug = ?, title = ?, featured_image_key = ?, body_md = ?, tags_json = ?, published = ?, updated_at = ?, author_account_id = ?, author_name = ?, author_visible = ?, meta_description = ? WHERE id = ? AND tenant_id = ?`)
-              .bind(slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, now, authorAccountId, authorName, requestedAuthorVisible ? 1 : 0, metaDescription, idParam, ctx.tenant.id)
-          : pdb.prepare(`UPDATE posts SET slug = ?, title = ?, featured_image_key = ?, body_md = ?, tags_json = ?, published = ?, updated_at = ?, meta_description = ? WHERE id = ? AND tenant_id = ?`)
-              .bind(slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, now, metaDescription, idParam, ctx.tenant.id);
+          ? pdb.prepare(`UPDATE posts SET slug = ?, title = ?, featured_image_key = ?, body_md = ?, tags_json = ?, published = ?, scheduled_at = ?, updated_at = ?, author_account_id = ?, author_name = ?, author_visible = ?, meta_description = ? WHERE id = ? AND tenant_id = ?`)
+              .bind(slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, scheduledAt, now, authorAccountId, authorName, requestedAuthorVisible ? 1 : 0, metaDescription, idParam, ctx.tenant.id)
+          : pdb.prepare(`UPDATE posts SET slug = ?, title = ?, featured_image_key = ?, body_md = ?, tags_json = ?, published = ?, scheduled_at = ?, updated_at = ?, meta_description = ? WHERE id = ? AND tenant_id = ?`)
+              .bind(slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, scheduledAt, now, metaDescription, idParam, ctx.tenant.id);
         await update.run();
       } else {
         const inserted = await pdb.prepare(
-          `INSERT INTO posts (tenant_id, slug, title, featured_image_key, body_md, tags_json, published, created_at, updated_at, author_account_id, author_name, author_visible, meta_description)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO posts (tenant_id, slug, title, featured_image_key, body_md, tags_json, published, scheduled_at, created_at, updated_at, author_account_id, author_name, author_visible, meta_description)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
-          .bind(ctx.tenant.id, slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, now, now, authorAccountId, authorName, requestedAuthorVisible ? 1 : 0, metaDescription)
+          .bind(ctx.tenant.id, slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, scheduledAt, now, now, authorAccountId, authorName, requestedAuthorVisible ? 1 : 0, metaDescription)
           .run();
         savedId = Number(inserted.meta.last_row_id);
       }
@@ -4152,7 +4196,7 @@ app.post("/admin/b/:blogId/save", async (c) => {
           ctx.account,
           ctx.tenant,
           c.env.ROOT_DOMAIN,
-          { id: idParam ? Number(idParam) : undefined, title, slug, body_md, published, featured_image_key: featuredImageKey },
+          { id: idParam ? Number(idParam) : undefined, title, slug, body_md, published, featured_image_key: featuredImageKey, scheduled_at: scheduledAt },
           "Couldn't save — is that slug already used by another post?"
         ),
         400
@@ -5950,6 +5994,7 @@ app.get("/admin/b/:blogId/export.zip", async (c) => {
   const tenant = ctx.tenant;
   const pdb = tenantDb(c.env, tenant);
   await ensurePostsMetaColumn(pdb);
+  await ensurePostsScheduledColumn(pdb);
 
   const zip: Record<string, Uint8Array> = {};
   let totalBytes = 0;
@@ -6084,6 +6129,7 @@ app.post("/admin/b/:blogId/import/blogger", async (c) => {
 
   const pdb = tenantDb(c.env, ctx.tenant);
   await ensurePostsMetaColumn(pdb);
+  await ensurePostsScheduledColumn(pdb);
   await ensureImportRecordsTable(pdb);
   const [imported, postSlugs, pageSlugs] = await Promise.all([
     pdb.prepare("SELECT external_id FROM import_records WHERE tenant_id = ? AND source = ?").bind(ctx.tenant.id, BLOGGER_SOURCE).all<{ external_id: string }>(),
@@ -7455,6 +7501,62 @@ export async function cleanupUnverifiedComments(env: Bindings, now: number): Pro
       await db.prepare("DELETE FROM comments WHERE status = 'unverified' AND created_at < ?").bind(now - COMMENT_TOKEN_TTL).run();
     } catch { /* next shard */ }
   }
+}
+
+// Publish scheduled posts whose time has come. Runs on the per-minute cron
+// (plus the daily tick as a backstop). Due rows are claimed with a guarded
+// UPDATE so overlapping ticks — or a tick racing a manual publish — publish
+// each post exactly once; after the claim the post takes the same side-effect
+// path as a manual publish (purge, IndexNow, one subscriber campaign, one
+// push campaign). Never throws: per-post failures are isolated so one bad
+// row can't block the rest of the tick.
+export async function publishDueScheduledPosts(env: Bindings, now: number): Promise<number> {
+  let shards: { shard: string }[] = [{ shard: "primary" }];
+  try {
+    shards = (await env.DB.prepare("SELECT DISTINCT shard FROM tenants WHERE deleted_at IS NULL").all<{ shard: string }>()).results;
+  } catch { /* fall through to primary */ }
+  const seen = new Set<string>();
+  let published = 0;
+  for (const row of shards) {
+    if (!row?.shard || seen.has(row.shard)) continue;
+    seen.add(row.shard);
+    let db: D1Database;
+    try {
+      db = tenantDb(env, { shard: row.shard } as Tenant);
+      await ensurePostsScheduledColumn(db);
+    } catch { continue; }
+    let due: { id: number; tenant_id: number; slug: string; title: string }[];
+    try {
+      due = (await db.prepare(
+        "SELECT id, tenant_id, slug, title FROM posts WHERE published = 0 AND scheduled_at IS NOT NULL AND scheduled_at <= ? ORDER BY scheduled_at ASC LIMIT 100"
+      ).bind(now).all<{ id: number; tenant_id: number; slug: string; title: string }>()).results;
+    } catch { continue; }
+    for (const post of due) {
+      try {
+        // Soft-deleted blogs read as gone: their scheduled posts stay drafts.
+        const tenant = await tenantById(env, post.tenant_id);
+        if (!tenant) continue;
+        const claim = await tenantDb(env, tenant).prepare(
+          "UPDATE posts SET published = 1, scheduled_at = NULL, updated_at = ? WHERE id = ? AND tenant_id = ? AND published = 0 AND scheduled_at IS NOT NULL AND scheduled_at <= ?"
+        ).bind(now, post.id, tenant.id, now).run();
+        if (claim.meta.changes !== 1) continue;
+        published++;
+        try { await purgeTenant(env, tenant, ["/", "/" + post.slug, "/sitemap.xml"]); } catch {}
+        try {
+          if (env.INDEXNOW_QUEUE && env.INDEXNOW_MASTER_SECRET) {
+            const origin = publicOrigin(env, tenant);
+            const urls = Array.from(new Set(["/", "/" + post.slug].map((path) => `${origin}${path}`)));
+            await env.INDEXNOW_QUEUE.send({ kind: "indexnow", urls });
+          }
+        } catch {}
+        try { await queueSubscriberNotificationOnce(env, tenant, post.id, { slug: post.slug, title: post.title }); } catch {}
+        try { await queueBrowserPushNotificationOnce(env, tenant, post.id, { slug: post.slug, title: post.title }); } catch {}
+      } catch (error) {
+        console.error(JSON.stringify({ message: "scheduled publish failed", postId: post.id, error: error instanceof Error ? error.message : String(error) }));
+      }
+    }
+  }
+  return published;
 }
 
 async function cleanupPushState(env: Bindings): Promise<void> {
@@ -10412,6 +10514,7 @@ export default {
           : Math.floor(Date.now() / 1000);
         if (isAutopilotTick((controller as any)?.cron)) {
           ctx.waitUntil(runAutopilotScheduled(env, now));
+          ctx.waitUntil(publishDueScheduledPosts(env, now));
           return;
         }
         const currentAffiliateTerms = affiliateTermsConfig(env);
@@ -10432,7 +10535,7 @@ export default {
           ? termsReview.then(() => relayAffiliateEmailOutboxInDb(env.DB, env.EMAIL_QUEUE!))
           : Promise.resolve({ queued: 0 });
         ctx.waitUntil(
-          Promise.all([runAutopilotScheduled(env, now), archivePreviousDay(env, new Date(now * 1000)), archivePreviousDayEvents(env, new Date(now * 1000)), archivePreviousDayAffiliateEvents(env, new Date(now * 1000)), refreshPostPopularity(env), cleanupPushState(env), cleanupUnverifiedComments(env, now), payoutPreparation, affiliateEmails]).catch((error) => {
+          Promise.all([runAutopilotScheduled(env, now), publishDueScheduledPosts(env, now), archivePreviousDay(env, new Date(now * 1000)), archivePreviousDayEvents(env, new Date(now * 1000)), archivePreviousDayAffiliateEvents(env, new Date(now * 1000)), refreshPostPopularity(env), cleanupPushState(env), cleanupUnverifiedComments(env, now), payoutPreparation, affiliateEmails]).catch((error) => {
         console.error(JSON.stringify({
           message: "scheduled metrics maintenance failed",
           error: error instanceof Error ? error.message : String(error),

@@ -995,7 +995,7 @@ export function postListPage(
                 </div>
               </div>
               <div class="acts">
-                <span class="tag ${p.published ? "live" : ""}">${p.published ? "Published" : "Draft"}</span>
+                <span class="tag ${p.published ? "live" : ""}">${p.published ? "Published" : (p.scheduled_at ? "Scheduled" : "Draft")}</span>
                 <a class="btn ghost icon-btn" href="${base}/edit/${p.id}" aria-label="Edit ${esc(p.title)}" title="Edit">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>
                 </a>
@@ -1358,6 +1358,9 @@ export function editorPage(
   const authorName = post?.author_name ?? "";
   const authorVisible = post?.author_visible !== 0;
   const published = post ? post.published !== 0 : true;
+  const scheduledIso = typeof post?.scheduled_at === "number" && post.scheduled_at > 0
+    ? new Date(post.scheduled_at * 1000).toISOString()
+    : "";
   const viewUrl = `https://${esc(tenant.slug)}.${esc(rootDomain)}/${slug}`;
 
   return shell(
@@ -1511,6 +1514,9 @@ export function editorPage(
           <input id="published" name="published" type="checkbox" ${published ? "checked" : ""}>
           <label for="published">Published</label>
         </div>
+        <label for="scheduled-at-local">Publish on a schedule <span style="color:var(--muted)">(optional — uncheck Published above; shown in your timezone, stored as UTC)</span></label>
+        <input id="scheduled-at-local" type="datetime-local" value="">
+        <input id="scheduled-at" name="scheduled_at" type="hidden" value="${esc(scheduledIso)}">
         <div class="actions">
           <button class="btn" type="submit" name="save" value="close">Save &amp; close</button>
           <button class="btn ghost" type="button" id="save-continue">Save &amp; continue</button>
@@ -1661,6 +1667,26 @@ export function editorPage(
         var editorForm = document.getElementById("post-editor-form");
         var saveContinue = document.getElementById("save-continue");
         var saveStatus = document.getElementById("save-status");
+        var scheduledLocal = document.getElementById("scheduled-at-local");
+        var scheduledHidden = document.getElementById("scheduled-at");
+        function scheduledToLocal() {
+          if (!scheduledLocal || !scheduledHidden || !scheduledHidden.value) return;
+          var date = new Date(scheduledHidden.value);
+          if (isNaN(date.getTime())) return;
+          function pad(n) { return (n < 10 ? "0" : "") + n; }
+          scheduledLocal.value = date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate()) + "T" + pad(date.getHours()) + ":" + pad(date.getMinutes());
+        }
+        function scheduledToHidden() {
+          if (!scheduledLocal || !scheduledHidden) return;
+          if (!scheduledLocal.value) { scheduledHidden.value = ""; return; }
+          var date = new Date(scheduledLocal.value);
+          scheduledHidden.value = isNaN(date.getTime()) ? "" : date.toISOString();
+        }
+        if (scheduledLocal && scheduledHidden) {
+          scheduledToLocal();
+          scheduledLocal.addEventListener("input", scheduledToHidden);
+          scheduledLocal.addEventListener("change", scheduledToHidden);
+        }
         var previewLinkBtn = document.getElementById("copy-preview-link");
         if (previewLinkBtn) {
           previewLinkBtn.addEventListener("click", function () {

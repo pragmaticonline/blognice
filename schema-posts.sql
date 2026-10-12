@@ -30,12 +30,14 @@ CREATE TABLE posts (
   meta_description TEXT,
   preview_token_hash TEXT,                       -- sha-256 of a draft preview token (see 073)
   preview_token_expires_at INTEGER,              -- unix seconds; NULL means no link minted
+  scheduled_at INTEGER,                          -- unix seconds; NULL = unscheduled, published posts always NULL (see 091)
   UNIQUE (tenant_id, slug)
 );
 
 -- Fast lookups for a tenant's published posts, newest first.
 CREATE INDEX idx_posts_tenant_pub ON posts (tenant_id, published, created_at DESC);
 CREATE INDEX idx_posts_author ON posts (tenant_id, author_account_id);
+CREATE INDEX idx_posts_scheduled ON posts (published, scheduled_at);
 
 CREATE TABLE pages (
   id INTEGER PRIMARY KEY,
