@@ -337,6 +337,27 @@ function expandDecimalNumbers(value: string): string {
   });
 }
 
+const CURRENCY_UNIT_WORDS: Record<string, string> = { "$": "dollars", "€": "euros", "£": "pounds" };
+
+// A currency amount followed by a scale word ("$870 million") reaches the
+// TTS engine raw and gets misread ("eight seventy dollars million"), so
+// expand it: number in words, scale word, currency unit last ("eight hundred
+// seventy million dollars"). Runs before expandDecimalNumbers so decimal
+// amounts ("$2.5 billion") expand here instead of splitting into "two point
+// five" first. Plain amounts ("$870") and bare scales ("870 million")
+// already read correctly and are left for the engine.
+function expandCurrencyScale(value: string): string {
+  return value.replace(/([$€£])\s?(\d+(?:\.\d+)?)\s+(thousands?|millions?|billions?|trillions?|quadrillions?)\b/gi,
+    (_match: string, symbol: string, amount: string, scale: string) => {
+      const [int, frac] = amount.split(".");
+      const spokenInt = numberWords(Number(int));
+      const spokenAmount = frac === undefined
+        ? spokenInt
+        : `${spokenInt} point ${frac.split("").map((digit) => numberWords(Number(digit))).join(" ")}`;
+      return `${spokenAmount} ${scale.toLowerCase().replace(/s$/, "")} ${CURRENCY_UNIT_WORDS[symbol] ?? "dollars"}`;
+    });
+}
+
 function spokenDomains(value: string): string {
   return value
     .replace(/\bhttps?:\/\/[^\s]+/gi, " ")
@@ -397,7 +418,7 @@ function removeMarkdownTables(value: string): string {
 }
 
 function cleanSpeech(value: string, overrides: PronunciationReplacement[] = []): string {
-  return disambiguateClose(disambiguateLead(disambiguateUse(disambiguateLives(disambiguateLive(disambiguateRead(spokenForms(applyManagedSpokenForms(spokenDomains(expandDecimalNumbers(removeNumericSeparators(removeEmoji(value)))), overrides))))))))
+  return disambiguateClose(disambiguateLead(disambiguateUse(disambiguateLives(disambiguateLive(disambiguateRead(spokenForms(applyManagedSpokenForms(spokenDomains(expandDecimalNumbers(expandCurrencyScale(removeNumericSeparators(removeEmoji(value))))), overrides))))))))
     .replace(/\s*[—–]\s*/g, ", ")
     .replace(/\s*&\s*/g, " and ")
     .replace(/\s+([.,!?;:])(?!\.\.)/g, "$1")

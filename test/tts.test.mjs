@@ -329,6 +329,24 @@ test("narration expands decimal numbers into spoken words", () => {
   assert.doesNotMatch(text, /one point/);
 });
 
+test("narration expands currency-plus-scale amounts into words", () => {
+  const text = narrationText(
+    "Markets",
+    "The fine was $870 million. Revenue hit €2.5 billion, the fund manages £1 trillion, and the grant was $1 thousand.",
+  );
+  assert.match(text, /eight hundred seventy million dollars/);
+  assert.match(text, /two point five billion euros/);
+  assert.match(text, /one trillion pounds/);
+  assert.match(text, /one thousand dollars/);
+  assert.doesNotMatch(text, /\$870|€2\.5|£1/);
+});
+
+test("narration leaves plain currency amounts and bare scales to the engine", () => {
+  const text = narrationText("Prices", "It costs $870 and reaches 870 million users.");
+  assert.match(text, /\$870/);
+  assert.match(text, /870 million/);
+});
+
 test("hostnames are spoken with explicit dots", () => {
   const text = narrationText("Visit development.blognice.com", "Read development.blognice.com or https://www.blognice.com for more.");
   assert.doesNotMatch(text, /development dot blognice dot com/);
