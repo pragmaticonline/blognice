@@ -386,7 +386,7 @@ test("editor renders the schedule control and its scripts compile", async () => 
   const scheduled = editorPage(account, tenant, "blognice.test",
     { id: 3, title: "D", slug: "d", body_md: "B", tags_json: "[]", published: 0, scheduled_at: FUTURE_EPOCH });
   assert.match(scheduled, /id="scheduled-at-local" type="datetime-local"/);
-  const expectedIso = new Date(FUTURE_EPOCH * 1000).toISOString().replace(/\./g, "\\.");
+  const expectedIso = new Date(FUTURE_EPOCH * 1000).toISOString().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   assert.match(scheduled, new RegExp(`id="scheduled-at" name="scheduled_at"[^>]*value="${expectedIso}"`));
   assert.match(scheduled, /scheduledToLocal\(\)/);
   assert.match(scheduled, /scheduledLocal\.addEventListener\("input", scheduledToHidden\)/);
@@ -395,7 +395,7 @@ test("editor renders the schedule control and its scripts compile", async () => 
     { id: 4, title: "D", slug: "d", body_md: "B", tags_json: "[]", published: 0 });
   assert.match(draft, /id="scheduled-at" name="scheduled_at"[^>]*value=""/);
 
-  for (const match of scheduled.matchAll(/<script>([\s\S]*?)<\/script>/g)) assert.doesNotThrow(() => new Function(match[1]));
+  for (const match of scheduled.matchAll(/<script>([\s\S]*?)<\/script>/gi)) assert.doesNotThrow(() => new Function(match[1]));
 });
 
 test("dashboard marks scheduled posts distinctly from drafts", async () => {
