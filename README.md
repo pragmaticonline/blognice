@@ -129,6 +129,10 @@ fast, server-rendered pages.
   link. Home page only or every page; dismissals last 24 hours, and editing
   the promo shows it again straight away. Free blogs see an upgrade prompt
   instead.
+- **Scheduled publishing** — set a future publish time on a draft (editor
+  or `scheduled_at` on the posts API) and it goes live on the per-minute cron
+  with the same purge, IndexNow, and subscriber/push notifications as
+  publishing by hand.
 - **Per-tenant `sitemap.xml` and `robots.txt`** for search engines.
 - **Privacy-conscious metrics** — a tiny first-party beacon sends anonymous
   page views to Workers Analytics Engine. Authors get 7/30/90-day views,
@@ -656,7 +660,9 @@ After signing in you land on your **blogs** list (or straight into the blog if
 you only have one). Pick a blog to manage it at `/admin/b/<id>`, where you get
 its posts and a Markdown editor with a Write/Preview toggle. Use **New blog** on
 the list to create more blogs under the same account. Toggle **Published** off to
-keep a post as a draft. Saving purges the affected cached pages automatically.
+keep a post as a draft, or set **Publish on a schedule** to go live at a future
+time (shown in your timezone, stored as UTC). Saving purges the affected cached
+pages automatically.
 **Change the demo password before deploying.**
 
 Admin pages are marked `noindex`, and every blog-scoped route verifies the
@@ -787,6 +793,13 @@ Create a draft with a generated slug:
     curl -X POST "$API/blogs/$BLOG_ID/posts" \
       -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
       -d '{"title":"A draft","body_md":"Work in progress.","published":false}'
+
+Schedule a draft to publish itself (ISO-8601 with an explicit timezone offset;
+a schedule implies a draft, and publishing clears it):
+
+    curl -X POST "$API/blogs/$BLOG_ID/posts" \
+      -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+      -d '{"title":"Embargoed","body_md":"Goes live at 9am.","scheduled_at":"2030-06-01T09:00:00+02:00"}'
 
 List posts, fetch one, update it, and delete it:
 
