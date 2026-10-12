@@ -395,12 +395,14 @@ function expandCurrencyScale(value: string): string {
 
 // Clock times ("9am", "5 pm", "12:30pm") reach the TTS engine raw and get
 // misread, so expand them: hour in words, minutes when nonzero ("nine
-// thirty"; a leading zero is voiced: "nine oh five"), then the meridiem
-// spelled out ("aiay. em."). Runs before expandDecimalNumbers so it sees the
-// original digits. Bare "am"/"pm" without digits are left untouched.
+// thirty"; a leading zero is voiced: "nine oh five"). The morning meridiem
+// is dropped ("9am" reads as "nine"); evening times keep a spelled-out
+// "pee em" with no stops. A consumed sentence-final period is re-emitted.
+// Runs before expandDecimalNumbers so it sees the original digits. Bare
+// "am"/"pm" without digits are left untouched.
 function expandClockTimes(value: string): string {
-  return value.replace(/\b(\d{1,2})(?::(\d{2}))?\s?(am|pm)\b\.?/gi,
-    (_match: string, hour: string, minutes: string | undefined, meridiem: string) => {
+  return value.replace(/\b(\d{1,2})(?::(\d{2}))?\s?(am|pm)\b(\.?)/gi,
+    (_match: string, hour: string, minutes: string | undefined, meridiem: string, dot: string) => {
       const spokenHour = numberWords(Number(hour));
       const mins = minutes === undefined ? 0 : Number(minutes);
       const spokenMinutes = minutes === undefined || mins === 0
@@ -408,8 +410,8 @@ function expandClockTimes(value: string): string {
         : mins < 10
           ? ` oh ${numberWords(mins)}`
           : ` ${numberWords(mins)}`;
-      const spokenMeridiem = meridiem.toLowerCase() === "am" ? "aiay. em." : "pee. em.";
-      return `${spokenHour}${spokenMinutes}. ${spokenMeridiem}`;
+      if (meridiem.toLowerCase() === "am") return `${spokenHour}${spokenMinutes}${dot}`;
+      return `${spokenHour}${spokenMinutes} pee em${dot}`;
     });
 }
 
