@@ -402,6 +402,17 @@ const ADMIN_STYLES = /* css */ `
     ul.posts .t { font-size: .92rem; }
     ul.posts .sub { font-size: .74rem; }
   }
+  /* Narrow rows wrap instead of truncating: an unbroken Thai title has no
+     spaces for an ellipsis to cut at, so let it take two lines and drop the
+     status/actions onto their own line rather than painting over them. */
+  @media (max-width: 640px) {
+    ul.posts li { flex-wrap: wrap; }
+    .post-summary { flex: 1 1 100%; }
+    ul.posts .t { white-space: normal; overflow: visible; text-overflow: clip; }
+    ul.posts .t a { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+    ul.posts .sub { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+    ul.posts .acts { margin-left: auto; margin-top: .1rem; }
+  }
   @media (max-width: 700px) { .topbar { flex-direction: row !important; align-items: center !important; justify-content: space-between !important; gap: .75rem; } }
 `;
 

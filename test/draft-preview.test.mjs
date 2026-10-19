@@ -230,3 +230,14 @@ test("dashboard draft eye opens through a preview link; live eye links directly"
   assert.doesNotMatch(html, /href="https:\/\/rayreport\.com\/draft-nine"/);
   assert.match(html, /href="https:\/\/rayreport\.com\/live-ten"/);
 });
+
+test("posts list wraps long unbroken titles on narrow screens instead of truncating under the actions", async () => {
+  const { postListPage } = await import("../src/admin.ts");
+  const account = { id: 1, email: "owner@example.com" };
+  const tenant = { ...TENANT, public_id: "b_draftblog", custom_domain: "rayreport.com" };
+  const thaiPost = { ...DRAFT, id: 11, title: "เมื่อเราโดนป้อนชุดข้อมูลผิดๆมาตลอดจนทำให้กลายเป็นเหยื่อ", slug: "brainwashed", published: 1, created_at: NOW };
+  const html = postListPage(account, tenant, [thaiPost], "blognice.test");
+  assert.match(html, /@media \(max-width: 640px\) \{\s*ul\.posts li \{ flex-wrap: wrap; \}/);
+  assert.match(html, /-webkit-line-clamp: 2/);
+  assert.match(html, /overflow-wrap: anywhere/);
+});
