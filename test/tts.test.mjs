@@ -140,6 +140,12 @@ test("PNG is spelled out letter by letter", () => {
   assert.equal(sections.body, "Upload a P N G image.");
 });
 
+test("CS is spelled out letter by letter", () => {
+  const sections = narrationSections("CS graduates", "New CS graduates face a tough market.");
+  assert.equal(sections.title, "C S graduates.");
+  assert.equal(sections.body, "New C S graduates face a tough market.");
+});
+
 test("F1 metric reads letter-then-number", () => {
   const text = narrationText("Scores", "The tuned model leads on precision, recall, F1 and dollar-weighted recall.");
   assert.match(text, /recall, eff one and/);
