@@ -13,7 +13,7 @@ Full human: `github.com/pragmaticonline/blognice/blob/main/docs/API.md` · Machi
 
 ### Blogs
 - `GET /api/v1/blogs/:blogId` → `Blog`
-- `PATCH /api/v1/blogs/:blogId` — `settings.manage` — fields: `slug, title, description, footer_name, accent_color, topics[], social_links{}, navigation_links[{label, href, order}], header_link_url, browser_push_enabled`
+- `PATCH /api/v1/blogs/:blogId` — `settings.manage` — fields: `slug, title, description, footer_name, accent_color, topics[], social_links{}, navigation_links[{label, href, order, new_tab}], header_link_url, browser_push_enabled`
 - `POST /api/v1/blogs` `{slug, title}` → `201 {blog}`
 
 ### Posts
@@ -25,7 +25,7 @@ Full human: `github.com/pragmaticonline/blognice/blob/main/docs/API.md` · Machi
 
 ### Pages
 - `GET .../pages` · `GET .../pages/:id`
-- `POST .../pages` `{title, body_md, slug?, published?, show_in_navigation?, navigation_label?, navigation_order?, meta_description?}`
+- `POST .../pages` `{title, body_md, slug?, published?, show_in_navigation?, navigation_label?, navigation_order?, navigation_new_tab?, meta_description?}`
 - `PATCH .../pages/:id` · `DELETE .../pages/:id`
 
 ### Media
