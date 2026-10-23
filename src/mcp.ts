@@ -160,7 +160,7 @@ export const BLOGNICE_MCP_TOOLS: McpTool[] = [
   },
   {
     name: "blognice_update_blog",
-    description: "Update blog settings (PATCH). Supports title, description, footer_name, accent_color (#rrggbb), topics, social_links, navigation_links [{label, href, order}], header_link_url (/ or https://), browser_push_enabled, and profile_image_key/avatar_key — set blog profile/avatar from an existing media library key (from blognice_upload_media or blognice_get_image_status). Workflow: upload → blognice_upload_media {blogId, filename, contentType, data} → use returned key as profile_image_key.",
+    description: "Update blog settings (PATCH). Supports title, description, footer_name, accent_color (#rrggbb), topics, social_links, navigation_links [{label, href, order, new_tab}], header_link_url (/ or https://), browser_push_enabled, and profile_image_key/avatar_key — set blog profile/avatar from an existing media library key (from blognice_upload_media or blognice_get_image_status). Workflow: upload → blognice_upload_media {blogId, filename, contentType, data} → use returned key as profile_image_key.",
     inputSchema: { type: "object", properties: { blogId: { type: "string" }, title: { type: "string" }, description: { type: "string" }, footer_name: { type: "string" }, accent_color: { type: "string" }, topics: { type: "array", items: { type: "string" } }, social_links: { type: "object" }, navigation_links: { type: "array" }, header_link_url: { type: "string" }, browser_push_enabled: { type: "boolean" }, profile_image_key: { type: "string", description: "Media key from blognice_upload_media or blognice_get_image_status (e.g. 123/171234-xxxx.jpg or /media/123/...), or null to clear. Alias avatar_key." }, avatar_key: { type: "string" } }, required: [ "blogId"], additionalProperties: true },
     annotations: { title: "Update blog settings", readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   
@@ -209,8 +209,8 @@ export const BLOGNICE_MCP_TOOLS: McpTool[] = [
   },
   {
     name: "blognice_create_page",
-    description: "Create a page. Required title. Optional body_md, slug, published, show_in_navigation, navigation_label, navigation_order, meta_description.",
-    inputSchema: { type: "object", properties: { blogId: { type: "string" }, title: { type: "string" }, body_md: { type: "string" }, slug: { type: "string" }, published: { type: "boolean" }, show_in_navigation: { type: "boolean" }, navigation_label: { type: "string" }, navigation_order: { type: "integer" }, meta_description: { type: "string" } }, required: [ "blogId", "title"] },
+    description: "Create a page. Required title. Optional body_md, slug, published, show_in_navigation, navigation_label, navigation_order, navigation_new_tab, meta_description.",
+    inputSchema: { type: "object", properties: { blogId: { type: "string" }, title: { type: "string" }, body_md: { type: "string" }, slug: { type: "string" }, published: { type: "boolean" }, show_in_navigation: { type: "boolean" }, navigation_label: { type: "string" }, navigation_order: { type: "integer" }, navigation_new_tab: { type: "boolean" }, meta_description: { type: "string" } }, required: [ "blogId", "title"] },
     annotations: { title: "Create page", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   
   },
@@ -224,7 +224,7 @@ export const BLOGNICE_MCP_TOOLS: McpTool[] = [
   {
     name: "blognice_update_page",
     description: "Patch a page.",
-    inputSchema: { type: "object", properties: { blogId: { type: "string" }, pageId: { type: "integer" }, title: { type: "string" }, body_md: { type: "string" }, slug: { type: "string" }, published: { type: "boolean" }, show_in_navigation: { type: "boolean" }, navigation_label: { type: "string" }, navigation_order: { type: "integer" }, meta_description: { type: "string" } }, required: [ "blogId", "pageId"] },
+    inputSchema: { type: "object", properties: { blogId: { type: "string" }, pageId: { type: "integer" }, title: { type: "string" }, body_md: { type: "string" }, slug: { type: "string" }, published: { type: "boolean" }, show_in_navigation: { type: "boolean" }, navigation_label: { type: "string" }, navigation_order: { type: "integer" }, navigation_new_tab: { type: "boolean" }, meta_description: { type: "string" } }, required: [ "blogId", "pageId"] },
     annotations: { title: "Update page", readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   
   },
@@ -410,7 +410,7 @@ async function dispatchTool(c: any, name: string, args: any): Promise<{ content:
       }
       case "blognice_create_page": {
         const body: any = { title: String(args.title) };
-        for (const k of ["body_md", "slug", "published", "show_in_navigation", "navigation_label", "navigation_order", "meta_description"]) if (k in args) body[k] = (args as any)[k];
+        for (const k of ["body_md", "slug", "published", "show_in_navigation", "navigation_label", "navigation_order", "navigation_new_tab", "meta_description"]) if (k in args) body[k] = (args as any)[k];
         const r = await proxyToBlognice(c, apiKey, "POST", `/blogs/${encodeURIComponent(blogId)}/pages`, body);
         return { content: [{ type: "text", text: toolText(r.json ?? r.text) }], isError: !r.ok };
       }
@@ -420,7 +420,7 @@ async function dispatchTool(c: any, name: string, args: any): Promise<{ content:
       }
       case "blognice_update_page": {
         const patch: any = {};
-        for (const k of ["title", "body_md", "slug", "published", "show_in_navigation", "navigation_label", "navigation_order", "meta_description"]) if (k in args) patch[k] = (args as any)[k];
+        for (const k of ["title", "body_md", "slug", "published", "show_in_navigation", "navigation_label", "navigation_order", "navigation_new_tab", "meta_description"]) if (k in args) patch[k] = (args as any)[k];
         const r = await proxyToBlognice(c, apiKey, "PATCH", `/blogs/${encodeURIComponent(blogId)}/pages/${encodeURIComponent(String(postId))}`, patch);
         return { content: [{ type: "text", text: toolText(r.json ?? r.text) }], isError: !r.ok };
       }

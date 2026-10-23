@@ -14,6 +14,7 @@ import {
   headerHref,
   DEFAULT_ACCENT_COLOR,
   parseNavigationLinks,
+  navigationLinkNewTab,
   type NavigationItem,
   type NavigationLink,
   type Post,
@@ -1248,7 +1249,9 @@ export function normalizeNavigationLinks(value: unknown): { links: NavigationLin
     if (!isExternal && !isPath) return { links: [], error: `Navigation link "${label}" must be an absolute https URL or a path starting with /.` };
     if (isExternal) { try { const u = new URL(href); if (u.protocol !== "https:") throw new Error(); } catch { return { links: [], error: `Navigation link "${label}" must be a valid https URL.` }; } }
     if (isPath && /\s/.test(href)) return { links: [], error: `Navigation link "${label}" path must not contain spaces.` };
-    links.push({ label, href, order });
+    const link: NavigationLink = { label, href, order };
+    if (typeof (raw as any).new_tab === "boolean") link.new_tab = (raw as any).new_tab;
+    links.push(link);
   }
   return { links };
 }
@@ -2537,6 +2540,7 @@ function pageToJson(page: Page) {
     show_in_navigation: !!page.show_in_navigation,
     navigation_label: page.navigation_label ?? null,
     navigation_order: page.navigation_order ?? 0,
+    navigation_new_tab: !!page.navigation_new_tab,
     meta_description: page.meta_description ?? null,
     created_at: page.created_at,
     updated_at: page.updated_at,
@@ -2588,6 +2592,7 @@ app.post("/api/v1/blogs/:blogId/pages", async (c) => {
   const showInNavigation = body?.show_in_navigation ? 1 : 0;
   const navigationLabel = (body?.navigation_label !== undefined ? String(body.navigation_label).trim().slice(0, 40) : null) || null;
   const navigationOrder = Math.max(0, Math.min(999, Number(body?.navigation_order ?? 0) || 0));
+  const navigationNewTab = body?.navigation_new_tab ? 1 : 0;
   const metaDescription = (body?.meta_description !== undefined ? String(body.meta_description).trim().slice(0, 300) : null) || null;
   const pdbPages = tenantDb(c.env, tenant);
   slug = await uniquePageSlug(pdbPages, tenant.id, slug);
@@ -2596,7 +2601,7 @@ app.post("/api/v1/blogs/:blogId/pages", async (c) => {
   let res: any;
   for (let attempts = 0; attempts < 6; attempts++) {
     try {
-      res = await pdbPages.prepare("INSERT INTO pages (tenant_id, slug, title, body_md, published, show_in_navigation, navigation_label, navigation_order, meta_description, created_at, updated_at, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(tenant.id, slug, title, body_md, published, showInNavigation, navigationLabel, navigationOrder, metaDescription, now, now, publishedAt).run();
+      res = await pdbPages.prepare("INSERT INTO pages (tenant_id, slug, title, body_md, published, show_in_navigation, navigation_label, navigation_order, navigation_new_tab, meta_description, created_at, updated_at, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(tenant.id, slug, title, body_md, published, showInNavigation, navigationLabel, navigationOrder, navigationNewTab, metaDescription, now, now, publishedAt).run();
       break;
     } catch (e: any) {
       const msg = String(e?.message || "");
@@ -2611,7 +2616,7 @@ app.post("/api/v1/blogs/:blogId/pages", async (c) => {
   const page = await tenantDb(c.env, tenant).prepare("SELECT * FROM pages WHERE id = ?").bind(id).first<Page>();
   c.executionCtx.waitUntil(purgeTenant(c.env, tenant, ["/", "/" + slug, `/pages/${slug}`, "/sitemap.xml"]).catch(()=>{}));
   queueBlogAudit(c, tenant.id, account.id, published ? "page_published" : "page_created", slug);
-  return c.json({ page: page ? pageToJson(page) : { id, slug, title, body_md, published: !!published, show_in_navigation: !!showInNavigation, navigation_label: navigationLabel, navigation_order: navigationOrder, meta_description: metaDescription } }, 201);
+  return c.json({ page: page ? pageToJson(page) : { id, slug, title, body_md, published: !!published, show_in_navigation: !!showInNavigation, navigation_label: navigationLabel, navigation_order: navigationOrder, navigation_new_tab: !!navigationNewTab, meta_description: metaDescription } }, 201);
 });
 
 app.patch("/api/v1/blogs/:blogId/pages/:id", async (c) => {
@@ -2638,6 +2643,7 @@ app.patch("/api/v1/blogs/:blogId/pages/:id", async (c) => {
   const showInNavigation = body?.show_in_navigation !== undefined ? (body.show_in_navigation ? 1 : 0) : (page.show_in_navigation ? 1 : 0);
   const navigationLabel = body?.navigation_label !== undefined ? (String(body.navigation_label).trim().slice(0, 40) || null) : (page.navigation_label ?? null);
   const navigationOrder = body?.navigation_order !== undefined ? Math.max(0, Math.min(999, Number(body.navigation_order) || 0)) : (page.navigation_order ?? 0);
+  const navigationNewTab = body?.navigation_new_tab !== undefined ? (body.navigation_new_tab ? 1 : 0) : (page.navigation_new_tab ? 1 : 0);
   const metaDescription = body?.meta_description !== undefined ? (String(body.meta_description).trim().slice(0, 300) || null) : (page.meta_description ?? null);
   if (slug !== page.slug) {
     slug = await uniquePageSlug(pdb, tenant.id, slug, page.id);
@@ -2646,8 +2652,8 @@ app.patch("/api/v1/blogs/:blogId/pages/:id", async (c) => {
   const publishedAt = published ? (page.published_at ?? now) : null;
   for (let attempts = 0; attempts < 6; attempts++) {
     try {
-      await pdb.prepare("UPDATE pages SET slug = ?, title = ?, body_md = ?, published = ?, show_in_navigation = ?, navigation_label = ?, navigation_order = ?, meta_description = ?, updated_at = ?, published_at = ? WHERE id = ? AND tenant_id = ?")
-        .bind(slug, title, body_md, published, showInNavigation, navigationLabel, navigationOrder, metaDescription, now, publishedAt, page.id, tenant.id).run();
+      await pdb.prepare("UPDATE pages SET slug = ?, title = ?, body_md = ?, published = ?, show_in_navigation = ?, navigation_label = ?, navigation_order = ?, navigation_new_tab = ?, meta_description = ?, updated_at = ?, published_at = ? WHERE id = ? AND tenant_id = ?")
+        .bind(slug, title, body_md, published, showInNavigation, navigationLabel, navigationOrder, navigationNewTab, metaDescription, now, publishedAt, page.id, tenant.id).run();
       break;
     } catch (e: any) {
       const msg = String(e?.message || "");
@@ -2660,7 +2666,7 @@ app.patch("/api/v1/blogs/:blogId/pages/:id", async (c) => {
   }
   const updated = await pdb.prepare("SELECT * FROM pages WHERE id = ?").bind(page.id).first<Page>();
   c.executionCtx.waitUntil(purgeTenant(c.env, tenant, ["/", "/" + page.slug, "/" + slug, `/pages/${page.slug}`, `/pages/${slug}`, "/sitemap.xml"]).catch(()=>{}));
-  return c.json({ page: updated ? pageToJson(updated) : { id: page.id, slug, title, body_md, published: !!published, show_in_navigation: !!showInNavigation, navigation_label: navigationLabel, navigation_order: navigationOrder, meta_description: metaDescription } });
+  return c.json({ page: updated ? pageToJson(updated) : { id: page.id, slug, title, body_md, published: !!published, show_in_navigation: !!showInNavigation, navigation_label: navigationLabel, navigation_order: navigationOrder, navigation_new_tab: !!navigationNewTab, meta_description: metaDescription } });
 });
 
 app.delete("/api/v1/blogs/:blogId/pages/:id", async (c) => {
@@ -3778,9 +3784,10 @@ app.post("/admin/b/:blogId/pages/save", async (c) => {
   const showInNavigation = form.get("show_in_navigation") ? 1 : 0;
   const navigationLabel = String(form.get("navigation_label") || "").trim().slice(0, 40) || null;
   const navigationOrder = Math.max(0, Math.min(999, Number(form.get("navigation_order") || 0) || 0));
+  const navigationNewTab = String(form.get("navigation_target") || "") === "new" ? 1 : 0;
   const metaDescription = String(form.get("meta_description") || "").trim().slice(0, 300) || null;
   if (published && !can(ctx.role, "posts.publish")) return c.text("You do not have permission to publish pages.", 403);
-  if (!title || !slug) return c.html(pageEditorPage(ctx.account, ctx.tenant, { id: idParam ? Number(idParam) : undefined, title, slug, body_md, published, show_in_navigation: showInNavigation, navigation_label: navigationLabel, navigation_order: navigationOrder, meta_description: metaDescription }, "A title is required (and it must produce a valid slug)."), 400);
+  if (!title || !slug) return c.html(pageEditorPage(ctx.account, ctx.tenant, { id: idParam ? Number(idParam) : undefined, title, slug, body_md, published, show_in_navigation: showInNavigation, navigation_label: navigationLabel, navigation_order: navigationOrder, navigation_new_tab: navigationNewTab, meta_description: metaDescription }, "A title is required (and it must produce a valid slug)."), 400);
   const now = Math.floor(Date.now() / 1000);
   const pdbPage = tenantDb(c.env, ctx.tenant);
   let previousSlugForPurge: string | null = null;
@@ -3799,13 +3806,13 @@ app.post("/admin/b/:blogId/pages/save", async (c) => {
       if (idParam) {
         const previous = await pdbPage.prepare("SELECT slug, published_at FROM pages WHERE id = ? AND tenant_id = ?").bind(idParam, ctx.tenant.id).first<{ slug: string; published_at: number | null }>();
         if (!previous) return c.redirect(`/admin/b/${ctx.tenant.public_id}/pages`);
-        await pdbPage.prepare("UPDATE pages SET slug = ?, title = ?, body_md = ?, published = ?, show_in_navigation = ?, navigation_label = ?, navigation_order = ?, meta_description = ?, updated_at = ?, published_at = ? WHERE id = ? AND tenant_id = ?")
-          .bind(slug, title, body_md, published, showInNavigation, navigationLabel, navigationOrder, metaDescription, now, published ? (previous.published_at || now) : null, idParam, ctx.tenant.id).run();
+        await pdbPage.prepare("UPDATE pages SET slug = ?, title = ?, body_md = ?, published = ?, show_in_navigation = ?, navigation_label = ?, navigation_order = ?, navigation_new_tab = ?, meta_description = ?, updated_at = ?, published_at = ? WHERE id = ? AND tenant_id = ?")
+          .bind(slug, title, body_md, published, showInNavigation, navigationLabel, navigationOrder, navigationNewTab, metaDescription, now, published ? (previous.published_at || now) : null, idParam, ctx.tenant.id).run();
         previousSlugForPurge = previous.slug;
         purgeTenant(c.env, ctx.tenant, ["/", `/pages/${previous.slug}`, `/pages/${slug}`, "/sitemap.xml"]);
       } else {
-        await pdbPage.prepare("INSERT INTO pages (tenant_id, slug, title, body_md, published, show_in_navigation, navigation_label, navigation_order, meta_description, created_at, updated_at, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-          .bind(ctx.tenant.id, slug, title, body_md, published, showInNavigation, navigationLabel, navigationOrder, metaDescription, now, now, published ? now : null).run();
+        await pdbPage.prepare("INSERT INTO pages (tenant_id, slug, title, body_md, published, show_in_navigation, navigation_label, navigation_order, navigation_new_tab, meta_description, created_at, updated_at, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+          .bind(ctx.tenant.id, slug, title, body_md, published, showInNavigation, navigationLabel, navigationOrder, navigationNewTab, metaDescription, now, now, published ? now : null).run();
         purgeTenant(c.env, ctx.tenant, ["/", `/pages/${slug}`, "/sitemap.xml"]);
       }
       break;
@@ -3816,7 +3823,7 @@ app.post("/admin/b/:blogId/pages/save", async (c) => {
         continue;
       }
       const message = msg.includes("UNIQUE") ? "That page slug is already in use." : "Could not save this page.";
-      return c.html(pageEditorPage(ctx.account, ctx.tenant, { id: idParam ? Number(idParam) : undefined, title, slug, body_md, published, show_in_navigation: showInNavigation, navigation_label: navigationLabel, navigation_order: navigationOrder, meta_description: metaDescription }, message), 400);
+      return c.html(pageEditorPage(ctx.account, ctx.tenant, { id: idParam ? Number(idParam) : undefined, title, slug, body_md, published, show_in_navigation: showInNavigation, navigation_label: navigationLabel, navigation_order: navigationOrder, navigation_new_tab: navigationNewTab, meta_description: metaDescription }, message), 400);
     }
   }
   return c.redirect(`/admin/b/${ctx.tenant.public_id}/pages`);
@@ -3855,6 +3862,7 @@ app.post("/admin/b/:blogId/navigation-links", async (c) => {
   const label = String(form.get("label") || "").trim().slice(0, 40);
   const href = String(form.get("href") || "").trim().slice(0, 200);
   const order = Math.max(0, Math.min(999, Number(form.get("order") || 0) || 0));
+  const newTab = String(form.get("navigation_target") || "") === "new";
   const { results: pages } = await tenantDb(c.env, ctx.tenant).prepare("SELECT * FROM pages WHERE tenant_id = ? ORDER BY navigation_order, updated_at DESC").bind(ctx.tenant.id).all<Page>();
   if (!label) return c.html(pageListPage(ctx.account, ctx.tenant, pages, c.env.ROOT_DOMAIN, { error: "A link label is required." }), 400);
   if (!href) return c.html(pageListPage(ctx.account, ctx.tenant, pages, c.env.ROOT_DOMAIN, { error: "A link target is required." }), 400);
@@ -3865,7 +3873,7 @@ app.post("/admin/b/:blogId/navigation-links", async (c) => {
   if (isPath && /\s/.test(href)) return c.html(pageListPage(ctx.account, ctx.tenant, pages, c.env.ROOT_DOMAIN, { error: "Path links must not contain spaces." }), 400);
   const existing = parseNavigationLinks(ctx.tenant as any);
   if (existing.length >= 20) return c.html(pageListPage(ctx.account, ctx.tenant, pages, c.env.ROOT_DOMAIN, { error: "Use 20 navigation links or fewer." }), 400);
-  const next = [...existing, { label, href, order }];
+  const next = [...existing, { label, href, order, new_tab: newTab }];
   await c.env.DB.prepare("UPDATE tenants SET navigation_links_json = ? WHERE id = ?").bind(JSON.stringify(next), ctx.tenant.id).run();
   queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "navigation_link_added", href);
   c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, { ...ctx.tenant, navigation_links_json: JSON.stringify(next) } as any).catch(() => {}));
@@ -8836,8 +8844,8 @@ app.get("/", async (c) => {
       "SELECT * FROM posts WHERE tenant_id = ? AND published = 1 ORDER BY created_at DESC LIMIT ? OFFSET ?"
     ).bind(tenant.id, pageNumber === 1 ? pageSize + 2 : pageSize + 1, offset).all<Post>();
     const navigationPagesPromise = tenantDb(c.env, tenant).prepare(
-      "SELECT slug, COALESCE(navigation_label, title) AS label, navigation_order FROM pages WHERE tenant_id = ? AND published = 1 AND show_in_navigation = 1 ORDER BY navigation_order, title LIMIT 6"
-    ).bind(tenant.id).all<{ slug: string; label: string; navigation_order: number }>();
+      "SELECT slug, COALESCE(navigation_label, title) AS label, navigation_order, navigation_new_tab FROM pages WHERE tenant_id = ? AND published = 1 AND show_in_navigation = 1 ORDER BY navigation_order, title LIMIT 6"
+    ).bind(tenant.id).all<{ slug: string; label: string; navigation_order: number; navigation_new_tab?: number }>();
     const popularityPromise = c.env.DB.prepare(
       `SELECT path, score, reader_days_30
          FROM post_popularity
@@ -8856,10 +8864,10 @@ app.get("/", async (c) => {
     });
     const [{ results: queriedPosts }, popularity, navigationPages] = await Promise.all([postsPromise, popularityPromise, navigationPagesPromise]);
     const navigationItems: NavigationItem[] = (() => {
-      const pageItems: Array<{ label: string; href: string; order: number; external: boolean }> = navigationPages.results.map((row) => ({ label: row.label, href: `/pages/${row.slug}`, order: row.navigation_order ?? 0, external: false }));
-      const linkItems: Array<{ label: string; href: string; order: number; external: boolean }> = parseNavigationLinks(tenant as any).map((link) => ({ label: link.label, href: link.href, order: link.order, external: /^https:\/\//i.test(link.href) }));
+      const pageItems: Array<{ label: string; href: string; order: number; newTab: boolean }> = navigationPages.results.map((row) => ({ label: row.label, href: `/pages/${row.slug}`, order: row.navigation_order ?? 0, newTab: !!row.navigation_new_tab }));
+      const linkItems: Array<{ label: string; href: string; order: number; newTab: boolean }> = parseNavigationLinks(tenant as any).map((link) => ({ label: link.label, href: link.href, order: link.order, newTab: navigationLinkNewTab(link) }));
       const merged = [...pageItems, ...linkItems].sort((a, b) => a.order === b.order ? a.label.localeCompare(b.label) : a.order - b.order).slice(0, 6);
-      return merged.map(({ label, href, external }) => ({ label, href, external }));
+      return merged.map(({ label, href, newTab }) => ({ label, href, newTab }));
     })();
     const displayLimit = pageNumber === 1 ? pageSize + 1 : pageSize;
     const hasMorePosts = queriedPosts.length > displayLimit;
@@ -8997,13 +9005,13 @@ app.get("/pages/:slug", async (c) => {
   ).bind(tenant.id, c.req.param("slug")).first<Page>();
   if (!page) return c.html(renderNotFound(tenant, analyticsConsentRequired(c.req.raw.cf?.country)), 404);
   const navigationRows = await tenantDb(c.env, tenant).prepare(
-    "SELECT slug, COALESCE(navigation_label, title) AS label, navigation_order FROM pages WHERE tenant_id = ? AND published = 1 AND show_in_navigation = 1 ORDER BY navigation_order, title LIMIT 6"
-  ).bind(tenant.id).all<{ slug: string; label: string; navigation_order: number }>();
+    "SELECT slug, COALESCE(navigation_label, title) AS label, navigation_order, navigation_new_tab FROM pages WHERE tenant_id = ? AND published = 1 AND show_in_navigation = 1 ORDER BY navigation_order, title LIMIT 6"
+  ).bind(tenant.id).all<{ slug: string; label: string; navigation_order: number; navigation_new_tab?: number }>();
   const navigationItems: NavigationItem[] = (() => {
-    const pageItems: Array<{ label: string; href: string; order: number; external: boolean }> = navigationRows.results.map((row) => ({ label: row.label, href: `/pages/${row.slug}`, order: row.navigation_order ?? 0, external: false }));
-    const linkItems: Array<{ label: string; href: string; order: number; external: boolean }> = parseNavigationLinks(tenant as any).map((link) => ({ label: link.label, href: link.href, order: link.order, external: /^https:\/\//i.test(link.href) }));
+    const pageItems: Array<{ label: string; href: string; order: number; newTab: boolean }> = navigationRows.results.map((row) => ({ label: row.label, href: `/pages/${row.slug}`, order: row.navigation_order ?? 0, newTab: !!row.navigation_new_tab }));
+    const linkItems: Array<{ label: string; href: string; order: number; newTab: boolean }> = parseNavigationLinks(tenant as any).map((link) => ({ label: link.label, href: link.href, order: link.order, newTab: navigationLinkNewTab(link) }));
     const merged = [...pageItems, ...linkItems].sort((a, b) => a.order === b.order ? a.label.localeCompare(b.label) : a.order - b.order).slice(0, 6);
-    return merged.map(({ label, href, external }) => ({ label, href, external }));
+    return merged.map(({ label, href, newTab }) => ({ label, href, newTab }));
   })();
   const account = await currentAccount(c);
   let isOwner = false;
