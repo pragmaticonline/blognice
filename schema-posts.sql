@@ -49,6 +49,7 @@ CREATE TABLE pages (
   show_in_navigation INTEGER NOT NULL DEFAULT 0,
   navigation_label TEXT,
   navigation_order INTEGER NOT NULL DEFAULT 0,
+  navigation_new_tab INTEGER NOT NULL DEFAULT 0,
   meta_description TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,

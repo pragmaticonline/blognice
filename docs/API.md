@@ -71,7 +71,7 @@ curl -X PATCH https://www.blognice.com/api/v1/blogs/ggh6gvgsgj4h \
 | `accent_color` | `#rrggbb` hex | `Brand colour must be...` |
 | `topics` | `string[]` ≤10, each ≤40 | letters/numbers/space/`_-` |
 | `social_links` | object `x,facebook,instagram,linkedin,youtube,tiktok,bluesky,mastodon,bitchute,telegram` → `https://` ≤500 | https only |
-| `navigation_links` | `Array<{label ≤40, href ≤200, order 0-999}>` ≤20 | `href` must be `https://...` or `/path` (no spaces) |
+| `navigation_links` | `Array<{label ≤40, href ≤200, order 0-999, new_tab bool}>` ≤20 | `href` must be `https://...` or `/path` (no spaces); `new_tab` chooses new tab vs same tab (omitted: external = new tab, path = same tab) |
 | `header_link_url` | string ≤500 | `"/"` or `/path` or `https://...` — **where the header logo/title links**. Use `"/"` for blog home, or `https://www.domain.com` when blog lives at `blog.domain.com`. External opens in new tab. Default `"/"` |
 | `theme` | `'modern'` \| `'blogspot'` | public blog look; `blogspot` is the old-Blogspot-style theme. Default `'modern'` |
 | `custom_css` | string ≤20000 | Pro-only owner stylesheet, appended after the theme styles. Rejects `</style>`, `javascript:` URLs, `expression(...)` |
@@ -162,7 +162,7 @@ curl -X POST https://www.blognice.com/api/v1/blogs/ggh6gvgsgj4h/pages \
   -d '{"title":"About","slug":"about","body_md":"# About\nWe love writing.","published":true,"show_in_navigation":true,"navigation_label":"About","navigation_order":0,"meta_description":"About us"}'
 ```
 
-Fields: `title ≤200`, `body_md`, `slug ≤100` (auto, unique via `uniquePageSlug`), `published` bool, `show_in_navigation` bool, `navigation_label ≤40` (defaults to title), `navigation_order 0-999`, `meta_description ≤300`. Purges `/:slug`, `/pages/:slug`, `/sitemap.xml`.
+Fields: `title ≤200`, `body_md`, `slug ≤100` (auto, unique via `uniquePageSlug`), `published` bool, `show_in_navigation` bool, `navigation_label ≤40` (defaults to title), `navigation_order 0-999`, `navigation_new_tab` bool (open the header link in a new tab), `meta_description ≤300`. Purges `/:slug`, `/pages/:slug`, `/sitemap.xml`.
 
 ### `PATCH /api/v1/blogs/:blogId/pages/:id` — update (requires `posts.edit.*`)
 

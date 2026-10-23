@@ -38,7 +38,7 @@ export type Tenant = {
   deleted_at: number | null; // unix seconds; NULL = live, set = soft-deleted
 };
 
-export type NavigationLink = { label: string; href: string; order: number };
+export type NavigationLink = { label: string; href: string; order: number; new_tab?: boolean };
 
 export function parseNavigationLinks(tenant: Tenant): NavigationLink[] {
   try {
@@ -46,6 +46,12 @@ export function parseNavigationLinks(tenant: Tenant): NavigationLink[] {
     if (!Array.isArray(raw)) return [];
     return raw.filter((item): item is NavigationLink => typeof item === "object" && item !== null && typeof (item as any).label === "string" && typeof (item as any).href === "string" && typeof (item as any).order === "number").slice(0, 20);
   } catch { return []; }
+}
+
+// An explicit new_tab choice wins. Links stored before that choice existed
+// keep their old behaviour: external links open in a new tab, paths do not.
+export function navigationLinkNewTab(link: NavigationLink): boolean {
+  return typeof link.new_tab === "boolean" ? link.new_tab : /^https:\/\//i.test(link.href);
 }
 
 export function normalizeHeaderLink(value: unknown): { url: string; error?: string } {
@@ -78,7 +84,7 @@ export function headerLinkIsExternal(tenant: Tenant): boolean {
   return /^https:\/\//i.test(headerHref(tenant));
 }
 
-export type NavigationItem = { label: string; href: string; external: boolean };
+export type NavigationItem = { label: string; href: string; newTab: boolean };
 
 export const DEFAULT_ACCENT_COLOR = "#1a8917";
 
@@ -291,6 +297,7 @@ export type Page = {
   show_in_navigation?: number;
   navigation_label?: string | null;
   navigation_order?: number;
+  navigation_new_tab?: number;
   meta_description?: string | null;
   created_at: number;
   updated_at: number;
@@ -1327,7 +1334,7 @@ export function renderHome(
   const header = (avatar: string) => `<div class="blog-owner-actions"><a class="owner-edit" data-blog-edit hidden href="${esc(origin)}/admin/b/${esc(tenant.public_id)}/settings" aria-label="Open blog settings" title="Open blog settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/><path d="m19.4 15 .1.1a1.8 1.8 0 0 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-3.1 1.3v.2a1.8 1.8 0 0 1-3.6 0v-.2a1.8 1.8 0 0 0-3.1-1.3l-.1.1a1.8 1.8 0 1 1-2.5-2.5l.1-.1A1.8 1.8 0 0 0 5.3 12a1.8 1.8 0 0 0-1.3-3.1h-.2a1.8 1.8 0 0 1 0-3.6H4a1.8 1.8 0 0 0 1.3-3.1l-.1-.1a1.8 1.8 0 1 1 2.5-2.5l.1.1A1.8 1.8 0 0 0 10.9 1.3v-.2a1.8 1.8 0 0 1 3.6 0v.2a1.8 1.8 0 0 0 3.1 1.3l.1-.1a1.8 1.8 0 1 1 2.5 2.5l-.1.1A1.8 1.8 0 0 0 19.4 8h.2a1.8 1.8 0 0 1 0 3.6h-.2a1.8 1.8 0 0 0 0 3.4Z"/></svg><span class="sr-only">Open blog settings</span></a></div><nav class="blog-nav"><a href="${esc(headerHref(tenant))}"${headerLinkIsExternal(tenant) ? ' target="_blank" rel="noopener noreferrer"' : ''} class="blog-header-id"><div>${avatar}</div><div class="blog-header-text"><h1 class="site-title">${esc(tenant.title)}</h1>${tenant.description ? `<div class="blog-tagline">${esc(tenant.description)}</div>` : ""}</div></a></nav>`;
   const ownerScript = `<script>(function(){var link=document.querySelector("[data-blog-edit]");if(!link)return;fetch("/_blognice/blog-edit-link?tenant=${encodeURIComponent(tenant.public_id)}",{credentials:"include",headers:{accept:"application/json"}}).then(function(r){if(!r.ok)throw new Error();return r.json()}).then(function(d){if(d.url){link.href=d.url;link.hidden=false}}).catch(function(){if(location.origin!==${JSON.stringify(origin)})fetch(${JSON.stringify(origin)}+"/_blognice/blog-edit-link?tenant=${encodeURIComponent(tenant.public_id)}",{credentials:"include"}).then(function(r){return r.ok?r.json():null}).then(function(d){if(d&&d.url){link.href=d.url;link.hidden=false}}).catch(function(){})});})();</script>`;
   const withNavigation = (markup: string) => navigationPages.length
-    ? markup.replace('</nav>', `</nav><div class="blog-nav-links" aria-label="Page navigation"><a href="/" aria-current="page">Home</a>${navigationPages.map((item) => item.external ? `<a href="${esc(item.href)}" target="_blank" rel="noopener noreferrer">${esc(item.label)}</a>` : `<a href="${esc(item.href)}">${esc(item.label)}</a>`).join("")}</div>`)
+    ? markup.replace('</nav>', `</nav><div class="blog-nav-links" aria-label="Page navigation"><a href="/" aria-current="page">Home</a>${navigationPages.map((item) => item.newTab ? `<a href="${esc(item.href)}" target="_blank" rel="noopener noreferrer">${esc(item.label)}</a>` : `<a href="${esc(item.href)}">${esc(item.label)}</a>`).join("")}</div>`)
     : markup;
   const card = (p: Post, index: number) => `<article class="blog-card"><a class="blog-art" href="/${esc(p.slug)}">${art(p, index)}</a><h3><a href="/${esc(p.slug)}">${esc(p.title)}</a></h3><p class="blog-excerpt">${esc(excerpt(p.body_md, 125))}</p><div class="blog-meta">${formatDate(p.created_at)} · ${readingTime(p.body_md)} min read</div></article>`;
   if (!posts.length) {
@@ -1477,7 +1484,7 @@ export function renderPage(
     ? `<img class="blog-avatar" src="/media/${esc(tenant.avatar_key)}" alt="">`
     : `<div class="blog-avatar">${monogram(tenant.title)}</div>`;
   const owner = isOwner ? `<div class="blog-owner-actions"><a class="owner-edit" data-page-edit hidden href="${esc(origin)}/admin/b/${esc(tenant.public_id)}/pages/edit/${page.id}" aria-label="Edit page" title="Edit page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.7 6.3 3 3M4 20l4.2-1 9.9-9.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Z"/></svg><span class="sr-only">Edit page</span></a></div>` : "";
-  const pageLinks = `<div class="blog-nav-links" aria-label="Page navigation"><a href="/">Home</a>${navigationPages.map((item) => item.href === `/pages/${page.slug}` ? `<a href="${esc(item.href)}" aria-current="page">${esc(item.label)}</a>` : item.external ? `<a href="${esc(item.href)}" target="_blank" rel="noopener noreferrer">${esc(item.label)}</a>` : `<a href="${esc(item.href)}">${esc(item.label)}</a>`).join("")}</div>`;
+  const pageLinks = `<div class="blog-nav-links" aria-label="Page navigation"><a href="/">Home</a>${navigationPages.map((item) => item.href === `/pages/${page.slug}` ? `<a href="${esc(item.href)}" aria-current="page">${esc(item.label)}</a>` : item.newTab ? `<a href="${esc(item.href)}" target="_blank" rel="noopener noreferrer">${esc(item.label)}</a>` : `<a href="${esc(item.href)}">${esc(item.label)}</a>`).join("")}</div>`;
   const header = `${owner}<nav class="blog-nav"><a href="${esc(headerHref(tenant))}"${headerLinkIsExternal(tenant) ? ' target="_blank" rel="noopener noreferrer"' : ''} class="blog-header-id"><div>${avatar}</div><div class="blog-header-text"><div class="site-title">${esc(tenant.title)}</div>${tenant.description ? `<div class="blog-tagline">${esc(tenant.description)}</div>` : ""}</div></a></nav>${pageLinks}`;
   const pageImage = tenant.avatar_key ? `${origin}/media/${tenant.avatar_key}` : undefined;
   const pageJsonLd: any[] = [

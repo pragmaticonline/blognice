@@ -50,6 +50,7 @@ components:
         label: { type: string, maxLength: 40 }
         href: { type: string, maxLength: 200, description: 'https://... or /path' }
         order: { type: integer, minimum: 0, maximum: 999 }
+        new_tab: { type: boolean, description: 'Open in a new tab; omitted keeps the old default (external links new tab, paths same tab)' }
     Page:
       type: object
       properties:
@@ -61,6 +62,7 @@ components:
         show_in_navigation: { type: boolean }
         navigation_label: { type: string, nullable: true }
         navigation_order: { type: integer }
+        navigation_new_tab: { type: boolean, description: 'Open this page in a new tab from the blog header' }
         meta_description: { type: string, nullable: true }
         created_at: { type: integer }
         updated_at: { type: integer }
@@ -197,6 +199,7 @@ paths:
                 show_in_navigation: { type: boolean }
                 navigation_label: { type: string }
                 navigation_order: { type: integer }
+                navigation_new_tab: { type: boolean }
                 meta_description: { type: string }
       responses: { '201': { description: Created } }
   /api/v1/blogs/{blogId}/pages/{id}:
@@ -207,7 +210,7 @@ paths:
     patch:
       summary: Update page
       parameters: [{ name: blogId, in: path, required: true, schema: { type: string } }, { name: id, in: path, required: true, schema: { type: integer } }]
-      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { title: { type: string }, body_md: { type: string }, slug: { type: string }, published: { type: boolean }, show_in_navigation: { type: boolean }, navigation_label: { type: string }, navigation_order: { type: integer }, meta_description: { type: string } } } } } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { title: { type: string }, body_md: { type: string }, slug: { type: string }, published: { type: boolean }, show_in_navigation: { type: boolean }, navigation_label: { type: string }, navigation_order: { type: integer }, navigation_new_tab: { type: boolean }, meta_description: { type: string } } } } } }
       responses: { '200': { description: OK } }
     delete:
       summary: Delete page

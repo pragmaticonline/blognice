@@ -141,6 +141,7 @@ const SPOKEN_FORMS: Array<[RegExp, string]> = [
   [/\bURL\b/g, "U R L"],
   [/\bUK\b/g, "U K"],
   [/\bUS\b/g, "U S"],
+  [/\bCS\b/g, "C S"],
 ];
 
 function spokenForms(value: string): string {
