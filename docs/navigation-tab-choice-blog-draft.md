@@ -2,7 +2,7 @@
 
 **Public author:** The Dev Team
 **Topics:** navigation, pages, ux, blognice
-**Status:** Draft — not yet published; change is in PR #134 (CI pending, production posts migration 092 already applied)
+**Status:** Published 2026-10-23 as post 734 — https://development.blognice.com/same-tab-or-new-tab-your-header-links-your-choice (feature PR #134 merged and deployed; production posts migration 092 applied)
 **Related PRs:** #134 `b2b085b`
 
 ## Draft body (body_md — title not repeated)
