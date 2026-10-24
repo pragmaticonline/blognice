@@ -124,9 +124,16 @@ export async function countLandingPages(env: DbEnv, tenant: Tenant): Promise<num
 
 function randomSuffix(): string {
   const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
-  const bytes = crypto.getRandomValues(new Uint8Array(5));
+  // Rejection sampling: 252 is the largest multiple of 36 within a byte,
+  // so accepted bytes map onto the alphabet without modulo bias.
   let out = "";
-  for (const b of bytes) out += alphabet[b % alphabet.length];
+  while (out.length < 5) {
+    for (const b of crypto.getRandomValues(new Uint8Array(8))) {
+      if (b >= 252) continue;
+      out += alphabet[b % alphabet.length];
+      if (out.length === 5) break;
+    }
+  }
   return out;
 }
 
