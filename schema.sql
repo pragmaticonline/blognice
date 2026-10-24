@@ -82,6 +82,7 @@ CREATE TABLE tenants (
   comments_enabled INTEGER NOT NULL DEFAULT 1, -- comments on by default (see migrations/070, 080)
   header_link_url TEXT NOT NULL DEFAULT '/',       -- where the header logo/name links ("/" = blog home, or https://parent.site)
   shard         TEXT    NOT NULL DEFAULT 'primary', -- which POSTS database holds this tenant's posts (see src/db.ts)
+  home_landing_page_id INTEGER,                   -- soft pointer to landing_pages.id in the POSTS DB (see migrations/094); NULL = blog is homepage
   created_at    INTEGER NOT NULL,                 -- unix seconds
   deleted_at    INTEGER                           -- unix seconds; NULL = live, set = soft-deleted (expunge later)
 );
@@ -148,6 +149,7 @@ CREATE TABLE accounts (
   vip_granted_by INTEGER REFERENCES accounts(id),
   vip_reason TEXT,
   max_blogs_override INTEGER,
+  landing_access_override INTEGER NOT NULL DEFAULT 0, -- staff grant: landing pages regardless of rollout (see migrations/094)
   trial_used_at INTEGER,
   email_verified INTEGER NOT NULL DEFAULT 0,
   email_verified_at INTEGER,

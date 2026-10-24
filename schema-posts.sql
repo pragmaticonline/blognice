@@ -59,6 +59,26 @@ CREATE TABLE pages (
 
 CREATE INDEX idx_pages_tenant_pub ON pages (tenant_id, published, navigation_order, title);
 
+-- Landing pages (see migrations/093-landing-pages.sql). Design +
+-- structured content; the homepage pointer lives on tenants in the
+-- index DB (soft pointer, no cross-DB FK).
+CREATE TABLE IF NOT EXISTS landing_pages (
+  id INTEGER PRIMARY KEY,
+  tenant_id INTEGER NOT NULL,
+  slug TEXT NOT NULL,
+  title TEXT NOT NULL,
+  design TEXT NOT NULL DEFAULT 'hero',
+  content_json TEXT NOT NULL DEFAULT '{}',
+  meta_description TEXT,
+  published INTEGER NOT NULL DEFAULT 0 CHECK (published IN (0,1)),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  published_at INTEGER,
+  UNIQUE (tenant_id, slug)
+);
+
+CREATE INDEX IF NOT EXISTS idx_landing_pages_tenant ON landing_pages (tenant_id, published);
+
 -- Blog comments (see migrations/069-comments.sql). Unbounded tenant content
 -- lives in this database, never in the index database.
 CREATE TABLE IF NOT EXISTS comments (
