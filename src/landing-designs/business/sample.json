@@ -1,0 +1,17 @@
+{
+  "site": { "title": "Northline Advisory", "footer_name": "Northline Advisory",
+    "nav": [{ "label": "Insights", "href": "/blog" }, { "label": "Team", "href": "/pages/team" }, { "label": "Case studies", "href": "/pages/case-studies" }, { "label": "Contact", "href": "#contact" }] },
+  "content": {
+    "hero": { "headline": "Clear numbers for growing companies.", "subheadline": "Fractional CFO and operations support for founder-led businesses between $2M and $50M in revenue.", "image_key": "sample/office" },
+    "ctas": [{ "label": "Book a consultation", "href": "mailto:hello@northline.example" }, { "label": "See case studies", "href": "/pages/case-studies" }],
+    "intro_md": "Northline is a team of twelve former finance leaders from high-growth companies. We work with a small number of clients at a time so every engagement gets a senior lead.\n\nWe're independent, we don't sell software, and we won't recommend a hire you don't need.",
+    "features": [
+      { "title": "Fractional CFO", "body_md": "Board reporting, fundraising support and strategic planning, two days a month." },
+      { "title": "Monthly close", "body_md": "Reconciled books and management accounts by the fifth working day." },
+      { "title": "Cash forecasting", "body_md": "A rolling 13-week forecast you'll actually open." },
+      { "title": "Systems & process", "body_md": "Pick, implement and connect the right finance stack." }
+    ],
+    "contact": { "email": "hello@northline.example", "phone": "+66 2 123 4567", "address": "88 Sathorn Rd, Bangkok 10120", "hours": "Mon–Fri, 9:00–18:00", "map_url": "" },
+    "show_latest_posts": true
+  }
+}

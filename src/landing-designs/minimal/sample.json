@@ -1,0 +1,12 @@
+{
+  "site": { "title": "Mali Srisuk", "footer_name": "Mali Srisuk", "avatar_key": "sample/avatar",
+    "social": [{ "label": "Instagram", "url": "https://instagram.com/" }, { "label": "Bluesky", "url": "https://bsky.app/" }, { "label": "RSS", "url": "/rss.xml" }] },
+  "content": {
+    "hero": { "headline": "Mali Srisuk", "subheadline": "Illustrator & picture-book author · Chiang Mai", "image_key": null },
+    "ctas": [{ "label": "Portfolio", "href": "/pages/portfolio" }, { "label": "Commissions", "href": "mailto:studio@mali.example" }],
+    "intro_md": "I draw quiet stories about animals, weather and small towns. My third book, *The Rain Elephant*, is out this November.",
+    "features": [],
+    "contact": {},
+    "show_latest_posts": false
+  }
+}

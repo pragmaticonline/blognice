@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--accent:#2f7a4f;--accent-ink:#fff;--bg:#fffdf8;--panel:#fff;--ink:#22201c;--muted:#6f6a60;--rule:#ece6da;--soft:#f3efe4;--sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;--display:"Trebuchet MS","Segoe UI",system-ui,sans-serif}
+html[data-theme=dark]{--bg:#171613;--panel:#201e1a;--ink:#efece4;--muted:#a8a296;--rule:#34312a;--soft:#25231e}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 var(--sans)}
+a{color:var(--link,var(--accent))}
+html[data-theme=dark]{--link:color-mix(in srgb,var(--accent) 55%,#fff)}img{max-width:100%;height:auto;display:block}.wrap{width:min(1040px,calc(100% - 2rem));margin:0 auto}
+.infobar{background:var(--accent);color:var(--accent-ink);font-size:.9rem;font-weight:600}
+.infobar .wrap{display:flex;gap:1.5rem;justify-content:center;flex-wrap:wrap;text-align:center}
+.infobar span,.infobar a{display:inline-flex;align-items:center;min-height:40px;color:inherit}
+.lp-nav{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.75rem 0}
+.brand{display:inline-flex;align-items:center;min-height:44px;font:800 1.35rem/1 var(--display);color:var(--ink);text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
+.lp-nav ul{display:flex;list-style:none;margin:0;padding:0}
+.lp-nav ul a{display:inline-flex;align-items:center;min-height:44px;padding:0 .6rem;color:var(--muted);text-decoration:none;font-weight:600}
+.lp-menu{display:none;position:relative}
+.lp-menu summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;min-height:44px;padding:0 .6rem;font-weight:600;color:var(--ink)}
+.lp-menu summary::-webkit-details-marker{display:none}
+.lp-menu ul{position:absolute;right:0;top:100%;display:grid;min-width:12rem;padding:.4rem;background:var(--panel);border:1px solid var(--rule);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.12);z-index:5}
+.lp-hero{display:grid;grid-template-columns:1fr 1fr;gap:2rem;align-items:center;padding:1.5rem 0 3.5rem}
+.lp-hero>img{border-radius:22px;aspect-ratio:1/1;object-fit:cover;width:100%}
+h1{font:800 clamp(2.2rem,5vw,3.6rem)/1.05 var(--display);margin:0 0 1rem}
+.lead{font-size:1.15rem;color:var(--muted);margin:0 0 1.75rem;max-width:40ch}
+.lp-cta{display:inline-block;padding:.9rem 1.5rem;border-radius:12px;font-weight:800;text-decoration:none;margin:0 .6rem .6rem 0}
+.lp-cta--primary{background:var(--accent);color:var(--accent-ink)}.lp-cta--secondary{background:var(--soft);color:var(--ink)}
+.lp-contact{background:var(--soft);border-radius:22px;padding:clamp(1.5rem,3vw,2.25rem);display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1.5rem}
+.lp-contact h3{margin:0 0 .35rem;font-size:.8rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}.lp-contact p{margin:0;font-weight:600;white-space:pre-line}
+.lp-contact a{display:inline-block;padding:.5rem 0}
+section{padding:3.5rem 0}h2{font:800 1.9rem/1.15 var(--display);margin:0 0 1.5rem}
+.lp-features{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:1.25rem}
+.lp-feature img{border-radius:16px;aspect-ratio:4/5;object-fit:cover;width:100%;margin-bottom:.75rem}
+.lp-feature h3{margin:0;font-size:1.05rem}.lp-feature p{margin:.15rem 0 0;color:var(--muted);font-size:.95rem}
+.lp-intro{max-width:60ch;font-size:1.1rem}
+.lp-posts a{display:block;padding:.85rem 0;border-bottom:1px solid var(--rule);text-decoration:none;color:var(--ink);font-weight:600}.lp-posts time{display:block;color:var(--muted);font-weight:400;font-size:.85rem}
+.lp-posts a.all{border:0;color:var(--accent);font-weight:700}
+.cta-band{text-align:center;border-top:1px solid var(--rule)}
+.lp-footer{border-top:1px solid var(--rule);padding:2rem 0;color:var(--muted);font-size:.9rem}.lp-footer .wrap{display:flex;justify-content:space-between;flex-wrap:wrap;gap:1rem}.lp-footer a{color:inherit}
+@media(max-width:760px){.lp-hero{grid-template-columns:1fr}.lp-hero>img{aspect-ratio:4/3}}
+@media(max-width:600px){
+  .infobar .wrap{gap:.75rem;font-size:.82rem}
+  .lp-nav ul.inline li:nth-child(n+2){display:none}
+  .lp-menu{display:block}
+  .lp-hero{padding:.5rem 0 2rem;gap:1.25rem}.lp-hero>img{order:-1;aspect-ratio:16/10}
+  .lp-ctas .lp-cta,.cta-band .lp-cta{display:block;text-align:center;margin:0 0 .6rem}
+  section{padding:2.5rem 0}
+  .lp-features{grid-template-columns:1fr 1fr;gap:.9rem}
+  .lp-feature img{aspect-ratio:1/1;border-radius:12px;margin-bottom:.5rem}
+  .lp-feature h3{font-size:.95rem;line-height:1.3}.lp-feature p{font-size:.85rem}
+}
+</style>
+{{{head_html}}}
+</head>
+<body {{{body_attrs_html}}}>
+{{#contact.has_quick}}<div class="infobar"><div class="wrap">{{#contact.hours}}<span>{{contact.hours}}</span>{{/contact.hours}}{{#contact.phone}}<a href="{{contact.phone_href}}">{{contact.phone}}</a>{{/contact.phone}}</div></div>{{/contact.has_quick}}
+<header class="wrap"><nav class="lp-nav" aria-label="Main">
+  <a class="brand" href="/">{{site.title}}</a>
+  <div style="display:flex;align-items:center">
+    <ul class="inline">{{#nav_all}}<li><a href="{{href}}"{{#new_tab}} target="_blank" rel="noopener"{{/new_tab}}>{{label}}</a></li>{{/nav_all}}</ul>
+    {{#has_nav_more}}<details class="lp-menu"><summary>Menu</summary><ul>{{#nav_more}}<li><a href="{{href}}"{{#new_tab}} target="_blank" rel="noopener"{{/new_tab}}>{{label}}</a></li>{{/nav_more}}</ul></details>{{/has_nav_more}}
+  </div>
+</nav></header>
+<main>
+  <div class="wrap lp-hero">
+    <div>
+      {{#hero.headline}}<h1>{{hero.headline}}</h1>{{/hero.headline}}{{^hero.headline}}<h1>{{site.title}}</h1>{{/hero.headline}}
+      {{#hero.subheadline}}<p class="lead">{{hero.subheadline}}</p>{{/hero.subheadline}}
+      {{#has_ctas}}<div class="lp-ctas">{{#ctas}}<a class="lp-cta {{#primary}}lp-cta--primary{{/primary}}{{#secondary}}lp-cta--secondary{{/secondary}}" href="{{href}}">{{label}}</a>{{/ctas}}</div>{{/has_ctas}}
+    </div>
+    {{#hero.image_url}}<img src="{{hero.image_url}}" alt="" fetchpriority="high" width="800" height="800">{{/hero.image_url}}
+  </div>
+  {{#contact.has_any}}<div class="wrap"><div class="lp-contact" aria-label="Visit us">
+    {{#contact.hours}}<div><h3>Hours</h3><p>{{contact.hours}}</p></div>{{/contact.hours}}
+    {{#contact.address}}<div><h3>Address</h3><p>{{contact.address}}</p>{{#contact.map_url}}<a href="{{contact.map_url}}">Get directions →</a>{{/contact.map_url}}</div>{{/contact.address}}
+    {{#contact.phone}}<div><h3>Call</h3><p><a href="{{contact.phone_href}}">{{contact.phone}}</a></p></div>{{/contact.phone}}
+    {{#contact.email}}<div><h3>Email</h3><p><a href="{{contact.email_href}}">{{contact.email}}</a></p></div>{{/contact.email}}
+  </div></div>{{/contact.has_any}}
+  {{#has_features}}<section class="wrap" aria-labelledby="lp-items-h"><h2 id="lp-items-h">Featured</h2>
+    <div class="lp-features">{{#features}}<article class="lp-feature">{{#image_url}}<img src="{{image_url}}" alt="" loading="lazy" width="600" height="750">{{/image_url}}<h3>{{title}}</h3>{{{body_html}}}</article>{{/features}}</div>
+  </section>{{/has_features}}
+  {{#intro_html}}<section class="wrap" aria-labelledby="lp-story-h"><h2 id="lp-story-h">Our story</h2><div class="lp-intro">{{{intro_html}}}</div></section>{{/intro_html}}
+  {{#has_posts}}<section class="wrap lp-posts" aria-labelledby="lp-posts-h"><h2 id="lp-posts-h">From the journal</h2>
+    {{#posts}}<a href="{{url}}"><time>{{date}}</time>{{title}}</a>{{/posts}}<a class="all" href="{{blog_url}}">All posts →</a>
+  </section>{{/has_posts}}
+  {{#cta_primary}}<section class="wrap cta-band"><a class="lp-cta lp-cta--primary" href="{{href}}">{{label}}</a></section>{{/cta_primary}}
+</main>
+<footer class="lp-footer"><div class="wrap"><span>© {{site.year}} {{site.footer_name}}</span><span><a href="{{blog_url}}">Blog</a> · Powered by blognice</span></div></footer>
+{{{body_end_html}}}
+</body>
+</html>

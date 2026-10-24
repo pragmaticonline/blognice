@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--accent:#7a3cc4;--accent-ink:#fff;--bg:#fafaf9;--ink:#18181b;--muted:#71717a;--rule:#e4e4e7;--serif:Georgia,"Iowan Old Style","Times New Roman",serif;--sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+html[data-theme=dark]{--bg:#121214;--ink:#ececee;--muted:#a1a1aa;--rule:#2a2a2e}
+*{box-sizing:border-box}html,body{min-height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.65 var(--sans);display:flex;flex-direction:column;min-height:100vh}
+a{color:var(--link,var(--accent))}
+html[data-theme=dark]{--link:color-mix(in srgb,var(--accent) 55%,#fff)}
+main{flex:1;display:grid;place-items:center;padding:4rem 1rem}
+.lp-hero{width:min(560px,100%);text-align:center}
+.avatar{width:96px;height:96px!important;border-radius:50%;object-fit:cover;margin:0 auto 1.5rem;display:block;border:3px solid var(--bg);box-shadow:0 0 0 2px var(--accent)}
+h1{font:400 clamp(2.2rem,6vw,3.2rem)/1.1 var(--serif);margin:0 0 .5rem;letter-spacing:-.01em}
+.sub{color:var(--muted);margin:0 0 2rem;font-size:1.05rem}
+.lp-intro{margin:0 auto 2.25rem;max-width:44ch;text-align:left}.lp-intro p{margin:0 0 1rem}
+.lp-ctas{display:grid;gap:.7rem;margin:0 0 2rem}
+.lp-cta{display:block;padding:.9rem 1.2rem;border:1px solid var(--rule);border-radius:12px;text-decoration:none;color:var(--ink);font-weight:600}
+.lp-cta:hover,.lp-cta:focus-visible{border-color:var(--accent)}
+.lp-cta--primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.social{display:flex;flex-wrap:wrap;justify-content:center;list-style:none;margin:0;padding:0;font-size:.95rem}
+.social a{display:inline-flex;align-items:center;min-height:44px;padding:0 .6rem;color:var(--muted);text-decoration:none}.social a:hover{color:var(--accent)}
+.lp-footer{text-align:center;padding:1.5rem 1rem;color:var(--muted);font-size:.85rem}
+@media(max-width:600px){main{padding:2.5rem 1rem}}
+</style>
+{{{head_html}}}
+</head>
+<body {{{body_attrs_html}}}>
+<main>
+  <div class="lp-hero">
+    {{#hero_image_url}}<img class="avatar" src="{{hero_image_url}}" alt="" width="96" height="96">{{/hero_image_url}}
+    {{#hero.headline}}<h1>{{hero.headline}}</h1>{{/hero.headline}}{{^hero.headline}}<h1>{{site.title}}</h1>{{/hero.headline}}
+    {{#hero.subheadline}}<p class="sub">{{hero.subheadline}}</p>{{/hero.subheadline}}
+    {{#intro_html}}<div class="lp-intro">{{{intro_html}}}</div>{{/intro_html}}
+    <nav class="lp-ctas" aria-label="Links">
+      <a class="lp-cta lp-cta--primary" href="{{blog_url}}">Read the blog</a>
+      {{#ctas}}<a class="lp-cta lp-cta--secondary" href="{{href}}">{{label}}</a>{{/ctas}}
+    </nav>
+    {{#has_social}}<ul class="social">{{#social}}<li><a href="{{url}}" rel="me noopener">{{label}}</a></li>{{/social}}</ul>{{/has_social}}
+  </div>
+</main>
+<footer class="lp-footer">© {{site.year}} {{site.footer_name}} · Powered by blognice</footer>
+{{{body_end_html}}}
+</body>
+</html>

@@ -1,0 +1,7 @@
+{
+  "id": "hero",
+  "label": "Hero",
+  "description": "Full-width photo with a big headline and buttons, then intro, feature cards and latest posts. A good default for most sites.",
+  "author": "blognice",
+  "sections": ["hero", "ctas", "intro", "features", "posts", "contact"]
+}

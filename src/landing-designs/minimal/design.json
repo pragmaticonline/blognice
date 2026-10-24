@@ -1,0 +1,7 @@
+{
+  "id": "minimal",
+  "label": "Minimal",
+  "description": "A centered personal page: photo, name, short intro and a stack of link buttons, with Read the blog first.",
+  "author": "blognice",
+  "sections": ["hero", "intro", "ctas"]
+}

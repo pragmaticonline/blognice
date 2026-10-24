@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--accent:#1f4fd1;--accent-ink:#fff;--bg:#f6f7f9;--panel:#fff;--ink:#11151c;--muted:#5b6472;--rule:#e2e5ea;--sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+html[data-theme=dark]{--bg:#0f1218;--panel:#171b23;--ink:#e8ebf0;--muted:#98a1ae;--rule:#272d38}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 var(--sans)}
+a{color:var(--link,var(--accent))}
+html[data-theme=dark]{--link:color-mix(in srgb,var(--accent) 55%,#fff)}img{max-width:100%;height:auto;display:block}.wrap{width:min(1120px,calc(100% - 2rem));margin:0 auto}
+.top{background:var(--panel);border-bottom:1px solid var(--rule)}
+.lp-nav{display:flex;align-items:center;justify-content:space-between;gap:1rem;min-height:4rem}
+.brand{display:inline-flex;align-items:center;gap:.6rem;min-height:44px;font-weight:800;letter-spacing:-.01em;color:var(--ink);text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
+.mark{flex:0 0 28px;width:28px;height:28px;border-radius:7px;background:var(--accent);object-fit:cover}
+.lp-nav ul{display:flex;list-style:none;margin:0;padding:0}
+.lp-nav ul a{display:inline-flex;align-items:center;min-height:44px;padding:0 .75rem;color:var(--muted);text-decoration:none;font-weight:600;font-size:.94rem}
+.lp-menu{display:none;position:relative}
+.lp-menu summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;min-height:44px;padding:0 .75rem;font-weight:600;color:var(--ink)}
+.lp-menu summary::-webkit-details-marker{display:none}
+.lp-menu ul{position:absolute;right:0;top:100%;display:grid;min-width:12rem;padding:.4rem;background:var(--panel);border:1px solid var(--rule);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.12);z-index:5}
+.lp-hero{padding:5rem 0 4rem;display:grid;grid-template-columns:1.2fr .8fr;gap:3rem;align-items:center}
+.lp-hero>img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:14px;border:1px solid var(--rule)}
+h1{font-size:clamp(2.2rem,4.8vw,3.6rem);line-height:1.08;letter-spacing:-.02em;margin:0 0 1.1rem}
+.lead{font-size:1.15rem;color:var(--muted);max-width:48ch;margin:0 0 2rem}
+.lp-cta{display:inline-block;padding:.8rem 1.3rem;border-radius:8px;font-weight:700;text-decoration:none;margin:0 .6rem .6rem 0}
+.lp-cta--primary{background:var(--accent);color:var(--accent-ink)}.lp-cta--secondary{background:var(--panel);border:1px solid var(--rule);color:var(--ink)}
+section{padding:4rem 0}h2{font-size:1.75rem;letter-spacing:-.01em;margin:0 0 1.5rem}
+.lp-features{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:1px;background:var(--rule);border:1px solid var(--rule);border-radius:14px;overflow:hidden}
+.lp-feature{background:var(--panel);padding:1.75rem}.lp-feature .n{font-weight:800;color:var(--accent);font-size:.85rem}.lp-feature h3{margin:.4rem 0 .5rem;font-size:1.15rem}.lp-feature p{margin:0;color:var(--muted)}
+.lp-intro{display:grid;grid-template-columns:.8fr 1.2fr;gap:3rem}.lp-intro p{margin:0 0 1rem;font-size:1.05rem}
+.lp-contact{background:var(--ink);color:var(--bg);border-radius:18px;padding:clamp(1.75rem,4vw,3rem);display:grid;grid-template-columns:1fr 1fr;gap:2rem}
+.lp-contact h2{color:var(--bg);margin-bottom:.75rem}.lp-contact p{opacity:.8;margin:0 0 1.5rem}.lp-contact a{color:var(--bg)}
+.lp-contact dl{margin:0;display:grid;gap:1rem}.lp-contact dt{font-size:.8rem;text-transform:uppercase;letter-spacing:.1em;opacity:.6}.lp-contact dd{margin:0;font-weight:600;white-space:pre-line}
+.lp-contact .lp-cta--primary{color:var(--accent-ink)}
+.lp-posts a.post{display:block;padding:1rem 0;border-bottom:1px solid var(--rule);text-decoration:none;color:var(--ink);font-weight:600}.lp-posts time{display:block;color:var(--muted);font-weight:400;font-size:.85rem}
+.all{display:inline-block;margin-top:1rem;padding:.6rem 0;font-weight:700}
+.lp-footer{padding:2rem 0;color:var(--muted);font-size:.9rem;border-top:1px solid var(--rule);margin-top:2rem}
+.lp-footer .wrap{display:flex;justify-content:space-between;flex-wrap:wrap;gap:1rem}.lp-footer a{color:inherit}
+@media(max-width:780px){
+  .lp-hero,.lp-intro,.lp-contact{grid-template-columns:1fr}
+  .lp-hero{padding:3rem 0 2rem;gap:1.5rem}
+  .lp-nav{min-height:3.5rem}
+  .lp-nav ul.inline li:nth-child(n+2){display:none}
+  .lp-menu{display:block}
+  section{padding:2.5rem 0}.lp-intro{gap:.5rem}
+  .lp-ctas .lp-cta,.lp-contact .lp-cta{display:block;text-align:center;margin:0 0 .6rem}
+}
+@media(max-width:400px){.brand{font-size:.95rem;gap:.45rem}.mark{flex-basis:22px;width:22px;height:22px}}
+</style>
+{{{head_html}}}
+</head>
+<body {{{body_attrs_html}}}>
+<header class="top"><nav class="lp-nav wrap" aria-label="Main">
+  <a class="brand" href="/">{{#site.avatar_url}}<img class="mark" src="{{site.avatar_url}}" alt="">{{/site.avatar_url}}{{^site.avatar_url}}<span class="mark" aria-hidden="true"></span>{{/site.avatar_url}}<span>{{site.title}}</span></a>
+  <div style="display:flex;align-items:center">
+    <ul class="inline">{{#nav_all}}<li><a href="{{href}}"{{#new_tab}} target="_blank" rel="noopener"{{/new_tab}}>{{label}}</a></li>{{/nav_all}}</ul>
+    {{#has_nav_more}}<details class="lp-menu"><summary>Menu</summary><ul>{{#nav_more}}<li><a href="{{href}}"{{#new_tab}} target="_blank" rel="noopener"{{/new_tab}}>{{label}}</a></li>{{/nav_more}}</ul></details>{{/has_nav_more}}
+  </div>
+</nav></header>
+<main>
+  <div class="wrap lp-hero">
+    <div>
+      {{#hero.headline}}<h1>{{hero.headline}}</h1>{{/hero.headline}}{{^hero.headline}}<h1>{{site.title}}</h1>{{/hero.headline}}
+      {{#hero.subheadline}}<p class="lead">{{hero.subheadline}}</p>{{/hero.subheadline}}
+      {{#has_ctas}}<div class="lp-ctas">{{#ctas}}<a class="lp-cta {{#primary}}lp-cta--primary{{/primary}}{{#secondary}}lp-cta--secondary{{/secondary}}" href="{{href}}">{{label}}</a>{{/ctas}}</div>{{/has_ctas}}
+    </div>
+    {{#hero.image_url}}<img src="{{hero.image_url}}" alt="" fetchpriority="high" width="800" height="600">{{/hero.image_url}}
+  </div>
+  {{#has_features}}<section class="wrap" aria-labelledby="lp-svc-h"><h2 id="lp-svc-h">Services</h2>
+    <div class="lp-features">{{#features}}<article class="lp-feature"><span class="n">{{number}}</span><h3>{{title}}</h3>{{{body_html}}}</article>{{/features}}</div>
+  </section>{{/has_features}}
+  {{#intro_html}}<section class="wrap lp-intro" aria-labelledby="lp-about-h"><h2 id="lp-about-h">About us</h2><div>{{{intro_html}}}</div></section>{{/intro_html}}
+  {{#has_posts}}<section class="wrap lp-posts" aria-labelledby="lp-posts-h"><h2 id="lp-posts-h">Insights</h2>
+    {{#posts}}<a class="post" href="{{url}}"><time>{{date}}</time>{{title}}</a>{{/posts}}
+    <a class="all" href="{{blog_url}}">All articles →</a>
+  </section>{{/has_posts}}
+  {{#contact.has_any}}<section class="wrap" id="contact"><div class="lp-contact">
+    <div><h2>Talk to us</h2><p>We reply within one business day.</p>{{#cta_primary}}<a class="lp-cta lp-cta--primary" href="{{href}}">{{label}}</a>{{/cta_primary}}{{^cta_primary}}{{#contact.email}}<a class="lp-cta lp-cta--primary" href="{{contact.email_href}}">Email us</a>{{/contact.email}}{{/cta_primary}}</div>
+    <dl>
+      {{#contact.email}}<div><dt>Email</dt><dd><a href="{{contact.email_href}}">{{contact.email}}</a></dd></div>{{/contact.email}}
+      {{#contact.phone}}<div><dt>Phone</dt><dd><a href="{{contact.phone_href}}">{{contact.phone}}</a></dd></div>{{/contact.phone}}
+      {{#contact.address}}<div><dt>Office</dt><dd>{{contact.address}}{{#contact.map_url}}<br><a href="{{contact.map_url}}">Directions →</a>{{/contact.map_url}}</dd></div>{{/contact.address}}
+      {{#contact.hours}}<div><dt>Hours</dt><dd>{{contact.hours}}</dd></div>{{/contact.hours}}
+    </dl>
+  </div></section>{{/contact.has_any}}
+</main>
+<footer class="lp-footer"><div class="wrap"><span>© {{site.year}} {{site.footer_name}}</span><span><a href="{{blog_url}}">Blog</a> · <a href="/rss.xml">RSS</a> · Powered by blognice</span></div></footer>
+{{{body_end_html}}}
+</body>
+</html>
