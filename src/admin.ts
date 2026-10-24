@@ -2,6 +2,8 @@
 import { accentTextColor, esc, formatDate, normalizeAccentColor, normalizeBlogTheme, normalizePromoPlacement, type Page, type Post, type Tenant } from "./render";
 import { accountHasPaidPlan, type Account } from "./auth";
 import type { AuditEntry, MetricsReport } from "./metrics";
+import type { LandingPage } from "./landing";
+import type { LandingContent } from "./landing-view";
 
 const ACCENT_PRESETS = [
   ["blognice green", "#1a8917"],
@@ -511,7 +513,8 @@ export function shell(
   let bar = "";
   if (account && tenant) {
     const titleKey = title.toLowerCase();
-    const activeNav = titleKey.startsWith("page") ? "pages"
+    const activeNav = titleKey.startsWith("landing") ? "landing"
+      : titleKey.startsWith("page") ? "pages"
       : titleKey.startsWith("comment") ? "comments"
       : titleKey.startsWith("media") ? "media"
       : titleKey.startsWith("subscriber") ? "subscribers"
@@ -532,6 +535,7 @@ export function shell(
     const navDefinitions: Array<[string, string, string, string | null]> = [
       ["posts", "Posts", `/admin/b/${tenant.public_id}`, null],
       ["pages", "Pages", `/admin/b/${tenant.public_id}/pages`, null],
+      ["landing", "Landing page", `/admin/b/${tenant.public_id}/landing`, "settings.manage"],
       ["media", "Media", `/admin/b/${tenant.public_id}/media`, null],
       ["comments", "Comments", `/admin/b/${tenant.public_id}/comments`, "comments.moderate"],
       ["subscribers", "Subscribers", `/admin/b/${tenant.public_id}/subscribers`, "settings.manage"],
@@ -542,6 +546,7 @@ export function shell(
       ["settings", "Settings", `/admin/b/${tenant.public_id}/settings`, "settings.manage"],
     ];
     const navItems = navDefinitions
+      .filter(([key]) => key !== "landing" || Boolean((tenant as any).landing_available))
       .filter(([, , , cap]) => !cap || can(cap))
       .filter(([k]) => k !== "comments" || tenant.comments_enabled)
       .map(([k, l, h]) => [k, l, h] as const);
@@ -1080,6 +1085,87 @@ export function pageEditorPage(account: Account, tenant: Tenant, page: Partial<P
     <fieldset class="page-nav-settings"><h2>Blog navigation</h2><p>Optionally add this page to the links at the top of your blog. Pages stay available at their public URL either way.</p><div class="check"><input id="page-navigation" name="show_in_navigation" type="checkbox" ${navigation ? "checked" : ""}><label for="page-navigation">Show this page in navigation</label></div><div class="nav-fields"><label for="page-nav-label">Link label <span style="color:var(--muted)">(optional)</span><input id="page-nav-label" name="navigation_label" type="text" value="${esc(page?.navigation_label ?? "")}" maxlength="40" placeholder="About"></label><label for="page-nav-order">Position <select id="page-nav-order" name="navigation_order">${[0,1,2,3,4,5].map((value) => `<option value="${value}"${(page?.navigation_order ?? 0) === value ? " selected" : ""}>${value + 1}</option>`).join("")}</select></label><label for="page-nav-target">Open in <select id="page-nav-target" name="navigation_target"><option value="same"${page?.navigation_new_tab ? "" : " selected"}>Same tab</option><option value="new"${page?.navigation_new_tab ? " selected" : ""}>New tab</option></select></label></div></fieldset>
     <div class="actions"><button class="btn" type="submit">Save page</button><a class="btn ghost" href="${base}/pages">Cancel</a></div>
   </form></div>`, account, tenant);
+}
+
+
+export function landingListPage(
+  account: Account,
+  tenant: Tenant,
+  pages: LandingPage[],
+  opts?: { error?: string; rootDomain?: string },
+): string {
+  const base = `/admin/b/${tenant.public_id}`;
+  const homeId = Number(tenant.home_landing_page_id ?? 0);
+  const publicHost = tenant.custom_domain || `${tenant.slug}.${opts?.rootDomain || "blognice.com"}`;
+  const rows = pages.length ? `<ul class="posts">${pages.map((page) => {
+    const isHome = page.id === homeId;
+    return `<li>
+    <div class="post-summary"><div><div class="t"><a href="${base}/landing/edit/${page.id}">${esc(page.title)}</a></div><div class="sub">${esc(page.design)} · /landing/${esc(page.slug)} · updated ${formatDate(page.updated_at)}</div></div></div>
+    <div class="acts"><span class="tag ${page.published ? "live" : ""}">${page.published ? "Published" : "Draft"}</span>${isHome ? `<span class="tag live">Homepage</span>` : ""}
+      <a class="btn ghost" href="${base}/landing/edit/${page.id}">Edit</a>
+      <a class="btn ghost" href="https://${esc(publicHost)}/landing/${esc(page.slug)}" target="_blank" rel="noopener noreferrer">${page.published ? "View" : "Preview"}</a>
+      ${page.published && !isHome ? `<form method="post" action="${base}/landing/set-homepage/${page.id}" onsubmit="return confirm('Visitors to your blog\\'s address will see this page. Your posts will move to /blog — post links won\\'t change.')"><button class="btn" type="submit">Make this my homepage</button></form>` : ""}
+      ${isHome ? `<form method="post" action="${base}/landing/remove-homepage"><button class="btn ghost" type="submit">Remove from homepage</button></form>` : ""}
+      <form method="post" action="${base}/landing/delete/${page.id}" onsubmit="return confirm('Delete this landing page?')"><button class="btn danger" type="submit">Delete</button></form>
+    </div></li>`;
+  }).join("")}</ul>` : `<p style="color:var(--muted)">No landing pages yet. Build one, publish it, then — as a separate step — make it your homepage.</p>`;
+  return shell(`Landing page — ${tenant.title}`, `<div class="page"><div class="row"><h1 style="margin:0">Landing page</h1>${pages.length < 10 ? `<a class="btn" href="${base}/landing/new">New landing page</a>` : ""}</div><p style="color:var(--muted);margin-top:-.8rem">A landing page is a standalone page at /landing/… Publishing does not change your homepage. Use “Make this my homepage” when you're ready: your posts move to /blog and post links don't change.</p>${opts?.error ? `<div class="error">${esc(opts.error)}</div>` : ""}${rows}${pages.length >= 10 ? `<p class="help">You have the maximum of 10 landing pages.</p>` : ""}</div>`, account, tenant);
+}
+
+export function landingEditorPage(
+  account: Account,
+  tenant: Tenant,
+  page: LandingPage | null,
+  content: LandingContent,
+  designs: ReadonlyArray<{ id: string; label: string; description: string }>,
+  opts?: { error?: string; rootDomain?: string },
+): string {
+  const base = `/admin/b/${tenant.public_id}`;
+  const isEdit = !!page?.id;
+  const action = isEdit ? `${base}/landing/save?id=${page!.id}` : `${base}/landing/save`;
+  const isHome = !!page && page.id === Number(tenant.home_landing_page_id ?? 0);
+  const publicHost = tenant.custom_domain || `${tenant.slug}.${opts?.rootDomain || "blognice.com"}`;
+  const featureRows = Array.from({ length: 6 }, (_, i) => {
+    const f = content.features[i];
+    return `<fieldset class="settings-card"><legend>Feature ${i + 1} (optional)</legend>
+      <label>Title <input name="feature${i + 1}_title" type="text" maxlength="80" value="${esc(f?.title ?? "")}"></label>
+      <label>Text (Markdown) <textarea name="feature${i + 1}_body" rows="3" maxlength="600">${esc(f?.body_md ?? "")}</textarea></label>
+      <label>Image media key <input name="feature${i + 1}_image_key" type="text" value="${esc(f?.image_key ?? "")}" placeholder="e.g. ${tenant.id}/photo.jpg"></label></fieldset>`;
+  }).join("");
+  const homepageSection = !page ? "" : isHome
+    ? `<div class="card"><h2>Homepage</h2><p>This page is your homepage. Visitors to your blog's address see it; your posts are at /blog.</p><form method="post" action="${base}/landing/remove-homepage"><button class="btn ghost" type="submit">Remove from homepage</button></form></div>`
+    : page.published
+      ? `<div class="card"><h2>Homepage</h2><p>Make this your blog's homepage. Your posts will move to /blog — post links won't change.</p><form method="post" action="${base}/landing/set-homepage/${page.id}" onsubmit="return confirm('Visitors to your blog\\'s address will see this page. Your posts will move to /blog — post links won\\'t change.')"><button class="btn" type="submit">Make this my homepage</button></form></div>`
+      : `<div class="card"><h2>Homepage</h2><p class="help">Publish this page first, then you can make it your homepage.</p></div>`;
+  return shell(isEdit ? `Edit landing page — ${tenant.title}` : `New landing page — ${tenant.title}`, `<div class="page"><p class="breadcrumb"><a href="${base}/landing">Landing page</a> › ${isEdit ? "Edit" : "New"}</p><h1>${isEdit ? "Edit landing page" : "New landing page"}</h1>${opts?.error ? `<div class="error">${esc(opts.error)}</div>` : ""}
+  <form method="post" action="${action}">
+    <label for="lp-title">Title</label><input id="lp-title" name="title" type="text" value="${esc(page?.title ?? "")}" required maxlength="200">
+    <label for="lp-slug">URL slug <span style="color:var(--muted)">(public URL: /landing/…)</span></label><input id="lp-slug" name="slug" type="text" value="${esc(page?.slug ?? "")}" placeholder="welcome">
+    <label for="lp-meta">Meta description</label><textarea id="lp-meta" name="meta_description" rows="2" maxlength="300">${esc(page?.meta_description ?? "")}</textarea>
+    <fieldset class="settings-card"><legend>Design</legend>${designs.map((d) => `<label style="display:block;margin:.4rem 0"><input type="radio" name="design" value="${esc(d.id)}" ${(page?.design ?? designs[0]?.id) === d.id ? "checked" : ""}> <strong>${esc(d.label)}</strong> — ${esc(d.description)}</label>`).join("")}</fieldset>
+    <fieldset class="settings-card"><legend>Hero</legend>
+      <label>Headline <input name="headline" type="text" maxlength="120" value="${esc(content.hero.headline)}"></label>
+      <label>Subheadline <textarea name="subheadline" rows="2" maxlength="300">${esc(content.hero.subheadline)}</textarea></label>
+      <label>Hero image media key <input name="hero_image_key" type="text" value="${esc(content.hero.image_key ?? "")}" placeholder="e.g. ${tenant.id}/photo.jpg"></label>
+    </fieldset>
+    <fieldset class="settings-card"><legend>Buttons (up to 2)</legend>
+      <label>Button 1 label <input name="cta1_label" type="text" maxlength="40" value="${esc(content.ctas[0]?.label ?? "")}"></label>
+      <label>Button 1 link <input name="cta1_href" type="text" value="${esc(content.ctas[0]?.href ?? "")}" placeholder="https://… or /pages/…"></label>
+      <label>Button 2 label <input name="cta2_label" type="text" maxlength="40" value="${esc(content.ctas[1]?.label ?? "")}"></label>
+      <label>Button 2 link <input name="cta2_href" type="text" value="${esc(content.ctas[1]?.href ?? "")}" placeholder="https://… or /pages/…"></label>
+    </fieldset>
+    <label for="lp-intro">Intro (Markdown)</label><textarea id="lp-intro" name="intro_md" rows="6" maxlength="4000">${esc(content.intro_md)}</textarea>
+    ${featureRows}
+    <fieldset class="settings-card"><legend>Contact</legend>
+      <label>Email <input name="contact_email" type="text" value="${esc(content.contact.email)}"></label>
+      <label>Phone <input name="contact_phone" type="text" value="${esc(content.contact.phone)}"></label>
+      <label>Address <textarea name="contact_address" rows="2" maxlength="300">${esc(content.contact.address)}</textarea></label>
+      <label>Hours <input name="contact_hours" type="text" maxlength="300" value="${esc(content.contact.hours)}"></label>
+      <label>Map link <input name="contact_map_url" type="text" value="${esc(content.contact.map_url)}" placeholder="https://maps.google.com/…"></label>
+    </fieldset>
+    <div class="check"><input id="lp-posts" name="show_latest_posts" type="checkbox" ${content.show_latest_posts ? "checked" : ""}><label for="lp-posts">Show latest posts</label></div>
+    <div class="actions"><button class="btn" type="submit" name="action" value="save">${page?.published ? "Save" : "Save draft"}</button><button class="btn" type="submit" name="action" value="publish">${page?.published ? "Save &amp; keep published" : "Publish"}</button>${page?.published ? `<button class="btn ghost" type="submit" name="action" value="unpublish">Unpublish</button>` : ""}${page ? `<a class="btn ghost" href="https://${esc(publicHost)}/landing/${esc(page.slug)}" target="_blank" rel="noopener noreferrer">${page.published ? "View" : "Preview"}</a>` : ""}<a class="btn ghost" href="${base}/landing">Cancel</a></div>
+  </form>${homepageSection}</div>`, account, tenant);
 }
 
 export function metricsPage(
@@ -2333,7 +2419,7 @@ export function settingsPage(
         <p style="color:var(--muted);font-size:.85rem;margin:-.5rem 0 1.4rem">Used for links, buttons, highlights, and other accents on this blog and its dashboard.</p>
         <fieldset class="settings-card"><legend>Custom CSS</legend>
           ${paid
-            ? `<p class="help">Your CSS loads after the theme styles, so it wins over both the Modern and Blogspot themes. Keep it under 20,000 characters; external fonts and images are allowed.</p>
+            ? `<p class="help">Your CSS loads after the theme styles, so it wins over both the Modern and Blogspot themes. Keep it under 20,000 characters; external fonts and images are allowed. Applies to your landing pages too — target them with <code>[data-landing-page]</code> or <code>.lp-*</code> classes.</p>
             <label for="custom-css">Stylesheet</label>
             <textarea id="custom-css" name="custom_css" rows="8" spellcheck="false" style="font-family:var(--mono)" placeholder=":root { --accent: #7c3aed; }">${esc(storedCss)}</textarea>`
             : `<div class="notice"><strong>Custom CSS is a Pro feature.</strong><br><a href="/admin/billing">Upgrade to Pro</a> to style this blog with your own CSS.</div>${storedCss.trim() ? `<p class="help">Your saved CSS stays live on the blog; editing it needs Pro.</p>` : ""}`}
@@ -2346,6 +2432,7 @@ export function settingsPage(
           <label><input type="checkbox" name="promo_enabled" value="1"${Number((tenant as any).promo_enabled ?? 0) ? " checked" : ""}> Show the promo popup</label>
           <p class="help">Where it appears:</p>
           <label><input type="radio" name="promo_placement" value="home"${normalizePromoPlacement((tenant as any).promo_placement) === "home" ? " checked" : ""}> Blog home page only</label>
+          <p class="help">If a landing page is your homepage, "home" means the landing page at / — the popup does not show on the post index at /blog.</p>
           <label><input type="radio" name="promo_placement" value="all"${normalizePromoPlacement((tenant as any).promo_placement) === "all" ? " checked" : ""}> Every page</label>
           <label for="promo-choose">Graphic (optional)</label>
           <input id="promo-image" name="promo_image" type="hidden" value="${esc(String((tenant as any).promo_image ?? ""))}">

@@ -31,6 +31,7 @@ export type Account = {
   vip_granted_by?: number | null;
   vip_reason?: string | null;
   max_blogs_override?: number | null;
+  landing_access_override?: number | null;
   email_verified?: number | null;
   email_verified_at?: number | null;
 };

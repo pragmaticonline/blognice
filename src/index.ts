@@ -17,6 +17,11 @@ import {
   navigationLinkNewTab,
   type NavigationItem,
   type NavigationLink,
+  blogHeadHtml,
+  blogBodyEndHtml,
+  promoForPage,
+  PROMO_STYLES,
+  formatDate,
   type Post,
   type Page,
   type Tenant,
@@ -81,6 +86,8 @@ import {
   postListPage,
   pageListPage,
   pageEditorPage,
+  landingListPage,
+  landingEditorPage,
   editorPage,
   signupPage,
   domainsPage,
@@ -102,6 +109,23 @@ import {
   type MediaItem,
 } from "./admin";
 import { tenantDb } from "./db";
+import {
+  LANDING_NOT_AVAILABLE,
+  MAX_LANDING_PAGES,
+  accountCanUseLandingPages,
+  countLandingPages,
+  getHomepageLandingPage,
+  getLandingPage,
+  getLandingPageBySlug,
+  landingRollout,
+  listLandingPages,
+  tenantCanUseLandingPages,
+  uniqueLandingSlug,
+  type LandingPage,
+} from "./landing";
+import { buildLandingView, parseLandingContent, type LandingSite } from "./landing-view";
+import { renderTemplate } from "./landing-template";
+import { LANDING_DESIGNS, getLandingDesign } from "./landing-designs/index";
 
 async function ensurePostsMetaColumn(db: D1Database): Promise<void> {
   try { await db.prepare("ALTER TABLE posts ADD COLUMN meta_description TEXT").run(); } catch {}
@@ -629,6 +653,12 @@ async function ensureTenantHeaderLinkColumn(env: Bindings): Promise<void> {
   try {
     await env.DB.prepare("ALTER TABLE tenants ADD COLUMN promo_cta_url TEXT NOT NULL DEFAULT ''").run();
   } catch {}
+  try {
+    await env.DB.prepare("ALTER TABLE tenants ADD COLUMN home_landing_page_id INTEGER").run();
+  } catch {}
+  try {
+    await env.DB.prepare("ALTER TABLE accounts ADD COLUMN landing_access_override INTEGER NOT NULL DEFAULT 0").run();
+  } catch {}
 }
 
 // All public hostnames a tenant is served on: its subdomain plus any active
@@ -655,7 +685,10 @@ async function purgeTenant(
   const cache = caches.default;
   const hosts = await tenantHosts(env, tenant);
   const jobs: Promise<boolean>[] = [];
-  const purgePaths = Array.from(new Set([...paths, "/rss.xml"]));
+  // The post index also lives at /blog when a landing page is the
+  // homepage, so purging the home path always purges /blog too.
+  const withBlog = paths.includes("/") && !paths.includes("/blog") ? [...paths, "/blog"] : paths;
+  const purgePaths = Array.from(new Set([...withBlog, "/rss.xml"]));
   for (const host of hosts)
     for (const p of purgePaths)
       for (const url of cachePurgeVariants(`https://${host}${p}`))
@@ -669,12 +702,103 @@ async function purgeTenantEverywhere(
   env: Bindings,
   tenant: Tenant
 ): Promise<void> {
-  const { results } = await tenantDb(env, tenant)
-    .prepare("SELECT slug FROM posts WHERE tenant_id = ?")
-    .bind(tenant.id)
-    .all<{ slug: string }>();
-  const paths = ["/", "/sitemap.xml", "/rss.xml", ...results.map((r) => "/" + r.slug)];
+  const pdb = tenantDb(env, tenant);
+  const [postRows, landingRows] = await Promise.all([
+    pdb.prepare("SELECT slug FROM posts WHERE tenant_id = ?").bind(tenant.id).all<{ slug: string }>(),
+    // Guarded: pre-093 posts DBs have no landing_pages table yet.
+    pdb.prepare("SELECT slug FROM landing_pages WHERE tenant_id = ?").bind(tenant.id).all<{ slug: string }>().catch(() => ({ results: [] as { slug: string }[] })),
+  ]);
+  const paths = [
+    "/", "/blog", "/sitemap.xml", "/rss.xml",
+    ...postRows.results.map((r) => "/" + r.slug),
+    ...landingRows.results.map((r) => "/landing/" + r.slug),
+  ];
   await purgeTenant(env, tenant, paths);
+}
+
+// --- Landing page rendering -------------------------------------------------
+
+function mergeNavigationItems(
+  tenant: Tenant,
+  rows: Array<{ slug: string; label: string; navigation_order: number; navigation_new_tab?: number }>
+): NavigationItem[] {
+  const pageItems = rows.map((row) => ({ label: row.label, href: `/pages/${row.slug}`, order: row.navigation_order ?? 0, newTab: !!row.navigation_new_tab }));
+  const linkItems = parseNavigationLinks(tenant as any).map((link) => ({ label: link.label, href: link.href, order: link.order, newTab: navigationLinkNewTab(link) }));
+  const merged = [...pageItems, ...linkItems].sort((a, b) => a.order === b.order ? a.label.localeCompare(b.label) : a.order - b.order).slice(0, 6);
+  return merged.map(({ label, href, newTab }) => ({ label, href, newTab }));
+}
+
+function socialLinksFor(tenant: Tenant): Array<{ label: string; url: string }> {
+  try {
+    const raw = JSON.parse(tenant.social_links_json || "{}");
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+    return Object.entries(raw)
+      .filter(([, v]) => typeof v === "string" && v.trim())
+      .map(([k, v]) => ({ label: k.charAt(0).toUpperCase() + k.slice(1), url: String(v) }));
+  } catch { return []; }
+}
+
+async function renderLandingHtml(
+  c: any,
+  tenant: Tenant,
+  page: LandingPage,
+  opts: { isHomepage: boolean; origin: string; preview?: boolean },
+): Promise<string> {
+  const pdb = tenantDb(c.env, tenant);
+  const blogUrl = opts.isHomepage ? "/blog" : "/";
+  const [navRows, postRows] = await Promise.all([
+    pdb.prepare("SELECT slug, COALESCE(navigation_label, title) AS label, navigation_order, navigation_new_tab FROM pages WHERE tenant_id = ? AND published = 1 AND show_in_navigation = 1 ORDER BY navigation_order, title LIMIT 6").bind(tenant.id).all<{ slug: string; label: string; navigation_order: number; navigation_new_tab?: number }>().catch(() => ({ results: [] as any[] })),
+    pdb.prepare("SELECT slug, title, created_at FROM posts WHERE tenant_id = ? AND published = 1 ORDER BY created_at DESC LIMIT 3").bind(tenant.id).all<{ slug: string; title: string; created_at: number }>().catch(() => ({ results: [] as any[] })),
+  ]);
+  const navItems = mergeNavigationItems(tenant, navRows.results);
+  const content = parseLandingContent(page.content_json);
+  const canonical = opts.preview ? "" : opts.isHomepage ? `${opts.origin}/` : `${opts.origin}/landing/${page.slug}`;
+  const description = (page.meta_description || content.hero.subheadline || tenant.description || tenant.title).slice(0, 300);
+  const heroImage = content.hero.image_key ? `${opts.origin}/media/${content.hero.image_key}` : undefined;
+  const promoHtml = !opts.preview && opts.isHomepage ? promoForPage(tenant, "home") : "";
+  const site: LandingSite = {
+    design_id: page.design,
+    title: tenant.title,
+    footer_name: tenant.footer_name || tenant.title,
+    blog_url: blogUrl,
+    avatar_url: tenant.avatar_key ? `/media/${tenant.avatar_key}` : null,
+    nav: [{ label: "Blog", href: blogUrl }, ...navItems.map((i) => ({ label: i.label, href: i.href, new_tab: i.newTab }))],
+    social: socialLinksFor(tenant),
+    posts: postRows.results.map((r: any) => ({ title: r.title, url: "/" + r.slug, date: formatDate(r.created_at) })),
+    head_html: blogHeadHtml({
+      tenant,
+      pageTitle: page.title || tenant.title,
+      description,
+      canonical,
+      image: heroImage,
+      imageAlt: page.title || tenant.title,
+      noindex: opts.preview || undefined,
+      jsonLd: opts.preview ? undefined : opts.isHomepage
+        ? { "@context": "https://schema.org", "@type": "WebSite", name: tenant.title, url: `${opts.origin}/` }
+        : { "@context": "https://schema.org", "@type": "WebPage", name: page.title, url: canonical },
+      documentMeta: false,
+    }),
+    body_end_html: blogBodyEndHtml(analyticsConsentRequired(c.req.raw.cf?.country), promoHtml ? `<style>${PROMO_STYLES}</style>${promoHtml}` : ""),
+    media_url: (key: string) => `/media/${key}`,
+  };
+  return renderTemplate(getLandingDesign(page.design).template, buildLandingView(content, site));
+}
+
+// The post (draft or published) occupying the reserved /blog path, if any.
+async function blogSlugPost(env: Bindings, tenant: Tenant): Promise<{ id: number; title: string } | null> {
+  try {
+    return await tenantDb(env, tenant)
+      .prepare("SELECT id, title FROM posts WHERE tenant_id = ? AND slug = 'blog'")
+      .bind(tenant.id)
+      .first<{ id: number; title: string }>();
+  } catch { return null; }
+}
+
+// True when creating/renaming a post to slug `blog` must be rejected:
+// a homepage landing page is set (so /blog is the post index).
+async function homepageBlocksBlogSlug(env: Bindings, tenant: Tenant, slug: string): Promise<boolean> {
+  if (slug !== "blog") return false;
+  return (await getHomepageLandingPage(env, tenant)) !== null;
 }
 
 async function purgeMasterSitemap(env: Bindings): Promise<void> {
@@ -1539,8 +1663,27 @@ app.get("/sitemap.xml", async (c) => {
 
     const lastmodCandidates = [...results.map((r) => r.updated_at), ...pages.results.map((page) => page.updated_at)];
     const homeLastmod = lastmodCandidates.length ? Math.max(...lastmodCandidates) : Math.floor(Date.now() / 1000);
+    let landingEntries: string[] = [];
+    try {
+      const homepage = tenant.home_landing_page_id ? await getHomepageLandingPage(c.env, tenant) : null;
+      if (homepage) {
+        landingEntries.push(`<url><loc>${esc(origin)}/blog</loc><lastmod>${new Date(homeLastmod * 1000).toISOString()}</lastmod></url>`);
+        const allLanding = await listLandingPages(c.env, tenant);
+        for (const lp of allLanding) {
+          if (!lp.published || lp.id === homepage.id) continue;
+          landingEntries.push(`<url><loc>${esc(origin)}/landing/${esc(lp.slug)}</loc><lastmod>${new Date(lp.updated_at * 1000).toISOString()}</lastmod></url>`);
+        }
+      } else if (await tenantCanUseLandingPages(c.env, tenant.id).catch(() => false)) {
+        const allLanding = await listLandingPages(c.env, tenant);
+        for (const lp of allLanding) {
+          if (!lp.published) continue;
+          landingEntries.push(`<url><loc>${esc(origin)}/landing/${esc(lp.slug)}</loc><lastmod>${new Date(lp.updated_at * 1000).toISOString()}</lastmod></url>`);
+        }
+      }
+    } catch {}
     const urls = [
       `<url><loc>${esc(origin)}/</loc><lastmod>${new Date(homeLastmod * 1000).toISOString()}</lastmod></url>`,
+      ...landingEntries,
       ...results.map(
         (r) =>
           `<url><loc>${esc(origin)}/${esc(r.slug)}</loc>` +
@@ -1582,7 +1725,9 @@ app.get("/rss.xml", async (c) => {
       const categories = storedPostTags(post.tags_json).map((tag) => `<category>${esc(tag)}</category>`).join("");
       return `<item><title>${esc(post.title)}</title><link>${esc(url)}</link><guid isPermaLink="true">${esc(url)}</guid><pubDate>${new Date(post.created_at * 1000).toUTCString()}</pubDate><description>${esc(description)}</description>${categories}</item>`;
     }).join("");
-    const xml = `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>${esc(tenant.title)}</title><link>${esc(origin + "/")}</link><description>${esc(tenant.description || tenant.title)}</description><language>en-us</language>${items}</channel></rss>`;
+    const homepageForRss = tenant.home_landing_page_id ? await getHomepageLandingPage(c.env, tenant).catch(() => null) : null;
+    const channelLink = homepageForRss ? `${origin}/blog` : `${origin}/`;
+    const xml = `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>${esc(tenant.title)}</title><link>${esc(channelLink)}</link><description>${esc(tenant.description || tenant.title)}</description><language>en-us</language>${items}</channel></rss>`;
     return new Response(xml, { headers: { "content-type": "application/rss+xml; charset=utf-8", "cache-control": "public, max-age=300" } });
   });
 });
@@ -1643,6 +1788,7 @@ app.post("/api/posts", async (c) => {
     return c.json({ error: "author_name must be 120 characters or fewer" }, 400);
   const authorVisible = payload?.author_visible === undefined ? 1 : (payload.author_visible ? 1 : 0);
 
+  if (await homepageBlocksBlogSlug(c.env, tenant, slug)) return c.json({ error: "The slug 'blog' is reserved while a landing page is your homepage (your post index lives at /blog). Choose a different slug." }, 400);
   const now = Math.floor(Date.now() / 1000);
   try {
     await tenantDb(c.env, tenant).prepare(
@@ -1891,6 +2037,7 @@ app.post("/api/v1/blogs/:blogId/posts", async (c) => {
   const pdb = tenantDb(c.env, tenant);
   await ensurePostsMetaColumn(pdb);
   await ensurePostsScheduledColumn(pdb);
+    if (await homepageBlocksBlogSlug(c.env, tenant, slug)) return c.json({ error: "The slug 'blog' is reserved while a landing page is your homepage (your post index lives at /blog). Choose a different slug." }, 400);
   slug = await uniquePostSlug(pdb, tenant.id, slug);
 
   let res: any;
@@ -1990,6 +2137,7 @@ app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
   else if (schedule.present) scheduledAt = schedule.scheduledAt;
   if (schedule.present && schedule.scheduledAt !== null && !can(role, "posts.publish")) return c.json({ error: "publishing is not permitted for this role" }, 403);
 
+  if (slug !== post.slug && await homepageBlocksBlogSlug(c.env, tenant, slug)) return c.json({ error: "The slug 'blog' is reserved while a landing page is your homepage (your post index lives at /blog). Choose a different slug." }, 400);
   if (slug !== post.slug) {
     slug = await uniquePostSlug(pdb, tenant.id, slug, post.id);
   }
@@ -3189,6 +3337,9 @@ async function blogContext(
   if (!isEmailVerified(account) && emailEnabled(c.env)) return { redirect: "/verify-pending" };
   const tenant = await ownedBlog(c, account);
   if (!tenant) return { redirect: "/admin" };
+  try {
+    (tenant as any).landing_available = await tenantCanUseLandingPages(c.env, tenant.id);
+  } catch { (tenant as any).landing_available = false; }
   return { account, tenant, role: (tenant as Tenant & { membership_role: MembershipRole }).membership_role };
 }
 
@@ -3734,6 +3885,167 @@ app.get("/admin/b/:blogId", async (c) => {
 });
 
 // --- Blog-scoped evergreen pages ------------------------------------------
+
+// --- Landing pages (admin, owner-only, landing-eligible owners only) -------
+
+type LandingAdminCtx = { account: Account; tenant: Tenant; role: MembershipRole };
+
+async function landingAdminContext(c: any): Promise<{ ctx: LandingAdminCtx } | { response: Response }> {
+  const ctx = await blogContext(c);
+  if ("redirect" in ctx) return { response: c.redirect(ctx.redirect) };
+  if ("suspended" in ctx) return { response: suspendedResponse(c, ctx.account) };
+  if (ctx.role !== "owner") return { response: c.text("You do not have permission to perform this action.", 403) };
+  const eligible = await tenantCanUseLandingPages(c.env, ctx.tenant.id).catch(() => false);
+  if (!eligible) return { response: c.json({ error: LANDING_NOT_AVAILABLE }, 403) };
+  return { ctx: ctx as LandingAdminCtx };
+}
+
+function landingContentFromForm(form: FormData) {
+  const get = (name: string) => String(form.get(name) || "");
+  const features = Array.from({ length: 6 }, (_, i) => ({
+    title: get(`feature${i + 1}_title`),
+    body_md: get(`feature${i + 1}_body`),
+    image_key: get(`feature${i + 1}_image_key`) || null,
+  }));
+  return {
+    hero: { headline: get("headline"), subheadline: get("subheadline"), image_key: get("hero_image_key") || null },
+    ctas: [
+      { label: get("cta1_label"), href: get("cta1_href") },
+      { label: get("cta2_label"), href: get("cta2_href") },
+    ],
+    intro_md: get("intro_md"),
+    features,
+    contact: { email: get("contact_email"), phone: get("contact_phone"), address: get("contact_address"), hours: get("contact_hours"), map_url: get("contact_map_url") },
+    show_latest_posts: !!form.get("show_latest_posts"),
+  };
+}
+
+async function validateLandingImages(c: any, tenant: Tenant, content: ReturnType<typeof parseLandingContent>): Promise<string | null> {
+  const keys = [content.hero.image_key, ...content.features.map((f) => f.image_key)].filter((k): k is string => !!k);
+  for (const key of keys) {
+    try { await checkedFeaturedImage(c.env, tenant.id, key); }
+    catch (e: any) { return `Image "${key}" was not found in this blog's media library.`; }
+  }
+  return null;
+}
+
+app.get("/admin/b/:blogId/landing", async (c) => {
+  const got = await landingAdminContext(c);
+  if ("response" in got) return got.response;
+  const { ctx } = got;
+  let pages: LandingPage[] = [];
+  try { pages = await listLandingPages(c.env, ctx.tenant); } catch {}
+  return c.html(landingListPage(ctx.account, ctx.tenant, pages, { error: c.req.query("error") || undefined, rootDomain: c.env.ROOT_DOMAIN }));
+});
+
+app.get("/admin/b/:blogId/landing/new", async (c) => {
+  const got = await landingAdminContext(c);
+  if ("response" in got) return got.response;
+  const { ctx } = got;
+  return c.html(landingEditorPage(ctx.account, ctx.tenant, null, parseLandingContent({}), LANDING_DESIGNS, { rootDomain: c.env.ROOT_DOMAIN }));
+});
+
+app.get("/admin/b/:blogId/landing/edit/:id", async (c) => {
+  const got = await landingAdminContext(c);
+  if ("response" in got) return got.response;
+  const { ctx } = got;
+  const page = await getLandingPage(c.env, ctx.tenant, Number(c.req.param("id"))).catch(() => null);
+  if (!page) return c.redirect(`/admin/b/${ctx.tenant.public_id}/landing`);
+  return c.html(landingEditorPage(ctx.account, ctx.tenant, page, parseLandingContent(page.content_json), LANDING_DESIGNS, { rootDomain: c.env.ROOT_DOMAIN }));
+});
+
+app.post("/admin/b/:blogId/landing/save", async (c) => {
+  const got = await landingAdminContext(c);
+  if ("response" in got) return got.response;
+  const { ctx } = got;
+  const form = await c.req.formData();
+  const idParam = c.req.query("id");
+  const title = String(form.get("title") || "").trim().slice(0, 200);
+  let slug = slugify(String(form.get("slug") || "")).slice(0, 100);
+  if (!slug) slug = slugify(title).slice(0, 100);
+  const design = String(form.get("design") || "");
+  const metaDescription = String(form.get("meta_description") || "").trim().slice(0, 300) || null;
+  const action = String(form.get("action") || "save");
+  const rawContent = landingContentFromForm(form);
+  const content = parseLandingContent(rawContent);
+  const existing = idParam ? await getLandingPage(c.env, ctx.tenant, Number(idParam)).catch(() => null) : null;
+  if (idParam && !existing) return c.redirect(`/admin/b/${ctx.tenant.public_id}/landing`);
+  const fail = (error: string) => c.html(landingEditorPage(ctx.account, ctx.tenant, existing, content, LANDING_DESIGNS, { error, rootDomain: c.env.ROOT_DOMAIN }), 400);
+  if (!title || !slug) return fail("A title is required (and it must produce a valid slug).");
+  if (!LANDING_DESIGNS.some((d) => d.id === design)) return fail("Choose a design.");
+  if (!existing && (await countLandingPages(c.env, ctx.tenant).catch(() => 0)) >= MAX_LANDING_PAGES)
+    return fail(`You can have at most ${MAX_LANDING_PAGES} landing pages.`);
+  const imageError = await validateLandingImages(c, ctx.tenant, content);
+  if (imageError) return fail(imageError);
+  const pdb = tenantDb(c.env, ctx.tenant);
+  slug = existing && slug === existing.slug ? slug : await uniqueLandingSlug(pdb, ctx.tenant.id, slug, existing?.id, 100);
+  const now = Math.floor(Date.now() / 1000);
+  const published = action === "publish" ? 1 : action === "unpublish" ? 0 : (existing?.published ?? 0);
+  const isHome = !!existing && Number(ctx.tenant.home_landing_page_id ?? 0) === existing.id;
+  // Unpublishing the homepage page: clear the index-DB pointer FIRST so
+  // a failed second write just leaves the blog as homepage (spec).
+  if (existing && isHome && !published) {
+    await c.env.DB.prepare("UPDATE tenants SET home_landing_page_id = NULL WHERE id = ?").bind(ctx.tenant.id).run();
+    (ctx.tenant as any).home_landing_page_id = null;
+  }
+  try {
+    if (existing) {
+      await pdb.prepare("UPDATE landing_pages SET slug = ?, title = ?, design = ?, content_json = ?, meta_description = ?, published = ?, updated_at = ?, published_at = ? WHERE id = ? AND tenant_id = ?")
+        .bind(slug, title, design, JSON.stringify(content), metaDescription, published, now, published ? (existing.published_at || now) : null, existing.id, ctx.tenant.id).run();
+    } else {
+      await pdb.prepare("INSERT INTO landing_pages (tenant_id, slug, title, design, content_json, meta_description, published, created_at, updated_at, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind(ctx.tenant.id, slug, title, design, JSON.stringify(content), metaDescription, published, now, now, published ? now : null).run();
+    }
+  } catch (e: any) {
+    return fail(/UNIQUE|unique/i.test(String(e?.message || e)) ? "That landing page slug is already in use." : "Could not save this landing page.");
+  }
+  const wasHome = isHome && !!published;
+  c.executionCtx.waitUntil(purgeTenant(c.env, ctx.tenant, [
+    ...(existing ? [`/landing/${existing.slug}`] : []), `/landing/${slug}`, "/sitemap.xml",
+    ...(wasHome || (isHome && !published) ? ["/"] : []),
+  ]).catch(() => {}));
+  return c.redirect(`/admin/b/${ctx.tenant.public_id}/landing`);
+});
+
+app.post("/admin/b/:blogId/landing/set-homepage/:id", async (c) => {
+  const got = await landingAdminContext(c);
+  if ("response" in got) return got.response;
+  const { ctx } = got;
+  const base = `/admin/b/${ctx.tenant.public_id}/landing`;
+  const page = await getLandingPage(c.env, ctx.tenant, Number(c.req.param("id"))).catch(() => null);
+  if (!page) return c.redirect(base);
+  if (!page.published) return c.redirect(`${base}?error=${encodeURIComponent("Publish the landing page before making it your homepage.")}`);
+  const conflict = await blogSlugPost(c.env, ctx.tenant);
+  if (conflict) return c.redirect(`${base}?error=${encodeURIComponent(`A post is using the slug "blog" ("${conflict.title}"). Rename that post first — /blog will be your post index.`)}`);
+  await c.env.DB.prepare("UPDATE tenants SET home_landing_page_id = ? WHERE id = ?").bind(page.id, ctx.tenant.id).run();
+  c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, { ...ctx.tenant, home_landing_page_id: page.id }).catch(() => {}));
+  return c.redirect(base);
+});
+
+app.post("/admin/b/:blogId/landing/remove-homepage", async (c) => {
+  const got = await landingAdminContext(c);
+  if ("response" in got) return got.response;
+  const { ctx } = got;
+  await c.env.DB.prepare("UPDATE tenants SET home_landing_page_id = NULL WHERE id = ?").bind(ctx.tenant.id).run();
+  c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, { ...ctx.tenant, home_landing_page_id: null }).catch(() => {}));
+  return c.redirect(`/admin/b/${ctx.tenant.public_id}/landing`);
+});
+
+app.post("/admin/b/:blogId/landing/delete/:id", async (c) => {
+  const got = await landingAdminContext(c);
+  if ("response" in got) return got.response;
+  const { ctx } = got;
+  const page = await getLandingPage(c.env, ctx.tenant, Number(c.req.param("id"))).catch(() => null);
+  if (page) {
+    const isHome = Number(ctx.tenant.home_landing_page_id ?? 0) === page.id;
+    // Clear the homepage pointer first (index DB), then delete (posts DB).
+    if (isHome) await c.env.DB.prepare("UPDATE tenants SET home_landing_page_id = NULL WHERE id = ?").bind(ctx.tenant.id).run();
+    await tenantDb(c.env, ctx.tenant).prepare("DELETE FROM landing_pages WHERE id = ? AND tenant_id = ?").bind(page.id, ctx.tenant.id).run();
+    c.executionCtx.waitUntil(purgeTenant(c.env, ctx.tenant, [`/landing/${page.slug}`, "/sitemap.xml", ...(isHome ? ["/"] : [])]).catch(() => {}));
+  }
+  return c.redirect(`/admin/b/${ctx.tenant.public_id}/landing`);
+});
+
 app.get("/admin/b/:blogId/pages", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
@@ -4174,6 +4486,7 @@ app.post("/admin/b/:blogId/save", async (c) => {
   } else {
     slug = await uniquePostSlug(pdb, ctx.tenant.id, slug);
   }
+  if (await homepageBlocksBlogSlug(c.env, ctx.tenant, slug)) return c.text("The slug 'blog' is reserved while a landing page is your homepage (your post index lives at /blog). Choose a different slug.", 400);
   for (let attempts = 0; attempts < 6; attempts++) {
     try {
       if (idParam) {
@@ -6001,6 +6314,24 @@ app.get("/admin/b/:blogId/export.zip", async (c) => {
       published: !!page.published,
     }, rewriteMedia(page.body_md))));
   }
+
+  try {
+    const landingRows = await pdb.prepare(
+      "SELECT id, slug, title, design, content_json, meta_description, published, created_at, updated_at, published_at FROM landing_pages WHERE tenant_id = ? ORDER BY id"
+    ).bind(tenant.id).all<any>();
+    add("landing-pages.json", strToU8(JSON.stringify({
+      home_landing_page_id: (tenant as any).home_landing_page_id ?? null,
+      landing_pages: landingRows.results.map((row: any) => ({
+        id: row.id, slug: row.slug, title: row.title, design: row.design,
+        content: (() => { try { return JSON.parse(row.content_json || "{}"); } catch { return {}; } })(),
+        meta_description: row.meta_description ?? null, published: !!row.published,
+        is_homepage: row.id === Number((tenant as any).home_landing_page_id ?? 0),
+        created_at: new Date(row.created_at * 1000).toISOString(),
+        updated_at: new Date(row.updated_at * 1000).toISOString(),
+        published_at: row.published_at ? new Date(row.published_at * 1000).toISOString() : null,
+      })),
+    }, null, 2)));
+  } catch {}
 
   for (const item of media) {
     const { source, filename } = exportName(item);
@@ -8802,6 +9133,60 @@ app.get("/experiment/affiliate-offer/cta", async (c) => {
 });
 
 // Home page: list of published posts.
+async function serveBlogHome(c: any, tenant: Tenant, basePath: string): Promise<Response> {
+  return serveCached(c, async () => {
+
+    const requestedPage = Number(c.req.query("page") || "1");
+    const pageNumber = Number.isInteger(requestedPage) ? Math.max(1, Math.min(requestedPage, 100)) : 1;
+    const pageSize = 6;
+    const offset = pageNumber === 1 ? 0 : 1 + (pageNumber - 1) * pageSize;
+    const postsPromise = tenantDb(c.env, tenant).prepare(
+      "SELECT * FROM posts WHERE tenant_id = ? AND published = 1 ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    ).bind(tenant.id, pageNumber === 1 ? pageSize + 2 : pageSize + 1, offset).all<Post>();
+    const navigationPagesPromise = tenantDb(c.env, tenant).prepare(
+      "SELECT slug, COALESCE(navigation_label, title) AS label, navigation_order, navigation_new_tab FROM pages WHERE tenant_id = ? AND published = 1 AND show_in_navigation = 1 ORDER BY navigation_order, title LIMIT 6"
+    ).bind(tenant.id).all<{ slug: string; label: string; navigation_order: number; navigation_new_tab?: number }>();
+    const popularityPromise = (c.env.DB as D1Database).prepare(
+      `SELECT path, score, reader_days_30
+         FROM post_popularity
+        WHERE tenant_id = ? AND reader_days_30 >= 3
+        ORDER BY score DESC, reader_days_30 DESC, path
+        LIMIT 3`
+    ).bind(tenant.id).all<{ path: string; score: number; reader_days_30: number }>().catch((error) => {
+      // A missing migration or transient ranking failure must never make the
+      // public blog unavailable. Keep the last normal homepage layout instead.
+      console.error(JSON.stringify({
+        message: "popular posts lookup failed",
+        tenantId: tenant.id,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+      return { results: [] as { path: string; score: number; reader_days_30: number }[] };
+    });
+    const [{ results: queriedPosts }, popularity, navigationPages] = await Promise.all([postsPromise, popularityPromise, navigationPagesPromise]);
+    const navigationItems: NavigationItem[] = mergeNavigationItems(tenant, navigationPages.results);
+    const displayLimit = pageNumber === 1 ? pageSize + 1 : pageSize;
+    const hasMorePosts = queriedPosts.length > displayLimit;
+    const results = queriedPosts.slice(0, displayLimit);
+    let popularPosts: Post[] = [];
+    if (pageNumber === 1 && popularity.results.length) {
+      const popularSlugs = popularity.results.map((row) => row.path.replace(/^\/+/, "")).filter(Boolean).slice(0, 3);
+      if (popularSlugs.length) {
+        const placeholders = popularSlugs.map(() => "?").join(",");
+        const popularRows = await tenantDb(c.env, tenant).prepare(
+          `SELECT * FROM posts WHERE tenant_id = ? AND published = 1 AND slug IN (${placeholders})`
+        ).bind(tenant.id, ...popularSlugs).all<Post>();
+        const postsBySlug = new Map(popularRows.results.map((post) => [post.slug, post]));
+        popularPosts = popularSlugs.map((slug) => postsBySlug.get(slug)).filter((post): post is Post => Boolean(post));
+      }
+    }
+
+    return new Response(renderHome(tenant, results, originOf(c), analyticsConsentRequired(c.req.raw.cf?.country), popularPosts, navigationItems, pageNumber, hasMorePosts, basePath), {
+      status: 200,
+      headers: { "content-type": "text/html; charset=utf-8" },
+    });
+  }, true);
+}
+
 app.get("/", async (c) => {
   const host = (c.req.header("host") || "").split(":")[0].toLowerCase();
   const affiliateCookieSecrets = String(c.env.AFFILIATE_REFERRAL_COOKIE_SECRETS || "").split(",").map((secret) => secret.trim()).filter(Boolean);
@@ -8828,69 +9213,41 @@ app.get("/", async (c) => {
   }
   const legacy = await legacySlugRedirect(c);
   if (legacy) return legacy;
-  return serveCached(c, async () => {
-    const tenant = await resolveTenant(c.env, c.req.header("host") || "");
-    if (!tenant)
-      return new Response(renderNotFound(null), {
-        status: 404,
-        headers: { "content-type": "text/html; charset=utf-8" },
-      });
-
-    const requestedPage = Number(c.req.query("page") || "1");
-    const pageNumber = Number.isInteger(requestedPage) ? Math.max(1, Math.min(requestedPage, 100)) : 1;
-    const pageSize = 6;
-    const offset = pageNumber === 1 ? 0 : 1 + (pageNumber - 1) * pageSize;
-    const postsPromise = tenantDb(c.env, tenant).prepare(
-      "SELECT * FROM posts WHERE tenant_id = ? AND published = 1 ORDER BY created_at DESC LIMIT ? OFFSET ?"
-    ).bind(tenant.id, pageNumber === 1 ? pageSize + 2 : pageSize + 1, offset).all<Post>();
-    const navigationPagesPromise = tenantDb(c.env, tenant).prepare(
-      "SELECT slug, COALESCE(navigation_label, title) AS label, navigation_order, navigation_new_tab FROM pages WHERE tenant_id = ? AND published = 1 AND show_in_navigation = 1 ORDER BY navigation_order, title LIMIT 6"
-    ).bind(tenant.id).all<{ slug: string; label: string; navigation_order: number; navigation_new_tab?: number }>();
-    const popularityPromise = c.env.DB.prepare(
-      `SELECT path, score, reader_days_30
-         FROM post_popularity
-        WHERE tenant_id = ? AND reader_days_30 >= 3
-        ORDER BY score DESC, reader_days_30 DESC, path
-        LIMIT 3`
-    ).bind(tenant.id).all<{ path: string; score: number; reader_days_30: number }>().catch((error) => {
-      // A missing migration or transient ranking failure must never make the
-      // public blog unavailable. Keep the last normal homepage layout instead.
-      console.error(JSON.stringify({
-        message: "popular posts lookup failed",
-        tenantId: tenant.id,
-        error: error instanceof Error ? error.message : String(error),
-      }));
-      return { results: [] as { path: string; score: number; reader_days_30: number }[] };
-    });
-    const [{ results: queriedPosts }, popularity, navigationPages] = await Promise.all([postsPromise, popularityPromise, navigationPagesPromise]);
-    const navigationItems: NavigationItem[] = (() => {
-      const pageItems: Array<{ label: string; href: string; order: number; newTab: boolean }> = navigationPages.results.map((row) => ({ label: row.label, href: `/pages/${row.slug}`, order: row.navigation_order ?? 0, newTab: !!row.navigation_new_tab }));
-      const linkItems: Array<{ label: string; href: string; order: number; newTab: boolean }> = parseNavigationLinks(tenant as any).map((link) => ({ label: link.label, href: link.href, order: link.order, newTab: navigationLinkNewTab(link) }));
-      const merged = [...pageItems, ...linkItems].sort((a, b) => a.order === b.order ? a.label.localeCompare(b.label) : a.order - b.order).slice(0, 6);
-      return merged.map(({ label, href, newTab }) => ({ label, href, newTab }));
-    })();
-    const displayLimit = pageNumber === 1 ? pageSize + 1 : pageSize;
-    const hasMorePosts = queriedPosts.length > displayLimit;
-    const results = queriedPosts.slice(0, displayLimit);
-    let popularPosts: Post[] = [];
-    if (pageNumber === 1 && popularity.results.length) {
-      const popularSlugs = popularity.results.map((row) => row.path.replace(/^\/+/, "")).filter(Boolean).slice(0, 3);
-      if (popularSlugs.length) {
-        const placeholders = popularSlugs.map(() => "?").join(",");
-        const popularRows = await tenantDb(c.env, tenant).prepare(
-          `SELECT * FROM posts WHERE tenant_id = ? AND published = 1 AND slug IN (${placeholders})`
-        ).bind(tenant.id, ...popularSlugs).all<Post>();
-        const postsBySlug = new Map(popularRows.results.map((post) => [post.slug, post]));
-        popularPosts = popularSlugs.map((slug) => postsBySlug.get(slug)).filter((post): post is Post => Boolean(post));
-      }
-    }
-
-    return new Response(renderHome(tenant, results, originOf(c), analyticsConsentRequired(c.req.raw.cf?.country), popularPosts, navigationItems, pageNumber, hasMorePosts), {
-      status: 200,
+  const tenant = await resolveTenant(c.env, c.req.header("host") || "");
+  if (!tenant)
+    return new Response(renderNotFound(null), {
+      status: 404,
       headers: { "content-type": "text/html; charset=utf-8" },
     });
-  }, true);
+  const requestedPageRoot = Number(c.req.query("page") || "1");
+  const rootPageNumber = Number.isInteger(requestedPageRoot) ? Math.max(1, Math.min(requestedPageRoot, 100)) : 1;
+  if (tenant.home_landing_page_id) {
+    const homepage = await getHomepageLandingPage(c.env, tenant);
+    if (homepage) {
+      if (rootPageNumber > 1) return c.redirect(`/blog?page=${rootPageNumber}`, 301);
+      return serveCached(c, async () => new Response(await renderLandingHtml(c, tenant, homepage, { isHomepage: true, origin: originOf(c) }), {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }), true);
+    }
+  }
+  return serveBlogHome(c, tenant, "/");
 });
+
+app.get("/blog", async (c) => {
+  const tenant = await resolveTenant(c.env, c.req.header("host") || "");
+  if (!tenant)
+    return new Response(renderNotFound(null), {
+      status: 404,
+      headers: { "content-type": "text/html; charset=utf-8" },
+    });
+  const homepage = tenant.home_landing_page_id ? await getHomepageLandingPage(c.env, tenant) : null;
+  if (homepage) return serveBlogHome(c, tenant, "/blog");
+  const requestedPageBlog = Number(c.req.query("page") || "1");
+  const blogPageNumber = Number.isInteger(requestedPageBlog) ? Math.max(1, Math.min(requestedPageBlog, 100)) : 1;
+  return c.redirect(blogPageNumber > 1 ? `/?page=${blogPageNumber}` : "/", 301);
+});
+
 
 // A single post: /<slug>. This is the catch-all, so it goes last.
 async function publishedRelatedPosts(env: Bindings, tenant: Tenant, post: Post): Promise<any[]> {
@@ -9024,6 +9381,37 @@ app.get("/pages/:slug", async (c) => {
   if (_pageHtml.includes("youtube-embed")) _pageHtml = expandYoutubeEmbeds(_pageHtml);
   if (_pageHtml.includes("bitchute-embed")) _pageHtml = expandBitchuteEmbeds(_pageHtml);
   return c.html(renderPage(tenant, page, _pageHtml, originOf(c), analyticsConsentRequired(c.req.raw.cf?.country), isOwner, navigationItems));
+});
+
+
+app.get("/landing/:slug", async (c) => {
+  const tenant = await resolveTenant(c.env, c.req.header("host") || "");
+  if (!tenant) return c.text("Not found", 404);
+  let page: LandingPage | null = null;
+  try {
+    page = await getLandingPageBySlug(c.env, tenant, c.req.param("slug"));
+  } catch { page = null; }
+  if (!page) return c.html(renderNotFound(tenant, analyticsConsentRequired(c.req.raw.cf?.country)), 404);
+  if (!page.published) {
+    // Draft preview: owner only, outside the shared cache, never reveals
+    // existence to anyone else (modelled on serveDraftPreview, plus
+    // x-robots-tag per the landing spec).
+    const account = await currentAccount(c);
+    const role = account ? await membershipRoleFor(c.env, account.id, tenant.id) : null;
+    if (role !== "owner") return c.html(renderNotFound(tenant, analyticsConsentRequired(c.req.raw.cf?.country)), 404);
+    const html = await renderLandingHtml(c, tenant, page, { isHomepage: false, origin: originOf(c), preview: true });
+    return new Response(html, {
+      status: 200,
+      headers: { "content-type": "text/html; charset=utf-8", "cache-control": "private, no-store", "x-robots-tag": "noindex" },
+    });
+  }
+  const eligible = await tenantCanUseLandingPages(c.env, tenant.id).catch(() => false);
+  if (!eligible) return c.html(renderNotFound(tenant, analyticsConsentRequired(c.req.raw.cf?.country)), 404);
+  const isHomepage = Number(tenant.home_landing_page_id ?? 0) === page.id;
+  return serveCached(c, async () => new Response(await renderLandingHtml(c, tenant, page, { isHomepage, origin: originOf(c) }), {
+    status: 200,
+    headers: { "content-type": "text/html; charset=utf-8" },
+  }), true);
 });
 
 app.get("/:slug", async (c) => {

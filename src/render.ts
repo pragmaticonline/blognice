@@ -33,6 +33,7 @@ export type Tenant = {
   browser_push_enabled?: number;
   comments_enabled?: number;
   header_link_url?: string | null;
+  home_landing_page_id?: number | null; // soft pointer to landing_pages.id in the posts DB; NULL = blog is homepage
   shard: string; // which database holds this tenant's posts (see src/db.ts)
   created_at: number;
   deleted_at: number | null; // unix seconds; NULL = live, set = soft-deleted
@@ -1219,6 +1220,92 @@ function publicFooter(tenant: Tenant, wide: boolean): string {
 </footer>`;
 }
 
+export type BlogHeadOpts = {
+  tenant: Tenant;
+  pageTitle: string;
+  description: string;
+  canonical: string;
+  image?: string;
+  imageAlt?: string;
+  ogType?: "website" | "article";
+  publishedAt?: number;
+  modifiedAt?: number;
+  tags?: string[];
+  noindex?: boolean;
+  prevUrl?: string;
+  nextUrl?: string;
+  jsonLd?: unknown;
+  /** Blog CSS to emit between the theme script and the accent override. Landing pages pass "" (designs carry their own CSS). */
+  styles?: string;
+  /** Extra markup after customCssTag (blog: promo styles). Landing passes "". */
+  afterCustomCss?: string;
+  /** Set false when the surrounding template already emits charset/viewport (landing designs do). */
+  documentMeta?: boolean;
+};
+
+// Shared <head> contents for blog pages AND landing pages (landing spec:
+// head_html). Everything the blog head emits except the blog's own CSS
+// (passed via `styles`) and promo styles (via `afterCustomCss`). Order is
+// fixed: the design's <style> comes before this in landing templates, the
+// accent override follows, and customCssTag is last so owner CSS wins.
+export function blogHeadHtml(opts: BlogHeadOpts): string {
+  const { tenant, pageTitle, description, canonical, image, imageAlt, ogType = "website", publishedAt, modifiedAt, tags, noindex, prevUrl, nextUrl, jsonLd, styles, afterCustomCss = "", documentMeta = true } = opts;
+  const canonicalTag = canonical ? `<link rel="canonical" href="${esc(canonical)}">` : "";
+  const imageTags = image
+    ? `
+<meta property="og:image" content="${esc(image)}">
+<meta property="og:image:alt" content="${esc(imageAlt || pageTitle)}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="${esc(image)}">`
+    : `<meta name="twitter:card" content="summary">`;
+  const tagMeta = tags?.length ? tags.slice(0, 7).map((t) => `<meta property="article:tag" content="${esc(t)}">`).join("") : "";
+  const articleTags = ogType === "article"
+    ? `
+<meta property="article:published_time" content="${new Date((publishedAt || 0) * 1000).toISOString()}">
+${modifiedAt ? `<meta property="article:modified_time" content="${new Date(modifiedAt * 1000).toISOString()}">` : ""}${tagMeta}`
+    : "";
+  const robotsMeta = noindex ? `<meta name="robots" content="noindex,follow">` : "";
+  const prevLink = prevUrl ? `<link rel="prev" href="${esc(prevUrl)}">` : "";
+  const nextLink = nextUrl ? `<link rel="next" href="${esc(nextUrl)}">` : "";
+  const jsonLdTag = jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, "\\u003c")}</script>` : "";
+  return `${documentMeta ? `<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+` : ""}<title>${esc(pageTitle)}</title>
+<meta name="description" content="${esc(description)}">
+${canonicalTag}
+${robotsMeta}
+${prevLink}
+${nextLink}
+<meta name="theme-color" content="${normalizeAccentColor(tenant.accent_color)}">
+<meta property="og:locale" content="en_US">
+<meta property="og:site_name" content="${esc(tenant.title)}">
+<meta property="og:title" content="${esc(pageTitle)}">
+<meta property="og:description" content="${esc(description)}">
+<meta property="og:type" content="${ogType}">
+${canonical ? `<meta property="og:url" content="${esc(canonical)}">` : ""}${imageTags}${articleTags}
+<meta name="twitter:title" content="${esc(pageTitle)}">
+<meta name="twitter:description" content="${esc(description)}">
+${jsonLdTag}
+<link rel="alternate" type="application/xml" title="Sitemap" href="/sitemap.xml">
+<link rel="alternate" type="application/rss+xml" title="${esc(tenant.title)} RSS feed" href="/rss.xml">
+<link rel="icon" href="/favicon.svg">
+<script>(function(){try{var saved=localStorage.getItem("blognice-theme");var theme=saved==="light"||saved==="dark"?saved:(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");document.documentElement.dataset.theme=theme}catch(e){}})();</script>
+${styles ? `<style>${styles}</style>\n` : ""}<style>:root { --accent: ${normalizeAccentColor(tenant.accent_color)}; --accent-ink: ${accentTextColor(normalizeAccentColor(tenant.accent_color))}; } @media (prefers-color-scheme: dark) { :root { --accent: ${normalizeAccentColor(tenant.accent_color)}; } }</style>
+${customCssTag(tenant)}${afterCustomCss}`;
+}
+
+export const CONSENT_STYLE_TAG = `<style>#blognice-consent{position:fixed;z-index:100;left:1rem;right:1rem;bottom:1rem;max-width:760px;margin:auto;padding:.85rem 1rem;border:1px solid var(--rule);border-radius:10px;background:var(--bg);box-shadow:0 8px 28px #0002;display:flex;align-items:center;gap:.65rem;flex-wrap:wrap;font:14px/1.45 system-ui,sans-serif}#blognice-consent[hidden]{display:none}#blognice-consent span{flex:1 1 100%;color:var(--soft)}#blognice-consent button,#blognice-consent a{font:inherit;padding:.45rem .7rem;border:1px solid var(--rule);border-radius:6px;background:var(--bg);color:var(--ink);cursor:pointer}#blognice-consent button:focus-visible,#blognice-consent a:focus-visible{color:var(--accent);text-decoration:underline;outline:2px solid var(--accent);outline-offset:2px}</style>`;
+
+// Shared end-of-<body> contents (landing spec: body_end_html): optional
+// promo popup markup, the analytics-consent banner styles, and the
+// metrics beacon (which creates the banner element when consent is
+// required). Blog-only extras (footer, theme-toggle script) stay in shell.
+export function blogBodyEndHtml(analyticsConsentRequired: boolean, promoHtml = ""): string {
+  return `${promoHtml}
+${CONSENT_STYLE_TAG}
+${metricsBeacon(analyticsConsentRequired)}`;
+}
+
 function shell(opts: {
   tenant: Tenant;
   pageTitle: string;
@@ -1245,54 +1332,12 @@ function shell(opts: {
 }): string {
   const { tenant, pageTitle, description, canonical, body, showMasthead = true, wide = false, showRss = false, ownerEdit, homeControl = false, image, imageAlt, ogType = "website", publishedAt, modifiedAt, analyticsConsentRequired = false, jsonLd, tags, noindex, prevUrl, nextUrl, promoContext } = opts;
   const ownerEditControl = ownerEdit ? `<a class="owner-edit" data-${ownerEdit.dataAttr} hidden href="${esc(ownerEdit.href)}" aria-label="${esc(ownerEdit.label)}" title="${esc(ownerEdit.label)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${ownerEdit.dataAttr === "blog-edit" ? "M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" : "m14.7 6.3 3 3M4 20l4.2-1 9.9-9.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Z"}"/><path d="${ownerEdit.dataAttr === "blog-edit" ? "m19.4 15 .1.1a1.8 1.8 0 0 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-3.1 1.3v.2a1.8 1.8 0 0 1-3.6 0v-.2a1.8 1.8 0 0 0-3.1-1.3l-.1.1a1.8 1.8 0 1 1-2.5-2.5l.1-.1A1.8 1.8 0 0 0 5.3 12a1.8 1.8 0 0 0-1.3-3.1h-.2a1.8 1.8 0 0 1 0-3.6H4a1.8 1.8 0 0 0 1.3-3.1l-.1-.1a1.8 1.8 0 1 1 2.5-2.5l.1.1A1.8 1.8 0 0 0 10.9 1.3v-.2a1.8 1.8 0 0 1 3.6 0v.2a1.8 1.8 0 0 0 3.1 1.3l-.1-.1a1.8 1.8 0 1 1 2.5 2.5l-.1.1A1.8 1.8 0 0 0 19.4 8h.2a1.8 1.8 0 0 1 0 3.6h-.2a1.8 1.8 0 0 0 0 3.4Z" : "m13.5 7.5 3 3"}"/></svg><span class="sr-only">${esc(ownerEdit.label)}</span></a>` : "";
-  const canonicalTag = canonical ? `<link rel="canonical" href="${esc(canonical)}">` : "";
-  const imageTags = image
-    ? `
-<meta property="og:image" content="${esc(image)}">
-<meta property="og:image:alt" content="${esc(imageAlt || pageTitle)}">
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="${esc(image)}">`
-    : `<meta name="twitter:card" content="summary">`;
-  const tagMeta = tags?.length ? tags.slice(0, 7).map((t) => `<meta property="article:tag" content="${esc(t)}">`).join("") : "";
-  const articleTags = ogType === "article"
-    ? `
-<meta property="article:published_time" content="${new Date((publishedAt || 0) * 1000).toISOString()}">
-${modifiedAt ? `<meta property="article:modified_time" content="${new Date(modifiedAt * 1000).toISOString()}">` : ""}${tagMeta}`
-    : "";
-  const robotsMeta = noindex ? `<meta name="robots" content="noindex,follow">` : "";
-  const prevLink = prevUrl ? `<link rel="prev" href="${esc(prevUrl)}">` : "";
-  const nextLink = nextUrl ? `<link rel="next" href="${esc(nextUrl)}">` : "";
-  const jsonLdTag = jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, "\\u003c")}</script>` : "";
   const blogspot = isBlogspotTheme(tenant);
   const promoHtml = promoForPage(tenant, promoContext);
   return `<!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(pageTitle)}</title>
-<meta name="description" content="${esc(description)}">
-${canonicalTag}
-${robotsMeta}
-${prevLink}
-${nextLink}
-<meta name="theme-color" content="${normalizeAccentColor(tenant.accent_color)}">
-<meta property="og:locale" content="en_US">
-<meta property="og:site_name" content="${esc(tenant.title)}">
-<meta property="og:title" content="${esc(pageTitle)}">
-<meta property="og:description" content="${esc(description)}">
-<meta property="og:type" content="${ogType}">
-${canonical ? `<meta property="og:url" content="${esc(canonical)}">` : ""}${imageTags}${articleTags}
-<meta name="twitter:title" content="${esc(pageTitle)}">
-<meta name="twitter:description" content="${esc(description)}">
-${jsonLdTag}
-<link rel="alternate" type="application/xml" title="Sitemap" href="/sitemap.xml">
-<link rel="alternate" type="application/rss+xml" title="${esc(tenant.title)} RSS feed" href="/rss.xml">
-<link rel="icon" href="/favicon.svg">
-<script>(function(){try{var saved=localStorage.getItem("blognice-theme");var theme=saved==="light"||saved==="dark"?saved:(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");document.documentElement.dataset.theme=theme}catch(e){}})();</script>
-<style>${STYLES}${blogspot ? BLOGSPOT_STYLES : ""}</style>
-<style>:root { --accent: ${normalizeAccentColor(tenant.accent_color)}; --accent-ink: ${accentTextColor(normalizeAccentColor(tenant.accent_color))}; } @media (prefers-color-scheme: dark) { :root { --accent: ${normalizeAccentColor(tenant.accent_color)}; } }</style>
-${customCssTag(tenant)}${promoHtml ? `<style>${PROMO_STYLES}</style>` : ""}</head>
+${blogHeadHtml({ tenant, pageTitle, description, canonical, image, imageAlt, ogType, publishedAt, modifiedAt, tags, noindex, prevUrl, nextUrl, jsonLd, styles: `${STYLES}${blogspot ? BLOGSPOT_STYLES : ""}`, afterCustomCss: promoHtml ? `<style>${PROMO_STYLES}</style>` : "" })}</head>
 <body${blogspot ? ' data-blog-theme="blogspot"' : ""}>
   <div class="wrap${wide ? " homepage-wrap" : ""}">
   <div class="site-controls">${homeControl ? `<a class="post-home" href="/" aria-label="Back to all posts" title="Back to all posts"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg><span class="sr-only">Back to all posts</span></a>` : ""}${ownerEditControl}<span class="site-controls-more-wrap"><button class="site-controls-more" type="button" aria-expanded="false" aria-label="More options" data-site-more>⋮</button><span class="site-controls-panel" hidden data-site-panel>${showRss ? `<div class="rss-global"><a href="/rss.xml" target="_blank" rel="noopener noreferrer" aria-label="RSS feed" title="RSS feed"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18.5a2 2 0 1 0 0 4 2 2 0 0 0 0-4ZM4 10v3a7 7 0 0 1 7 7h3A10 10 0 0 0 4 10Zm0-6v3c8.3 0 15 6.7 15 15h3C22 12.2 13.8 4 4 4Z"/></svg><span class="sr-only">RSS feed</span></a></div><a class="subscribe-link" href="#subscribe" aria-label="Subscribe" title="Subscribe"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg><span class="sr-only">Subscribe</span></a>` : ""}<button class="theme-toggle" id="theme-toggle" type="button" aria-label="Use dark theme" aria-pressed="false" title="Use dark theme"><span class="sun" aria-hidden="true">☀</span><span class="moon" aria-hidden="true">☾</span></button></span></span></div>
@@ -1306,9 +1351,7 @@ ${customCssTag(tenant)}${promoHtml ? `<style>${PROMO_STYLES}</style>` : ""}</hea
   ${body}
 </div>
 ${publicFooter(tenant, wide)}
-${promoHtml}
-<style>#blognice-consent{position:fixed;z-index:100;left:1rem;right:1rem;bottom:1rem;max-width:760px;margin:auto;padding:.85rem 1rem;border:1px solid var(--rule);border-radius:10px;background:var(--bg);box-shadow:0 8px 28px #0002;display:flex;align-items:center;gap:.65rem;flex-wrap:wrap;font:14px/1.45 system-ui,sans-serif}#blognice-consent[hidden]{display:none}#blognice-consent span{flex:1 1 100%;color:var(--soft)}#blognice-consent button,#blognice-consent a{font:inherit;padding:.45rem .7rem;border:1px solid var(--rule);border-radius:6px;background:var(--bg);color:var(--ink);cursor:pointer}#blognice-consent button:focus-visible,#blognice-consent a:focus-visible{color:var(--accent);text-decoration:underline;outline:2px solid var(--accent);outline-offset:2px}</style>
-${metricsBeacon(analyticsConsentRequired)}
+${blogBodyEndHtml(analyticsConsentRequired, promoHtml)}
 <script>(function(){var button=document.getElementById("theme-toggle");if(button){function update(){var dark=document.documentElement.dataset.theme==="dark";button.setAttribute("aria-label",dark?"Use light theme":"Use dark theme");button.setAttribute("title",dark?"Use light theme":"Use dark theme");button.setAttribute("aria-pressed",dark?"true":"false")}update();button.addEventListener("click",function(){var dark=document.documentElement.dataset.theme!=="dark";document.documentElement.dataset.theme=dark?"dark":"light";try{localStorage.setItem("blognice-theme",dark?"dark":"light")}catch(e){}update()});try{var mq=matchMedia("(prefers-color-scheme: dark)");function sysApply(){var s=null;try{s=localStorage.getItem("blognice-theme")}catch(e){}if(s==="light"||s==="dark")return;document.documentElement.dataset.theme=mq.matches?"dark":"light";update()}sysApply();if(mq&&mq.addEventListener)mq.addEventListener("change",sysApply);window.addEventListener("load",sysApply)}catch(e){}}var more=document.querySelector("[data-site-more]");var panel=document.querySelector("[data-site-panel]");if(more&&panel){more.addEventListener("click",function(){var expanded=more.getAttribute("aria-expanded")==="true";more.setAttribute("aria-expanded",expanded?"false":"true");if(expanded){panel.hidden=true}else{panel.hidden=false}try{more.blur()}catch(e){}});document.addEventListener("click",function(e){if(!more.contains(e.target)&&!panel.contains(e.target)){panel.hidden=true;more.setAttribute("aria-expanded","false")}});document.addEventListener("keydown",function(e){if(e.key==="Escape"){panel.hidden=true;more.setAttribute("aria-expanded","false")}})}var top=document.getElementById("to-top");if(!top)return;function reveal(){var max=document.documentElement.scrollHeight-window.innerHeight;top.classList.toggle("visible",max>0&&window.scrollY/max>.35)}window.addEventListener("scroll",reveal,{passive:true});reveal();top.addEventListener("click",function(){window.scrollTo({top:0,behavior:"smooth"})})})();</script>
 </body>
 </html>`;
@@ -1322,8 +1365,12 @@ export function renderHome(
   rankedPopularPosts: Post[] = [],
   navigationPages: NavigationItem[] = [],
   pageNumber = 1,
-  hasMorePosts = false
+  hasMorePosts = false,
+  basePath = "/"
 ): string {
+  const base = basePath === "/blog" ? "/blog" : "/";
+  const absBase = base === "/" ? `${origin}/` : `${origin}${base}`;
+  const pageUrl = (n: number) => (n <= 1 ? base : `${base}?page=${n}`);
   const topics = tenantTopics(tenant);
   const art = (post: Post, index: number, rank?: number) =>
     post.featured_image_key
@@ -1333,8 +1380,11 @@ export function renderHome(
         : "";
   const header = (avatar: string) => `<div class="blog-owner-actions"><a class="owner-edit" data-blog-edit hidden href="${esc(origin)}/admin/b/${esc(tenant.public_id)}/settings" aria-label="Open blog settings" title="Open blog settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/><path d="m19.4 15 .1.1a1.8 1.8 0 0 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-3.1 1.3v.2a1.8 1.8 0 0 1-3.6 0v-.2a1.8 1.8 0 0 0-3.1-1.3l-.1.1a1.8 1.8 0 1 1-2.5-2.5l.1-.1A1.8 1.8 0 0 0 5.3 12a1.8 1.8 0 0 0-1.3-3.1h-.2a1.8 1.8 0 0 1 0-3.6H4a1.8 1.8 0 0 0 1.3-3.1l-.1-.1a1.8 1.8 0 1 1 2.5-2.5l.1.1A1.8 1.8 0 0 0 10.9 1.3v-.2a1.8 1.8 0 0 1 3.6 0v.2a1.8 1.8 0 0 0 3.1 1.3l.1-.1a1.8 1.8 0 1 1 2.5 2.5l-.1.1A1.8 1.8 0 0 0 19.4 8h.2a1.8 1.8 0 0 1 0 3.6h-.2a1.8 1.8 0 0 0 0 3.4Z"/></svg><span class="sr-only">Open blog settings</span></a></div><nav class="blog-nav"><a href="${esc(headerHref(tenant))}"${headerLinkIsExternal(tenant) ? ' target="_blank" rel="noopener noreferrer"' : ''} class="blog-header-id"><div>${avatar}</div><div class="blog-header-text"><h1 class="site-title">${esc(tenant.title)}</h1>${tenant.description ? `<div class="blog-tagline">${esc(tenant.description)}</div>` : ""}</div></a></nav>`;
   const ownerScript = `<script>(function(){var link=document.querySelector("[data-blog-edit]");if(!link)return;fetch("/_blognice/blog-edit-link?tenant=${encodeURIComponent(tenant.public_id)}",{credentials:"include",headers:{accept:"application/json"}}).then(function(r){if(!r.ok)throw new Error();return r.json()}).then(function(d){if(d.url){link.href=d.url;link.hidden=false}}).catch(function(){if(location.origin!==${JSON.stringify(origin)})fetch(${JSON.stringify(origin)}+"/_blognice/blog-edit-link?tenant=${encodeURIComponent(tenant.public_id)}",{credentials:"include"}).then(function(r){return r.ok?r.json():null}).then(function(d){if(d&&d.url){link.href=d.url;link.hidden=false}}).catch(function(){})});})();</script>`;
-  const withNavigation = (markup: string) => navigationPages.length
-    ? markup.replace('</nav>', `</nav><div class="blog-nav-links" aria-label="Page navigation"><a href="/" aria-current="page">Home</a>${navigationPages.map((item) => item.newTab ? `<a href="${esc(item.href)}" target="_blank" rel="noopener noreferrer">${esc(item.label)}</a>` : `<a href="${esc(item.href)}">${esc(item.label)}</a>`).join("")}</div>`)
+  const navItems: NavigationItem[] = base === "/blog"
+    ? [{ label: "Blog", href: "/blog", newTab: false }, ...navigationPages].slice(0, 6)
+    : navigationPages;
+  const withNavigation = (markup: string) => navigationPages.length || base === "/blog"
+    ? markup.replace('</nav>', `</nav><div class="blog-nav-links" aria-label="Page navigation"><a href="/"${base === "/" ? ' aria-current="page"' : ""}>Home</a>${navItems.map((item) => item.newTab ? `<a href="${esc(item.href)}" target="_blank" rel="noopener noreferrer">${esc(item.label)}</a>` : item.href === base ? `<a href="${esc(item.href)}" aria-current="page">${esc(item.label)}</a>` : `<a href="${esc(item.href)}">${esc(item.label)}</a>`).join("")}</div>`)
     : markup;
   const card = (p: Post, index: number) => `<article class="blog-card"><a class="blog-art" href="/${esc(p.slug)}">${art(p, index)}</a><h3><a href="/${esc(p.slug)}">${esc(p.title)}</a></h3><p class="blog-excerpt">${esc(excerpt(p.body_md, 125))}</p><div class="blog-meta">${formatDate(p.created_at)} · ${readingTime(p.body_md)} min read</div></article>`;
   if (!posts.length) {
@@ -1342,25 +1392,25 @@ export function renderHome(
       ? `<img class="blog-avatar" src="/media/${esc(tenant.avatar_key)}" alt="">`
       : `<div class="blog-avatar">${monogram(tenant.title)}</div>`;
     return shell({
-      tenant, pageTitle: tenant.title, description: tenant.description || tenant.title, analyticsConsentRequired, promoContext: "home",
-      canonical: origin + "/", ownerEdit: { href: `${origin}/admin/b/${tenant.public_id}/settings`, dataAttr: "blog-edit", label: "Open blog settings" }, body: `${withNavigation(header(noPostsAvatar))}<section class="blog-section blog-featured-section"><p class="feed-meta">No posts yet.</p></section>${topics.length ? `<div class="blog-topics blog-topics-bottom" aria-label="Blog topics">${topics.map((topic) => `<span>#${esc(topic)}</span>`).join("")}</div>` : ""}<div id="subscribe" class="blog-subscribe-wrap">${subscribeBox(tenant)}</div>${ownerScript}`, jsonLd: { "@context": "https://schema.org", "@type": "Blog", name: tenant.title, url: origin + "/", description: tenant.description || undefined },
+      tenant, pageTitle: tenant.title, description: tenant.description || tenant.title, analyticsConsentRequired, promoContext: base === "/blog" ? "page" : "home",
+      canonical: absBase, ownerEdit: { href: `${origin}/admin/b/${tenant.public_id}/settings`, dataAttr: "blog-edit", label: "Open blog settings" }, body: `${withNavigation(header(noPostsAvatar))}<section class="blog-section blog-featured-section"><p class="feed-meta">No posts yet.</p></section>${topics.length ? `<div class="blog-topics blog-topics-bottom" aria-label="Blog topics">${topics.map((topic) => `<span>#${esc(topic)}</span>`).join("")}</div>` : ""}<div id="subscribe" class="blog-subscribe-wrap">${subscribeBox(tenant)}</div>${ownerScript}`, jsonLd: { "@context": "https://schema.org", "@type": "Blog", name: tenant.title, url: absBase, description: tenant.description || undefined },
     });
   }
   if (pageNumber > 1) {
     const archiveCards = posts.map(card).join("");
-    const pager = `<nav class="blog-pagination" aria-label="Post pages">${pageNumber > 2 ? `<a href="/?page=${pageNumber - 1}">Previous</a>` : `<a href="/">Previous</a>`}${hasMorePosts ? `<a href="/?page=${pageNumber + 1}">Next</a>` : ""}</nav>`;
+    const pager = `<nav class="blog-pagination" aria-label="Post pages">${pageNumber > 2 ? `<a href="${pageUrl(pageNumber - 1)}">Previous</a>` : `<a href="${base}">Previous</a>`}${hasMorePosts ? `<a href="${pageUrl(pageNumber + 1)}">Next</a>` : ""}</nav>`;
     const archiveBody = `${withNavigation(header(tenant.avatar_key ? `<img class="blog-avatar" src="/media/${esc(tenant.avatar_key)}" alt="">` : `<div class="blog-avatar">${monogram(tenant.title)}</div>`))}<section class="blog-section blog-archive-section"><div class="blog-grid-head"><h1>More posts</h1><p class="feed-meta">Page ${pageNumber}</p></div><div class="blog-cards">${archiveCards}</div>${pager}</section><div id="subscribe" class="blog-subscribe-wrap">${subscribeBox(tenant)}</div>${ownerScript}`;
-    const archivePrev = pageNumber > 2 ? `${origin}/?page=${pageNumber - 1}` : `${origin}/`;
-    const archiveNext = hasMorePosts ? `${origin}/?page=${pageNumber + 1}` : undefined;
+    const archivePrev = pageNumber > 2 ? `${absBase}?page=${pageNumber - 1}` : absBase;
+    const archiveNext = hasMorePosts ? `${absBase}?page=${pageNumber + 1}` : undefined;
     const archiveNoindex = !posts.length;
     const archiveJsonLd = {
       "@context": "https://schema.org",
       "@type": "CollectionPage",
       name: `${tenant.title} — More posts`,
-      url: `${origin}/?page=${pageNumber}`,
-      isPartOf: { "@type": "Blog", name: tenant.title, url: origin + "/" },
+      url: `${absBase}?page=${pageNumber}`,
+      isPartOf: { "@type": "Blog", name: tenant.title, url: absBase },
     };
-    return shell({ tenant, pageTitle: `${tenant.title} — More posts`, description: tenant.description || tenant.title, canonical: `${origin}/?page=${pageNumber}`, analyticsConsentRequired, promoContext: "home", ownerEdit: { href: `${origin}/admin/b/${tenant.public_id}/settings`, dataAttr: "blog-edit", label: "Open blog settings" }, body: archiveBody, showMasthead: false, wide: true, showRss: true, noindex: archiveNoindex, prevUrl: archivePrev, nextUrl: archiveNext, jsonLd: archiveJsonLd });
+    return shell({ tenant, pageTitle: `${tenant.title} — More posts`, description: tenant.description || tenant.title, canonical: `${absBase}?page=${pageNumber}`, analyticsConsentRequired, promoContext: base === "/blog" ? "page" : "home", ownerEdit: { href: `${origin}/admin/b/${tenant.public_id}/settings`, dataAttr: "blog-edit", label: "Open blog settings" }, body: archiveBody, showMasthead: false, wide: true, showRss: true, noindex: archiveNoindex, prevUrl: archivePrev, nextUrl: archiveNext, jsonLd: archiveJsonLd });
   }
   const featured = posts[0];
   const more = posts.slice(1, 7);
@@ -1373,20 +1423,20 @@ export function renderHome(
   const popularCard = (p: Post, index: number) => `<article class="blog-popular-card"><a class="blog-art" href="/${esc(p.slug)}">${art(p, index)}</a><h3><a href="/${esc(p.slug)}">${esc(p.title)}</a></h3><div class="blog-meta">${readingTime(p.body_md)} min read</div></article>`;
   const body = `${withNavigation(header(avatar))}
     <section class="blog-section blog-featured-section"><div class="blog-featured-head"><div class="blog-kicker">Featured post</div><a class="blog-featured-subscribe" href="#subscribe">Subscribe</a></div><article class="blog-featured"><a class="blog-art" href="/${esc(featured.slug)}">${art(featured, 0)}</a><div><h2><a href="/${esc(featured.slug)}">${esc(featured.title)}</a></h2><p class="blog-excerpt">${esc(excerpt(featured.body_md, 155))}</p><div class="blog-meta">${formatDate(featured.created_at)} · ${readingTime(featured.body_md)} min read</div></div></article></section>
-    ${more.length ? `<section class="blog-section blog-more-section" style="padding-top:0"><div class="blog-grid-head"><h2>More posts</h2>${hasMorePosts ? `<a class="blog-see-all" href="/?page=2">See all <span aria-hidden="true">→</span></a>` : ""}</div><div class="blog-cards">${more.map(card).join("")}</div></section>` : ""}
+    ${more.length ? `<section class="blog-section blog-more-section" style="padding-top:0"><div class="blog-grid-head"><h2>More posts</h2>${hasMorePosts ? `<a class="blog-see-all" href="${base}?page=2">See all <span aria-hidden="true">→</span></a>` : ""}</div><div class="blog-cards">${more.map(card).join("")}</div></section>` : ""}
     ${popular.length ? `<section class="blog-popular-section blog-section"><div class="blog-grid-head"><h2>Popular posts</h2></div><div class="blog-popular-cards">${popular.map(popularCard).join("")}</div></section>` : ""}
     ${topics.length ? `<div class="blog-topics blog-topics-bottom" aria-label="Blog topics">${topics.map((topic) => `<span>#${esc(topic)}</span>`).join("")}</div>` : ""}
     <div id="subscribe" class="blog-subscribe-wrap">${subscribeBox(tenant)}</div>`;
 
   const homeImage = featured.featured_image_key ? `${origin}/media/${featured.featured_image_key}` : (tenant.avatar_key ? `${origin}/media/${tenant.avatar_key}` : undefined);
-  const homeNext = hasMorePosts ? `${origin}/?page=2` : undefined;
+  const homeNext = hasMorePosts ? `${absBase}?page=2` : undefined;
   const homeJsonLd: any[] = [
     {
       "@context": "https://schema.org",
       "@type": "Blog",
       name: tenant.title,
       description: tenant.description || tenant.title,
-      url: origin + "/",
+      url: absBase,
       publisher: { "@type": "Organization", name: tenant.title, logo: homeImage ? { "@type": "ImageObject", url: homeImage } : undefined },
     },
     {
@@ -1401,8 +1451,8 @@ export function renderHome(
     tenant,
     pageTitle: tenant.title,
     description: tenant.description || tenant.title,
-    canonical: origin + "/",
-    promoContext: "home",
+    canonical: absBase,
+    promoContext: base === "/blog" ? "page" : "home",
     ownerEdit: { href: `${origin}/admin/b/${tenant.public_id}/settings`, dataAttr: "blog-edit", label: "Open blog settings" },
     body: body + ownerScript,
     showMasthead: false,

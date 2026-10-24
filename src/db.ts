@@ -25,6 +25,12 @@ import type { Tenant } from "./render";
 // by tenant_id, and when you delete a tenant you must also delete its posts
 // from the POSTS database -- SQLite's ON DELETE CASCADE cannot reach across
 // databases. See deleteTenantPosts() below.
+//
+// SHARD MOVES: landing_pages is tenant-scoped and moves with the tenant like
+// pages. tenants.home_landing_page_id (index DB) points at a landing_pages.id,
+// so a shard move MUST preserve landing_pages id values when copying rows, or
+// the homepage pointer dangles (safe — blog renders — but the landing page
+// silently stops being the homepage).
 
 export type DbEnv = {
   DB: D1Database;
@@ -52,4 +58,9 @@ export async function deleteTenantPosts(
     db.prepare("DELETE FROM posts WHERE tenant_id = ?").bind(tenant.id),
     db.prepare("DELETE FROM pages WHERE tenant_id = ?").bind(tenant.id),
   ]);
+  // Separate statement: a pre-093 posts DB has no landing_pages table,
+  // and that must not block deleting the tenant's posts/pages.
+  try {
+    await db.prepare("DELETE FROM landing_pages WHERE tenant_id = ?").bind(tenant.id).run();
+  } catch {}
 }

@@ -11,6 +11,9 @@ import { relayAffiliateEmailOutboxInDb, type AffiliateEmailJob } from "./affilia
 import { getFunnelExperimentReportInDb } from "./funnel-experiment-report";
 import { adsFunnelSeries, experimentFunnelSeries } from "./metrics";
 import { ensureAdsTables } from "./ads-funnel";
+import { LANDING_ROLLOUT_KEY, landingRollout, type LandingRollout } from "./landing";
+import { tenantDb } from "./db";
+import { cacheVariants } from "./indexing";
 
 type StaffRole = "read_only" | "support" | "admin";
 type StaffIdentity = { subject: string; email: string; role: StaffRole };
@@ -244,7 +247,7 @@ async function accountById(c: any, id: number) {
   const now = Math.floor(Date.now() / 1000);
   try {
     return await c.env.DB.prepare(
-      `SELECT a.id, a.email, COALESCE(a.status, 'active') AS status, a.status_reason, a.status_changed_at, a.created_at, a.stripe_customer_id, a.billing_status, a.billing_price_id, a.billing_period_end, a.billing_cancel_at_period_end, a.api_key_hash IS NOT NULL AS has_api_key, COALESCE(a.email_verified,0) AS email_verified, a.email_verified_at, a.signup_ip, a.signup_ua, a.signup_referer, a.signup_country, a.locked_until, a.deleted_at, a.vip_granted_at, a.vip_expires_at, a.vip_granted_by, a.vip_reason, a.max_blogs_override, (SELECT COUNT(*) FROM sessions s WHERE s.account_id = a.id AND s.expires_at > ?) AS active_sessions, (SELECT COUNT(*) FROM memberships m WHERE m.account_id = a.id) AS blog_count FROM accounts a WHERE a.id = ?`
+      `SELECT a.id, a.email, COALESCE(a.status, 'active') AS status, a.status_reason, a.status_changed_at, a.created_at, a.stripe_customer_id, a.billing_status, a.billing_price_id, a.billing_period_end, a.billing_cancel_at_period_end, a.api_key_hash IS NOT NULL AS has_api_key, COALESCE(a.email_verified,0) AS email_verified, a.email_verified_at, a.signup_ip, a.signup_ua, a.signup_referer, a.signup_country, a.locked_until, a.deleted_at, a.vip_granted_at, a.vip_expires_at, a.vip_granted_by, a.vip_reason, a.max_blogs_override, a.landing_access_override, (SELECT COUNT(*) FROM sessions s WHERE s.account_id = a.id AND s.expires_at > ?) AS active_sessions, (SELECT COUNT(*) FROM memberships m WHERE m.account_id = a.id) AS blog_count FROM accounts a WHERE a.id = ?`
     ).bind(now, id).first();
   } catch {
     return await c.env.DB.prepare(
@@ -280,7 +283,7 @@ async function relatedAccounts(c: any, id: number) {
 }
 
 function staffHeader(staff: StaffIdentity): string {
-  return `<header class="staff-top"><a class="staff-brand" href="/">blognice <span>staff</span></a><div class="staff-top-meta"><small>${esc(staff.email)} · ${esc(staff.role)}</small><a class="logout" href="/cdn-cgi/access/logout">Log out</a><button class="staff-menu-toggle" type="button" aria-controls="staff-sidebar" aria-expanded="false">Menu</button></div></header><div class="staff-shell"><aside class="staff-sidebar" id="staff-sidebar"><nav class="staff-nav" aria-label="Staff navigation"><a href="/dashboard" data-staff-nav>Dashboard</a><a href="/" data-staff-nav>Accounts</a><a href="/appeals" data-staff-nav>Suspension appeals</a><a href="/affiliate-payouts" data-staff-nav>Affiliate payouts</a><a href="/staff/experiments/affiliate-offer" data-staff-nav>Offer experiment</a><a href="/staff/ads-funnel" data-staff-nav>Ads funnel</a><a href="/audit" data-staff-nav>Audit log</a><a href="/pronunciations" data-staff-nav>Pronunciation dictionary</a><a href="/autopilot-runs" data-staff-nav>Autopilot runs</a><a href="/tts-test" data-staff-nav>TTS test</a><a href="/email-preview" data-staff-nav>Email preview</a></nav></aside><div class="staff-content">`;
+  return `<header class="staff-top"><a class="staff-brand" href="/">blognice <span>staff</span></a><div class="staff-top-meta"><small>${esc(staff.email)} · ${esc(staff.role)}</small><a class="logout" href="/cdn-cgi/access/logout">Log out</a><button class="staff-menu-toggle" type="button" aria-controls="staff-sidebar" aria-expanded="false">Menu</button></div></header><div class="staff-shell"><aside class="staff-sidebar" id="staff-sidebar"><nav class="staff-nav" aria-label="Staff navigation"><a href="/dashboard" data-staff-nav>Dashboard</a><a href="/" data-staff-nav>Accounts</a><a href="/appeals" data-staff-nav>Suspension appeals</a><a href="/affiliate-payouts" data-staff-nav>Affiliate payouts</a><a href="/staff/experiments/affiliate-offer" data-staff-nav>Offer experiment</a><a href="/staff/ads-funnel" data-staff-nav>Ads funnel</a><a href="/audit" data-staff-nav>Audit log</a><a href="/pronunciations" data-staff-nav>Pronunciation dictionary</a><a href="/autopilot-runs" data-staff-nav>Autopilot runs</a><a href="/tts-test" data-staff-nav>TTS test</a><a href="/landing-settings" data-staff-nav>Landing pages</a><a href="/email-preview" data-staff-nav>Email preview</a></nav></aside><div class="staff-content">`;
 }
 
 function billingPlan(account: any, c: any): string {
@@ -889,6 +892,7 @@ app.post("/api/accounts/:id/vip", async (c) => {
     if (!reason) return c.json({ error: "a reason is required" }, 400);
     try { await c.env.DB.prepare("UPDATE accounts SET vip_granted_at=NULL, vip_expires_at=NULL, vip_granted_by=NULL, vip_reason=? WHERE id=?").bind(reason, id).run(); } catch (e) { return c.json({ error: "VIP columns not available; apply migration 057" }, 500); }
     await audit(c, staff, { action: "vip-revoke", targetType: "account", targetId: String(id), reason, result: "success", before: { vip_granted_at: before.vip_granted_at, vip_expires_at: before.vip_expires_at }, after: { vip_granted_at: null } });
+    await purgeAccountOwnedTenants(c, id);
     return c.json({ ok: true, account: await accountById(c, id) });
   }
   if (action === "grant") {
@@ -901,6 +905,7 @@ app.post("/api/accounts/:id/vip", async (c) => {
     }
     try { await c.env.DB.prepare("UPDATE accounts SET vip_granted_at=?, vip_expires_at=?, vip_granted_by=NULL, vip_reason=? WHERE id=?").bind(now, expiresAt, reason, id).run(); } catch (e) { return c.json({ error: "VIP columns not available; apply migration 057" }, 500); }
     await audit(c, staff, { action: "vip-grant", targetType: "account", targetId: String(id), reason, result: "success", before: { vip_granted_at: before.vip_granted_at }, after: { vip_granted_at: now, vip_expires_at: expiresAt } });
+    await purgeAccountOwnedTenants(c, id);
     return c.json({ ok: true, account: await accountById(c, id) });
   }
   return c.json({ error: "action must be grant or revoke" }, 400);
@@ -1139,6 +1144,91 @@ app.post("/api/tts-test", async (c) => {
 
 // Backend TTS engine switch: which model renders narration. Any authenticated
 // staff role may read; changing requires a mutating role.
+
+// Purge every public page of every blog this account OWNS (landing spec:
+// staff VIP/override changes take effect immediately, unlike natural
+// expiry which is covered by the edge TTL).
+async function purgeAccountOwnedTenants(c: any, accountId: number): Promise<void> {
+  try {
+    const cache = (globalThis as any).caches?.default;
+    if (!cache) return;
+    const root = String(c.env.ROOT_DOMAIN || "blognice.com");
+    const db = c.env.DB as D1Database;
+    const { results: tenants } = await db.prepare(
+      "SELECT t.id, t.slug, t.shard FROM tenants t JOIN memberships m ON m.tenant_id = t.id WHERE m.account_id = ? AND m.role = 'owner' AND t.deleted_at IS NULL"
+    ).bind(accountId).all<any>();
+    for (const tenant of tenants) {
+      const hosts = [`${tenant.slug}.${root}`];
+      try {
+        const { results: domains } = await db.prepare("SELECT hostname FROM domains WHERE tenant_id = ? AND status = 'active'").bind(tenant.id).all<any>();
+        for (const d of domains) hosts.push(d.hostname);
+      } catch {}
+      let postSlugs: string[] = [];
+      let landingSlugs: string[] = [];
+      try {
+        const pdb = tenantDb(c.env as any, tenant as any);
+        const posts = await pdb.prepare("SELECT slug FROM posts WHERE tenant_id = ?").bind(tenant.id).all<any>();
+        postSlugs = posts.results.map((r: any) => "/" + r.slug);
+        try {
+          const landing = await pdb.prepare("SELECT slug FROM landing_pages WHERE tenant_id = ?").bind(tenant.id).all<any>();
+          landingSlugs = landing.results.map((r: any) => "/landing/" + r.slug);
+        } catch {}
+      } catch {}
+      const paths = ["/", "/blog", "/sitemap.xml", "/rss.xml", ...postSlugs, ...landingSlugs];
+      const jobs: Promise<boolean>[] = [];
+      for (const host of hosts)
+        for (const path of paths)
+          for (const url of cacheVariants(`https://${host}${path}`))
+            jobs.push(cache.delete(new Request(url, { method: "GET" })));
+      await Promise.all(jobs);
+    }
+  } catch {}
+}
+
+app.get("/api/landing-rollout", async (c) => {
+  return c.json({ rollout: await landingRollout(c.env.DB) });
+});
+
+app.post("/api/landing-rollout", async (c) => {
+  const staff = c.get("staff") as StaffIdentity;
+  if (!canMutate(staff)) return c.json({ error: "staff role cannot change the landing rollout" }, 403);
+  if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
+  const input = await c.req.json().catch(() => ({})) as { rollout?: unknown };
+  const rollout = String(input.rollout || "").trim().toLowerCase();
+  if (!["off", "vip", "paid", "all"].includes(rollout)) return c.json({ error: "rollout must be off, vip, paid or all" }, 400);
+  const before = await landingRollout(c.env.DB);
+  try {
+    await c.env.DB.prepare("INSERT INTO platform_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at").bind(LANDING_ROLLOUT_KEY, rollout, Math.floor(Date.now() / 1000)).run();
+  } catch { return c.json({ error: "settings table not available — run migration 068" }, 500); }
+  await audit(c, staff, { action: "landing-rollout-change", targetType: "landing", targetId: LANDING_ROLLOUT_KEY, result: "success", before: { rollout: before }, after: { rollout } });
+  return c.json({ rollout });
+});
+
+app.get("/landing-settings", async (c) => {
+  const staff = c.get("staff") as StaffIdentity;
+  const rollout = await landingRollout(c.env.DB);
+  const options = (["off", "vip", "paid", "all"] as LandingRollout[]).map((r) => `<option value="${r}"${rollout === r ? " selected" : ""}>${r}</option>`).join("");
+  const panel = `<div class="card"><h2>Landing pages rollout</h2><p class="muted">Who may use landing pages: <strong id="landing-rollout-status">${rollout}</strong>. <code>off</code> = staff override only, <code>vip</code> = VIP owners, <code>paid</code> = paid owners, <code>all</code> = everyone. Changing this relies on the 5-minute edge TTL for already-cached homepages; per-account VIP/override changes purge immediately.</p>${canMutate(staff) ? `<form id="landing-rollout-form"><label>Rollout <select name="rollout">${options}</select></label> <button class="btn" type="submit">Save rollout</button></form><p id="landing-rollout-message" class="muted" aria-live="polite"></p><script>(function(){var form=document.getElementById('landing-rollout-form');if(!form)return;form.addEventListener('submit',async function(event){event.preventDefault();var message=document.getElementById('landing-rollout-message');message.textContent='Saving…';try{var response=await fetch('/api/landing-rollout',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({rollout:form.elements.rollout.value})});var data=await response.json().catch(function(){return {};});if(!response.ok)throw new Error(data.error||'Could not save rollout.');document.getElementById('landing-rollout-status').textContent=data.rollout;message.textContent='Rollout: '+data.rollout+'.';}catch(error){message.textContent=error.message||'Could not save rollout.';}});})();</script>` : `<p class="muted">Read-only role.</p>`}</div>`;
+  return c.html(staffPage("Landing pages", `${staffHeader(staff)}<h2>Landing pages</h2>${panel}`));
+});
+
+app.post("/api/accounts/:id/landing-override", async (c) => {
+  const staff = c.get("staff") as StaffIdentity;
+  if (!canMutate(staff)) return c.json({ error: "staff role cannot manage landing access" }, 403);
+  if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
+  const id = Number(c.req.param("id")); if (!Number.isSafeInteger(id) || id < 1) return c.json({ error: "invalid account" }, 400);
+  const body = await c.req.json().catch(() => ({})) as any;
+  const reason = String(body.reason || "").trim().slice(0, 500);
+  if (!reason) return c.json({ error: "a reason is required" }, 400);
+  const override = body.override ? 1 : 0;
+  const before: any = await accountById(c, id); if (!before) return c.json({ error: "account not found" }, 404);
+  try { await c.env.DB.prepare("UPDATE accounts SET landing_access_override = ? WHERE id = ?").bind(override, id).run(); }
+  catch { return c.json({ error: "landing override column not available; apply migration 094" }, 500); }
+  await audit(c, staff, { action: override ? "landing-override-grant" : "landing-override-revoke", targetType: "account", targetId: String(id), reason, result: "success", before: { landing_access_override: before.landing_access_override ?? 0 }, after: { landing_access_override: override } });
+  await purgeAccountOwnedTenants(c, id);
+  return c.json({ ok: true, account: await accountById(c, id) });
+});
+
 app.get("/api/tts-engine", async (c) => {
   const engine = selectTtsEngine(await readTtsEngineSetting(c.env.DB)) === TTS_FALLBACK_MODEL ? TTS_ENGINE_AURA : TTS_ENGINE_MELOTTS;
   return c.json({ engine });
@@ -1430,6 +1520,13 @@ app.get("/accounts/:id", async (c) => {
   const vipCard = `<div class="card"><h2>VIP</h2>${isVipActive ? `<p><span class="badge">VIP active</span> Granted ${new Date(Number(account.vip_granted_at)*1000).toISOString().slice(0,10)} · Expires ${esc(vipExpiryLabel)}${account.vip_reason ? ` · ${esc(account.vip_reason)}` : ""}</p>` : `<p class="muted">No VIP — account uses normal Free/Pro entitlement.</p>`}${canMutate(staff) ? `<div class="actions" style="flex-direction:column;align-items:flex-start"><form data-vip-action="/api/accounts/${id}/vip" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input name="reason" required placeholder="Reason for VIP" style="min-width:200px"><input name="expiresInDays" type="number" min="1" max="3650" placeholder="Days (empty=lifetime)" style="width:160px"><button class="btn" type="submit" data-vip="grant">Grant VIP</button><button class="btn btn-danger" type="button" data-vip="revoke">Revoke VIP</button></form></div><script>(function(){var f=document.querySelector('form[data-vip-action="/api/accounts/${id}/vip"]');if(!f)return;f.querySelector('[data-vip="grant"]').addEventListener('click',async function(e){e.preventDefault();var r=f.elements.reason.value;if(!r){alert('Reason required');return}var d=f.elements.expiresInDays.value;var body=JSON.stringify({action:'grant',reason:r,expiresInDays:d||null});var res=await fetch(f.dataset.vipAction,{method:'POST',headers:{'content-type':'application/json'},body:body});var j=await res.json();if(!res.ok){alert(j.error||'Failed');return}location.reload();});f.querySelector('[data-vip="revoke"]').addEventListener('click',async function(e){e.preventDefault();var r=f.elements.reason.value;if(!r){alert('Reason required');return}var body=JSON.stringify({action:'revoke',reason:r});var res=await fetch(f.dataset.vipAction,{method:'POST',headers:{'content-type':'application/json'},body:body});var j=await res.json();if(!res.ok){alert(j.error||'Failed');return}location.reload();});})();</script>` : ""}</div>`;
   const currentMax = (account as any).max_blogs_override;
   const blogsLimitCard = `<div class="card"><h2>Blog limit</h2><p><strong>Max blogs:</strong> ${currentMax != null ? esc(String(currentMax)) + ' (override)' : (isVipActive || ["active","trialing","past_due"].includes(billingStatus) ? '5 (Pro/VIP default)' : '1 (Free default)')} · Owned: ${account.blog_count}</p>${canMutate(staff) ? `<div class="actions"><form data-blogs-action="/api/accounts/${id}/max-blogs" style="display:flex;gap:8px;flex-wrap:wrap"><input name="max_blogs" type="number" min="1" max="50" placeholder="1-50 (empty=clear)" value="${currentMax != null ? esc(String(currentMax)) : ""}" style="width:130px"><input name="reason" required placeholder="Reason" style="min-width:180px"><button class="btn" type="submit">Save limit</button><button class="btn" type="button" data-clear>Clear override</button></form></div><script>(function(){var f=document.querySelector('form[data-blogs-action="/api/accounts/${id}/max-blogs"]');if(!f)return;f.addEventListener('submit',async function(e){e.preventDefault();var v=f.elements.max_blogs.value;var r=f.elements.reason.value;if(!r){alert('Reason required');return}var body=JSON.stringify({max_blogs:v===""?null:Number(v),reason:r});var res=await fetch(f.dataset.blogsAction,{method:'POST',headers:{'content-type':'application/json'},body:body});var j=await res.json();if(!res.ok){alert(j.error||'Failed');return}location.reload();});var c=f.querySelector('[data-clear]');if(c)c.addEventListener('click',async function(){var r=f.elements.reason.value;if(!r){alert('Reason required to clear');return}var res=await fetch(f.dataset.blogsAction,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({max_blogs:null,reason:r})});var j=await res.json();if(!res.ok){alert(j.error||'Failed');return}location.reload();});})();</script>` : `<p class="muted">Read-only role.</p>`}</div>`;
+  let landingHomepages: any[] = [];
+  try {
+    const rows = await c.env.DB.prepare("SELECT t.title, t.slug FROM tenants t JOIN memberships m ON m.tenant_id = t.id WHERE m.account_id = ? AND m.role = 'owner' AND t.home_landing_page_id IS NOT NULL AND t.deleted_at IS NULL").bind(id).all<any>();
+    landingHomepages = rows.results;
+  } catch {}
+  const landingOverride = Number((account as any).landing_access_override ?? 0) === 1;
+  const landingCard = `<div class="card"><h2>Landing pages</h2><p><strong>Access override:</strong> ${landingOverride ? "on (eligible regardless of rollout)" : "off"}<br><strong>Homepage landing page:</strong> ${landingHomepages.length ? landingHomepages.map((b: any) => `${esc(b.title)} (${esc(b.slug)})`).join(", ") : "none of this account's blogs"}</p>${canMutate(staff) ? `<div class="actions"><form data-landing-action="/api/accounts/${id}/landing-override" style="display:flex;gap:8px;flex-wrap:wrap"><input name="reason" required placeholder="Reason" style="min-width:180px"><button class="btn" type="submit" data-landing="${landingOverride ? "0" : "1"}">${landingOverride ? "Remove override" : "Grant override"}</button></form></div><script>(function(){var f=document.querySelector('form[data-landing-action="/api/accounts/${id}/landing-override"]');if(!f)return;f.addEventListener('submit',async function(e){e.preventDefault();var r=f.elements.reason.value;if(!r){alert('Reason required');return}var res=await fetch(f.dataset.landingAction,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({override:${landingOverride ? "false" : "true"},reason:r})});var j=await res.json();if(!res.ok){alert(j.error||'Failed');return}location.reload();});})();</script>` : `<p class="muted">Read-only role.</p>`}</div>`;
   const sessionRows = (sessions as any).results.map((s:any)=>`<tr><td><code>${esc(String(s.created_via||"session"))}</code></td><td>${esc(s.ip||"—")}</td><td>${esc((s.user_agent||"").slice(0,60) || "—")}</td><td>${new Date(s.created_at*1000).toISOString().slice(0,10)}</td><td>${new Date(s.expires_at*1000).toISOString().slice(0,10)}</td></tr>`).join("");
   const activityRows = activity.map((a:any)=>`<tr><td>${new Date(a.at*1000).toISOString().replace("T"," ").slice(0,19)}</td><td>${esc(a.kind)}</td><td>${esc(a.detail)}</td></tr>`).join("");
   const noteRows = (notes as any).results.map((n:any)=>`<tr><td>${new Date(n.created_at*1000).toISOString().slice(0,10)}</td><td>${esc(n.author_email)}</td><td>${esc(n.note)}</td><td><form method="post" action="/api/notes/${esc(n.id)}/delete" onsubmit="return confirm('Delete note?')"><button class="btn" type="submit">Delete</button></form></td></tr>`).join("");
@@ -1459,7 +1556,7 @@ app.get("/accounts/:id", async (c) => {
   const notesCard = `<div class="card"><h2>Account notes</h2><p class="muted">Internal admin-only notes. Not visible to the user.</p><form data-action="/api/accounts/${id}/notes" style="display:flex;gap:8px;margin:10px 0"><input name="note" required placeholder="Add internal note" style="flex:1;padding:8px;border:1px solid var(--rule);border-radius:5px"><button class="btn" type="submit">Add note</button></form><table><thead><tr><th>Date</th><th>Author</th><th>Note</th><th></th></tr></thead><tbody>${noteRows || `<tr><td colspan="4" class="empty">No notes.</td></tr>`}</tbody></table><script>document.querySelector('form[data-action="/api/accounts/${id}/notes"]').addEventListener('submit',async function(e){e.preventDefault();var note=this.elements.note.value;var r=await fetch(this.dataset.action,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({note:note})});var d=await r.json();if(!r.ok){alert(d.error||'Failed');return}location.reload()})</script></div>`;
   const autopilotCard = autopilotCardHtml(blogs.results as any[]);
   const rateCard = `<div class="card"><h2>Rate-limit / restriction controls</h2><p class="muted">Override signup/login limits (admin only). Empty = global default. Wired to signup checks.</p>${rateLimit ? `<p>Current: logins/hr ${rateLimit.max_logins_per_hour ?? "—"} · api/min ${rateLimit.max_api_per_minute ?? "—"}<br><small>${esc(rateLimit.note||"")}</small></p>` : `<p class="muted">No overrides set.</p>`}${canAdmin(staff) ? `<form data-action="/api/accounts/${id}/rate-limit" style="display:flex;gap:8px;flex-wrap:wrap"><input name="max_logins_per_hour" type="number" placeholder="logins/hr" style="width:120px;padding:8px;border:1px solid var(--rule);border-radius:5px"><input name="max_api_per_minute" type="number" placeholder="api/min" style="width:120px;padding:8px;border:1px solid var(--rule);border-radius:5px"><input name="note" placeholder="Reason" style="flex:1;min-width:160px;padding:8px;border:1px solid var(--rule);border-radius:5px"><button class="btn" type="submit">Save</button><button class="btn" type="button" onclick="fetch('/api/accounts/${id}/rate-limit/clear',{method:'POST',headers:{'content-type':'application/json'},body:'{}'}).then(()=>location.reload())">Clear</button></form><script>document.querySelector('form[data-action="/api/accounts/${id}/rate-limit"]').addEventListener('submit',async function(e){e.preventDefault();var b={max_logins_per_hour:this.elements.max_logins_per_hour.value?Number(this.elements.max_logins_per_hour.value):null,max_api_per_minute:this.elements.max_api_per_minute.value?Number(this.elements.max_api_per_minute.value):null,note:this.elements.note.value};var r=await fetch(this.dataset.action,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b)});var d=await r.json();if(!r.ok){alert(d.error);return}location.reload()})</script>` : `<p class="muted">Read-only role.</p>`}</div>`;
-  return c.html(staffPage(`Account ${id}`, `${staffHeader(staff)}<p><a href="/">← All accounts</a></p><div class="card"><div class="card-head"><div><h2>${esc(account.email)} ${verifyBadge}</h2><p class="muted">Account #${id} · created ${new Date(account.created_at * 1000).toISOString().slice(0, 10)} ${isLocked ? `<span class="badge suspended">locked until ${new Date(Number(account.locked_until)*1000).toISOString().slice(0,10)}</span>` : ""}</p>${signupInfo}</div><span class="badge ${account.status === "suspended" ? "suspended" : ""}">${esc(account.status)}</span></div><p>Blogs: ${account.blog_count} · Active sessions: ${account.active_sessions} · API key: ${account.has_api_key ? "present" : "not present"}</p>${account.status_reason ? `<p class="notice">Status reason: ${esc(account.status_reason)}</p>` : ""}${actions}</div>${billingCard}${vipCard}${blogsLimitCard}${affiliateCard}${autopilotCard}<div class="card"><h2>Blogs</h2><table><thead><tr><th>Title</th><th>View live blog</th><th>Role</th><th>Custom domain</th></tr></thead><tbody>${blogRows || `<tr><td colspan="4" class="empty">No blogs.</td></tr>`}</tbody></table></div><div class="card"><h2>IP / device / session history</h2><p class="muted">Search also covers IP: try an address in the accounts search.</p><table><thead><tr><th>Token</th><th>IP</th><th>Device</th><th>Created</th><th>Expires</th></tr></thead><tbody>${sessionRows || `<tr><td colspan="5" class="empty">No sessions.</td></tr>`}</tbody></table></div><div class="card"><h2>User activity / history</h2><p class="muted">Logins, posts, comments, domain changes, API usage, billing events.</p><table><thead><tr><th>When</th><th>Kind</th><th>Detail</th></tr></thead><tbody>${activityRows || `<tr><td colspan="3" class="empty">No activity yet.</td></tr>`}</tbody></table></div>${notesCard}<div class="card"><h2>Related accounts</h2><p class="muted">Accounts sharing signup/session IPs (payment/domain signals coming soon).</p><table><thead><tr><th>Account</th><th>Reason</th></tr></thead><tbody>${relatedRows || `<tr><td colspan="2" class="empty">No related accounts found.</td></tr>`}</tbody></table></div>${rateCard}`));
+  return c.html(staffPage(`Account ${id}`, `${staffHeader(staff)}<p><a href="/">← All accounts</a></p><div class="card"><div class="card-head"><div><h2>${esc(account.email)} ${verifyBadge}</h2><p class="muted">Account #${id} · created ${new Date(account.created_at * 1000).toISOString().slice(0, 10)} ${isLocked ? `<span class="badge suspended">locked until ${new Date(Number(account.locked_until)*1000).toISOString().slice(0,10)}</span>` : ""}</p>${signupInfo}</div><span class="badge ${account.status === "suspended" ? "suspended" : ""}">${esc(account.status)}</span></div><p>Blogs: ${account.blog_count} · Active sessions: ${account.active_sessions} · API key: ${account.has_api_key ? "present" : "not present"}</p>${account.status_reason ? `<p class="notice">Status reason: ${esc(account.status_reason)}</p>` : ""}${actions}</div>${billingCard}${vipCard}${blogsLimitCard}${landingCard}${affiliateCard}${autopilotCard}<div class="card"><h2>Blogs</h2><table><thead><tr><th>Title</th><th>View live blog</th><th>Role</th><th>Custom domain</th></tr></thead><tbody>${blogRows || `<tr><td colspan="4" class="empty">No blogs.</td></tr>`}</tbody></table></div><div class="card"><h2>IP / device / session history</h2><p class="muted">Search also covers IP: try an address in the accounts search.</p><table><thead><tr><th>Token</th><th>IP</th><th>Device</th><th>Created</th><th>Expires</th></tr></thead><tbody>${sessionRows || `<tr><td colspan="5" class="empty">No sessions.</td></tr>`}</tbody></table></div><div class="card"><h2>User activity / history</h2><p class="muted">Logins, posts, comments, domain changes, API usage, billing events.</p><table><thead><tr><th>When</th><th>Kind</th><th>Detail</th></tr></thead><tbody>${activityRows || `<tr><td colspan="3" class="empty">No activity yet.</td></tr>`}</tbody></table></div>${notesCard}<div class="card"><h2>Related accounts</h2><p class="muted">Accounts sharing signup/session IPs (payment/domain signals coming soon).</p><table><thead><tr><th>Account</th><th>Reason</th></tr></thead><tbody>${relatedRows || `<tr><td colspan="2" class="empty">No related accounts found.</td></tr>`}</tbody></table></div>${rateCard}`));
 });
 
 

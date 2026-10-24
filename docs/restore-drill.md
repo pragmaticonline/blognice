@@ -18,6 +18,10 @@ over live production databases.
 5. Run read-only smoke journeys for login, blog listing, posts, pages, staff
    lookup, and affiliate reporting. Exercise a write only with synthetic drill
    data.
+   Also verify landing pages: for each non-NULL
+   `tenants.home_landing_page_id`, confirm it resolves to a `landing_pages`
+   row in that tenant's posts shard. A mismatch is safe (the blog renders
+   as homepage) but must be reported as a discrepancy.
 6. Record achieved RPO/RTO, discrepancies, failed assumptions, evidence links,
    and owners/dates for corrective work. A drill passes only when both databases
    restore together and the tested journeys use the restored state.
