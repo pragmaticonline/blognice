@@ -43,7 +43,7 @@
     "esbuild": "^0.28.1",
     "miniflare": "^5.20260730.0-alpha",
     "tsx": "^4.23.12",
-    "typescript": "^5.5.0",
+    "typescript": "^7.0.2",
     "wrangler": "^4.118.0"
   },
   "license": "AGPL-3.0-or-later"
