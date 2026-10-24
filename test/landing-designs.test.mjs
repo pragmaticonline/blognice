@@ -99,7 +99,7 @@ for (const design of LANDING_DESIGNS) {
       contact: { address: evil, hours: evil },
       show_latest_posts: true,
     }, { title: evil, footer_name: evil, posts: [{ title: evil, url: "/p", date: evil }], nav: [{ label: evil, href: "/a" }, { label: "b", href: "/b" }, { label: "c", href: "/c" }] });
-    assert.ok(!html.includes("<script>alert"), "no live script");
+    assert.ok(!/<script/i.test(html), "no live script");
     assert.ok(!/<img src=x/i.test(html), "no injected tags");
     assert.ok(!/onerror=alert/i.test(html.replace(/&lt;[^&]*&gt;/g, "")), "no injected attributes");
   });
@@ -144,11 +144,11 @@ test("engine: mismatched or unclosed sections are errors", () => {
 
 test("validator rejects scripts, external resources and missing slots", () => {
   const manifest = { id: "bad", label: "Bad", description: "d", author: "a", sections: [] };
-  const errors = validateDesign("bad", '<html><head><link href="https://cdn.example/x.css"></head><body><script></script></body></html>', manifest).join("\n");
+  const errors = validateDesign("bad", '<html><head><link href="https://cdn.example/x.css"></head><body><SCRIPT></SCRIPT></body></html>', manifest).join("\n");
   assert.match(errors, /head_html/);
   assert.match(errors, /body_attrs_html/);
   assert.match(errors, /body_end_html/);
-  assert.match(errors, /<script>/);
+  assert.match(errors, /<script>/i);
   assert.match(errors, /external resources/);
 });
 
