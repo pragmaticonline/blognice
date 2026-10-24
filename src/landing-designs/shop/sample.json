@@ -1,0 +1,17 @@
+{
+  "site": { "title": "Baan Dok", "footer_name": "Baan Dok Florist",
+    "nav": [{ "label": "Journal", "href": "/blog" }, { "label": "Weddings", "href": "/pages/weddings" }, { "label": "About", "href": "/pages/about" }] },
+  "content": {
+    "hero": { "headline": "Fresh flowers from the Nimman neighbourhood.", "subheadline": "Hand-tied bouquets, wedding florals and orchids from growers in the Mae Rim valley.", "image_key": "sample/shopfront" },
+    "ctas": [{ "label": "Order on LINE", "href": "https://line.me/R/ti/p/@baandok" }, { "label": "Wedding florals", "href": "/pages/weddings" }],
+    "intro_md": "Baan Dok started as a weekend stall at the Sunday market. We still buy directly from the same three family growers, and we still wrap every bouquet by hand.",
+    "features": [
+      { "title": "Morning market bouquet", "body_md": "Seasonal stems, from ฿650", "image_key": "sample/p1" },
+      { "title": "Potted orchid", "body_md": "Grown in Mae Rim, from ฿890", "image_key": "sample/p2" },
+      { "title": "Wedding florals", "body_md": "Consultations by appointment", "image_key": "sample/p3" },
+      { "title": "Weekly subscription", "body_md": "Fresh flowers every Monday", "image_key": "sample/p4" }
+    ],
+    "contact": { "email": "hello@baandok.example", "phone": "053 123 4567", "address": "12 Nimmanhaemin Soi 7\nChiang Mai 50200", "hours": "Open daily 8:00–19:00", "map_url": "https://maps.google.com/?q=Nimmanhaemin+Soi+7" },
+    "show_latest_posts": true
+  }
+}

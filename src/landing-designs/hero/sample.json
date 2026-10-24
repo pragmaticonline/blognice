@@ -1,0 +1,17 @@
+{
+  "site": { "title": "Juniper Roasters", "footer_name": "Juniper Roasters",
+    "nav": [{ "label": "Blog", "href": "/blog" }, { "label": "About", "href": "/pages/about" }, { "label": "Wholesale", "href": "/pages/wholesale" }],
+    "social": [{ "label": "Instagram", "url": "https://instagram.com/" }] },
+  "content": {
+    "hero": { "headline": "Small-batch coffee, roasted every Tuesday.", "subheadline": "Single-origin beans from farms we know by name, shipped within 48 hours of roasting.", "image_key": "sample/hero" },
+    "ctas": [{ "label": "Shop beans", "href": "https://shop.example.com" }, { "label": "Start a subscription", "href": "/pages/subscriptions" }],
+    "intro_md": "We started roasting in a garage in 2019 because we couldn't find coffee that tasted like the cups we'd had at origin. Five years on, the garage is bigger. The obsession isn't.",
+    "features": [
+      { "title": "Direct trade", "body_md": "We pay farms 40% above Fair Trade minimum and visit every harvest.", "image_key": "sample/f1" },
+      { "title": "Roasted to order", "body_md": "Nothing sits on a shelf. Your bag is roasted the week you order it.", "image_key": "sample/f2" },
+      { "title": "Brew support", "body_md": "Every bag comes with a recipe card tuned to that roast.", "image_key": "sample/f3" }
+    ],
+    "contact": { "email": "hello@juniper.example", "phone": "", "address": "", "hours": "", "map_url": "" },
+    "show_latest_posts": true
+  }
+}

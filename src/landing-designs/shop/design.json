@@ -1,0 +1,7 @@
+{
+  "id": "shop",
+  "label": "Shop / local",
+  "description": "For shops, cafés and local services: hours and phone up top, photo hero, visit details, a product grid and an order button.",
+  "author": "blognice",
+  "sections": ["hero", "ctas", "contact", "features", "intro", "posts"]
+}

@@ -1,0 +1,7 @@
+{
+  "id": "business",
+  "label": "Business",
+  "description": "Clean corporate layout: headline and buttons, a numbered services grid, an about section, and a prominent contact panel.",
+  "author": "blognice",
+  "sections": ["hero", "ctas", "features", "intro", "posts", "contact"]
+}

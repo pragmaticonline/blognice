@@ -22,7 +22,8 @@
     "db:seed:posts": "wrangler d1 execute blognice-posts --file=./seed-posts.sql",
     "db:seed:posts:local": "wrangler d1 execute blognice-posts --local --file=./seed-posts.sql",
     "db:setup:local": "npm run db:init:local && npm run db:init:posts:local && npm run db:seed:local && npm run db:seed:posts:local",
-    "test:dynadot-sandbox": "DYNADOT_SANDBOX=true node --experimental-strip-types tools/dynadot-sandbox.mjs"
+    "test:dynadot-sandbox": "DYNADOT_SANDBOX=true node --experimental-strip-types tools/dynadot-sandbox.mjs",
+    "landing:preview": "tsx scripts/landing-preview.mjs"
   },
   "dependencies": {
     "fflate": "^0.8.3",

@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--accent:#b4532a;--accent-ink:#fff;--bg:#fbfaf7;--panel:#fff;--ink:#1c1b19;--muted:#6b6862;--rule:#e7e4dd;--sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;--serif:Georgia,"Times New Roman",serif}
+html[data-theme=dark]{--bg:#161513;--panel:#1f1d1a;--ink:#ecebe6;--muted:#a19d95;--rule:#33302b}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 var(--sans)}
+a{color:var(--link,var(--accent))}
+html[data-theme=dark]{--link:color-mix(in srgb,var(--accent) 55%,#fff)}img{max-width:100%;height:auto;display:block}
+.wrap{width:min(1080px,calc(100% - 2rem));margin:0 auto}
+.lp-nav{position:absolute;inset:0 0 auto;z-index:3;display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1rem 0}
+.brand{display:inline-flex;align-items:center;min-height:44px;font-weight:700;font-size:1.1rem;color:#fff;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
+.lp-nav ul{display:flex;list-style:none;margin:0;padding:0}
+.lp-nav ul a{display:inline-flex;align-items:center;min-height:44px;padding:0 .6rem;color:#fff;text-decoration:none;font-weight:600;font-size:.95rem}
+.lp-menu{display:none;position:relative}
+.lp-menu summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;min-height:44px;padding:0 .6rem;color:#fff;font-weight:600}
+.lp-menu summary::-webkit-details-marker{display:none}
+.lp-menu ul{position:absolute;right:0;top:100%;display:grid;min-width:12rem;padding:.4rem;background:var(--panel);border:1px solid var(--rule);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.18)}
+.lp-menu ul a{color:var(--ink)}
+.lp-hero{position:relative;min-height:min(78vh,640px);display:grid;align-items:end;color:#fff;background:linear-gradient(135deg,#2b211b,#4a3426);overflow:hidden}
+.lp-hero>img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.lp-hero::before{content:"";position:absolute;inset:0;z-index:1;background:linear-gradient(180deg,rgba(0,0,0,.25) 0,rgba(0,0,0,.05) 30%,rgba(0,0,0,.65))}
+.lp-hero .wrap{position:relative;z-index:2;padding:6rem 0 3.5rem}
+.lp-hero h1{font:700 clamp(2.4rem,6vw,4.4rem)/1.05 var(--serif);margin:0 0 1rem;max-width:14ch}
+.lp-hero p{font-size:clamp(1.05rem,2vw,1.3rem);max-width:46ch;margin:0 0 2rem;opacity:.92}
+.lp-ctas{display:flex;gap:.75rem;flex-wrap:wrap}
+.lp-cta{display:inline-block;padding:.85rem 1.4rem;border-radius:999px;font-weight:700;text-decoration:none}
+.lp-cta--primary{background:var(--accent);color:var(--accent-ink)}.lp-cta--secondary{border:2px solid currentColor;color:#fff}
+section{padding:4.5rem 0}
+.lp-intro{font:400 clamp(1.2rem,2.4vw,1.55rem)/1.5 var(--serif);max-width:38ch;margin:0 auto;text-align:center}.lp-intro p{margin:0 0 1rem}
+.lp-features{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1.5rem}
+.lp-feature{background:var(--panel);border:1px solid var(--rule);border-radius:14px;overflow:hidden}
+.lp-feature img{aspect-ratio:4/3;object-fit:cover;width:100%}.lp-feature div{padding:1.25rem 1.4rem 1.5rem}
+.lp-feature h3{margin:0 0 .4rem;font-size:1.15rem}.lp-feature p{margin:0;color:var(--muted)}
+h2{font:700 1.8rem/1.2 var(--serif);margin:0 0 1.75rem}
+.lp-posts{border-top:1px solid var(--rule)}.post-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1.5rem}
+.post-list a{text-decoration:none;color:var(--ink)}.post-list time{color:var(--muted);font-size:.85rem}.post-list h3{margin:.25rem 0 0;font-size:1.1rem}
+.all{display:inline-block;margin-top:1.25rem;padding:.7rem 0;font-weight:700}
+.lp-contact{border-top:1px solid var(--rule)}.lp-contact dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1.25rem;margin:0}
+.lp-contact dt{font-size:.8rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}.lp-contact dd{margin:.2rem 0 0;font-weight:600;white-space:pre-line}
+.lp-contact dd a{display:inline-block;padding:.5rem 0}
+.lp-footer{border-top:1px solid var(--rule);padding:2rem 0;color:var(--muted);font-size:.9rem}
+.lp-footer .wrap{display:flex;justify-content:space-between;flex-wrap:wrap;gap:1rem}.lp-footer a{color:inherit}
+@media(max-width:600px){
+  .brand{font-size:1rem}
+  .lp-nav ul.inline li:nth-child(n+2){display:none}
+  .lp-menu{display:block}
+  .lp-hero .wrap{padding:6rem 0 2.5rem}
+  .lp-ctas .lp-cta{flex:1 1 100%;text-align:center}
+  section{padding:3rem 0}
+  .lp-intro{text-align:left}
+  .lp-features{gap:1rem}.lp-feature img{aspect-ratio:16/9}
+  .post-list{gap:0}.post-list a{padding:.8rem 0;border-bottom:1px solid var(--rule)}
+}
+</style>
+{{{head_html}}}
+</head>
+<body {{{body_attrs_html}}}>
+<header class="lp-hero">
+  {{#hero.image_url}}<img src="{{hero.image_url}}" alt="" fetchpriority="high">{{/hero.image_url}}
+  <nav class="lp-nav wrap" aria-label="Main">
+    <a class="brand" href="/">{{site.title}}</a>
+    <div style="display:flex;align-items:center">
+      <ul class="inline">{{#nav_all}}<li><a href="{{href}}"{{#new_tab}} target="_blank" rel="noopener"{{/new_tab}}>{{label}}</a></li>{{/nav_all}}</ul>
+      {{#has_nav_more}}<details class="lp-menu"><summary>Menu</summary><ul>{{#nav_more}}<li><a href="{{href}}"{{#new_tab}} target="_blank" rel="noopener"{{/new_tab}}>{{label}}</a></li>{{/nav_more}}</ul></details>{{/has_nav_more}}
+    </div>
+  </nav>
+  <div class="wrap">
+    {{#hero.headline}}<h1>{{hero.headline}}</h1>{{/hero.headline}}
+    {{^hero.headline}}<h1>{{site.title}}</h1>{{/hero.headline}}
+    {{#hero.subheadline}}<p>{{hero.subheadline}}</p>{{/hero.subheadline}}
+    {{#has_ctas}}<div class="lp-ctas">{{#ctas}}<a class="lp-cta {{#primary}}lp-cta--primary{{/primary}}{{#secondary}}lp-cta--secondary{{/secondary}}" href="{{href}}">{{label}}</a>{{/ctas}}</div>{{/has_ctas}}
+  </div>
+</header>
+<main>
+  {{#intro_html}}<section class="wrap"><div class="lp-intro">{{{intro_html}}}</div></section>{{/intro_html}}
+  {{#has_features}}<section class="wrap"><div class="lp-features">{{#features}}
+    <article class="lp-feature">{{#image_url}}<img src="{{image_url}}" alt="" loading="lazy" width="800" height="600">{{/image_url}}<div><h3>{{title}}</h3>{{{body_html}}}</div></article>{{/features}}
+  </div></section>{{/has_features}}
+  {{#has_posts}}<section class="wrap lp-posts" aria-labelledby="lp-posts-h"><h2 id="lp-posts-h">From the blog</h2>
+    <div class="post-list">{{#posts}}<a href="{{url}}"><time>{{date}}</time><h3>{{title}}</h3></a>{{/posts}}</div>
+    <a class="all" href="{{blog_url}}">All posts →</a>
+  </section>{{/has_posts}}
+  {{#contact.has_any}}<section class="wrap lp-contact" aria-labelledby="lp-contact-h"><h2 id="lp-contact-h">Contact</h2><dl>
+    {{#contact.email}}<div><dt>Email</dt><dd><a href="{{contact.email_href}}">{{contact.email}}</a></dd></div>{{/contact.email}}
+    {{#contact.phone}}<div><dt>Phone</dt><dd><a href="{{contact.phone_href}}">{{contact.phone}}</a></dd></div>{{/contact.phone}}
+    {{#contact.address}}<div><dt>Address</dt><dd>{{contact.address}}{{#contact.map_url}}<br><a href="{{contact.map_url}}">Get directions →</a>{{/contact.map_url}}</dd></div>{{/contact.address}}
+    {{#contact.hours}}<div><dt>Hours</dt><dd>{{contact.hours}}</dd></div>{{/contact.hours}}
+  </dl></section>{{/contact.has_any}}
+</main>
+<footer class="lp-footer"><div class="wrap"><span>© {{site.year}} {{site.footer_name}}</span><span><a href="{{blog_url}}">Blog</a> · <a href="/rss.xml">RSS</a> · Powered by blognice</span></div></footer>
+{{{body_end_html}}}
+</body>
+</html>
