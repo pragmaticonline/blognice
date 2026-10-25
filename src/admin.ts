@@ -350,6 +350,16 @@ const ADMIN_STYLES = /* css */ `
   .owner-nav a { flex:0 0 auto; padding:.5rem .75rem; border-radius:7px; color:var(--muted); font-size:.88rem; font-weight:600; text-decoration:none; white-space:nowrap; }
   .owner-nav a:hover { color:var(--ink); background:var(--bg); }
   .owner-nav a.active { color:var(--accent); background:color-mix(in srgb, var(--accent) 12%, transparent); }
+  .nav-more { position:relative; flex:0 0 auto; }
+  .nav-more summary { list-style:none; cursor:pointer; padding:.5rem .75rem; border-radius:7px; color:var(--muted); font-size:.88rem; font-weight:600; white-space:nowrap; }
+  .nav-more summary::-webkit-details-marker { display:none; }
+  .nav-more summary::marker { content:""; }
+  .nav-more summary:hover { color:var(--ink); background:var(--bg); }
+  .nav-more.active summary { color:var(--accent); background:color-mix(in srgb, var(--accent) 12%, transparent); }
+  .nav-more-menu { position:absolute; right:0; top:calc(100% + 6px); min-width:12rem; background:var(--panel); border:1px solid var(--rule); border-radius:10px; box-shadow:0 1rem 2.5rem -1.5rem rgb(0 0 0 / .4); padding:.35rem; display:grid; z-index:50; }
+  .nav-more-menu a { padding:.55rem .75rem; border-radius:6px; color:var(--muted); font-size:.88rem; font-weight:600; text-decoration:none; white-space:nowrap; }
+  .nav-more-menu a:hover { color:var(--ink); background:var(--bg); }
+  .nav-more-menu a.active { color:var(--accent); background:color-mix(in srgb, var(--accent) 12%, transparent); }
   .owner-switcher .blog-switcher-toggle { border-radius:8px; padding:.55rem .8rem; }
   .owner-drawer-backdrop { position:fixed; inset:0; z-index:60; background:rgb(0 0 0 / .4); opacity:0; pointer-events:none; transition:opacity .2s ease; }
   .owner-drawer-backdrop.open { opacity:1; pointer-events:auto; }
@@ -550,7 +560,15 @@ export function shell(
       .filter(([, , , cap]) => !cap || can(cap))
       .filter(([k]) => k !== "comments" || tenant.comments_enabled)
       .map(([k, l, h]) => [k, l, h] as const);
-    const navLinks = navItems.map(([key, label, href]) => `<a class="${activeNav === key ? "active" : ""}" href="${href}">${label}</a>`).join("");
+    // Six everyday items stay in the bar; the rest live under a "More"
+    // dropdown so the bar never overflows into hidden scroll. The mobile
+    // drawer below keeps the full flat list.
+    const primaryNav = new Set(["posts", "pages", "landing", "media", "comments", "settings"]);
+    const barItems = navItems.filter(([key]) => primaryNav.has(key));
+    const moreItems = navItems.filter(([key]) => !primaryNav.has(key));
+    const moreActive = moreItems.some(([key]) => activeNav === key);
+    const navLinks = barItems.map(([key, label, href]) => `<a class="${activeNav === key ? "active" : ""}" href="${href}">${label}</a>`).join("") +
+      (moreItems.length ? `<details class="nav-more${moreActive ? " active" : ""}"><summary aria-label="More blog sections" aria-haspopup="true">More<span aria-hidden="true"> ⌄</span></summary><div class="nav-more-menu">${moreItems.map(([key, label, href]) => `<a class="${activeNav === key ? "active" : ""}" href="${href}">${label}</a>`).join("")}</div></details>` : "");
     const drawerLinks = navItems.map(([key, label, href]) => `<a class="owner-drawer-link ${activeNav === key ? "active" : ""}" href="${href}">${label}</a>`).join("");
     bar = `${accountTopbar(account, planBadge, affiliateCurrent, billingCurrent)}
       <div class="contextbar owner-toolbar"><div class="owner-toolbar-inner">
