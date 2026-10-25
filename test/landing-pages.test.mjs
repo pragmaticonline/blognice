@@ -426,6 +426,11 @@ test("design picker renders visual layout cards for every design", async () => {
       assert.match(html, new RegExp(`aria-label="${id === "shop" ? "Shop" : id[0].toUpperCase() + id.slice(1)} layout preview"`), id);
     }
     assert.match(html, /Selected design/);
+    // Image fields use the media chooser, not typed keys.
+    assert.match(html, /id="lp-media-dialog/);
+    assert.match(html, /data-lp-choose="lp-hero_image_key"/);
+    assert.match(html, /type="hidden" name="hero_image_key" id="lp-hero_image_key"/);
+    assert.doesNotMatch(html, /Hero image media key/);
   } finally { await s.mf.dispose(); }
 });
 

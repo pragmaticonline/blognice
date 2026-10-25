@@ -1134,12 +1134,18 @@ export function landingEditorPage(
   const action = isEdit ? `${base}/landing/save?id=${page!.id}` : `${base}/landing/save`;
   const isHome = !!page && page.id === Number(tenant.home_landing_page_id ?? 0);
   const publicHost = tenant.custom_domain || `${tenant.slug}.${opts?.rootDomain || "blognice.com"}`;
+  const lpImageField = (name: string, value: string) => {
+    const thumb = value
+      ? `<img class="lp-img-preview" src="/media/${esc(value)}" alt="">`
+      : `<span class="lp-img-empty">No image</span>`;
+    return `<div class="lp-img-field"><input type="hidden" name="${name}" id="lp-${name}" value="${esc(value)}"><span class="lp-img-thumb" id="lp-${name}-thumb">${thumb}</span><span class="lp-img-actions"><button class="btn ghost" type="button" data-lp-choose="lp-${name}">Choose image</button><button class="btn ghost" type="button" data-lp-remove="lp-${name}"${value ? "" : " hidden"}>Remove</button></span></div>`;
+  };
   const featureRows = Array.from({ length: 6 }, (_, i) => {
     const f = content.features[i];
     return `<fieldset class="settings-card"><legend>Feature ${i + 1} (optional)</legend>
       <label>Title <input name="feature${i + 1}_title" type="text" maxlength="80" value="${esc(f?.title ?? "")}"></label>
       <label>Text (Markdown) <textarea name="feature${i + 1}_body" rows="3" maxlength="600">${esc(f?.body_md ?? "")}</textarea></label>
-      <label>Image media key <input name="feature${i + 1}_image_key" type="text" value="${esc(f?.image_key ?? "")}" placeholder="e.g. ${tenant.id}/photo.jpg"></label></fieldset>`;
+      <label>Image ${lpImageField(`feature${i + 1}_image_key`, f?.image_key ?? "")}</label></fieldset>`;
   }).join("");
   const homepageSection = !page ? "" : isHome
     ? `<div class="card"><h2>Homepage</h2><p>This page is your homepage. Visitors to your blog's address see it; your posts are at /blog.</p><form method="post" action="${base}/landing/remove-homepage"><button class="btn ghost" type="submit">Remove from homepage</button></form></div>`
@@ -1170,7 +1176,7 @@ export function landingEditorPage(
     <fieldset class="settings-card"><legend>Hero</legend>
       <label>Headline <input name="headline" type="text" maxlength="120" value="${esc(content.hero.headline)}"></label>
       <label>Subheadline <textarea name="subheadline" rows="2" maxlength="300">${esc(content.hero.subheadline)}</textarea></label>
-      <label>Hero image media key <input name="hero_image_key" type="text" value="${esc(content.hero.image_key ?? "")}" placeholder="e.g. ${tenant.id}/photo.jpg"></label>
+      <label>Hero image ${lpImageField("hero_image_key", content.hero.image_key ?? "")}</label>
     </fieldset>
     <fieldset class="settings-card"><legend>Buttons (up to 2)</legend>
       <label>Button 1 label <input name="cta1_label" type="text" maxlength="40" value="${esc(content.ctas[0]?.label ?? "")}"></label>
@@ -1189,7 +1195,60 @@ export function landingEditorPage(
     </fieldset>
     <div class="check"><input id="lp-posts" name="show_latest_posts" type="checkbox" ${content.show_latest_posts ? "checked" : ""}><label for="lp-posts">Show latest posts</label></div>
     <div class="actions"><button class="btn" type="submit" name="action" value="save">${page?.published ? "Save" : "Save draft"}</button><button class="btn" type="submit" name="action" value="publish">${page?.published ? "Save &amp; keep published" : "Publish"}</button>${page?.published ? `<button class="btn ghost" type="submit" name="action" value="unpublish">Unpublish</button>` : ""}${page ? `<a class="btn ghost" href="https://${esc(publicHost)}/landing/${esc(page.slug)}" target="_blank" rel="noopener noreferrer">${page.published ? "View" : "Preview"}</a>` : ""}<a class="btn ghost" href="${base}/landing">Cancel</a></div>
-  </form>${homepageSection}</div>`, account, tenant);
+  </form>${homepageSection}
+  <style>
+    .lp-img-field{display:flex;align-items:center;gap:.7rem;flex-wrap:wrap;margin-top:.35rem}
+    .lp-img-thumb{display:inline-flex;align-items:center;justify-content:center;min-width:5rem;max-width:10rem;height:3.4rem;border:1px solid var(--rule);border-radius:8px;overflow:hidden;background:var(--panel)}
+    .lp-img-preview{display:block;max-width:10rem;height:3.4rem;object-fit:cover}
+    .lp-img-empty{color:var(--muted);font-size:.82rem;padding:0 .6rem}
+    .lp-img-actions{display:inline-flex;gap:.5rem}
+    .lp-media-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(7rem,1fr));gap:.7rem}
+    .lp-media-grid button{border:1px solid var(--rule);border-radius:8px;background:var(--panel);padding:.3rem;cursor:pointer}
+    .lp-media-grid img{display:block;width:100%;height:5rem;object-fit:cover;border-radius:5px}
+    .lp-media-grid .lp-media-name{font-size:.72rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:.2rem}
+  </style>
+  <dialog class="media-dialog" id="lp-media-dialog">
+    <div class="media-dialog-head"><strong>Choose image</strong><span class="spacer"></span><button class="btn ghost" type="button" id="lp-media-close">Close</button></div>
+    <div class="media-dialog-body" id="lp-media-body"><p style="color:var(--muted)">Loading…</p></div>
+  </dialog>
+  <input type="file" id="lp-upload-input" accept="image/*" hidden>
+  <script>(function(){
+    var dialog=document.getElementById("lp-media-dialog");if(!dialog)return;
+    var dialogBody=document.getElementById("lp-media-body");
+    var uploadInput=document.getElementById("lp-upload-input");
+    var target=null;
+    function thumbFor(input){return document.getElementById(input+"-thumb");}
+    function removeFor(input){return document.querySelector('[data-lp-remove="'+input+'"]');}
+    function setImage(input,key){
+      document.getElementById(input).value=key||"";
+      var thumb=thumbFor(input);
+      if(thumb)thumb.innerHTML=key?'<img class="lp-img-preview" src="/media/'+key.replace(/&/g,"&amp;").replace(/"/g,"&quot;")+'" alt="">':'<span class="lp-img-empty">No image</span>';
+      var remove=removeFor(input);
+      if(remove)remove.hidden=!key;
+    }
+    function openLibrary(input){
+      target=input;
+      dialog.showModal();
+      fetch("${base}/media.json").then(function(r){if(!r.ok)throw new Error();return r.json();}).then(function(data){
+        var shown=(data.items||[]).filter(function(item){return !/\.mp3$/i.test(item.url||"");});
+        if(!shown.length){dialogBody.innerHTML='<p style="color:var(--muted)">No images yet. <button class="btn" type="button" id="lp-dialog-upload">Upload one</button></p>';}
+        else dialogBody.innerHTML='<div class="lp-media-grid">'+shown.map(function(item){return '<button type="button" data-lp-key="'+item.key.replace(/&/g,"&amp;").replace(/"/g,"&quot;")+'"><img src="'+item.url.replace(/&/g,"&amp;").replace(/"/g,"&quot;")+'" alt="" loading="lazy"><span class="lp-media-name">'+item.name.replace(/&/g,"&amp;").replace(/</g,"&lt;")+'</span></button>';}).join("")+'</div><div class="actions"><button class="btn" type="button" id="lp-dialog-upload">Upload new</button><a class="btn ghost" href="${base}/media">Manage media</a></div>';
+        document.getElementById("lp-dialog-upload").onclick=function(){dialog.close();uploadInput.click();};
+      }).catch(function(){dialogBody.innerHTML='<p class="error">Could not load media.</p>';});
+    }
+    document.querySelectorAll("[data-lp-choose]").forEach(function(btn){btn.addEventListener("click",function(){openLibrary(btn.getAttribute("data-lp-choose"));});});
+    document.querySelectorAll("[data-lp-remove]").forEach(function(btn){btn.addEventListener("click",function(){setImage(btn.getAttribute("data-lp-remove"),"");});});
+    document.getElementById("lp-media-close").addEventListener("click",function(){dialog.close();});
+    dialogBody.addEventListener("click",function(e){var pick=e.target.closest("[data-lp-key]");if(!pick||!target)return;setImage(target,pick.getAttribute("data-lp-key"));dialog.close();});
+    uploadInput.addEventListener("change",function(){
+      if(!uploadInput.files.length||!target)return;
+      var file=uploadInput.files[0];uploadInput.value="";
+      var fd=new FormData();fd.append("file",file,file.name||"image");
+      fetch("${base}/upload",{method:"POST",body:fd}).then(function(r){return r.json();}).then(function(data){
+        if(data&&data.key)setImage(target,data.key);else alert("Upload failed. Try again.");
+      }).catch(function(){alert("Upload failed. Try again.");});
+    });
+  })();</script></div>`, account, tenant);
 }
 
 export function metricsPage(
