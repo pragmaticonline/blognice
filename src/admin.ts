@@ -1112,6 +1112,15 @@ export function landingListPage(
   return shell(`Landing page — ${tenant.title}`, `<div class="page"><div class="row"><h1 style="margin:0">Landing page</h1>${pages.length < 10 ? `<a class="btn" href="${base}/landing/new">New landing page</a>` : ""}</div><p style="color:var(--muted);margin-top:-.8rem">A landing page is a standalone page at /landing/… Publishing does not change your homepage. Use “Make this my homepage” when you're ready: your posts move to /blog and post links don't change.</p>${opts?.error ? `<div class="error">${esc(opts.error)}</div>` : ""}${rows}${pages.length >= 10 ? `<p class="help">You have the maximum of 10 landing pages.</p>` : ""}</div>`, account, tenant);
 }
 
+// Miniature layout wireframes for the design picker. Deliberately plain
+// blocks (no gradients/glows): they show structure, not decoration.
+const DESIGN_THUMBS: Record<string, string> = {
+  hero: `<svg viewBox="0 0 120 84" role="img" aria-label="Hero layout preview"><rect width="120" height="84" fill="var(--panel)"/><rect x="0" y="0" width="120" height="9" fill="var(--rule)"/><rect x="0" y="9" width="120" height="34" fill="var(--accent)" opacity=".55"/><rect x="34" y="18" width="52" height="6" rx="3" fill="var(--bg)"/><rect x="42" y="27" width="36" height="4" rx="2" fill="var(--bg)" opacity=".8"/><rect x="38" y="34" width="18" height="6" rx="3" fill="var(--bg)"/><rect x="59" y="34" width="18" height="6" rx="3" fill="var(--rule)"/><rect x="10" y="50" width="30" height="4" rx="2" fill="var(--rule)"/><rect x="10" y="57" width="30" height="18" rx="3" fill="var(--panel)" stroke="var(--rule)"/><rect x="45" y="57" width="30" height="18" rx="3" fill="var(--panel)" stroke="var(--rule)"/><rect x="80" y="57" width="30" height="18" rx="3" fill="var(--panel)" stroke="var(--rule)"/></svg>`,
+  business: `<svg viewBox="0 0 120 84" role="img" aria-label="Business layout preview"><rect width="120" height="84" fill="var(--panel)"/><rect x="0" y="0" width="120" height="9" fill="var(--rule)"/><rect x="8" y="15" width="46" height="6" rx="3" fill="var(--ink)" opacity=".7"/><rect x="8" y="24" width="34" height="4" rx="2" fill="var(--rule)"/><rect x="8" y="31" width="16" height="6" rx="3" fill="var(--accent)"/><rect x="8" y="43" width="32" height="16" rx="3" fill="var(--panel)" stroke="var(--rule)"/><rect x="44" y="43" width="32" height="16" rx="3" fill="var(--panel)" stroke="var(--rule)"/><rect x="80" y="43" width="32" height="16" rx="3" fill="var(--panel)" stroke="var(--rule)"/><circle cx="14" cy="49" r="3" fill="var(--accent)"/><circle cx="50" cy="49" r="3" fill="var(--accent)"/><circle cx="86" cy="49" r="3" fill="var(--accent)"/><rect x="8" y="64" width="104" height="13" rx="3" fill="var(--accent)" opacity=".35"/></svg>`,
+  shop: `<svg viewBox="0 0 120 84" role="img" aria-label="Shop layout preview"><rect width="120" height="84" fill="var(--panel)"/><rect x="0" y="0" width="120" height="9" fill="var(--accent)" opacity=".7"/><rect x="0" y="9" width="120" height="26" fill="var(--accent)" opacity=".4"/><rect x="38" y="17" width="44" height="6" rx="3" fill="var(--bg)"/><rect x="46" y="26" width="28" height="5" rx="2" fill="var(--bg)" opacity=".85"/><rect x="8" y="40" width="46" height="14" rx="3" fill="var(--panel)" stroke="var(--rule)"/><rect x="66" y="40" width="46" height="14" rx="3" fill="var(--panel)" stroke="var(--rule)"/><rect x="8" y="59" width="30" height="14" rx="3" fill="var(--panel)" stroke="var(--rule)"/><rect x="45" y="59" width="30" height="14" rx="3" fill="var(--panel)" stroke="var(--rule)"/><rect x="82" y="59" width="30" height="14" rx="3" fill="var(--panel)" stroke="var(--rule)"/><rect x="88" y="42" width="20" height="6" rx="3" fill="var(--accent)"/></svg>`,
+  minimal: `<svg viewBox="0 0 120 84" role="img" aria-label="Minimal layout preview"><rect width="120" height="84" fill="var(--panel)"/><circle cx="60" cy="18" r="8" fill="var(--accent)" opacity=".6"/><rect x="42" y="30" width="36" height="5" rx="2" fill="var(--ink)" opacity=".7"/><rect x="48" y="38" width="24" height="3" rx="1" fill="var(--rule)"/><rect x="32" y="46" width="56" height="8" rx="4" fill="var(--panel)" stroke="var(--accent)"/><rect x="32" y="57" width="56" height="8" rx="4" fill="var(--panel)" stroke="var(--rule)"/><rect x="32" y="68" width="56" height="8" rx="4" fill="var(--panel)" stroke="var(--rule)"/></svg>`,
+};
+
 export function landingEditorPage(
   account: Account,
   tenant: Tenant,
@@ -1142,7 +1151,22 @@ export function landingEditorPage(
     <label for="lp-title">Title</label><input id="lp-title" name="title" type="text" value="${esc(page?.title ?? "")}" required maxlength="200">
     <label for="lp-slug">URL slug <span style="color:var(--muted)">(public URL: /landing/…)</span></label><input id="lp-slug" name="slug" type="text" value="${esc(page?.slug ?? "")}" placeholder="welcome">
     <label for="lp-meta">Meta description</label><textarea id="lp-meta" name="meta_description" rows="2" maxlength="300">${esc(page?.meta_description ?? "")}</textarea>
-    <fieldset class="settings-card"><legend>Design</legend>${designs.map((d) => `<label style="display:block;margin:.4rem 0"><input type="radio" name="design" value="${esc(d.id)}" ${(page?.design ?? designs[0]?.id) === d.id ? "checked" : ""}> <strong>${esc(d.label)}</strong> — ${esc(d.description)}</label>`).join("")}</fieldset>
+    <fieldset class="settings-card"><legend>Design — pick a layout</legend><style>
+      .lp-design-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.8rem;margin-top:.4rem}
+      @media (max-width:640px){.lp-design-grid{grid-template-columns:1fr}}
+      .lp-design-card{position:relative;display:block;border:1px solid var(--rule);border-radius:10px;padding:.6rem;background:var(--panel);cursor:pointer;margin:0}
+      .lp-design-card:hover{border-color:var(--muted)}
+      .lp-design-card:has(input:checked){border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+      .lp-design-card input{position:absolute;opacity:0;pointer-events:none}
+      .lp-design-card input:focus-visible~.lp-thumb{outline:2px solid var(--accent);outline-offset:2px}
+      .lp-thumb{display:block;border-radius:6px;overflow:hidden;border:1px solid var(--rule)}
+      .lp-thumb svg{display:block;width:100%;height:auto}
+      .lp-design-meta{display:block;margin-top:.55rem}
+      .lp-design-meta strong{display:block;font-size:.95rem}
+      .lp-design-meta span{display:block;color:var(--muted);font-size:.85rem;line-height:1.45;margin-top:.15rem}
+      .lp-design-selected{display:none;color:var(--accent);font-size:.8rem;font-weight:600;margin-top:.3rem}
+      .lp-design-card:has(input:checked) .lp-design-selected{display:block}
+    </style><div class="lp-design-grid">${designs.map((d) => `<label class="lp-design-card"><input type="radio" name="design" value="${esc(d.id)}" ${(page?.design ?? designs[0]?.id) === d.id ? "checked" : ""}><span class="lp-thumb" aria-hidden="true">${DESIGN_THUMBS[d.id] ?? DESIGN_THUMBS.minimal}</span><span class="lp-design-meta"><strong>${esc(d.label)}</strong><span>${esc(d.description)}</span><span class="lp-design-selected">Selected design</span></span></label>`).join("")}</div></fieldset>
     <fieldset class="settings-card"><legend>Hero</legend>
       <label>Headline <input name="headline" type="text" maxlength="120" value="${esc(content.hero.headline)}"></label>
       <label>Subheadline <textarea name="subheadline" rows="2" maxlength="300">${esc(content.hero.subheadline)}</textarea></label>
