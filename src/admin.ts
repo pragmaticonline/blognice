@@ -345,6 +345,7 @@ const ADMIN_STYLES = /* css */ `
   .owner-menu-open svg { width:1.15rem; height:1.15rem; }
   .owner-toolbar { background:var(--panel); border-bottom:1px solid var(--rule); }
   .owner-toolbar-inner { display:flex; align-items:center; gap:1.25rem; padding:.8rem 0; min-width:0; }
+  .owner-nav-wrap { display:flex; align-items:center; gap:.2rem; min-width:0; flex:1; }
   .owner-nav { display:flex; align-items:center; gap:.2rem; min-width:0; overflow-x:auto; scrollbar-width:none; }
   .owner-nav::-webkit-scrollbar { display:none; }
   .owner-nav a { flex:0 0 auto; padding:.5rem .75rem; border-radius:7px; color:var(--muted); font-size:.88rem; font-weight:600; text-decoration:none; white-space:nowrap; }
@@ -392,6 +393,7 @@ const ADMIN_STYLES = /* css */ `
     .owner-menu-open { display:flex; }
     .owner-toolbar-inner { padding:.65rem 0; }
     .owner-nav { display:none; }
+    .owner-nav-wrap .nav-more { display:none; }
     .owner-toolbar-inner .blog-switcher { flex:1; }
     .owner-toolbar-inner .blog-switcher-toggle { max-width:100%; }
     ul.posts li { align-items:center; flex-wrap:nowrap; gap:0.8rem; }
@@ -567,8 +569,11 @@ export function shell(
     const barItems = navItems.filter(([key]) => primaryNav.has(key));
     const moreItems = navItems.filter(([key]) => !primaryNav.has(key));
     const moreActive = moreItems.some(([key]) => activeNav === key);
-    const navLinks = barItems.map(([key, label, href]) => `<a class="${activeNav === key ? "active" : ""}" href="${href}">${label}</a>`).join("") +
-      (moreItems.length ? `<details class="nav-more${moreActive ? " active" : ""}"><summary aria-label="More blog sections" aria-haspopup="true">More<span aria-hidden="true"> ⌄</span></summary><div class="nav-more-menu">${moreItems.map(([key, label, href]) => `<a class="${activeNav === key ? "active" : ""}" href="${href}">${label}</a>`).join("")}</div></details>` : "");
+    // The More dropdown must live OUTSIDE the scrollable .owner-nav:
+    // overflow-x:auto clips absolutely-positioned children, so a menu
+    // rendered inside the bar would open invisibly.
+    const navLinks = barItems.map(([key, label, href]) => `<a class="${activeNav === key ? "active" : ""}" href="${href}">${label}</a>`).join("");
+    const moreMenu = moreItems.length ? `<details class="nav-more${moreActive ? " active" : ""}"><summary aria-label="More blog sections" aria-haspopup="true">More<span aria-hidden="true"> ⌄</span></summary><div class="nav-more-menu">${moreItems.map(([key, label, href]) => `<a class="${activeNav === key ? "active" : ""}" href="${href}">${label}</a>`).join("")}</div></details>` : "";
     const drawerLinks = navItems.map(([key, label, href]) => `<a class="owner-drawer-link ${activeNav === key ? "active" : ""}" href="${href}">${label}</a>`).join("");
     bar = `${accountTopbar(account, planBadge, affiliateCurrent, billingCurrent)}
       <div class="contextbar owner-toolbar"><div class="owner-toolbar-inner">
@@ -579,7 +584,7 @@ export function shell(
           </button>
           <div class="blog-switcher-menu" id="blog-switcher-menu" hidden><div class="blog-switcher-heading">Switch blog</div><div class="blog-switcher-list" id="blog-switcher-list"><span style="padding:.55rem;color:var(--muted);font-size:.85rem">Loading…</span></div><a class="blog-switcher-new" href="/admin/new-blog">＋ Create new blog</a></div>
         </div>
-        <nav class="owner-nav context-links" aria-label="Blog navigation">${navLinks}</nav>
+        <div class="owner-nav-wrap"><nav class="owner-nav context-links" aria-label="Blog navigation">${navLinks}</nav>${moreMenu}</div>
       </div></div>
       ${accountDrawer(account, paid, affiliateCurrent, billingCurrent,
         `<div class="owner-drawer-section"><div class="owner-drawer-label">${esc(tenant.title)}</div>${drawerLinks}</div>

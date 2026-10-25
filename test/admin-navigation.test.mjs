@@ -46,8 +46,10 @@ test("blog nav keeps six primary items in the bar and the rest under More", () =
   for (const label of ["Posts", "Pages", "Landing page", "Media", "Comments", "Settings"]) {
     assert.match(bar, new RegExp(`>${label}<`));
   }
-  assert.match(bar, /<details class="nav-more">/);
-  const more = bar.slice(bar.indexOf("nav-more-menu"));
+  // The More dropdown lives outside the scrollable nav (inside would clip it).
+  assert.doesNotMatch(bar, /nav-more/);
+  assert.match(posts, /<\/nav><details class="nav-more">/);
+  const more = posts.slice(posts.indexOf("nav-more-menu"));
   for (const label of ["Subscribers", "Collaborators", "Metrics", "Audit log", "Domains"]) {
     assert.match(more, new RegExp(`>${label}<`));
   }
