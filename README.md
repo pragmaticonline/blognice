@@ -129,6 +129,15 @@ fast, server-rendered pages.
   link. Home page only or every page; dismissals last 24 hours, and editing
   the promo shows it again straight away. Free blogs see an upgrade prompt
   instead.
+- **Landing pages** — build a standalone page from four designs (Hero,
+  Business, Shop, Minimal) with a headline, buttons, intro, feature cards,
+  contact details, and latest posts, then optionally **make it your blog's
+  homepage**: `/` serves the landing page and the post index moves to `/blog`
+  (post links never change). Landing pages carry the blog's navigation,
+  accent colour, and custom CSS. Availability is gated by the staff rollout
+  (`off` / `vip` / `paid` / `all`).
+
+  ![A Hero-design landing page: photo banner with headline and buttons, feature cards, and latest posts](docs/landing-designs/hero-preview.png)
 - **Scheduled publishing** — set a future publish time on a draft (editor
   or `scheduled_at` on the posts API) and it goes live on the per-minute cron
   with the same purge, IndexNow, and subscriber/push notifications as
