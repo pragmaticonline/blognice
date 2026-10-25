@@ -77,7 +77,7 @@ test("marketing homepage showcases AI images and an opt-in voice sample", () => 
 test("marketing homepage showcases landing pages with a graphic", () => {
   assert.match(homepage, /id="landing"/);
   assert.match(homepage, /\/marketing-ai\/landing-hero\.webp/);
-  assert.match(homepage, /Give your blog a front door/);
+  assert.match(homepage, /Landing pages that turn your blog into a complete website/);
   for (const design of ["Hero", "Business", "Shop", "Minimal"]) {
     assert.match(homepage, new RegExp(`<b>${design}</b>`));
   }
