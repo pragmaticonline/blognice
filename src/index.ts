@@ -6110,7 +6110,7 @@ app.post("/admin/b/:blogId/favicon", async (c) => {
 // allowlist deliberately small: marketing files are public and immutable, but
 // arbitrary R2 keys must never become publicly readable through this route.
 const MARKETING_IMAGES = new Set([
-  "writing.webp", "ceramics.webp", "night-train.webp", "travel-notebook.webp", "blogger.webp",
+  "writing.webp", "ceramics.webp", "night-train.webp", "travel-notebook.webp", "blogger.webp", "landing-hero.webp",
 ]);
 app.get("/marketing-ai/:file", async (c) => {
   const file = c.req.param("file");

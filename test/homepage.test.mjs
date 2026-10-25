@@ -74,6 +74,16 @@ test("marketing homepage showcases AI images and an opt-in voice sample", () => 
   assert.match(indexSource, /INSERT OR IGNORE INTO marketing_audio_state/);
 });
 
+test("marketing homepage showcases landing pages with a graphic", () => {
+  assert.match(homepage, /id="landing"/);
+  assert.match(homepage, /\/marketing-ai\/landing-hero\.webp/);
+  assert.match(homepage, /Give your blog a front door/);
+  for (const design of ["Hero", "Business", "Shop", "Minimal"]) {
+    assert.match(homepage, new RegExp(`<b>${design}</b>`));
+  }
+  assert.match(indexSource, /"landing-hero\.webp"/);
+});
+
 test("marketing homepage real example uses generic blogger imagery and address", () => {
   assert.match(homepage, /src="\/marketing-ai\/blogger\.webp"/);
   assert.match(homepage, /alt="A blogger writing at a laptop"/);

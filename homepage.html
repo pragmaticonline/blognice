@@ -259,6 +259,19 @@
   .ai-sample button[aria-pressed="true"]{color:var(--green-deep);}
   @media (max-width: 880px){.ai-showcase{grid-template-columns:1fr;gap:30px;}}
 
+  /* ---------- LANDING PAGES SHOWCASE ---------- */
+  .landing-showcase{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,.9fr);gap:56px;align-items:center;}
+  .landing-shot{border-radius:12px;overflow:hidden;background:var(--paper);box-shadow:0 24px 50px -30px rgba(21,23,15,.35);aspect-ratio:4/5;max-height:640px;}
+  .landing-shot img{width:100%;height:100%;object-fit:cover;object-position:top;}
+  .landing-copy h3{font-family:var(--display);font-size:23px;line-height:1.2;margin-bottom:12px;}
+  .landing-copy p{font-size:15px;color:var(--ink-soft);line-height:1.65;}
+  .landing-designs{list-style:none;margin:22px 0 0;padding:0;display:grid;gap:12px;}
+  .landing-designs li{display:grid;grid-template-columns:86px 1fr;gap:14px;align-items:baseline;font-size:14px;line-height:1.55;}
+  .landing-designs b{font-weight:600;}
+  .landing-designs span{color:var(--ink-soft);}
+  .landing-cta{margin-top:26px;display:flex;gap:18px;align-items:center;flex-wrap:wrap;}
+  @media (max-width: 880px){.landing-showcase{grid-template-columns:1fr;gap:30px;}.landing-shot{max-height:480px;}}
+
   /* ---------- HOW IT WORKS ---------- */
   .steps{display:grid; grid-template-columns:repeat(3,1fr); gap:0 48px;}
   .step{padding:6px 0; border-right:1px solid var(--rule); margin-right:-24px; padding-right:24px;}
@@ -609,6 +622,35 @@ they hand you a blank page.
             </button>
             <audio id="ai-voice-audio" preload="none" hidden></audio>
             <span id="ai-voice-status" style="display:block;margin-top:8px;font-size:12px;color:var(--ink-faint)">Click to play. Nothing starts automatically.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="landing">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="kicker">New · Landing pages</span>
+      <h2>Give your blog a front door</h2>
+      <p>Some blogs need more than a post list at their address. Build a landing page from four designs, publish it, and optionally make it your homepage — your posts move to /blog and no link breaks.</p>
+    </div>
+    <div class="landing-showcase">
+      <div class="landing-shot">
+        <img src="/marketing-ai/landing-hero.webp" alt="A Hero-design landing page: photo banner with headline and buttons, feature cards, and latest posts" width="960" height="1200" loading="lazy">
+      </div>
+      <div class="landing-copy">
+        <h3>Four layouts, your words and photos.</h3>
+        <p>Pick a design, add a headline, buttons, and images from your media library, and publish. Your blog's navigation, accent colour, and custom CSS carry over automatically.</p>
+        <ul class="landing-designs">
+          <li><b>Hero</b><span>Full-width photo with a big headline and buttons. A good default for most sites.</span></li>
+          <li><b>Business</b><span>Numbered services grid, about section, and a prominent contact panel.</span></li>
+          <li><b>Shop</b><span>Hours and phone up top, visit details, a product grid, and an order button.</span></li>
+          <li><b>Minimal</b><span>A centered personal page: photo, name, intro, and a stack of link buttons.</span></li>
+        </ul>
+        <div class="landing-cta">
+          <a href="https://www.blognice.com/signup" class="btn btn-green">Start your first blog</a>
+          <a href="#pricing" class="link-underline">See plans</a>
         </div>
       </div>
     </div>
