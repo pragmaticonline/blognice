@@ -413,6 +413,22 @@ test("28. set-homepage purge covers /blog and /landing/*", async () => {
 
 // --- Coverage added on review: limits, valid media, API guard, staff ----------
 
+test("design picker renders visual layout cards for every design", async () => {
+  const s = await setup("landing-design-picker");
+  try {
+    const blogniceApp = await app();
+    const res = await blogniceApp.request(s.admin("/admin/b/b_test/landing/new", "owner-session"), undefined, s.env, ctx);
+    assert.equal(res.status, 200);
+    const html = await res.text();
+    assert.match(html, /lp-design-grid/);
+    for (const id of ["hero", "business", "shop", "minimal"]) {
+      assert.match(html, new RegExp(`name="design" value="${id}"`), id);
+      assert.match(html, new RegExp(`aria-label="${id === "shop" ? "Shop" : id[0].toUpperCase() + id.slice(1)} layout preview"`), id);
+    }
+    assert.match(html, /Selected design/);
+  } finally { await s.mf.dispose(); }
+});
+
 test("max 10 landing pages per tenant; valid owned image saves and renders", async () => {
   const s = await setup("landing-limits-media");
   try {
