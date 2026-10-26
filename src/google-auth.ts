@@ -127,6 +127,23 @@ export async function handleGoogleCallback(c: any): Promise<Response> {
   }
 
   const token = await createSession(db, account.id);
+  // Same signup attribution as email signup (src/index.ts): country comes
+  // from the CF-IPCountry header. Without this, OAuth accounts show "—"
+  // on the staff accounts page.
+  try {
+    const ip = String(c.req.header("cf-connecting-ip") || "").trim().slice(0, 64) || "unknown";
+    const ua = String(c.req.header("User-Agent") || "").slice(0, 300);
+    const ref = String(c.req.header("Referer") || "").slice(0, 500);
+    const country = String(c.req.header("CF-IPCountry") || "").slice(0, 2);
+    await db.prepare("UPDATE sessions SET ip=?, user_agent=?, created_via=\"signup\" WHERE token=?").bind(ip, ua, token).run();
+    try {
+      await db.prepare("UPDATE accounts SET signup_ip=?, signup_ua=?, signup_referer=?, signup_country=? WHERE id=?").bind(ip, ua, ref, country, account.id).run();
+    } catch {
+      try {
+        await db.prepare("UPDATE accounts SET signup_ip=?, signup_ua=?, signup_referer=? WHERE id=?").bind(ip, ua, ref, account.id).run();
+      } catch {}
+    }
+  } catch {}
   deleteCookie(c, GOOGLE_STATE_COOKIE, { path: "/" });
   setSessionCookie(c, token);
   return c.redirect("/admin");
