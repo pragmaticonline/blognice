@@ -32,6 +32,36 @@ test("admin navigation keeps global and current-blog contexts visible", () => {
   assert.match(admin, /eventually consistent/);
 });
 
+test("blog nav keeps six primary items in the bar and the rest under More", () => {
+  const account = {
+    email: "owner@example.com",
+    billing_status: "inactive",
+    crypto_paid_through: 0,
+    vip_granted_at: Date.now(),
+    vip_expires_at: null,
+  };
+  const tenant = { public_id: "b_test", title: "Test blog", accent_color: "#146b54", comments_enabled: 1, landing_available: 1 };
+  const posts = shell("Posts", "<div></div>", account, tenant);
+  const bar = posts.slice(posts.indexOf('aria-label="Blog navigation"'), posts.indexOf("</nav>"));
+  for (const label of ["Posts", "Pages", "Landing page", "Media", "Comments", "Settings"]) {
+    assert.match(bar, new RegExp(`>${label}<`));
+  }
+  // The More dropdown lives outside the scrollable nav (inside would clip it).
+  assert.doesNotMatch(bar, /nav-more/);
+  assert.match(posts, /<\/nav><details class="nav-more">/);
+  const more = posts.slice(posts.indexOf("nav-more-menu"));
+  for (const label of ["Subscribers", "Collaborators", "Metrics", "Audit log", "Domains"]) {
+    assert.match(more, new RegExp(`>${label}<`));
+  }
+  for (const label of ["Subscribers", "Collaborators", "Metrics", "Audit log", "Domains"]) {
+    assert.doesNotMatch(bar.slice(0, bar.indexOf("<details")), new RegExp(`>${label}<`));
+  }
+  // Active section inside More highlights the dropdown.
+  const metrics = shell("Metrics", "<div></div>", account, tenant);
+  assert.match(metrics, /<details class="nav-more active">/);
+  assert.match(metrics, /<a class="active" href="\/admin\/b\/b_test\/metrics">Metrics<\/a>/);
+});
+
 test("every authenticated admin page shares one compact topbar", () => {
   const account = {
     email: "owner@example.com",
