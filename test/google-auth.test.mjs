@@ -129,6 +129,47 @@ test("callback links an existing password account by verified email and starts a
   }
 });
 
+test("callback records signup country for new OAuth accounts", async () => {
+  const { mf, db } = await setupDb("google-auth-country");
+  const originalFetch = globalThis.fetch;
+  try {
+    const { blogniceApp } = await import("../src/index.ts");
+    const env = baseEnv(db);
+    const { state, cookie } = await startGoogleLogin(blogniceApp, db, env);
+    mockGoogleFetch({ sub: "google-456", email: "newguser@example.com", email_verified: true });
+    const res = await blogniceApp.request(
+      new Request(`https://www.blognice.test/auth/google/callback?code=authcode456&state=${encodeURIComponent(state)}`, {
+        headers: { cookie, "CF-IPCountry": "DE", "cf-connecting-ip": "203.0.113.7" },
+      }),
+      undefined,
+      env,
+      ctx,
+    );
+    assert.equal(res.status, 302);
+    const account = await db.prepare("SELECT id, signup_country, signup_ip FROM accounts WHERE email = 'newguser@example.com'").first();
+    assert.ok(account);
+    assert.equal(account.signup_country, "DE");
+    assert.equal(account.signup_ip, "203.0.113.7");
+    // Header absent: blank, never a crash.
+    const second = await startGoogleLogin(blogniceApp, db, env);
+    mockGoogleFetch({ sub: "google-789", email: "bareguser@example.com", email_verified: true });
+    const res2 = await blogniceApp.request(
+      new Request(`https://www.blognice.test/auth/google/callback?code=authcode789&state=${encodeURIComponent(second.state)}`, {
+        headers: { cookie: second.cookie },
+      }),
+      undefined,
+      env,
+      ctx,
+    );
+    assert.equal(res2.status, 302);
+    const bare = await db.prepare("SELECT signup_country FROM accounts WHERE email = 'bareguser@example.com'").first();
+    assert.equal(bare.signup_country, "");
+  } finally {
+    globalThis.fetch = originalFetch;
+    await mf.dispose();
+  }
+});
+
 test("callback creates an account for a new Google email and starts a session", async () => {
   const { mf, db } = await setupDb("google-auth-create");
   const originalFetch = globalThis.fetch;

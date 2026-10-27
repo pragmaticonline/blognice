@@ -345,11 +345,22 @@ const ADMIN_STYLES = /* css */ `
   .owner-menu-open svg { width:1.15rem; height:1.15rem; }
   .owner-toolbar { background:var(--panel); border-bottom:1px solid var(--rule); }
   .owner-toolbar-inner { display:flex; align-items:center; gap:1.25rem; padding:.8rem 0; min-width:0; }
+  .owner-nav-wrap { display:flex; align-items:center; gap:.2rem; min-width:0; flex:1; }
   .owner-nav { display:flex; align-items:center; gap:.2rem; min-width:0; overflow-x:auto; scrollbar-width:none; }
   .owner-nav::-webkit-scrollbar { display:none; }
   .owner-nav a { flex:0 0 auto; padding:.5rem .75rem; border-radius:7px; color:var(--muted); font-size:.88rem; font-weight:600; text-decoration:none; white-space:nowrap; }
   .owner-nav a:hover { color:var(--ink); background:var(--bg); }
   .owner-nav a.active { color:var(--accent); background:color-mix(in srgb, var(--accent) 12%, transparent); }
+  .nav-more { position:relative; flex:0 0 auto; }
+  .nav-more summary { list-style:none; cursor:pointer; padding:.5rem .75rem; border-radius:7px; color:var(--muted); font-size:.88rem; font-weight:600; white-space:nowrap; }
+  .nav-more summary::-webkit-details-marker { display:none; }
+  .nav-more summary::marker { content:""; }
+  .nav-more summary:hover { color:var(--ink); background:var(--bg); }
+  .nav-more.active summary { color:var(--accent); background:color-mix(in srgb, var(--accent) 12%, transparent); }
+  .nav-more-menu { position:absolute; right:0; top:calc(100% + 6px); min-width:12rem; background:var(--panel); border:1px solid var(--rule); border-radius:10px; box-shadow:0 1rem 2.5rem -1.5rem rgb(0 0 0 / .4); padding:.35rem; display:grid; z-index:50; }
+  .nav-more-menu a { padding:.55rem .75rem; border-radius:6px; color:var(--muted); font-size:.88rem; font-weight:600; text-decoration:none; white-space:nowrap; }
+  .nav-more-menu a:hover { color:var(--ink); background:var(--bg); }
+  .nav-more-menu a.active { color:var(--accent); background:color-mix(in srgb, var(--accent) 12%, transparent); }
   .owner-switcher .blog-switcher-toggle { border-radius:8px; padding:.55rem .8rem; }
   .owner-drawer-backdrop { position:fixed; inset:0; z-index:60; background:rgb(0 0 0 / .4); opacity:0; pointer-events:none; transition:opacity .2s ease; }
   .owner-drawer-backdrop.open { opacity:1; pointer-events:auto; }
@@ -382,6 +393,7 @@ const ADMIN_STYLES = /* css */ `
     .owner-menu-open { display:flex; }
     .owner-toolbar-inner { padding:.65rem 0; }
     .owner-nav { display:none; }
+    .owner-nav-wrap .nav-more { display:none; }
     .owner-toolbar-inner .blog-switcher { flex:1; }
     .owner-toolbar-inner .blog-switcher-toggle { max-width:100%; }
     ul.posts li { align-items:center; flex-wrap:nowrap; gap:0.8rem; }
@@ -550,7 +562,18 @@ export function shell(
       .filter(([, , , cap]) => !cap || can(cap))
       .filter(([k]) => k !== "comments" || tenant.comments_enabled)
       .map(([k, l, h]) => [k, l, h] as const);
-    const navLinks = navItems.map(([key, label, href]) => `<a class="${activeNav === key ? "active" : ""}" href="${href}">${label}</a>`).join("");
+    // Six everyday items stay in the bar; the rest live under a "More"
+    // dropdown so the bar never overflows into hidden scroll. The mobile
+    // drawer below keeps the full flat list.
+    const primaryNav = new Set(["posts", "pages", "landing", "media", "comments", "settings"]);
+    const barItems = navItems.filter(([key]) => primaryNav.has(key));
+    const moreItems = navItems.filter(([key]) => !primaryNav.has(key));
+    const moreActive = moreItems.some(([key]) => activeNav === key);
+    // The More dropdown must live OUTSIDE the scrollable .owner-nav:
+    // overflow-x:auto clips absolutely-positioned children, so a menu
+    // rendered inside the bar would open invisibly.
+    const navLinks = barItems.map(([key, label, href]) => `<a class="${activeNav === key ? "active" : ""}" href="${href}">${label}</a>`).join("");
+    const moreMenu = moreItems.length ? `<details class="nav-more${moreActive ? " active" : ""}"><summary aria-label="More blog sections" aria-haspopup="true">More<span aria-hidden="true"> ⌄</span></summary><div class="nav-more-menu">${moreItems.map(([key, label, href]) => `<a class="${activeNav === key ? "active" : ""}" href="${href}">${label}</a>`).join("")}</div></details>` : "";
     const drawerLinks = navItems.map(([key, label, href]) => `<a class="owner-drawer-link ${activeNav === key ? "active" : ""}" href="${href}">${label}</a>`).join("");
     bar = `${accountTopbar(account, planBadge, affiliateCurrent, billingCurrent)}
       <div class="contextbar owner-toolbar"><div class="owner-toolbar-inner">
@@ -561,7 +584,7 @@ export function shell(
           </button>
           <div class="blog-switcher-menu" id="blog-switcher-menu" hidden><div class="blog-switcher-heading">Switch blog</div><div class="blog-switcher-list" id="blog-switcher-list"><span style="padding:.55rem;color:var(--muted);font-size:.85rem">Loading…</span></div><a class="blog-switcher-new" href="/admin/new-blog">＋ Create new blog</a></div>
         </div>
-        <nav class="owner-nav context-links" aria-label="Blog navigation">${navLinks}</nav>
+        <div class="owner-nav-wrap"><nav class="owner-nav context-links" aria-label="Blog navigation">${navLinks}</nav>${moreMenu}</div>
       </div></div>
       ${accountDrawer(account, paid, affiliateCurrent, billingCurrent,
         `<div class="owner-drawer-section"><div class="owner-drawer-label">${esc(tenant.title)}</div>${drawerLinks}</div>
@@ -1112,6 +1135,15 @@ export function landingListPage(
   return shell(`Landing page — ${tenant.title}`, `<div class="page"><div class="row"><h1 style="margin:0">Landing page</h1>${pages.length < 10 ? `<a class="btn" href="${base}/landing/new">New landing page</a>` : ""}</div><p style="color:var(--muted);margin-top:-.8rem">A landing page is a standalone page at /landing/… Publishing does not change your homepage. Use “Make this my homepage” when you're ready: your posts move to /blog and post links don't change.</p>${opts?.error ? `<div class="error">${esc(opts.error)}</div>` : ""}${rows}${pages.length >= 10 ? `<p class="help">You have the maximum of 10 landing pages.</p>` : ""}</div>`, account, tenant);
 }
 
+// Miniature layout wireframes for the design picker. Deliberately plain
+// blocks (no gradients/glows): they show structure, not decoration.
+const DESIGN_THUMBS: Record<string, string> = {
+  hero: `<svg viewBox="0 0 120 84" role="img" aria-label="Hero layout preview"><rect width="120" height="84" fill="var(--panel)"/><rect x="0" y="0" width="120" height="9" fill="var(--rule)"/><rect x="0" y="9" width="120" height="34" fill="var(--accent)" opacity=".55"/><rect x="34" y="18" width="52" height="6" rx="3" fill="var(--bg)"/><rect x="42" y="27" width="36" height="4" rx="2" fill="var(--bg)" opacity=".8"/><rect x="38" y="34" width="18" height="6" rx="3" fill="var(--bg)"/><rect x="59" y="34" width="18" height="6" rx="3" fill="var(--rule)"/><rect x="10" y="50" width="30" height="4" rx="2" fill="var(--rule)"/><rect x="10" y="57" width="30" height="18" rx="3" fill="var(--panel)" stroke="var(--rule)"/><rect x="45" y="57" width="30" height="18" rx="3" fill="var(--panel)" stroke="var(--rule)"/><rect x="80" y="57" width="30" height="18" rx="3" fill="var(--panel)" stroke="var(--rule)"/></svg>`,
+  business: `<svg viewBox="0 0 120 84" role="img" aria-label="Business layout preview"><rect width="120" height="84" fill="var(--panel)"/><rect x="0" y="0" width="120" height="9" fill="var(--rule)"/><rect x="8" y="15" width="46" height="6" rx="3" fill="var(--ink)" opacity=".7"/><rect x="8" y="24" width="34" height="4" rx="2" fill="var(--rule)"/><rect x="8" y="31" width="16" height="6" rx="3" fill="var(--accent)"/><rect x="8" y="43" width="32" height="16" rx="3" fill="var(--panel)" stroke="var(--rule)"/><rect x="44" y="43" width="32" height="16" rx="3" fill="var(--panel)" stroke="var(--rule)"/><rect x="80" y="43" width="32" height="16" rx="3" fill="var(--panel)" stroke="var(--rule)"/><circle cx="14" cy="49" r="3" fill="var(--accent)"/><circle cx="50" cy="49" r="3" fill="var(--accent)"/><circle cx="86" cy="49" r="3" fill="var(--accent)"/><rect x="8" y="64" width="104" height="13" rx="3" fill="var(--accent)" opacity=".35"/></svg>`,
+  shop: `<svg viewBox="0 0 120 84" role="img" aria-label="Shop layout preview"><rect width="120" height="84" fill="var(--panel)"/><rect x="0" y="0" width="120" height="9" fill="var(--accent)" opacity=".7"/><rect x="0" y="9" width="120" height="26" fill="var(--accent)" opacity=".4"/><rect x="38" y="17" width="44" height="6" rx="3" fill="var(--bg)"/><rect x="46" y="26" width="28" height="5" rx="2" fill="var(--bg)" opacity=".85"/><rect x="8" y="40" width="46" height="14" rx="3" fill="var(--panel)" stroke="var(--rule)"/><rect x="66" y="40" width="46" height="14" rx="3" fill="var(--panel)" stroke="var(--rule)"/><rect x="8" y="59" width="30" height="14" rx="3" fill="var(--panel)" stroke="var(--rule)"/><rect x="45" y="59" width="30" height="14" rx="3" fill="var(--panel)" stroke="var(--rule)"/><rect x="82" y="59" width="30" height="14" rx="3" fill="var(--panel)" stroke="var(--rule)"/><rect x="88" y="42" width="20" height="6" rx="3" fill="var(--accent)"/></svg>`,
+  minimal: `<svg viewBox="0 0 120 84" role="img" aria-label="Minimal layout preview"><rect width="120" height="84" fill="var(--panel)"/><circle cx="60" cy="18" r="8" fill="var(--accent)" opacity=".6"/><rect x="42" y="30" width="36" height="5" rx="2" fill="var(--ink)" opacity=".7"/><rect x="48" y="38" width="24" height="3" rx="1" fill="var(--rule)"/><rect x="32" y="46" width="56" height="8" rx="4" fill="var(--panel)" stroke="var(--accent)"/><rect x="32" y="57" width="56" height="8" rx="4" fill="var(--panel)" stroke="var(--rule)"/><rect x="32" y="68" width="56" height="8" rx="4" fill="var(--panel)" stroke="var(--rule)"/></svg>`,
+};
+
 export function landingEditorPage(
   account: Account,
   tenant: Tenant,
@@ -1125,12 +1157,18 @@ export function landingEditorPage(
   const action = isEdit ? `${base}/landing/save?id=${page!.id}` : `${base}/landing/save`;
   const isHome = !!page && page.id === Number(tenant.home_landing_page_id ?? 0);
   const publicHost = tenant.custom_domain || `${tenant.slug}.${opts?.rootDomain || "blognice.com"}`;
+  const lpImageField = (name: string, value: string) => {
+    const thumb = value
+      ? `<img class="lp-img-preview" src="/media/${esc(value)}" alt="">`
+      : `<span class="lp-img-empty">No image</span>`;
+    return `<div class="lp-img-field"><input type="hidden" name="${name}" id="lp-${name}" value="${esc(value)}"><span class="lp-img-thumb" id="lp-${name}-thumb">${thumb}</span><span class="lp-img-actions"><button class="btn ghost" type="button" data-lp-choose="lp-${name}">Choose image</button><button class="btn ghost" type="button" data-lp-remove="lp-${name}"${value ? "" : " hidden"}>Remove</button></span></div>`;
+  };
   const featureRows = Array.from({ length: 6 }, (_, i) => {
     const f = content.features[i];
     return `<fieldset class="settings-card"><legend>Feature ${i + 1} (optional)</legend>
       <label>Title <input name="feature${i + 1}_title" type="text" maxlength="80" value="${esc(f?.title ?? "")}"></label>
       <label>Text (Markdown) <textarea name="feature${i + 1}_body" rows="3" maxlength="600">${esc(f?.body_md ?? "")}</textarea></label>
-      <label>Image media key <input name="feature${i + 1}_image_key" type="text" value="${esc(f?.image_key ?? "")}" placeholder="e.g. ${tenant.id}/photo.jpg"></label></fieldset>`;
+      <label>Image ${lpImageField(`feature${i + 1}_image_key`, f?.image_key ?? "")}</label></fieldset>`;
   }).join("");
   const homepageSection = !page ? "" : isHome
     ? `<div class="card"><h2>Homepage</h2><p>This page is your homepage. Visitors to your blog's address see it; your posts are at /blog.</p><form method="post" action="${base}/landing/remove-homepage"><button class="btn ghost" type="submit">Remove from homepage</button></form></div>`
@@ -1142,11 +1180,26 @@ export function landingEditorPage(
     <label for="lp-title">Title</label><input id="lp-title" name="title" type="text" value="${esc(page?.title ?? "")}" required maxlength="200">
     <label for="lp-slug">URL slug <span style="color:var(--muted)">(public URL: /landing/…)</span></label><input id="lp-slug" name="slug" type="text" value="${esc(page?.slug ?? "")}" placeholder="welcome">
     <label for="lp-meta">Meta description</label><textarea id="lp-meta" name="meta_description" rows="2" maxlength="300">${esc(page?.meta_description ?? "")}</textarea>
-    <fieldset class="settings-card"><legend>Design</legend>${designs.map((d) => `<label style="display:block;margin:.4rem 0"><input type="radio" name="design" value="${esc(d.id)}" ${(page?.design ?? designs[0]?.id) === d.id ? "checked" : ""}> <strong>${esc(d.label)}</strong> — ${esc(d.description)}</label>`).join("")}</fieldset>
+    <fieldset class="settings-card"><legend>Design — pick a layout</legend><style>
+      .lp-design-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.8rem;margin-top:.4rem}
+      @media (max-width:640px){.lp-design-grid{grid-template-columns:1fr}}
+      .lp-design-card{position:relative;display:block;border:1px solid var(--rule);border-radius:10px;padding:.6rem;background:var(--panel);cursor:pointer;margin:0}
+      .lp-design-card:hover{border-color:var(--muted)}
+      .lp-design-card:has(input:checked){border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+      .lp-design-card input{position:absolute;opacity:0;pointer-events:none}
+      .lp-design-card input:focus-visible~.lp-thumb{outline:2px solid var(--accent);outline-offset:2px}
+      .lp-thumb{display:block;border-radius:6px;overflow:hidden;border:1px solid var(--rule)}
+      .lp-thumb svg{display:block;width:100%;height:auto}
+      .lp-design-meta{display:block;margin-top:.55rem}
+      .lp-design-meta strong{display:block;font-size:.95rem}
+      .lp-design-meta span{display:block;color:var(--muted);font-size:.85rem;line-height:1.45;margin-top:.15rem}
+      .lp-design-selected{display:none;color:var(--accent);font-size:.8rem;font-weight:600;margin-top:.3rem}
+      .lp-design-card:has(input:checked) .lp-design-selected{display:block}
+    </style><div class="lp-design-grid">${designs.map((d) => `<label class="lp-design-card"><input type="radio" name="design" value="${esc(d.id)}" ${(page?.design ?? designs[0]?.id) === d.id ? "checked" : ""}><span class="lp-thumb" aria-hidden="true">${DESIGN_THUMBS[d.id] ?? DESIGN_THUMBS.minimal}</span><span class="lp-design-meta"><strong>${esc(d.label)}</strong><span>${esc(d.description)}</span><span class="lp-design-selected">Selected design</span></span></label>`).join("")}</div></fieldset>
     <fieldset class="settings-card"><legend>Hero</legend>
       <label>Headline <input name="headline" type="text" maxlength="120" value="${esc(content.hero.headline)}"></label>
       <label>Subheadline <textarea name="subheadline" rows="2" maxlength="300">${esc(content.hero.subheadline)}</textarea></label>
-      <label>Hero image media key <input name="hero_image_key" type="text" value="${esc(content.hero.image_key ?? "")}" placeholder="e.g. ${tenant.id}/photo.jpg"></label>
+      <label>Hero image ${lpImageField("hero_image_key", content.hero.image_key ?? "")}</label>
     </fieldset>
     <fieldset class="settings-card"><legend>Buttons (up to 2)</legend>
       <label>Button 1 label <input name="cta1_label" type="text" maxlength="40" value="${esc(content.ctas[0]?.label ?? "")}"></label>
@@ -1165,7 +1218,60 @@ export function landingEditorPage(
     </fieldset>
     <div class="check"><input id="lp-posts" name="show_latest_posts" type="checkbox" ${content.show_latest_posts ? "checked" : ""}><label for="lp-posts">Show latest posts</label></div>
     <div class="actions"><button class="btn" type="submit" name="action" value="save">${page?.published ? "Save" : "Save draft"}</button><button class="btn" type="submit" name="action" value="publish">${page?.published ? "Save &amp; keep published" : "Publish"}</button>${page?.published ? `<button class="btn ghost" type="submit" name="action" value="unpublish">Unpublish</button>` : ""}${page ? `<a class="btn ghost" href="https://${esc(publicHost)}/landing/${esc(page.slug)}" target="_blank" rel="noopener noreferrer">${page.published ? "View" : "Preview"}</a>` : ""}<a class="btn ghost" href="${base}/landing">Cancel</a></div>
-  </form>${homepageSection}</div>`, account, tenant);
+  </form>${homepageSection}
+  <style>
+    .lp-img-field{display:flex;align-items:center;gap:.7rem;flex-wrap:wrap;margin-top:.35rem}
+    .lp-img-thumb{display:inline-flex;align-items:center;justify-content:center;min-width:5rem;max-width:10rem;height:3.4rem;border:1px solid var(--rule);border-radius:8px;overflow:hidden;background:var(--panel)}
+    .lp-img-preview{display:block;max-width:10rem;height:3.4rem;object-fit:cover}
+    .lp-img-empty{color:var(--muted);font-size:.82rem;padding:0 .6rem}
+    .lp-img-actions{display:inline-flex;gap:.5rem}
+    .lp-media-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(7rem,1fr));gap:.7rem}
+    .lp-media-grid button{border:1px solid var(--rule);border-radius:8px;background:var(--panel);padding:.3rem;cursor:pointer}
+    .lp-media-grid img{display:block;width:100%;height:5rem;object-fit:cover;border-radius:5px}
+    .lp-media-grid .lp-media-name{font-size:.72rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:.2rem}
+  </style>
+  <dialog class="media-dialog" id="lp-media-dialog">
+    <div class="media-dialog-head"><strong>Choose image</strong><span class="spacer"></span><button class="btn ghost" type="button" id="lp-media-close">Close</button></div>
+    <div class="media-dialog-body" id="lp-media-body"><p style="color:var(--muted)">Loading…</p></div>
+  </dialog>
+  <input type="file" id="lp-upload-input" accept="image/*" hidden>
+  <script>(function(){
+    var dialog=document.getElementById("lp-media-dialog");if(!dialog)return;
+    var dialogBody=document.getElementById("lp-media-body");
+    var uploadInput=document.getElementById("lp-upload-input");
+    var target=null;
+    function thumbFor(input){return document.getElementById(input+"-thumb");}
+    function removeFor(input){return document.querySelector('[data-lp-remove="'+input+'"]');}
+    function setImage(input,key){
+      document.getElementById(input).value=key||"";
+      var thumb=thumbFor(input);
+      if(thumb)thumb.innerHTML=key?'<img class="lp-img-preview" src="/media/'+key.replace(/&/g,"&amp;").replace(/"/g,"&quot;")+'" alt="">':'<span class="lp-img-empty">No image</span>';
+      var remove=removeFor(input);
+      if(remove)remove.hidden=!key;
+    }
+    function openLibrary(input){
+      target=input;
+      dialog.showModal();
+      fetch("${base}/media.json").then(function(r){if(!r.ok)throw new Error();return r.json();}).then(function(data){
+        var shown=(data.items||[]).filter(function(item){return !/\.mp3$/i.test(item.url||"");});
+        if(!shown.length){dialogBody.innerHTML='<p style="color:var(--muted)">No images yet. <button class="btn" type="button" id="lp-dialog-upload">Upload one</button></p>';}
+        else dialogBody.innerHTML='<div class="lp-media-grid">'+shown.map(function(item){return '<button type="button" data-lp-key="'+item.key.replace(/&/g,"&amp;").replace(/"/g,"&quot;")+'"><img src="'+item.url.replace(/&/g,"&amp;").replace(/"/g,"&quot;")+'" alt="" loading="lazy"><span class="lp-media-name">'+item.name.replace(/&/g,"&amp;").replace(/</g,"&lt;")+'</span></button>';}).join("")+'</div><div class="actions"><button class="btn" type="button" id="lp-dialog-upload">Upload new</button><a class="btn ghost" href="${base}/media">Manage media</a></div>';
+        document.getElementById("lp-dialog-upload").onclick=function(){dialog.close();uploadInput.click();};
+      }).catch(function(){dialogBody.innerHTML='<p class="error">Could not load media.</p>';});
+    }
+    document.querySelectorAll("[data-lp-choose]").forEach(function(btn){btn.addEventListener("click",function(){openLibrary(btn.getAttribute("data-lp-choose"));});});
+    document.querySelectorAll("[data-lp-remove]").forEach(function(btn){btn.addEventListener("click",function(){setImage(btn.getAttribute("data-lp-remove"),"");});});
+    document.getElementById("lp-media-close").addEventListener("click",function(){dialog.close();});
+    dialogBody.addEventListener("click",function(e){var pick=e.target.closest("[data-lp-key]");if(!pick||!target)return;setImage(target,pick.getAttribute("data-lp-key"));dialog.close();});
+    uploadInput.addEventListener("change",function(){
+      if(!uploadInput.files.length||!target)return;
+      var file=uploadInput.files[0];uploadInput.value="";
+      var fd=new FormData();fd.append("file",file,file.name||"image");
+      fetch("${base}/upload",{method:"POST",body:fd}).then(function(r){return r.json();}).then(function(data){
+        if(data&&data.key)setImage(target,data.key);else alert("Upload failed. Try again.");
+      }).catch(function(){alert("Upload failed. Try again.");});
+    });
+  })();</script></div>`, account, tenant);
 }
 
 export function metricsPage(
