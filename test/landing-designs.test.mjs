@@ -122,6 +122,24 @@ for (const design of LANDING_DESIGNS) {
   });
 }
 
+test("post thumbnails render from featured image keys, and are omitted without one", () => {
+  for (const design of LANDING_DESIGNS.filter((d) => d.sections.includes("posts"))) {
+    const html = render(design, { show_latest_posts: true }, {
+      posts: [
+        { title: "With image", url: "/with", date: "Oct 2, 2026", image_key: "26/cover.jpg" },
+        { title: "No image", url: "/without", date: "Oct 1, 2026" },
+      ],
+    });
+    assert.ok(html.includes('src="/media/26/cover.jpg"'), `${design.id} renders the thumbnail`);
+    assert.equal((html.match(/<img[^>]+class="thumb"|<img src="\/media\/26\/cover\.jpg"/g) ?? []).length, 1, `${design.id} renders exactly one thumbnail`);
+    assert.ok(!html.includes("/media/undefined") && !html.includes("/media/null"), `${design.id} never renders a placeholder image`);
+  }
+  const view = buildLandingView(parseLandingContent({ show_latest_posts: true }), site({
+    posts: [{ title: "Bad key", url: "/bad", date: "Oct 1, 2026", image_key: "../../etc/passwd" }],
+  }));
+  assert.equal(view.posts[0].image_url, null, "unsafe image keys resolve to no thumbnail");
+});
+
 // --- Engine -----------------------------------------------------------------
 
 test("engine: escapes, sections, inverted sections, loops, outer-scope lookup", () => {

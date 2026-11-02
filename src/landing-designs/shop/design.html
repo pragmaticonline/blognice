@@ -35,6 +35,7 @@ section{padding:3.5rem 0}h2{font:800 1.9rem/1.15 var(--display);margin:0 0 1.5re
 .lp-feature h3{margin:0;font-size:1.05rem}.lp-feature p{margin:.15rem 0 0;color:var(--muted);font-size:.95rem}
 .lp-intro{max-width:60ch;font-size:1.1rem}
 .lp-posts a{display:block;padding:.85rem 0;border-bottom:1px solid var(--rule);text-decoration:none;color:var(--ink);font-weight:600}.lp-posts time{display:block;color:var(--muted);font-weight:400;font-size:.85rem}
+.lp-posts a.post{display:flex;gap:1rem;align-items:center}.lp-posts .thumb{flex:0 0 5.5rem;width:5.5rem;aspect-ratio:4/3;object-fit:cover;border-radius:8px;background:var(--soft)}
 .lp-posts a.all{border:0;color:var(--accent);font-weight:700}
 .cta-band{text-align:center;border-top:1px solid var(--rule)}
 .lp-footer{border-top:1px solid var(--rule);padding:2rem 0;color:var(--muted);font-size:.9rem}.lp-footer .wrap{display:flex;justify-content:space-between;flex-wrap:wrap;gap:1rem}.lp-footer a{color:inherit}
@@ -82,7 +83,7 @@ section{padding:3.5rem 0}h2{font:800 1.9rem/1.15 var(--display);margin:0 0 1.5re
   </section>{{/has_features}}
   {{#intro_html}}<section class="wrap" aria-labelledby="lp-story-h"><h2 id="lp-story-h">Our story</h2><div class="lp-intro">{{{intro_html}}}</div></section>{{/intro_html}}
   {{#has_posts}}<section class="wrap lp-posts" aria-labelledby="lp-posts-h"><h2 id="lp-posts-h">From the journal</h2>
-    {{#posts}}<a href="{{url}}"><time>{{date}}</time>{{title}}</a>{{/posts}}<a class="all" href="{{blog_url}}">All posts →</a>
+    {{#posts}}<a class="post" href="{{url}}">{{#image_url}}<img class="thumb" src="{{image_url}}" alt="" loading="lazy" width="176" height="132">{{/image_url}}<span><time>{{date}}</time>{{title}}</span></a>{{/posts}}<a class="all" href="{{blog_url}}">All posts →</a>
   </section>{{/has_posts}}
   {{#cta_primary}}<section class="wrap cta-band"><a class="lp-cta lp-cta--primary" href="{{href}}">{{label}}</a></section>{{/cta_primary}}
 </main>

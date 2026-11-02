@@ -33,7 +33,7 @@ section{padding:4rem 0}h2{font-size:1.75rem;letter-spacing:-.01em;margin:0 0 1.5
 .lp-contact h2{color:var(--bg);margin-bottom:.75rem}.lp-contact p{opacity:.8;margin:0 0 1.5rem}.lp-contact a{color:var(--bg)}
 .lp-contact dl{margin:0;display:grid;gap:1rem}.lp-contact dt{font-size:.8rem;text-transform:uppercase;letter-spacing:.1em;opacity:.6}.lp-contact dd{margin:0;font-weight:600;white-space:pre-line}
 .lp-contact .lp-cta--primary{color:var(--accent-ink)}
-.lp-posts a.post{display:block;padding:1rem 0;border-bottom:1px solid var(--rule);text-decoration:none;color:var(--ink);font-weight:600}.lp-posts time{display:block;color:var(--muted);font-weight:400;font-size:.85rem}
+.lp-posts a.post{display:flex;gap:1rem;align-items:center;padding:1rem 0;border-bottom:1px solid var(--rule);text-decoration:none;color:var(--ink);font-weight:600}.lp-posts .thumb{flex:0 0 5.5rem;width:5.5rem;aspect-ratio:4/3;object-fit:cover;border-radius:8px;background:var(--panel)}.lp-posts time{display:block;color:var(--muted);font-weight:400;font-size:.85rem}
 .all{display:inline-block;margin-top:1rem;padding:.6rem 0;font-weight:700}
 .lp-footer{padding:2rem 0;color:var(--muted);font-size:.9rem;border-top:1px solid var(--rule);margin-top:2rem}
 .lp-footer .wrap{display:flex;justify-content:space-between;flex-wrap:wrap;gap:1rem}.lp-footer a{color:inherit}
@@ -72,7 +72,7 @@ section{padding:4rem 0}h2{font-size:1.75rem;letter-spacing:-.01em;margin:0 0 1.5
   </section>{{/has_features}}
   {{#intro_html}}<section class="wrap lp-intro" aria-labelledby="lp-about-h"><h2 id="lp-about-h">About us</h2><div>{{{intro_html}}}</div></section>{{/intro_html}}
   {{#has_posts}}<section class="wrap lp-posts" aria-labelledby="lp-posts-h"><h2 id="lp-posts-h">Insights</h2>
-    {{#posts}}<a class="post" href="{{url}}"><time>{{date}}</time>{{title}}</a>{{/posts}}
+    {{#posts}}<a class="post" href="{{url}}">{{#image_url}}<img class="thumb" src="{{image_url}}" alt="" loading="lazy" width="176" height="132">{{/image_url}}<span><time>{{date}}</time>{{title}}</span></a>{{/posts}}
     <a class="all" href="{{blog_url}}">All articles →</a>
   </section>{{/has_posts}}
   {{#contact.has_any}}<section class="wrap" id="contact"><div class="lp-contact">
