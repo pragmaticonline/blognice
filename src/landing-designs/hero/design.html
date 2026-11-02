@@ -36,7 +36,7 @@ section{padding:4.5rem 0}
 .lp-feature h3{margin:0 0 .4rem;font-size:1.15rem}.lp-feature p{margin:0;color:var(--muted)}
 h2{font:700 1.8rem/1.2 var(--serif);margin:0 0 1.75rem}
 .lp-posts{border-top:1px solid var(--rule)}.post-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1.5rem}
-.post-list a{text-decoration:none;color:var(--ink)}.post-list time{color:var(--muted);font-size:.85rem}.post-list h3{margin:.25rem 0 0;font-size:1.1rem}
+.post-list a{text-decoration:none;color:var(--ink)}.post-list img{aspect-ratio:16/9;object-fit:cover;width:100%;border-radius:10px;margin-bottom:.65rem;background:var(--panel)}.post-list time{color:var(--muted);font-size:.85rem}.post-list h3{margin:.25rem 0 0;font-size:1.1rem}
 .all{display:inline-block;margin-top:1.25rem;padding:.7rem 0;font-weight:700}
 .lp-contact{border-top:1px solid var(--rule)}.lp-contact dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1.25rem;margin:0}
 .lp-contact dt{font-size:.8rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}.lp-contact dd{margin:.2rem 0 0;font-weight:600;white-space:pre-line}
@@ -80,7 +80,7 @@ h2{font:700 1.8rem/1.2 var(--serif);margin:0 0 1.75rem}
     <article class="lp-feature">{{#image_url}}<img src="{{image_url}}" alt="" loading="lazy" width="800" height="600">{{/image_url}}<div><h3>{{title}}</h3>{{{body_html}}}</div></article>{{/features}}
   </div></section>{{/has_features}}
   {{#has_posts}}<section class="wrap lp-posts" aria-labelledby="lp-posts-h"><h2 id="lp-posts-h">From the blog</h2>
-    <div class="post-list">{{#posts}}<a href="{{url}}"><time>{{date}}</time><h3>{{title}}</h3></a>{{/posts}}</div>
+    <div class="post-list">{{#posts}}<a href="{{url}}">{{#image_url}}<img src="{{image_url}}" alt="" loading="lazy" width="640" height="360">{{/image_url}}<time>{{date}}</time><h3>{{title}}</h3></a>{{/posts}}</div>
     <a class="all" href="{{blog_url}}">All posts →</a>
   </section>{{/has_posts}}
   {{#contact.has_any}}<section class="wrap lp-contact" aria-labelledby="lp-contact-h"><h2 id="lp-contact-h">Contact</h2><dl>

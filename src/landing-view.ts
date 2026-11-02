@@ -93,7 +93,7 @@ export type LandingSite = {
   avatar_url: string | null;
   nav: Array<{ label: string; href: string; new_tab?: boolean }>;
   social: Array<{ label: string; url: string }>;
-  posts: Array<{ title: string; url: string; date: string }>; // latest published, already formatted
+  posts: Array<{ title: string; url: string; date: string; image_key?: string | null }>; // latest published, already formatted
   head_html: string;                                 // meta + theme script + accent + customCssTag(), built by the caller
   body_end_html: string;                             // consent banner + metrics scripts, built by the caller ("" if none)
   media_url: (key: string) => string;                // e.g. key => `/media/${key}`
@@ -121,7 +121,9 @@ export function buildLandingView(content: LandingContent, site: LandingSite): Te
     has_quick: !!(c.hours || c.phone),
   };
   const nav = site.nav.map((n) => ({ label: n.label, href: n.href, new_tab: !!n.new_tab }));
-  const posts = content.show_latest_posts ? site.posts.slice(0, 3) : [];
+  const posts = content.show_latest_posts
+    ? site.posts.slice(0, 3).map((p) => ({ title: p.title, url: p.url, date: p.date, image_url: img(mediaKey(p.image_key ?? null)) }))
+    : [];
   return {
     head_html: site.head_html,
     body_end_html: site.body_end_html,

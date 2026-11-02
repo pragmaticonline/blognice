@@ -748,7 +748,7 @@ async function renderLandingHtml(
   const blogUrl = opts.isHomepage ? "/blog" : "/";
   const [navRows, postRows] = await Promise.all([
     pdb.prepare("SELECT slug, COALESCE(navigation_label, title) AS label, navigation_order, navigation_new_tab FROM pages WHERE tenant_id = ? AND published = 1 AND show_in_navigation = 1 ORDER BY navigation_order, title LIMIT 6").bind(tenant.id).all<{ slug: string; label: string; navigation_order: number; navigation_new_tab?: number }>().catch(() => ({ results: [] as any[] })),
-    pdb.prepare("SELECT slug, title, created_at FROM posts WHERE tenant_id = ? AND published = 1 ORDER BY created_at DESC LIMIT 3").bind(tenant.id).all<{ slug: string; title: string; created_at: number }>().catch(() => ({ results: [] as any[] })),
+    pdb.prepare("SELECT slug, title, created_at, featured_image_key FROM posts WHERE tenant_id = ? AND published = 1 ORDER BY created_at DESC LIMIT 3").bind(tenant.id).all<{ slug: string; title: string; created_at: number; featured_image_key: string | null }>().catch(() => ({ results: [] as any[] })),
   ]);
   const navItems = mergeNavigationItems(tenant, navRows.results);
   const content = parseLandingContent(page.content_json);
@@ -764,7 +764,7 @@ async function renderLandingHtml(
     avatar_url: tenant.avatar_key ? `/media/${tenant.avatar_key}` : null,
     nav: [{ label: "Blog", href: blogUrl }, ...navItems.map((i) => ({ label: i.label, href: i.href, new_tab: i.newTab }))],
     social: socialLinksFor(tenant),
-    posts: postRows.results.map((r: any) => ({ title: r.title, url: "/" + r.slug, date: formatDate(r.created_at) })),
+    posts: postRows.results.map((r: any) => ({ title: r.title, url: "/" + r.slug, date: formatDate(r.created_at), image_key: r.featured_image_key ?? null })),
     head_html: blogHeadHtml({
       tenant,
       pageTitle: page.title || tenant.title,
