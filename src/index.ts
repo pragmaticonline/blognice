@@ -2380,7 +2380,7 @@ app.post("/api/v1/blogs/:blogId/posts/:id/audio", async (c) => {
     .bind(audio.key, Math.floor(Date.now() / 1000), post.id, tenant.id)
     .run();
   queueBlogAudit(c, tenant.id, account.id, "media_uploaded", file.name);
-  c.executionCtx.waitUntil(purgeTenant(c.env, tenant, ["/" + post.slug]));
+  c.executionCtx.waitUntil(purgeTenant(c.env, tenant, ["/" + post.slug]).catch(() => {}));
   return c.json({ key: audio.key, url: audio.url }, 201);
 });
 
@@ -3124,7 +3124,7 @@ app.post("/api/v1/blogs/:blogId/avatar", async (c) => {
   await c.env.MEDIA.put(key, await file.arrayBuffer(), { httpMetadata: { contentType: file.type, cacheControl: "public, max-age=31536000, immutable" } });
   if ((tenant as any).avatar_key) c.executionCtx.waitUntil(c.env.MEDIA.delete((tenant as any).avatar_key));
   await c.env.DB.prepare("UPDATE tenants SET avatar_key = ? WHERE id = ?").bind(key, tenant.id).run();
-  c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, tenant));
+  c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, tenant).catch(() => {}));
   return c.json({ url: `/media/${key}`, key }, 201);
 });
 
@@ -3139,7 +3139,7 @@ app.post("/api/v1/blogs/:blogId/avatar/remove", async (c) => {
   if ((tenant as any).avatar_key) {
     c.executionCtx.waitUntil(c.env.MEDIA.delete((tenant as any).avatar_key));
     await c.env.DB.prepare("UPDATE tenants SET avatar_key = NULL WHERE id = ?").bind(tenant.id).run();
-    c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, tenant));
+    c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, tenant).catch(() => {}));
   }
   return c.json({ ok: true });
 });
@@ -3170,7 +3170,7 @@ app.post("/api/v1/blogs/:blogId/favicon", async (c) => {
     await c.env.MEDIA.put(key, outBytes, { httpMetadata: { contentType: "image/x-icon", cacheControl: "public, max-age=3600" }, customMetadata: { originalName: file.name.slice(0, 200) } });
     if ((tenant as any).favicon_key) c.executionCtx.waitUntil(c.env.MEDIA.delete((tenant as any).favicon_key));
     await c.env.DB.prepare("UPDATE tenants SET favicon_key = ? WHERE id = ?").bind(key, tenant.id).run();
-    c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, tenant));
+    c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, tenant).catch(() => {}));
     return c.json({ ok: true, key, url: `/media/${key}` }, 201);
   } catch (e: any) {
     if (storedKey) c.executionCtx.waitUntil(c.env.MEDIA.delete(storedKey));
@@ -3189,7 +3189,7 @@ app.post("/api/v1/blogs/:blogId/favicon/remove", async (c) => {
   if ((tenant as any).favicon_key) {
     c.executionCtx.waitUntil(c.env.MEDIA.delete((tenant as any).favicon_key));
     await c.env.DB.prepare("UPDATE tenants SET favicon_key = NULL WHERE id = ?").bind(tenant.id).run();
-    c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, tenant));
+    c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, tenant).catch(() => {}));
   }
   return c.json({ ok: true });
 });
@@ -3343,7 +3343,7 @@ app.get("/api/domains/:hostname", async (c) => {
     )
       .bind(hostname, row.tenant_id)
       .run();
-    c.executionCtx.waitUntil(purgeHost(hostname, ["/", "/sitemap.xml"]));
+    c.executionCtx.waitUntil(purgeHost(hostname, ["/", "/sitemap.xml"]).catch(() => {}));
   }
 
   return c.json(instructions(c.env, hostname, result));
@@ -5322,7 +5322,7 @@ app.post("/admin/b/:blogId/audio/:id", async (c) => {
       throw error;
     }
     await c.env.MEDIA.delete(checkpointKeys);
-    c.executionCtx.waitUntil(purgeTenant(c.env, ctx.tenant, ["/" + post.slug]));
+    c.executionCtx.waitUntil(purgeTenant(c.env, ctx.tenant, ["/" + post.slug]).catch(() => {}));
       streamController.enqueue(encoder.encode(JSON.stringify({
         key,
         url: `/media/${key}`,
@@ -5372,7 +5372,7 @@ app.delete("/admin/b/:blogId/audio/:id", async (c) => {
     .bind(Math.floor(Date.now() / 1000), post.id, ctx.tenant.id)
     .run();
   if (post.audio_key) await c.env.MEDIA.delete(post.audio_key);
-  c.executionCtx.waitUntil(purgeTenant(c.env, ctx.tenant, ["/" + post.slug]));
+  c.executionCtx.waitUntil(purgeTenant(c.env, ctx.tenant, ["/" + post.slug]).catch(() => {}));
   return c.json({ ok: true });
 });
 
@@ -5411,7 +5411,7 @@ app.post("/admin/b/:blogId/audio/:id/upload", async (c) => {
     .bind(audio.key, Math.floor(Date.now() / 1000), post.id, ctx.tenant.id)
     .run();
   queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "media_uploaded", file.name);
-  c.executionCtx.waitUntil(purgeTenant(c.env, ctx.tenant, ["/" + post.slug]));
+  c.executionCtx.waitUntil(purgeTenant(c.env, ctx.tenant, ["/" + post.slug]).catch(() => {}));
   return c.json({ key: audio.key, url: audio.url }, 201);
 });
 
@@ -6004,7 +6004,7 @@ app.post("/admin/b/:blogId/settings", async (c) => {
     .run();
   queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "blog_settings_updated", "settings");
 
-  c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant));
+  c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant).catch(() => {}));
   const updated = { ...ctx.tenant, slug, title, description, footer_name: footerName, accent_color: accentColor.toLowerCase(), topics_json: JSON.stringify(normalizedTopics.topics), social_links_json: JSON.stringify(socialLinks), browser_push_enabled: browserPushEnabled, comments_enabled: commentsEnabled, header_link_url: headerLinkUrl, theme, custom_css: customCss, promo_enabled: promoEnabled, promo_placement: promoPlacement, promo_image: promoImage, promo_body_md: promoBody, promo_cta_text: promoCtaText, promo_cta_url: promoCtaUrl };
   return c.html(settingsPage(ctx.account, updated, { isOwner: ctx.role === "owner", notice: "Saved." }));
 });
@@ -6183,7 +6183,7 @@ app.post("/admin/b/:blogId/avatar", async (c) => {
     .bind(key, ctx.tenant.id)
     .run();
 
-  c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant));
+  c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant).catch(() => {}));
   return c.json({ url: `/media/${key}` });
 });
 
@@ -6197,7 +6197,7 @@ app.post("/admin/b/:blogId/avatar/remove", async (c) => {
     await c.env.DB.prepare("UPDATE tenants SET avatar_key = NULL WHERE id = ?")
       .bind(ctx.tenant.id)
       .run();
-    c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant));
+    c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant).catch(() => {}));
   }
   return c.json({ ok: true });
 });
@@ -6273,7 +6273,7 @@ app.post("/admin/b/:blogId/favicon", async (c) => {
     stage = "updating blog settings";
     await c.env.DB.prepare("UPDATE tenants SET favicon_key = ? WHERE id = ?").bind(key, ctx.tenant.id).run();
     queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "favicon_updated", key);
-    c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant));
+    c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant).catch(() => {}));
     return c.json({ ok: true, format: "ico", sizes: [16, 32, 48, 256] });
   } catch (error) {
     if (storedKey) c.executionCtx.waitUntil(c.env.MEDIA.delete(storedKey));
@@ -6358,7 +6358,7 @@ app.post("/admin/b/:blogId/favicon/remove", async (c) => {
   if (!can(ctx.role, "settings.manage")) return c.json({ error: "forbidden" }, 403);
   if (ctx.tenant.favicon_key) c.executionCtx.waitUntil(c.env.MEDIA.delete(ctx.tenant.favicon_key));
   await c.env.DB.prepare("UPDATE tenants SET favicon_key = NULL WHERE id = ?").bind(ctx.tenant.id).run();
-  c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant));
+  c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant).catch(() => {}));
   return c.json({ ok: true });
 });
 
@@ -6650,7 +6650,7 @@ app.post("/admin/b/:blogId/import/blogger", async (c) => {
     for (let i = 0; i < statements.length; i += 100) {
       await pdb.batch(statements.slice(i, i + 100));
     }
-    c.executionCtx.waitUntil(purgeTenant(c.env, ctx.tenant, ["/", "/sitemap.xml"]));
+    c.executionCtx.waitUntil(purgeTenant(c.env, ctx.tenant, ["/", "/sitemap.xml"]).catch(() => {}));
     if (paths.length) queueIndexNow(c, ctx.tenant, ["/", ...paths.slice(0, 99)]);
     queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "blogger_imported", `${posts} posts, ${pages} pages`);
   }
@@ -7157,7 +7157,7 @@ app.post("/admin/b/:blogId/domains/check", async (c) => {
     await c.env.DB.prepare("UPDATE tenants SET custom_domain = ? WHERE id = ?")
       .bind(hostname, ctx.tenant.id)
       .run();
-    c.executionCtx.waitUntil(purgeHost(hostname, ["/", "/sitemap.xml"]));
+    c.executionCtx.waitUntil(purgeHost(hostname, ["/", "/sitemap.xml"]).catch(() => {}));
   }
 
   return render({ instructions: instructions(c.env, hostname, result) });
