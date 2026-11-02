@@ -8,6 +8,7 @@ import {
   buildFallbackBrief,
   buildImagePrompt,
   buildSourceContext,
+  rewriteRealWorldFigures,
   sanitizeTextRequests,
 } from "../src/ai-image.ts";
 
@@ -119,6 +120,41 @@ test("ordinary prose without text requests passes through untouched", () => {
   assert.equal(sanitizeTextRequests("a cat reading a book under a lamp"), "a cat reading a book under a lamp");
   assert.equal(sanitizeTextRequests("an open book showing illustrations"), "an open book showing illustrations");
   assert.equal(sanitizeTextRequests("a quiet message of hope at dawn"), "a quiet message of hope at dawn");
+});
+
+test("real-world figures are rewritten to generic people", () => {
+  const trump = rewriteRealWorldFigures("Donald Trump addressing a rally in Ohio");
+  assert.doesNotMatch(trump, /Trump/);
+  assert.match(trump, /American politician/);
+  assert.doesNotMatch(rewriteRealWorldFigures("President Trump signs an order"), /Trump/);
+  assert.doesNotMatch(rewriteRealWorldFigures("Trump's tariffs roil markets"), /Trump/);
+  assert.doesNotMatch(rewriteRealWorldFigures("DONALD TRUMP ANNOUNCES A RALLY"), /TRUMP/);
+  const musk = rewriteRealWorldFigures("Elon Musk unveils a rocket");
+  assert.doesNotMatch(musk, /Musk/);
+  assert.match(musk, /technology executive/);
+  assert.doesNotMatch(rewriteRealWorldFigures("Taylor Swift performs on stage"), /Swift/);
+  // Unlisted figure introduced only by title + name: fail closed to the role.
+  const unknown = rewriteRealWorldFigures("President Jane Doe speaking at a podium");
+  assert.doesNotMatch(unknown, /Jane Doe/);
+  assert.match(unknown, /president/i);
+  assert.doesNotMatch(rewriteRealWorldFigures("Anthony Albanese, the prime minister, addresses parliament"), /Albanese/);
+  // Non-people and ordinary scenes pass through untouched.
+  assert.equal(rewriteRealWorldFigures("a watchmaker mending a clock"), "a watchmaker mending a clock");
+  assert.equal(rewriteRealWorldFigures("the White House at dusk"), "the White House at dusk");
+  assert.equal(rewriteRealWorldFigures("a trump card on a green felt table"), "a trump card on a green felt table");
+});
+
+test("real-world figures never reach the final image prompt or fallback brief", () => {
+  const prompt = buildImagePrompt("A portrait of Donald Trump at a podium, American flags behind him", "editorial-photo");
+  assert.doesNotMatch(prompt, /Trump/);
+  assert.match(prompt, /generic/i);
+  const source = buildSourceContext({
+    prompt: "Donald Trump at a rally",
+    mode: "prompt",
+    blogTitle: "Example",
+  });
+  assert.doesNotMatch(source, /Trump/);
+  assert.doesNotMatch(buildFallbackBrief("POST TITLE: Donald Trump wins again"), /Trump/);
 });
 
 test("final image prompt never forwards requested copy", () => {
