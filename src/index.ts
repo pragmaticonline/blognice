@@ -125,7 +125,7 @@ import {
 } from "./landing";
 import { buildLandingView, parseLandingContent, type LandingSite } from "./landing-view";
 import { renderTemplate } from "./landing-template";
-import { LANDING_DESIGNS, getLandingDesign } from "./landing-designs/index";
+import { DEFAULT_LANDING_DESIGN, LANDING_DESIGNS, getLandingDesign } from "./landing-designs/index";
 
 async function ensurePostsMetaColumn(db: D1Database): Promise<void> {
   try { await db.prepare("ALTER TABLE posts ADD COLUMN meta_description TEXT").run(); } catch {}
@@ -2380,7 +2380,7 @@ app.post("/api/v1/blogs/:blogId/posts/:id/audio", async (c) => {
     .bind(audio.key, Math.floor(Date.now() / 1000), post.id, tenant.id)
     .run();
   queueBlogAudit(c, tenant.id, account.id, "media_uploaded", file.name);
-  c.executionCtx.waitUntil(purgeTenant(c.env, tenant, ["/" + post.slug]));
+  c.executionCtx.waitUntil(purgeTenant(c.env, tenant, ["/" + post.slug]).catch(() => {}));
   return c.json({ key: audio.key, url: audio.url }, 201);
 });
 
@@ -2842,6 +2842,182 @@ app.delete("/api/v1/blogs/:blogId/pages/:id", async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// Landing pages — CRUD mirroring /admin/b/:id/landing handlers.
+// Writes are owner-only (like the admin UI); reads need any membership role.
+// Every endpoint requires landing eligibility for the blog's owner account.
+// ---------------------------------------------------------------------------
+
+function landingToJson(page: LandingPage) {
+  let content: unknown;
+  try {
+    content = parseLandingContent(page.content_json);
+  } catch {
+    content = parseLandingContent({});
+  }
+  return {
+    id: page.id,
+    slug: page.slug,
+    title: page.title,
+    design: page.design,
+    content,
+    meta_description: page.meta_description ?? null,
+    published: !!page.published,
+    created_at: page.created_at,
+    updated_at: page.updated_at,
+    published_at: page.published_at ?? null,
+  };
+}
+
+async function landingApiPreamble(c: any): Promise<{ account: Account; tenant: Tenant; role: MembershipRole } | Response> {
+  const account = await apiAccount(c);
+  if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
+  if (isSuspended(account)) return c.json({ error: "Your account is currently suspended and you should contact support." }, 403);
+  const tenant = await ownedTenantById(c.env, account.id, c.req.param("blogId"));
+  if (!tenant) return c.json({ error: "blog not found" }, 404);
+  const role = await membershipRoleFor(c.env, account.id, tenant.id);
+  if (!role) return c.json({ error: "forbidden" }, 403);
+  const eligible = await tenantCanUseLandingPages(c.env, tenant.id).catch(() => false);
+  if (!eligible) return c.json({ error: LANDING_NOT_AVAILABLE }, 403);
+  return { account, tenant, role };
+}
+
+app.get("/api/v1/blogs/:blogId/landing", async (c) => {
+  const pre = await landingApiPreamble(c);
+  if (pre instanceof Response) return pre;
+  const { results } = await tenantDb(c.env, pre.tenant).prepare("SELECT * FROM landing_pages WHERE tenant_id = ? ORDER BY updated_at DESC").bind(pre.tenant.id).all<LandingPage>();
+  return c.json({ landing_pages: results.map(landingToJson) });
+});
+
+app.get("/api/v1/blogs/:blogId/landing/:id", async (c) => {
+  const pre = await landingApiPreamble(c);
+  if (pre instanceof Response) return pre;
+  const page = await tenantDb(c.env, pre.tenant).prepare("SELECT * FROM landing_pages WHERE id = ? AND tenant_id = ?").bind(Number(c.req.param("id")), pre.tenant.id).first<LandingPage>();
+  if (!page) return c.json({ error: "landing page not found" }, 404);
+  return c.json({ landing_page: landingToJson(page) });
+});
+
+app.post("/api/v1/blogs/:blogId/landing", async (c) => {
+  const pre = await landingApiPreamble(c);
+  if (pre instanceof Response) return pre;
+  const { account, tenant, role } = pre;
+  if (role !== "owner") return c.json({ error: "forbidden" }, 403);
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON body" }, 400); }
+  const title = String(body?.title ?? "").trim().slice(0, 200);
+  let slug = slugify(String(body?.slug ?? "")).slice(0, 100) || slugify(title).slice(0, 100);
+  if (!title || !slug) return c.json({ error: "title is required (and it must produce a valid slug)" }, 400);
+  const design = body?.design === undefined || body?.design === null || String(body.design) === ""
+    ? DEFAULT_LANDING_DESIGN
+    : String(body.design);
+  if (!LANDING_DESIGNS.some((d) => d.id === design)) return c.json({ error: `unknown design (choose one of: ${LANDING_DESIGNS.map((d) => d.id).join(", ")})` }, 400);
+  if ((await countLandingPages(c.env, tenant).catch(() => 0)) >= MAX_LANDING_PAGES)
+    return c.json({ error: `at most ${MAX_LANDING_PAGES} landing pages per blog` }, 409);
+  const content = parseLandingContent(body?.content ?? {});
+  const imageError = await validateLandingImages(c, tenant, content);
+  if (imageError) return c.json({ error: imageError }, 400);
+  const metaDescription = (body?.meta_description !== undefined ? String(body.meta_description).trim().slice(0, 300) : null) || null;
+  const published = body?.published ? 1 : 0;
+  const pdb = tenantDb(c.env, tenant);
+  slug = await uniqueLandingSlug(pdb, tenant.id, slug, undefined, 100);
+  const now = Math.floor(Date.now() / 1000);
+  let res: any;
+  for (let attempts = 0; attempts < 6; attempts++) {
+    try {
+      res = await pdb.prepare("INSERT INTO landing_pages (tenant_id, slug, title, design, content_json, meta_description, published, created_at, updated_at, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind(tenant.id, slug, title, design, JSON.stringify(content), metaDescription, published, now, now, published ? now : null).run();
+      break;
+    } catch (e: any) {
+      const msg = String(e?.message || "");
+      if (/UNIQUE|unique|already/i.test(msg) && attempts < 5) {
+        slug = withSlugSuffix(slug, 100);
+        continue;
+      }
+      throw e;
+    }
+  }
+  const id = res.meta.last_row_id as number;
+  const page = await pdb.prepare("SELECT * FROM landing_pages WHERE id = ?").bind(id).first<LandingPage>();
+  c.executionCtx.waitUntil(purgeTenant(c.env, tenant, [`/landing/${slug}`, "/sitemap.xml"]).catch(() => {}));
+  queueBlogAudit(c, tenant.id, account.id, published ? "landing_published" : "landing_created", slug);
+  return c.json({ landing_page: page ? landingToJson(page) : { id, slug, title, design, content, meta_description: metaDescription, published: !!published } }, 201);
+});
+
+app.patch("/api/v1/blogs/:blogId/landing/:id", async (c) => {
+  const pre = await landingApiPreamble(c);
+  if (pre instanceof Response) return pre;
+  const { account, tenant, role } = pre;
+  if (role !== "owner") return c.json({ error: "forbidden" }, 403);
+  const pdb = tenantDb(c.env, tenant);
+  const page = await pdb.prepare("SELECT * FROM landing_pages WHERE id = ? AND tenant_id = ?").bind(Number(c.req.param("id")), tenant.id).first<LandingPage>();
+  if (!page) return c.json({ error: "landing page not found" }, 404);
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON body" }, 400); }
+  const title = body?.title !== undefined ? String(body.title).trim().slice(0, 200) : page.title;
+  let slug = page.slug;
+  if (body?.slug !== undefined) {
+    slug = slugify(String(body.slug)).slice(0, 100) || slugify(title).slice(0, 100);
+    if (!slug) return c.json({ error: "slug is required" }, 400);
+    if (slug !== page.slug) slug = await uniqueLandingSlug(pdb, tenant.id, slug, page.id, 100);
+  }
+  if (!title) return c.json({ error: "title is required" }, 400);
+  const design = body?.design !== undefined ? String(body.design) : page.design;
+  if (!LANDING_DESIGNS.some((d) => d.id === design)) return c.json({ error: `unknown design (choose one of: ${LANDING_DESIGNS.map((d) => d.id).join(", ")})` }, 400);
+  let contentJson = page.content_json;
+  if (body?.content !== undefined) {
+    const content = parseLandingContent(body.content);
+    const imageError = await validateLandingImages(c, tenant, content);
+    if (imageError) return c.json({ error: imageError }, 400);
+    contentJson = JSON.stringify(content);
+  }
+  const metaDescription = body?.meta_description !== undefined ? (String(body.meta_description).trim().slice(0, 300) || null) : (page.meta_description ?? null);
+  const published = body?.published !== undefined ? (body.published ? 1 : 0) : page.published;
+  const now = Math.floor(Date.now() / 1000);
+  const publishedAt = published ? (page.published_at ?? now) : null;
+  const isHome = Number((tenant as any).home_landing_page_id ?? 0) === page.id;
+  // Unpublishing the homepage page: clear the index-DB pointer FIRST so
+  // a failed second write just leaves the blog as homepage (spec).
+  if (isHome && !published) {
+    await c.env.DB.prepare("UPDATE tenants SET home_landing_page_id = NULL WHERE id = ?").bind(tenant.id).run();
+  }
+  for (let attempts = 0; attempts < 6; attempts++) {
+    try {
+      await pdb.prepare("UPDATE landing_pages SET slug = ?, title = ?, design = ?, content_json = ?, meta_description = ?, published = ?, updated_at = ?, published_at = ? WHERE id = ? AND tenant_id = ?")
+        .bind(slug, title, design, contentJson, metaDescription, published, now, publishedAt, page.id, tenant.id).run();
+      break;
+    } catch (e: any) {
+      const msg = String(e?.message || "");
+      if (/UNIQUE|unique|already/i.test(msg) && attempts < 5) {
+        slug = withSlugSuffix(slug, 100);
+        continue;
+      }
+      throw e;
+    }
+  }
+  const updated = await pdb.prepare("SELECT * FROM landing_pages WHERE id = ?").bind(page.id).first<LandingPage>();
+  c.executionCtx.waitUntil(purgeTenant(c.env, tenant, [
+    `/landing/${page.slug}`, `/landing/${slug}`, "/sitemap.xml",
+    ...(isHome ? ["/"] : []),
+  ]).catch(() => {}));
+  return c.json({ landing_page: updated ? landingToJson(updated) : { id: page.id, slug, title, design } });
+});
+
+app.delete("/api/v1/blogs/:blogId/landing/:id", async (c) => {
+  const pre = await landingApiPreamble(c);
+  if (pre instanceof Response) return pre;
+  const { account, tenant, role } = pre;
+  if (role !== "owner") return c.json({ error: "forbidden" }, 403);
+  const page = await tenantDb(c.env, tenant).prepare("SELECT * FROM landing_pages WHERE id = ? AND tenant_id = ?").bind(Number(c.req.param("id")), tenant.id).first<LandingPage>();
+  if (!page) return c.json({ error: "landing page not found" }, 404);
+  const isHome = Number((tenant as any).home_landing_page_id ?? 0) === page.id;
+  // Clear the homepage pointer first (index DB), then delete (posts DB).
+  if (isHome) await c.env.DB.prepare("UPDATE tenants SET home_landing_page_id = NULL WHERE id = ?").bind(tenant.id).run();
+  await tenantDb(c.env, tenant).prepare("DELETE FROM landing_pages WHERE id = ? AND tenant_id = ?").bind(page.id, tenant.id).run();
+  c.executionCtx.waitUntil(purgeTenant(c.env, tenant, [`/landing/${page.slug}`, "/sitemap.xml", ...(isHome ? ["/"] : [])]).catch(() => {}));
+  queueBlogAudit(c, tenant.id, account.id, "landing_deleted", page.slug);
+  return new Response(null, { status: 204 });
+});
+
+// ---------------------------------------------------------------------------
 // Media (P0)
 // ---------------------------------------------------------------------------
 
@@ -2948,7 +3124,7 @@ app.post("/api/v1/blogs/:blogId/avatar", async (c) => {
   await c.env.MEDIA.put(key, await file.arrayBuffer(), { httpMetadata: { contentType: file.type, cacheControl: "public, max-age=31536000, immutable" } });
   if ((tenant as any).avatar_key) c.executionCtx.waitUntil(c.env.MEDIA.delete((tenant as any).avatar_key));
   await c.env.DB.prepare("UPDATE tenants SET avatar_key = ? WHERE id = ?").bind(key, tenant.id).run();
-  c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, tenant));
+  c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, tenant).catch(() => {}));
   return c.json({ url: `/media/${key}`, key }, 201);
 });
 
@@ -2963,7 +3139,7 @@ app.post("/api/v1/blogs/:blogId/avatar/remove", async (c) => {
   if ((tenant as any).avatar_key) {
     c.executionCtx.waitUntil(c.env.MEDIA.delete((tenant as any).avatar_key));
     await c.env.DB.prepare("UPDATE tenants SET avatar_key = NULL WHERE id = ?").bind(tenant.id).run();
-    c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, tenant));
+    c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, tenant).catch(() => {}));
   }
   return c.json({ ok: true });
 });
@@ -2994,7 +3170,7 @@ app.post("/api/v1/blogs/:blogId/favicon", async (c) => {
     await c.env.MEDIA.put(key, outBytes, { httpMetadata: { contentType: "image/x-icon", cacheControl: "public, max-age=3600" }, customMetadata: { originalName: file.name.slice(0, 200) } });
     if ((tenant as any).favicon_key) c.executionCtx.waitUntil(c.env.MEDIA.delete((tenant as any).favicon_key));
     await c.env.DB.prepare("UPDATE tenants SET favicon_key = ? WHERE id = ?").bind(key, tenant.id).run();
-    c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, tenant));
+    c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, tenant).catch(() => {}));
     return c.json({ ok: true, key, url: `/media/${key}` }, 201);
   } catch (e: any) {
     if (storedKey) c.executionCtx.waitUntil(c.env.MEDIA.delete(storedKey));
@@ -3013,7 +3189,7 @@ app.post("/api/v1/blogs/:blogId/favicon/remove", async (c) => {
   if ((tenant as any).favicon_key) {
     c.executionCtx.waitUntil(c.env.MEDIA.delete((tenant as any).favicon_key));
     await c.env.DB.prepare("UPDATE tenants SET favicon_key = NULL WHERE id = ?").bind(tenant.id).run();
-    c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, tenant));
+    c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, tenant).catch(() => {}));
   }
   return c.json({ ok: true });
 });
@@ -3167,7 +3343,7 @@ app.get("/api/domains/:hostname", async (c) => {
     )
       .bind(hostname, row.tenant_id)
       .run();
-    c.executionCtx.waitUntil(purgeHost(hostname, ["/", "/sitemap.xml"]));
+    c.executionCtx.waitUntil(purgeHost(hostname, ["/", "/sitemap.xml"]).catch(() => {}));
   }
 
   return c.json(instructions(c.env, hostname, result));
@@ -5146,7 +5322,7 @@ app.post("/admin/b/:blogId/audio/:id", async (c) => {
       throw error;
     }
     await c.env.MEDIA.delete(checkpointKeys);
-    c.executionCtx.waitUntil(purgeTenant(c.env, ctx.tenant, ["/" + post.slug]));
+    c.executionCtx.waitUntil(purgeTenant(c.env, ctx.tenant, ["/" + post.slug]).catch(() => {}));
       streamController.enqueue(encoder.encode(JSON.stringify({
         key,
         url: `/media/${key}`,
@@ -5196,7 +5372,7 @@ app.delete("/admin/b/:blogId/audio/:id", async (c) => {
     .bind(Math.floor(Date.now() / 1000), post.id, ctx.tenant.id)
     .run();
   if (post.audio_key) await c.env.MEDIA.delete(post.audio_key);
-  c.executionCtx.waitUntil(purgeTenant(c.env, ctx.tenant, ["/" + post.slug]));
+  c.executionCtx.waitUntil(purgeTenant(c.env, ctx.tenant, ["/" + post.slug]).catch(() => {}));
   return c.json({ ok: true });
 });
 
@@ -5235,7 +5411,7 @@ app.post("/admin/b/:blogId/audio/:id/upload", async (c) => {
     .bind(audio.key, Math.floor(Date.now() / 1000), post.id, ctx.tenant.id)
     .run();
   queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "media_uploaded", file.name);
-  c.executionCtx.waitUntil(purgeTenant(c.env, ctx.tenant, ["/" + post.slug]));
+  c.executionCtx.waitUntil(purgeTenant(c.env, ctx.tenant, ["/" + post.slug]).catch(() => {}));
   return c.json({ key: audio.key, url: audio.url }, 201);
 });
 
@@ -5828,7 +6004,7 @@ app.post("/admin/b/:blogId/settings", async (c) => {
     .run();
   queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "blog_settings_updated", "settings");
 
-  c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant));
+  c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant).catch(() => {}));
   const updated = { ...ctx.tenant, slug, title, description, footer_name: footerName, accent_color: accentColor.toLowerCase(), topics_json: JSON.stringify(normalizedTopics.topics), social_links_json: JSON.stringify(socialLinks), browser_push_enabled: browserPushEnabled, comments_enabled: commentsEnabled, header_link_url: headerLinkUrl, theme, custom_css: customCss, promo_enabled: promoEnabled, promo_placement: promoPlacement, promo_image: promoImage, promo_body_md: promoBody, promo_cta_text: promoCtaText, promo_cta_url: promoCtaUrl };
   return c.html(settingsPage(ctx.account, updated, { isOwner: ctx.role === "owner", notice: "Saved." }));
 });
@@ -6007,7 +6183,7 @@ app.post("/admin/b/:blogId/avatar", async (c) => {
     .bind(key, ctx.tenant.id)
     .run();
 
-  c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant));
+  c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant).catch(() => {}));
   return c.json({ url: `/media/${key}` });
 });
 
@@ -6021,7 +6197,7 @@ app.post("/admin/b/:blogId/avatar/remove", async (c) => {
     await c.env.DB.prepare("UPDATE tenants SET avatar_key = NULL WHERE id = ?")
       .bind(ctx.tenant.id)
       .run();
-    c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant));
+    c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant).catch(() => {}));
   }
   return c.json({ ok: true });
 });
@@ -6097,7 +6273,7 @@ app.post("/admin/b/:blogId/favicon", async (c) => {
     stage = "updating blog settings";
     await c.env.DB.prepare("UPDATE tenants SET favicon_key = ? WHERE id = ?").bind(key, ctx.tenant.id).run();
     queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "favicon_updated", key);
-    c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant));
+    c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant).catch(() => {}));
     return c.json({ ok: true, format: "ico", sizes: [16, 32, 48, 256] });
   } catch (error) {
     if (storedKey) c.executionCtx.waitUntil(c.env.MEDIA.delete(storedKey));
@@ -6182,7 +6358,7 @@ app.post("/admin/b/:blogId/favicon/remove", async (c) => {
   if (!can(ctx.role, "settings.manage")) return c.json({ error: "forbidden" }, 403);
   if (ctx.tenant.favicon_key) c.executionCtx.waitUntil(c.env.MEDIA.delete(ctx.tenant.favicon_key));
   await c.env.DB.prepare("UPDATE tenants SET favicon_key = NULL WHERE id = ?").bind(ctx.tenant.id).run();
-  c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant));
+  c.executionCtx.waitUntil(purgeTenantEverywhere(c.env, ctx.tenant).catch(() => {}));
   return c.json({ ok: true });
 });
 
@@ -6474,7 +6650,7 @@ app.post("/admin/b/:blogId/import/blogger", async (c) => {
     for (let i = 0; i < statements.length; i += 100) {
       await pdb.batch(statements.slice(i, i + 100));
     }
-    c.executionCtx.waitUntil(purgeTenant(c.env, ctx.tenant, ["/", "/sitemap.xml"]));
+    c.executionCtx.waitUntil(purgeTenant(c.env, ctx.tenant, ["/", "/sitemap.xml"]).catch(() => {}));
     if (paths.length) queueIndexNow(c, ctx.tenant, ["/", ...paths.slice(0, 99)]);
     queueBlogAudit(c, ctx.tenant.id, ctx.account.id, "blogger_imported", `${posts} posts, ${pages} pages`);
   }
@@ -6981,7 +7157,7 @@ app.post("/admin/b/:blogId/domains/check", async (c) => {
     await c.env.DB.prepare("UPDATE tenants SET custom_domain = ? WHERE id = ?")
       .bind(hostname, ctx.tenant.id)
       .run();
-    c.executionCtx.waitUntil(purgeHost(hostname, ["/", "/sitemap.xml"]));
+    c.executionCtx.waitUntil(purgeHost(hostname, ["/", "/sitemap.xml"]).catch(() => {}));
   }
 
   return render({ instructions: instructions(c.env, hostname, result) });

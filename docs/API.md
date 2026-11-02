@@ -172,6 +172,34 @@ Cleans `navigation_links` references and purges caches.
 
 ---
 
+## 5b. Landing pages — designs + content (owner-only writes)
+
+Same model as the admin editor: `design` must be `hero`, `business`, `shop`, or `minimal` (omitted defaults to `hero`). `content` carries `hero {headline ≤120, subheadline ≤300, image_key}`, `ctas` (up to 2 `{label ≤40, href}`), `intro_md ≤4000`, `features` (up to 6 `{title ≤80, body_md ≤600, image_key}`), `contact {email, phone, address, hours, map_url}`, and `show_latest_posts` bool. Limits mirror `LANDING_LIMITS` in `src/landing-view.ts`; overlong strings are trimmed, bad hrefs dropped, invalid emails cleared. Image keys must already exist in the blog's media library. Every endpoint needs landing eligibility for the blog (`off`/`vip`/`paid`/`all` rollout) or it returns `403 Landing pages are not available on this account.` Reads need any membership role; create/update/delete need the `owner` role. At most 10 landing pages per blog (`409` past that). Publishing a page does not make it the homepage — that stays a separate admin step (`Make this my homepage`).
+
+### `GET /api/v1/blogs/:blogId/landing` · `GET /api/v1/blogs/:blogId/landing/:id`
+
+`200 { landing_pages: [...] }` / `{ landing_page: {...} }` with parsed `content`, or `404 { error: "landing page not found" }`.
+
+### `POST /api/v1/blogs/:blogId/landing` — create (owner-only)
+
+```bash
+curl -X POST https://www.blognice.com/api/v1/blogs/ggh6gvgsgj4h/landing \
+  -H "Authorization: Bearer [REDACTED]" -H "Content-Type: application/json" \
+  -d '{"title":"Welcome","slug":"welcome","design":"hero","published":true,"content":{"hero":{"headline":"Small-batch coffee, roasted every Tuesday.","subheadline":"Single-origin beans."},"ctas":[{"label":"Shop beans","href":"https://shop.example.com"}],"intro_md":"Our story.","features":[{"title":"Direct trade","body_md":"Paid above Fair Trade."}],"contact":{"email":"hello@example.com"},"show_latest_posts":true}}'
+```
+
+Fields: `title ≤200` (required), `slug ≤100` (auto from title, auto-suffixed on clash), `design`, `content`, `meta_description ≤300`, `published` bool. `201 { landing_page }`. Purges `/landing/:slug`, `/sitemap.xml`.
+
+### `PATCH /api/v1/blogs/:blogId/landing/:id` — update (owner-only)
+
+Partial: `title`, `slug` (re-uniquified on change), `design`, `content` (replaces whole content; images re-validated), `meta_description`, `published`. Unpublishing the blog's homepage page clears the homepage pointer first, so the blog stays up. Purges old + new `/landing/:slug`, `/sitemap.xml`, and `/` when it was the homepage.
+
+### `DELETE /api/v1/blogs/:blogId/landing/:id` — delete (owner-only)
+
+Clears the homepage pointer first when deleting the homepage page, then deletes. Purges `/landing/:slug`, `/sitemap.xml`, and `/` when it was the homepage. `204` empty.
+
+---
+
 ## 6. Custom navigation & icon link — how they work together
 
 - **Pages** with `show_in_navigation:true` appear in header ordered by `navigation_order`.

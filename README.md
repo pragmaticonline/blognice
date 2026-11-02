@@ -150,7 +150,7 @@ fast, server-rendered pages.
   nightly cron stores aggregate daily JSON rollups in R2 for retention beyond
   Analytics Engine's 90-day window.
 - **A token-protected API** covering the whole blog — settings, branding, theme, custom CSS, navigation,
-  header link, posts, pages, media, and domains — so a script or an AI agent with your API key can customize
+  header link, posts, pages, landing pages, media, and domains — so a script or an AI agent with your API key can customize
   and run a blog end to end. Full reference in [`docs/API.md`](docs/API.md) with machine-readable [`docs/openapi.yaml`](docs/openapi.yaml).
 - **Per-account API keys** — every account holder generates their own key at
   `/admin/api-key` and manages their blogs and posts via `/api/v1/*`, scoped to

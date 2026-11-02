@@ -2,7 +2,7 @@ export const OPENAPI_YAML = `openapi: 3.1.0
 info:
   title: Blognice API
   version: 1.0.0
-  description: Token-protected API for managing blogs, posts, pages, and media on Blognice. Custom domains are managed in Blog Settings → Domains (no API keys). Base URL https://www.blognice.com — see docs/API.md for human reference.
+  description: Token-protected API for managing blogs, posts, pages, landing pages, and media on Blognice. Custom domains are managed in Blog Settings → Domains (no API keys). Base URL https://www.blognice.com — see docs/API.md for human reference.
   contact:
     name: Blognice
     url: https://blognice.com
@@ -64,6 +64,21 @@ components:
         navigation_order: { type: integer }
         navigation_new_tab: { type: boolean, description: 'Open this page in a new tab from the blog header' }
         meta_description: { type: string, nullable: true }
+        created_at: { type: integer }
+        updated_at: { type: integer }
+        published_at: { type: integer, nullable: true }
+    LandingPage:
+      type: object
+      properties:
+        id: { type: integer }
+        slug: { type: string }
+        title: { type: string }
+        design: { type: string, enum: [hero, business, shop, minimal] }
+        content:
+          type: object
+          description: 'Parsed content: hero {headline, subheadline, image_key}, ctas (max 2 {label, href}), intro_md, features (max 6 {title, body_md, image_key}), contact {email, phone, address, hours, map_url}, show_latest_posts'
+        meta_description: { type: string, nullable: true }
+        published: { type: boolean }
         created_at: { type: integer }
         updated_at: { type: integer }
         published_at: { type: integer, nullable: true }
@@ -214,6 +229,43 @@ paths:
       responses: { '200': { description: OK } }
     delete:
       summary: Delete page
+      parameters: [{ name: blogId, in: path, required: true, schema: { type: string } }, { name: id, in: path, required: true, schema: { type: integer } }]
+      responses: { '200': { description: OK } }
+  /api/v1/blogs/{blogId}/landing:
+    get:
+      summary: List landing pages
+      parameters: [{ name: blogId, in: path, required: true, schema: { type: string } }]
+      responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { landing_pages: { type: array, items: { $ref: '#/components/schemas/LandingPage' } } } } } } } }
+    post:
+      summary: Create landing page (owner-only)
+      parameters: [{ name: blogId, in: path, required: true, schema: { type: string } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string, maxLength: 200 }
+                slug: { type: string }
+                design: { type: string, enum: [hero, business, shop, minimal], description: 'Omitted defaults to hero' }
+                content: { $ref: '#/components/schemas/LandingPage/properties/content' }
+                meta_description: { type: string }
+                published: { type: boolean }
+      responses: { '201': { description: Created } }
+  /api/v1/blogs/{blogId}/landing/{id}:
+    get:
+      summary: Get landing page
+      parameters: [{ name: blogId, in: path, required: true, schema: { type: string } }, { name: id, in: path, required: true, schema: { type: integer } }]
+      responses: { '200': { description: OK } }
+    patch:
+      summary: Update landing page (owner-only)
+      parameters: [{ name: blogId, in: path, required: true, schema: { type: string } }, { name: id, in: path, required: true, schema: { type: integer } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { title: { type: string }, slug: { type: string }, design: { type: string, enum: [hero, business, shop, minimal] }, content: { type: object }, meta_description: { type: string }, published: { type: boolean } } } } } }
+      responses: { '200': { description: OK } }
+    delete:
+      summary: Delete landing page (owner-only)
       parameters: [{ name: blogId, in: path, required: true, schema: { type: string } }, { name: id, in: path, required: true, schema: { type: integer } }]
       responses: { '200': { description: OK } }
   /api/v1/blogs/{blogId}/media:
