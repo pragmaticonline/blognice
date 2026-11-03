@@ -479,6 +479,7 @@ function cleanSpeech(value: string, overrides: PronunciationReplacement[] = []):
   return disambiguateClose(disambiguateLead(disambiguateUse(disambiguateLives(disambiguateLive(disambiguateRead(spokenForms(applyManagedSpokenForms(spokenDomains(expandDecimalNumbers(expandModelNames(expandClockTimes(expandCurrencyScale(removeNumericSeparators(removeEmoji(value))))))), overrides))))))))
     .replace(/\s*[—–]\s*/g, ", ")
     .replace(/\s*&\s*/g, " and ")
+    .replace(/\s*%\s*/g, " percent ")
     .replace(/\s+([.,!?;:])(?!\.\.)/g, "$1")
     .replace(/([:;])(?=\s+\S)/g, `$1${TTS_SOFT_PAUSE}`)
     // Preserve pause intent as paragraph breaks. MeloTTS sometimes vocalizes
