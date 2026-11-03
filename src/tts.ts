@@ -38,6 +38,19 @@ export async function readTtsVoiceSetting(db: D1Database): Promise<string | null
     return null;
   }
 }
+
+// Staff pronunciation dictionary entries for narration preparation. Fails
+// closed to no overrides when the optional migration has not been applied.
+export async function readPronunciationOverrides(db: D1Database): Promise<PronunciationReplacement[]> {
+  try {
+    const { results } = await db.prepare(
+      "SELECT term AS original, spoken FROM pronunciation_overrides WHERE enabled = 1 ORDER BY length(term) DESC, term LIMIT 500"
+    ).all<{ original: string; spoken: string }>();
+    return (results ?? []).filter((row) => row.original.trim() && row.spoken.trim());
+  } catch {
+    return [];
+  }
+}
 export const TTS_RETRY_DELAYS = [250, 500, 1_000, 1_500, 2_000, 2_000, 2_000, 2_000, 2_000, 2_000, 2_000, 2_000] as const;
 // Cut audio that survives the whole normal schedule is usually upstream
 // degradation lasting minutes, not a bad request. One slower second wind
@@ -577,6 +590,15 @@ export function narrationSections(title: string, markdown: string, overrides: Pr
 export function narrationText(title: string, markdown: string, overrides: PronunciationReplacement[] = []): string {
   const sections = narrationSections(title, markdown, overrides);
   return [sections.title, sections.body].filter(Boolean).join(" ... ");
+}
+
+// Staff pronunciation probe: the same spoken-form expansion article
+// narration uses, flattened to a single synthesis prompt. Structural pause
+// markers become plain spacing — the engine still pauses at the sentence
+// periods — because the probe renders one prompt, not per-sentence segments.
+export function narrationSample(text: string, overrides: PronunciationReplacement[] = []): string {
+  const { body } = narrationSections("", text, overrides);
+  return body.replaceAll(TTS_HARD_PAUSE, " ").replaceAll("\u0000", " ").replace(/\s+/g, " ").trim();
 }
 
 export function pronunciationReplacements(output: string, source: string): PronunciationReplacement[] {
