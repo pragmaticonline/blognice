@@ -354,6 +354,21 @@ test("narration expands decimal numbers into spoken words", () => {
   assert.doesNotMatch(text, /one point/);
 });
 
+test("narration reads temperatures as degrees see or eff", () => {
+  const text = narrationText(
+    "Heat",
+    "It hit 50°C today, up from 30 °C and -5°C, with 72°F elsewhere, 36.6°C in the lab, and a 90° turn.",
+  );
+  assert.match(text, /50 degrees see/);
+  assert.match(text, /30 degrees see/);
+  assert.match(text, /-5 degrees see/);
+  assert.match(text, /72 degrees eff/);
+  assert.match(text, /thirty six point six degrees see/);
+  assert.match(text, /90 degrees/);
+  assert.doesNotMatch(text, /°|℃|℉/);
+  assert.doesNotMatch(text, /degrees [CF]\b/);
+});
+
 test("narration reads percent signs as the word percent", () => {
   const text = narrationText("Growth", "Revenue grew 80% this year, up from 50 % last year and 48.9% overall.");
   assert.match(text, /80 percent/);
