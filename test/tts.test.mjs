@@ -354,6 +354,14 @@ test("narration expands decimal numbers into spoken words", () => {
   assert.doesNotMatch(text, /one point/);
 });
 
+test("narration reads percent signs as the word percent", () => {
+  const text = narrationText("Growth", "Revenue grew 80% this year, up from 50 % last year and 48.9% overall.");
+  assert.match(text, /80 percent/);
+  assert.match(text, /50 percent/);
+  assert.match(text, /forty eight point nine percent/);
+  assert.doesNotMatch(text, /%/);
+});
+
 test("sentence splitting keeps abbreviation boundaries inline", () => {
   assert.deepEqual(splitSentences("She lives in St.\n\nLouis."), ["She lives in St.\n\nLouis."]);
   assert.deepEqual(splitSentences("On Jan.\n\n5 we ship."), ["On Jan.\n\n5 we ship."]);
