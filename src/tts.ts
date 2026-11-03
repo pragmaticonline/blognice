@@ -407,6 +407,26 @@ function expandCurrencyScale(value: string): string {
     });
 }
 
+// Temperature readings ("50°C", "30 °C", "72°F", "36.6°C", "90°") reach the
+// TTS engine raw and get misread, so expand the degree symbol: the number
+// stays in digits (as with percent) and the unit is spelled phonetically
+// ("50 degrees see"). A bare letter does not render reliably, so the word
+// "see" is used instead of "C" (and "eff" instead of "F"). Runs before
+// expandDecimalNumbers so decimal temperatures ("36.6°C") still expand
+// their numeric part there. Bare ligatures ("℃"/"℉") and a bare unit
+// ("°C") expand the same way; any other leftover "°" (coordinates such as
+// "40°N") falls back to the word "degrees".
+function expandTemperatures(value: string): string {
+  return value
+    .replace(/(-?\d+(?:\.\d+)?)\s*°\s*([CcFf])\b/g, (_match: string, num: string, unit: string) => `${num} degrees ${unit.toUpperCase() === "C" ? "see" : "eff"}`)
+    .replace(/(-?\d+(?:\.\d+)?)\s*([℃℉])/g, (_match: string, num: string, unit: string) => `${num} degrees ${unit === "℉" ? "eff" : "see"}`)
+    .replace(/°\s*([CcFf])\b/g, (_match: string, unit: string) => `degrees ${unit.toUpperCase() === "C" ? "see" : "eff"}`)
+    .replace(/℃/g, "degrees see")
+    .replace(/℉/g, "degrees eff")
+    .replace(/(-?\d+(?:\.\d+)?)\s*°(?!\w)/g, "$1 degrees")
+    .replace(/\s*°\s*/g, " degrees ");
+}
+
 // Clock times ("9am", "5 pm", "12:30pm") reach the TTS engine raw and get
 // misread, so expand them: hour in words, minutes when nonzero ("nine
 // thirty"; a leading zero is voiced: "nine oh five"). The morning meridiem
@@ -489,7 +509,7 @@ function removeMarkdownTables(value: string): string {
 }
 
 function cleanSpeech(value: string, overrides: PronunciationReplacement[] = []): string {
-  return disambiguateClose(disambiguateLead(disambiguateUse(disambiguateLives(disambiguateLive(disambiguateRead(spokenForms(applyManagedSpokenForms(spokenDomains(expandDecimalNumbers(expandModelNames(expandClockTimes(expandCurrencyScale(removeNumericSeparators(removeEmoji(value))))))), overrides))))))))
+  return disambiguateClose(disambiguateLead(disambiguateUse(disambiguateLives(disambiguateLive(disambiguateRead(spokenForms(applyManagedSpokenForms(spokenDomains(expandDecimalNumbers(expandTemperatures(expandModelNames(expandClockTimes(expandCurrencyScale(removeNumericSeparators(removeEmoji(value)))))))), overrides))))))))
     .replace(/\s*[—–]\s*/g, ", ")
     .replace(/\s*&\s*/g, " and ")
     .replace(/\s*%\s*/g, " percent ")
