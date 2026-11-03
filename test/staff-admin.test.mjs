@@ -610,6 +610,54 @@ test("staff TTS samples render on the active narration engine", async () => {
   }
 });
 
+test("staff TTS samples run article narration preparation", async () => {
+  const staffApp = typeof staffModule.request === "function" ? staffModule : staffModule.default;
+  const mf = new Miniflare({ modules: true, script: "export default { fetch() { return new Response('ok') } }", d1Databases: { DB: "staff-tts-narration" } });
+  const originalFetch = globalThis.fetch;
+  const sampleWav = (() => {
+    const bytes = new Uint8Array(48);
+    const view = new DataView(bytes.buffer);
+    for (const [offset, text] of [[0, "RIFF"], [8, "WAVE"], [12, "fmt "], [36, "data"]])
+      for (let i = 0; i < text.length; i++) bytes[offset + i] = text.charCodeAt(i);
+    view.setUint32(4, 40, true);
+    view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+    view.setUint32(24, 24_000, true); view.setUint32(28, 48_000, true);
+    view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+    view.setUint32(40, 4, true);
+    return bytes;
+  })();
+  try {
+    const db = await mf.getD1Database("DB");
+    const baseSchema = readFileSync(new URL("../schema.sql", import.meta.url), "utf8");
+    for (const s of baseSchema.replace(/^[ \t]*--.*(?:\r?\n|$)/gm, "").split(/;\s*(?=\r?\n|$)/).map((v) => v.trim()).filter(Boolean)) await db.prepare(s).run();
+    const now = Math.floor(Date.now() / 1000);
+    const adminAccess = await accessFixture("staff|narrationadmin", "narrationadmin@blognice.com");
+    await db.prepare("INSERT INTO staff_users (subject, email, role, active, created_at, updated_at) VALUES ('staff|narrationadmin','narrationadmin@blognice.com','admin',1,?,?)").bind(now, now).run();
+    globalThis.fetch = async (url) => {
+      if (String(url).endsWith("/cdn-cgi/access/certs")) return new Response(JSON.stringify({ keys: [adminAccess.publicJwk] }), { status: 200 });
+      throw new Error("unexpected " + url);
+    };
+    const calls = [];
+    const ai = {
+      run: async (model, input) => {
+        calls.push({ model, input });
+        return sampleWav;
+      },
+    };
+    const res = await staffApp.request(new Request("https://staff.blognice.test/api/tts-test", {
+      method: "POST",
+      headers: { "Cf-Access-Jwt-Assertion": adminAccess.token, Origin: "https://staff.blognice.test", "content-type": "application/json" },
+      body: JSON.stringify({ text: "It got 20% faster." }),
+    }), undefined, { DB: db, AI: ai, ACCESS_TEAM_DOMAIN: "team.cloudflareaccess.com", ACCESS_AUD: "staff-audience" });
+    assert.equal(res.status, 200);
+    assert.match(calls[0].input.prompt, /20 percent/);
+    assert.doesNotMatch(calls[0].input.prompt, /%/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await mf.dispose();
+  }
+});
+
 test("staff TTS voice switch persists and gates by role", async () => {
   const staffApp = typeof staffModule.request === "function" ? staffModule : staffModule.default;
   const mf = new Miniflare({ modules: true, script: "export default { fetch() { return new Response('ok') } }", d1Databases: { DB: "staff-tts-voice" } });
