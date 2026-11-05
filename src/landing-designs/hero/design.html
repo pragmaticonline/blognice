@@ -75,13 +75,13 @@ h2{font:700 1.8rem/1.2 var(--serif);margin:0 0 1.75rem}
   </div>
 </header>
 <main>
-  {{#intro_html}}<section class="wrap"><div class="lp-intro">{{{intro_html}}}</div></section>{{/intro_html}}
-  {{#has_features}}<section class="wrap"><div class="lp-features">{{#features}}
+  {{#intro_html}}<section class="wrap">{{#intro_heading}}<h2>{{intro_heading}}</h2>{{/intro_heading}}<div class="lp-intro">{{{intro_html}}}</div></section>{{/intro_html}}
+  {{#has_features}}<section class="wrap">{{#features_heading}}<h2>{{features_heading}}</h2>{{/features_heading}}<div class="lp-features">{{#features}}
     <article class="lp-feature">{{#image_url}}<img src="{{image_url}}" alt="" loading="lazy" width="800" height="600">{{/image_url}}<div><h3>{{title}}</h3>{{{body_html}}}</div></article>{{/features}}
   </div></section>{{/has_features}}
-  {{#has_posts}}<section class="wrap lp-posts" aria-labelledby="lp-posts-h"><h2 id="lp-posts-h">From the blog</h2>
+  {{#has_posts}}<section class="wrap lp-posts" aria-labelledby="lp-posts-h">{{#posts_heading}}<h2 id="lp-posts-h">{{posts_heading}}</h2>{{/posts_heading}}{{^posts_heading}}<h2 id="lp-posts-h">From the blog</h2>{{/posts_heading}}
     <div class="post-list">{{#posts}}<a href="{{url}}">{{#image_url}}<img src="{{image_url}}" alt="" loading="lazy" width="640" height="360">{{/image_url}}<time>{{date}}</time><h3>{{title}}</h3></a>{{/posts}}</div>
-    <a class="all" href="{{blog_url}}">All posts →</a>
+    {{#has_blog_link}}<a class="all" href="{{blog_url}}">All posts →</a>{{/has_blog_link}}
   </section>{{/has_posts}}
   {{#contact.has_any}}<section class="wrap lp-contact" aria-labelledby="lp-contact-h"><h2 id="lp-contact-h">Contact</h2><dl>
     {{#contact.email}}<div><dt>Email</dt><dd><a href="{{contact.email_href}}">{{contact.email}}</a></dd></div>{{/contact.email}}
@@ -90,7 +90,7 @@ h2{font:700 1.8rem/1.2 var(--serif);margin:0 0 1.75rem}
     {{#contact.hours}}<div><dt>Hours</dt><dd>{{contact.hours}}</dd></div>{{/contact.hours}}
   </dl></section>{{/contact.has_any}}
 </main>
-<footer class="lp-footer"><div class="wrap"><span>© {{site.year}} {{site.footer_name}}</span><span><a href="{{blog_url}}">Blog</a> · <a href="/rss.xml">RSS</a> · Powered by blognice</span></div></footer>
+<footer class="lp-footer"><div class="wrap"><span>© {{site.year}} {{site.footer_name}}</span><span>{{#has_blog_link}}<a href="{{blog_url}}">Blog</a> · {{/has_blog_link}}<a href="/rss.xml">RSS</a>{{#has_powered_by}} · Powered by blognice{{/has_powered_by}}</span></div></footer>
 {{{body_end_html}}}
 </body>
 </html>

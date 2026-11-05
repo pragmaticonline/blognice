@@ -19,6 +19,12 @@ test("landing and tenant pages link to the cached SVG favicon", () => {
   assert.match(indexSource, /app\.get\("\/favicon\.svg"/);
 });
 
+test("tenant-wide purges include the favicon URLs", () => {
+  const fn = indexSource.match(/async function purgeTenantEverywhere[\s\S]*?\n\}/)?.[0] ?? "";
+  assert.match(fn, /"\/favicon\.svg"/);
+  assert.match(fn, /"\/favicon\.ico"/);
+});
+
 test("uploaded PNG and ICO favicons are validated by file signature", () => {
   assert.match(indexSource, /const isPng =/);
   assert.match(indexSource, /const isIco =/);

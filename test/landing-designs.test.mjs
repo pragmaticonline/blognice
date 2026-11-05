@@ -140,6 +140,54 @@ test("post thumbnails render from featured image keys, and are omitted without o
   assert.equal(view.posts[0].image_url, null, "unsafe image keys resolve to no thumbnail");
 });
 
+// --- Footer toggles -----------------------------------------------------------
+
+test("footer toggles default on; off hides blog and powered-by links", () => {
+  const { show_blog_link, show_powered_by } = parseLandingContent({});
+  assert.equal(show_blog_link, true, "blog link defaults on");
+  assert.equal(show_powered_by, true, "powered-by defaults on");
+  assert.equal(parseLandingContent({ show_blog_link: false }).show_blog_link, false);
+  assert.equal(parseLandingContent({ show_powered_by: false }).show_powered_by, false);
+
+  const hero = LANDING_DESIGNS.find((d) => d.id === "hero");
+  const minimal = LANDING_DESIGNS.find((d) => d.id === "minimal");
+  const off = { show_blog_link: false, show_powered_by: false, show_latest_posts: true };
+  for (const design of [hero, minimal]) {
+    const html = render(design, off, {});
+    assert.ok(!html.includes("{{blog_url}}"), `${design.id} has no unrendered blog_url`);
+    assert.ok(!html.includes(">Blog<"), `${design.id} hides the blog link`);
+    assert.ok(!html.includes("Powered by blognice"), `${design.id} hides powered-by`);
+  }
+  const on = render(hero, {}, {});
+  assert.ok(on.includes(">Blog<"), "blog link renders by default");
+  assert.ok(on.includes("Powered by blognice"), "powered-by renders by default");
+
+  const view = buildLandingView(parseLandingContent(off), site({}));
+  assert.equal(view.has_blog_link, false);
+  assert.equal(view.has_powered_by, false);
+  assert.ok(view.nav_all.every((n) => n.label !== "Blog"), "blog nav entry filtered");
+});
+
+test("section headings use design defaults; custom headings override and escape", () => {
+  const shop = LANDING_DESIGNS.find((d) => d.id === "shop");
+  const hero = LANDING_DESIGNS.find((d) => d.id === "hero");
+  const withIntro = { intro_md: "Hello words", features: [{ title: "F" }], show_latest_posts: true };
+  const shopDefault = render(shop, withIntro, {});
+  assert.ok(shopDefault.includes("<h2 id=\"lp-story-h\">Our story</h2>"), "shop intro default");
+  assert.ok(shopDefault.includes("<h2 id=\"lp-items-h\">Featured</h2>"), "shop features default");
+  const custom = render(shop, { ...withIntro, intro_heading: "Why us", features_heading: "Offers", posts_heading: "News" }, {});
+  assert.ok(custom.includes("<h2 id=\"lp-story-h\">Why us</h2>"), "shop intro override");
+  assert.ok(custom.includes("<h2 id=\"lp-items-h\">Offers</h2>"), "shop features override");
+  assert.ok(custom.includes("<h2 id=\"lp-posts-h\">News</h2>"), "shop posts override");
+  assert.ok(!custom.includes("Our story") && !custom.includes(">Featured<"), "defaults gone when overridden");
+  const evil = render(shop, { ...withIntro, intro_heading: "<script>alert(1)</script>" }, {});
+  assert.ok(!evil.includes("<script>alert(1)"), "custom headings escape");
+  const heroCustom = render(hero, { ...withIntro, features_heading: "Offers" }, {});
+  assert.ok(heroCustom.includes("<h2>Offers</h2>"), "hero renders a features heading only when set");
+  const heroDefault = render(hero, withIntro, {});
+  assert.ok(!heroDefault.includes("<h2>Offers</h2>") && heroDefault.includes("<h2 id=\"lp-posts-h\">From the blog</h2>"), "hero unchanged by default");
+});
+
 // --- Engine -----------------------------------------------------------------
 
 test("engine: escapes, sections, inverted sections, loops, outer-scope lookup", () => {
@@ -188,6 +236,8 @@ test("parseLandingContent clamps, drops unknown keys and bad values", () => {
   assert.equal(c.contact.phone, "+66 (2) 123");
   assert.ok(!("extra" in c));
   assert.deepEqual(parseLandingContent("not json").ctas, []);
+  assert.equal(parseLandingContent({}).intro_heading, "", "headings default to blank (design default)");
+  assert.equal(parseLandingContent({ intro_heading: "x".repeat(500) }).intro_heading.length, 80, "headings clamp to 80");
 });
 
 test("safeLandingHref allows only safe schemes and same-site paths", () => {

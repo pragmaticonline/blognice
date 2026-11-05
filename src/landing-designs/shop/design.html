@@ -78,16 +78,16 @@ section{padding:3.5rem 0}h2{font:800 1.9rem/1.15 var(--display);margin:0 0 1.5re
     {{#contact.phone}}<div><h3>Call</h3><p><a href="{{contact.phone_href}}">{{contact.phone}}</a></p></div>{{/contact.phone}}
     {{#contact.email}}<div><h3>Email</h3><p><a href="{{contact.email_href}}">{{contact.email}}</a></p></div>{{/contact.email}}
   </div></div>{{/contact.has_any}}
-  {{#has_features}}<section class="wrap" aria-labelledby="lp-items-h"><h2 id="lp-items-h">Featured</h2>
+  {{#has_features}}<section class="wrap" aria-labelledby="lp-items-h">{{#features_heading}}<h2 id="lp-items-h">{{features_heading}}</h2>{{/features_heading}}{{^features_heading}}<h2 id="lp-items-h">Featured</h2>{{/features_heading}}
     <div class="lp-features">{{#features}}<article class="lp-feature">{{#image_url}}<img src="{{image_url}}" alt="" loading="lazy" width="600" height="750">{{/image_url}}<h3>{{title}}</h3>{{{body_html}}}</article>{{/features}}</div>
   </section>{{/has_features}}
-  {{#intro_html}}<section class="wrap" aria-labelledby="lp-story-h"><h2 id="lp-story-h">Our story</h2><div class="lp-intro">{{{intro_html}}}</div></section>{{/intro_html}}
-  {{#has_posts}}<section class="wrap lp-posts" aria-labelledby="lp-posts-h"><h2 id="lp-posts-h">From the journal</h2>
-    {{#posts}}<a class="post" href="{{url}}">{{#image_url}}<img class="thumb" src="{{image_url}}" alt="" loading="lazy" width="176" height="132">{{/image_url}}<span><time>{{date}}</time>{{title}}</span></a>{{/posts}}<a class="all" href="{{blog_url}}">All posts →</a>
+  {{#intro_html}}<section class="wrap" aria-labelledby="lp-story-h">{{#intro_heading}}<h2 id="lp-story-h">{{intro_heading}}</h2>{{/intro_heading}}{{^intro_heading}}<h2 id="lp-story-h">Our story</h2>{{/intro_heading}}<div class="lp-intro">{{{intro_html}}}</div></section>{{/intro_html}}
+  {{#has_posts}}<section class="wrap lp-posts" aria-labelledby="lp-posts-h">{{#posts_heading}}<h2 id="lp-posts-h">{{posts_heading}}</h2>{{/posts_heading}}{{^posts_heading}}<h2 id="lp-posts-h">From the journal</h2>{{/posts_heading}}
+    {{#posts}}<a class="post" href="{{url}}">{{#image_url}}<img class="thumb" src="{{image_url}}" alt="" loading="lazy" width="176" height="132">{{/image_url}}<span><time>{{date}}</time>{{title}}</span></a>{{/posts}}{{#has_blog_link}}<a class="all" href="{{blog_url}}">All posts →</a>{{/has_blog_link}}
   </section>{{/has_posts}}
   {{#cta_primary}}<section class="wrap cta-band"><a class="lp-cta lp-cta--primary" href="{{href}}">{{label}}</a></section>{{/cta_primary}}
 </main>
-<footer class="lp-footer"><div class="wrap"><span>© {{site.year}} {{site.footer_name}}</span><span><a href="{{blog_url}}">Blog</a> · Powered by blognice</span></div></footer>
+<footer class="lp-footer"><div class="wrap"><span>© {{site.year}} {{site.footer_name}}</span><span>{{#has_blog_link}}<a href="{{blog_url}}">Blog</a>{{/has_blog_link}}{{#has_powered_by}}{{#has_blog_link}} · {{/has_blog_link}}Powered by blognice{{/has_powered_by}}</span></div></footer>
 {{{body_end_html}}}
 </body>
 </html>
