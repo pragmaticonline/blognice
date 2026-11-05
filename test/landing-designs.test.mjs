@@ -156,11 +156,12 @@ test("footer toggles default on; off hides blog and powered-by links", () => {
     const html = render(design, off, {});
     assert.ok(!html.includes("{{blog_url}}"), `${design.id} has no unrendered blog_url`);
     assert.ok(!html.includes(">Blog<"), `${design.id} hides the blog link`);
-    assert.ok(!html.includes("Powered by blognice"), `${design.id} hides powered-by`);
+    assert.ok(!html.includes("Powered by"), `${design.id} hides powered-by`);
   }
   const on = render(hero, {}, {});
   assert.ok(on.includes(">Blog<"), "blog link renders by default");
-  assert.ok(on.includes("Powered by blognice"), "powered-by renders by default");
+  assert.ok(on.includes("Powered by"), "powered-by renders by default");
+  assert.ok(on.includes('<a href="https://www.blognice.com"'), "powered-by links to blognice.com");
 
   const view = buildLandingView(parseLandingContent(off), site({}));
   assert.equal(view.has_blog_link, false);
