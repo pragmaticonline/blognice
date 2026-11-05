@@ -431,6 +431,11 @@ test("design picker renders visual layout cards for every design", async () => {
     assert.match(html, /data-lp-choose="lp-hero_image_key"/);
     assert.match(html, /type="hidden" name="hero_image_key" id="lp-hero_image_key"/);
     assert.doesNotMatch(html, /Hero image media key/);
+    assert.match(html, /name="show_blog_link"[^>]*checked/, "blog link toggle defaults on");
+    assert.match(html, /name="show_powered_by"[^>]*checked/, "powered-by toggle defaults on");
+    assert.match(html, /name="features_heading"/, "features heading setting present");
+    assert.match(html, /name="intro_heading"/, "intro heading setting present");
+    assert.match(html, /name="posts_heading"/, "posts heading setting present");
   } finally { await s.mf.dispose(); }
 });
 
@@ -448,6 +453,32 @@ test("max 10 landing pages per tenant; valid owned image saves and renders", asy
     const pub = await blogniceApp.request(s.pub("/landing/with-image"), undefined, s.env, ctx);
     assert.equal(pub.status, 200);
     assert.match(await pub.text(), /\/media\/1\/hero\.jpg/);
+  } finally { await s.mf.dispose(); }
+});
+
+test("footer toggles off + custom intro heading save and render", async () => {
+  const s = await setup("landing-settings-roundtrip");
+  try {
+    const blogniceApp = await app();
+    const form = saveForm({ slug: "settings", title: "Settings Page", intro_md: "Intro words", intro_heading: "Why advertise" }, "publish");
+    const saved = await blogniceApp.request(s.admin("/admin/b/b_test/landing/save", "owner-session", { method: "POST", body: form }), undefined, s.env, ctx);
+    assert.equal(saved.status, 302);
+    const row = await s.postsDb.prepare("SELECT id, content_json FROM landing_pages WHERE slug = 'settings'").first();
+    const stored = JSON.parse(row.content_json);
+    assert.equal(stored.intro_heading, "Why advertise");
+    assert.equal(stored.show_blog_link, false);
+    assert.equal(stored.show_powered_by, false);
+    const pub = await blogniceApp.request(s.pub("/landing/settings"), undefined, s.env, ctx);
+    assert.equal(pub.status, 200);
+    const html = await pub.text();
+    assert.match(html, /<h2>Why advertise<\/h2>/);
+    assert.doesNotMatch(html, />Blog</);
+    assert.doesNotMatch(html, /Powered by blognice/);
+    const edit = await blogniceApp.request(s.admin(`/admin/b/b_test/landing/edit/${row.id}`, "owner-session"), undefined, s.env, ctx);
+    const editHtml = await edit.text();
+    assert.match(editHtml, /name="intro_heading"[^>]*value="Why advertise"/);
+    assert.doesNotMatch(editHtml, /name="show_blog_link"[^>]*checked/);
+    assert.doesNotMatch(editHtml, /name="show_powered_by"[^>]*checked/);
   } finally { await s.mf.dispose(); }
 });
 

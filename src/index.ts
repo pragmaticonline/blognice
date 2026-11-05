@@ -709,7 +709,7 @@ async function purgeTenantEverywhere(
     pdb.prepare("SELECT slug FROM landing_pages WHERE tenant_id = ?").bind(tenant.id).all<{ slug: string }>().catch(() => ({ results: [] as { slug: string }[] })),
   ]);
   const paths = [
-    "/", "/blog", "/sitemap.xml", "/rss.xml",
+    "/", "/blog", "/sitemap.xml", "/rss.xml", "/favicon.svg", "/favicon.ico",
     ...postRows.results.map((r) => "/" + r.slug),
     ...landingRows.results.map((r) => "/landing/" + r.slug),
   ];
@@ -762,7 +762,7 @@ async function renderLandingHtml(
     footer_name: tenant.footer_name || tenant.title,
     blog_url: blogUrl,
     avatar_url: tenant.avatar_key ? `/media/${tenant.avatar_key}` : null,
-    nav: [{ label: "Blog", href: blogUrl }, ...navItems.map((i) => ({ label: i.label, href: i.href, new_tab: i.newTab }))],
+    nav: [...(content.show_blog_link ? [{ label: "Blog", href: blogUrl }] : []), ...navItems.map((i) => ({ label: i.label, href: i.href, new_tab: i.newTab }))],
     social: socialLinksFor(tenant),
     posts: postRows.results.map((r: any) => ({ title: r.title, url: "/" + r.slug, date: formatDate(r.created_at), image_key: r.featured_image_key ?? null })),
     head_html: blogHeadHtml({
@@ -4093,6 +4093,11 @@ function landingContentFromForm(form: FormData) {
     features,
     contact: { email: get("contact_email"), phone: get("contact_phone"), address: get("contact_address"), hours: get("contact_hours"), map_url: get("contact_map_url") },
     show_latest_posts: !!form.get("show_latest_posts"),
+    show_blog_link: !!form.get("show_blog_link"),
+    show_powered_by: !!form.get("show_powered_by"),
+    features_heading: get("features_heading"),
+    intro_heading: get("intro_heading"),
+    posts_heading: get("posts_heading"),
   };
 }
 

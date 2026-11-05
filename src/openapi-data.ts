@@ -76,7 +76,7 @@ components:
         design: { type: string, enum: [hero, business, shop, minimal] }
         content:
           type: object
-          description: 'Parsed content: hero {headline, subheadline, image_key}, ctas (max 2 {label, href}), intro_md, features (max 6 {title, body_md, image_key}), contact {email, phone, address, hours, map_url}, show_latest_posts'
+          description: 'Parsed content: hero {headline, subheadline, image_key}, ctas (max 2 {label, href}), intro_md, features (max 6 {title, body_md, image_key}), contact {email, phone, address, hours, map_url}, show_latest_posts, show_blog_link (default true), show_powered_by (default true), features_heading/intro_heading/posts_heading (optional, blank for design default)'
         meta_description: { type: string, nullable: true }
         published: { type: boolean }
         created_at: { type: integer }

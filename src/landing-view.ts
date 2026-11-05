@@ -16,12 +16,17 @@ export type LandingContent = {
   features: Array<{ title: string; body_md: string; image_key: string | null }>;
   contact: { email: string; phone: string; address: string; hours: string; map_url: string };
   show_latest_posts: boolean;
+  show_blog_link: boolean;
+  show_powered_by: boolean;
+  features_heading: string;
+  intro_heading: string;
+  posts_heading: string;
 };
 
 export const LANDING_LIMITS = {
   headline: 120, subheadline: 300, ctas: 2, ctaLabel: 40, intro: 4000,
   features: 6, featureTitle: 80, featureBody: 600, contactField: 300,
-  email: 254, phone: 40, href: 500,
+  email: 254, phone: 40, href: 500, heading: 80,
 } as const;
 
 function str(value: unknown, max: number): string {
@@ -82,6 +87,11 @@ export function parseLandingContent(raw: unknown): LandingContent {
       map_url: safeLandingHref(contact.map_url),
     },
     show_latest_posts: input.show_latest_posts === true,
+    show_blog_link: input.show_blog_link !== false,
+    show_powered_by: input.show_powered_by !== false,
+    features_heading: str(input.features_heading, LANDING_LIMITS.heading),
+    intro_heading: str(input.intro_heading, LANDING_LIMITS.heading),
+    posts_heading: str(input.posts_heading, LANDING_LIMITS.heading),
   };
 }
 
@@ -120,7 +130,10 @@ export function buildLandingView(content: LandingContent, site: LandingSite): Te
     has_any: !!(c.email || c.phone || c.address || c.hours || c.map_url),
     has_quick: !!(c.hours || c.phone),
   };
-  const nav = site.nav.map((n) => ({ label: n.label, href: n.href, new_tab: !!n.new_tab }));
+  const allNav = content.show_blog_link
+    ? site.nav
+    : site.nav.filter((n) => n.label !== "Blog" || (n.href !== site.blog_url && n.href !== "/blog" && n.href !== "/"));
+  const nav = allNav.map((n) => ({ label: n.label, href: n.href, new_tab: !!n.new_tab }));
   const posts = content.show_latest_posts
     ? site.posts.slice(0, 3).map((p) => ({ title: p.title, url: p.url, date: p.date, image_url: img(mediaKey(p.image_key ?? null)) }))
     : [];
@@ -156,5 +169,10 @@ export function buildLandingView(content: LandingContent, site: LandingSite): Te
     has_posts: posts.length > 0,
     has_social: site.social.length > 0,
     has_nav_more: nav.length > NAV_INLINE,
+    has_blog_link: content.show_blog_link,
+    has_powered_by: content.show_powered_by,
+    features_heading: content.features_heading,
+    intro_heading: content.intro_heading,
+    posts_heading: content.posts_heading,
   };
 }

@@ -67,13 +67,13 @@ section{padding:4rem 0}h2{font-size:1.75rem;letter-spacing:-.01em;margin:0 0 1.5
     </div>
     {{#hero.image_url}}<img src="{{hero.image_url}}" alt="" fetchpriority="high" width="800" height="600">{{/hero.image_url}}
   </div>
-  {{#has_features}}<section class="wrap" aria-labelledby="lp-svc-h"><h2 id="lp-svc-h">Services</h2>
+  {{#has_features}}<section class="wrap" aria-labelledby="lp-svc-h">{{#features_heading}}<h2 id="lp-svc-h">{{features_heading}}</h2>{{/features_heading}}{{^features_heading}}<h2 id="lp-svc-h">Services</h2>{{/features_heading}}
     <div class="lp-features">{{#features}}<article class="lp-feature"><span class="n">{{number}}</span><h3>{{title}}</h3>{{{body_html}}}</article>{{/features}}</div>
   </section>{{/has_features}}
-  {{#intro_html}}<section class="wrap lp-intro" aria-labelledby="lp-about-h"><h2 id="lp-about-h">About us</h2><div>{{{intro_html}}}</div></section>{{/intro_html}}
-  {{#has_posts}}<section class="wrap lp-posts" aria-labelledby="lp-posts-h"><h2 id="lp-posts-h">Insights</h2>
+  {{#intro_html}}<section class="wrap lp-intro" aria-labelledby="lp-about-h">{{#intro_heading}}<h2 id="lp-about-h">{{intro_heading}}</h2>{{/intro_heading}}{{^intro_heading}}<h2 id="lp-about-h">About us</h2>{{/intro_heading}}<div>{{{intro_html}}}</div></section>{{/intro_html}}
+  {{#has_posts}}<section class="wrap lp-posts" aria-labelledby="lp-posts-h">{{#posts_heading}}<h2 id="lp-posts-h">{{posts_heading}}</h2>{{/posts_heading}}{{^posts_heading}}<h2 id="lp-posts-h">Insights</h2>{{/posts_heading}}
     {{#posts}}<a class="post" href="{{url}}">{{#image_url}}<img class="thumb" src="{{image_url}}" alt="" loading="lazy" width="176" height="132">{{/image_url}}<span><time>{{date}}</time>{{title}}</span></a>{{/posts}}
-    <a class="all" href="{{blog_url}}">All articles →</a>
+    {{#has_blog_link}}<a class="all" href="{{blog_url}}">All articles →</a>{{/has_blog_link}}
   </section>{{/has_posts}}
   {{#contact.has_any}}<section class="wrap" id="contact"><div class="lp-contact">
     <div><h2>Talk to us</h2><p>We reply within one business day.</p>{{#cta_primary}}<a class="lp-cta lp-cta--primary" href="{{href}}">{{label}}</a>{{/cta_primary}}{{^cta_primary}}{{#contact.email}}<a class="lp-cta lp-cta--primary" href="{{contact.email_href}}">Email us</a>{{/contact.email}}{{/cta_primary}}</div>
@@ -85,7 +85,7 @@ section{padding:4rem 0}h2{font-size:1.75rem;letter-spacing:-.01em;margin:0 0 1.5
     </dl>
   </div></section>{{/contact.has_any}}
 </main>
-<footer class="lp-footer"><div class="wrap"><span>© {{site.year}} {{site.footer_name}}</span><span><a href="{{blog_url}}">Blog</a> · <a href="/rss.xml">RSS</a> · Powered by blognice</span></div></footer>
+<footer class="lp-footer"><div class="wrap"><span>© {{site.year}} {{site.footer_name}}</span><span>{{#has_blog_link}}<a href="{{blog_url}}">Blog</a> · {{/has_blog_link}}<a href="/rss.xml">RSS</a>{{#has_powered_by}} · Powered by blognice{{/has_powered_by}}</span></div></footer>
 {{{body_end_html}}}
 </body>
 </html>

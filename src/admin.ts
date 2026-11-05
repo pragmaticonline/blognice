@@ -1209,6 +1209,12 @@ export function landingEditorPage(
     </fieldset>
     <label for="lp-intro">Intro (Markdown)</label><textarea id="lp-intro" name="intro_md" rows="6" maxlength="4000">${esc(content.intro_md)}</textarea>
     ${featureRows}
+    <fieldset class="settings-card"><legend>Section headings (optional)</legend>
+      <p class="help" style="color:var(--muted)">Leave blank to use each design's default heading.</p>
+      <label>Features heading <input name="features_heading" type="text" maxlength="80" value="${esc(content.features_heading)}" placeholder="e.g. What we offer"></label>
+      <label>Intro heading <input name="intro_heading" type="text" maxlength="80" value="${esc(content.intro_heading)}" placeholder="e.g. Our story"></label>
+      <label>Posts heading <input name="posts_heading" type="text" maxlength="80" value="${esc(content.posts_heading)}" placeholder="e.g. Latest posts"></label>
+    </fieldset>
     <fieldset class="settings-card"><legend>Contact</legend>
       <label>Email <input name="contact_email" type="text" value="${esc(content.contact.email)}"></label>
       <label>Phone <input name="contact_phone" type="text" value="${esc(content.contact.phone)}"></label>
@@ -1217,6 +1223,8 @@ export function landingEditorPage(
       <label>Map link <input name="contact_map_url" type="text" value="${esc(content.contact.map_url)}" placeholder="https://maps.google.com/…"></label>
     </fieldset>
     <div class="check"><input id="lp-posts" name="show_latest_posts" type="checkbox" ${content.show_latest_posts ? "checked" : ""}><label for="lp-posts">Show latest posts</label></div>
+    <div class="check"><input id="lp-blog-link" name="show_blog_link" type="checkbox" ${content.show_blog_link ? "checked" : ""}><label for="lp-blog-link">Show blog link</label></div>
+    <div class="check"><input id="lp-powered-by" name="show_powered_by" type="checkbox" ${content.show_powered_by ? "checked" : ""}><label for="lp-powered-by">Show “Powered by blognice”</label></div>
     <div class="actions"><button class="btn" type="submit" name="action" value="save">${page?.published ? "Save" : "Save draft"}</button><button class="btn" type="submit" name="action" value="publish">${page?.published ? "Save &amp; keep published" : "Publish"}</button>${page?.published ? `<button class="btn ghost" type="submit" name="action" value="unpublish">Unpublish</button>` : ""}${page ? `<a class="btn ghost" href="https://${esc(publicHost)}/landing/${esc(page.slug)}" target="_blank" rel="noopener noreferrer">${page.published ? "View" : "Preview"}</a>` : ""}<a class="btn ghost" href="${base}/landing">Cancel</a></div>
   </form>${homepageSection}
   <style>
