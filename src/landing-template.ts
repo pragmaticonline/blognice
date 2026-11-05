@@ -178,7 +178,10 @@ export function validateDesign(id: string, source: string, manifest: DesignManif
     errors.push("Designs that render {{#nav}}/{{#nav_all}} must also render {{#nav_more}} in a .lp-menu (mobile overflow menu).");
   if (/<script/i.test(source)) errors.push("Designs must not contain <script>.");
   if (/<(iframe|object|embed|form)\b/i.test(source)) errors.push("Designs must not contain iframes, embeds or forms.");
-  if (/(src|href)\s*=\s*["']?\s*(https?:)?\/\//i.test(source) || /url\(\s*["']?\s*(https?:)?\/\//i.test(source) || /@import/i.test(source))
+  // The platform-owned "Powered by blognice" footer credit links to the
+  // canonical site and is not an external resource load.
+  const resourceCheckSource = source.replaceAll('href="https://www.blognice.com', 'href="#platform-link').replaceAll("href='https://www.blognice.com", "href='#platform-link");
+  if (/(src|href)\s*=\s*["']?\s*(https?:)?\/\//i.test(resourceCheckSource) || /url\(\s*["']?\s*(https?:)?\/\//i.test(source) || /@import/i.test(source))
     errors.push("Designs must not load external resources (images, fonts, stylesheets). Use {{placeholders}} and system fonts.");
   if (/@media\s*\(\s*prefers-color-scheme/i.test(source))
     errors.push('Use html[data-theme=dark] for dark mode, not @media (prefers-color-scheme).');
