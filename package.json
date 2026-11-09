@@ -27,24 +27,24 @@
   },
   "dependencies": {
     "fflate": "^0.8.3",
-    "hono": "^4.13.13",
+    "hono": "^4.13.16",
     "rehype-sanitize": "^6.0.0",
     "rehype-stringify": "^10.0.1",
     "remark-gfm": "^4.0.1",
     "remark-parse": "^11.0.0",
     "remark-rehype": "^11.1.2",
     "unified": "^11.0.5",
-    "unist-util-visit": "^5.1.0",
+    "unist-util-visit": "^5.2.0",
     "web-push": "^3.6.7"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20261024.1",
+    "@cloudflare/workers-types": "^5.20261106.1",
     "@stryker-mutator/core": "^10.1.1",
     "esbuild": "^0.28.2",
     "miniflare": "^5.20260730.0-alpha",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "wrangler": "^4.152.0"
+    "wrangler": "^4.158.0"
   },
   "overrides": {
     "undici": "^7.30.1",
