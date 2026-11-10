@@ -113,15 +113,20 @@ export type LandingSite = {
 
 const NAV_INLINE = 1; // phones: brand + 1 link + Menu
 
+function isExternalHref(href: string): boolean {
+  return /^https?:\/\//i.test(href.trim());
+}
+
 export function buildLandingView(content: LandingContent, site: LandingSite): TemplateView {
   const md = (s: string) => (s ? renderMarkdown(s) : "");
   const img = (key: string | null) => (key ? site.media_url(key) : null);
-  const ctas = content.ctas.map((c, i) => ({ ...c, primary: i === 0, secondary: i > 0 }));
+  const ctas = content.ctas.map((c, i) => ({ ...c, primary: i === 0, secondary: i > 0, external: isExternalHref(c.href) }));
   const features = content.features.map((f, i) => ({
     title: f.title,
     body_html: md(f.body_md),
     image_url: img(f.image_key),
     link: f.link || null,
+    link_external: !!f.link && isExternalHref(f.link),
     number: String(i + 1).padStart(2, "0"),
   }));
   const c = content.contact;

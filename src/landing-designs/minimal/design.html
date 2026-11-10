@@ -36,7 +36,7 @@ h1{font:400 clamp(2.2rem,6vw,3.2rem)/1.1 var(--serif);margin:0 0 .5rem;letter-sp
     {{#intro_html}}<div class="lp-intro">{{{intro_html}}}</div>{{/intro_html}}
     <nav class="lp-ctas" aria-label="Links">
       {{#has_blog_link}}<a class="lp-cta lp-cta--primary" href="{{blog_url}}">Read the blog</a>{{/has_blog_link}}
-      {{#ctas}}<a class="lp-cta lp-cta--secondary" href="{{href}}">{{label}}</a>{{/ctas}}
+      {{#ctas}}<a class="lp-cta lp-cta--secondary" href="{{href}}"{{#external}} target="_blank" rel="noopener"{{/external}}>{{label}}</a>{{/ctas}}
     </nav>
     {{#has_social}}<ul class="social">{{#social}}<li><a href="{{url}}" rel="me noopener">{{label}}</a></li>{{/social}}</ul>{{/has_social}}
   </div>

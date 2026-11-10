@@ -264,14 +264,34 @@ test("feature links keep safe URLs and drop unsafe ones", () => {
   assert.equal(c.features[3].link, "");
 });
 
+test("off-site links open in a new tab; same-site links open normally", () => {
+  const hero = LANDING_DESIGNS.find((d) => d.id === "hero");
+  const html = render(hero, {
+    ctas: [
+      { label: "Out", href: "https://example.com/shop" },
+      { label: "In", href: "/blog" },
+    ],
+    features: [
+      { title: "Out", body_md: "w", link: "https://www.youtube.com/channel/x" },
+      { title: "In", body_md: "w", link: "/pages/book" },
+    ],
+  }, {});
+  assert.match(html, /<a class="lp-cta lp-cta--primary" href="https:\/\/example\.com\/shop" target="_blank" rel="noopener">Out<\/a>/);
+  assert.match(html, /<a class="lp-cta lp-cta--secondary" href="\/blog">In<\/a>/);
+  assert.doesNotMatch(html, /href="\/blog" target="_blank"/);
+  assert.match(html, /<a href="https:\/\/www\.youtube\.com\/channel\/x" target="_blank" rel="noopener">/);
+  assert.match(html, /<h3><a href="\/pages\/book">In<\/a><\/h3>/);
+  assert.doesNotMatch(html, /href="\/pages\/book" target="_blank"/);
+});
+
 for (const id of ["hero", "business", "shop"]) {
   test(`[${id}] linked features link image and title; unlinked stay plain`, () => {
     const design = LANDING_DESIGNS.find((d) => d.id === id);
     const linked = render(design, { features: [
       { title: "Watch things", body_md: "words", image_key: "t/v.png", link: "https://www.youtube.com/channel/x" },
     ] }, {});
-    assert.match(linked, /<a href="https:\/\/www\.youtube\.com\/channel\/x">/);
-    assert.match(linked, /<h3><a href="https:\/\/www\.youtube\.com\/channel\/x">Watch things<\/a><\/h3>/);
+    assert.match(linked, /<a href="https:\/\/www\.youtube\.com\/channel\/x" target="_blank" rel="noopener">/);
+    assert.match(linked, /<h3><a href="https:\/\/www\.youtube\.com\/channel\/x" target="_blank" rel="noopener">Watch things<\/a><\/h3>/);
     const plain = render(design, { features: [{ title: "Plain", body_md: "words" }] }, {});
     assert.match(plain, /<h3>Plain<\/h3>/);
     assert.doesNotMatch(plain, /<a href=""/);
