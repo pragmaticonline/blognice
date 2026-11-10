@@ -25,7 +25,7 @@ const markdownSchema = {
     code: [], ul: [], ol: ["start"], li: [],
     a: ["href", "title", "target", "rel"],
     div: [["className", "tweet-card", "youtube-embed", "youtube-embed__inner", "bitchute-embed", "bitchute-embed__inner"], ["dataYoutubeId"], ["data-youtube-id"], ["dataBitchuteId"], ["data-bitchute-id"]],
-    blockquote: [["className", "twitter-tweet"]],
+    blockquote: [["className", "twitter-tweet", "pull-quote"]],
     iframe: ["src", "title", "allow", "allowFullscreen", "frameBorder", "loading", "referrerPolicy"],
     img: ["src", "alt", "title"],
     audio: ["src", "controls", "preload"],
@@ -222,6 +222,30 @@ function tweetCards() {
   };
 }
 
+// A blockquote whose first paragraph starts with `[!pull]` becomes a giant-quote
+// pull quote: the marker is removed and the quote keeps the `pull-quote` class
+// the sanitizer allowlist preserves. Only a leading marker counts, so existing
+// quotes (including nested ones) render exactly as before.
+function pullQuotes() {
+  return (tree: any) => {
+    visit(tree, "element", (node: any) => {
+      if (node.tagName !== "blockquote" || !Array.isArray(node.children)) return;
+      const first = node.children.find((child: any) => child && child.type === "element");
+      if (!first || first.tagName !== "p" || !Array.isArray(first.children)) return;
+      const text = first.children[0];
+      if (!text || text.type !== "text" || typeof text.value !== "string") return;
+      const marker = /^\s*\[!pull\]\s*/.exec(text.value);
+      if (!marker) return;
+      text.value = text.value.slice(marker[0].length);
+      if (!text.value && first.children.length === 1) {
+        node.children = node.children.filter((child: any) => child !== first);
+        if (!node.children.some((child: any) => child && child.type === "element")) return;
+      }
+      node.properties = { ...(node.properties || {}), className: ["pull-quote"] };
+    });
+  };
+}
+
 function dividerStyles() {
   return (tree: any, file: any) => {
     visit(tree, "thematicBreak", (node: any) => {
@@ -244,6 +268,7 @@ const processor = unified()
   .use(youtubeEmbeds as any)
   .use(bitchuteEmbeds as any)
   .use(tweetCards as any)
+  .use(pullQuotes as any)
   .use(rehypeSanitize, markdownSchema as any)
   .use(rehypeStringify);
 
