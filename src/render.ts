@@ -337,12 +337,15 @@ export function readingTime(md: string): number {
 }
 
 // A plain-text excerpt from Markdown, for the feed and meta description.
-function excerpt(md: string, n = 180): string {
+export function excerpt(md: string, n = 180): string {
   const t = md
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/^[=\-]{3,}\s*$/gm, " ")
+    .replace(/\[!\[([^\]]*)\]\([^)]*\)\]\([^)]*\)/g, "$1")
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/https?:\/\/\S+/g, " ")
     .replace(/[#>*_`~|=\-]/g, " ")
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/\s+/g, " ")
     .trim();
   return t.length > n ? t.slice(0, n).replace(/\s+\S*$/, "") + "…" : t;
