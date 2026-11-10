@@ -13,7 +13,7 @@ export type LandingContent = {
   hero: { headline: string; subheadline: string; image_key: string | null };
   ctas: Array<{ label: string; href: string }>;
   intro_md: string;
-  features: Array<{ title: string; body_md: string; image_key: string | null }>;
+  features: Array<{ title: string; body_md: string; image_key: string | null; link: string }>;
   contact: { email: string; phone: string; address: string; hours: string; map_url: string };
   show_latest_posts: boolean;
   show_blog_link: boolean;
@@ -76,6 +76,7 @@ export function parseLandingContent(raw: unknown): LandingContent {
         title: str(f?.title, LANDING_LIMITS.featureTitle),
         body_md: str(f?.body_md, LANDING_LIMITS.featureBody),
         image_key: mediaKey(f?.image_key),
+        link: safeLandingHref(f?.link),
       }))
       .filter((f: { title: string; body_md: string }) => f.title || f.body_md)
       .slice(0, LANDING_LIMITS.features),
@@ -120,6 +121,7 @@ export function buildLandingView(content: LandingContent, site: LandingSite): Te
     title: f.title,
     body_html: md(f.body_md),
     image_url: img(f.image_key),
+    link: f.link || null,
     number: String(i + 1).padStart(2, "0"),
   }));
   const c = content.contact;
