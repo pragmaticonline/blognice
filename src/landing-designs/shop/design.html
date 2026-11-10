@@ -32,7 +32,7 @@ h1{font:800 clamp(2.2rem,5vw,3.6rem)/1.05 var(--display);margin:0 0 1rem}
 section{padding:3.5rem 0}h2{font:800 1.9rem/1.15 var(--display);margin:0 0 1.5rem}
 .lp-features{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:1.25rem}
 .lp-feature img{border-radius:16px;aspect-ratio:4/5;object-fit:cover;width:100%;margin-bottom:.75rem}
-.lp-feature h3{margin:0;font-size:1.05rem}.lp-feature p{margin:.15rem 0 0;color:var(--muted);font-size:.95rem}
+.lp-feature h3{margin:0;font-size:1.05rem}.lp-feature h3 a{color:inherit;text-decoration:none}.lp-feature h3 a:hover{text-decoration:underline}.lp-feature p{margin:.15rem 0 0;color:var(--muted);font-size:.95rem}
 .lp-intro{max-width:60ch;font-size:1.1rem}
 .lp-posts a{display:block;padding:.85rem 0;border-bottom:1px solid var(--rule);text-decoration:none;color:var(--ink);font-weight:600}.lp-posts time{display:block;color:var(--muted);font-weight:400;font-size:.85rem}
 .lp-posts a.post{display:flex;gap:1rem;align-items:center}.lp-posts .thumb{flex:0 0 5.5rem;width:5.5rem;aspect-ratio:4/3;object-fit:cover;border-radius:8px;background:var(--soft)}
@@ -79,7 +79,7 @@ section{padding:3.5rem 0}h2{font:800 1.9rem/1.15 var(--display);margin:0 0 1.5re
     {{#contact.email}}<div><h3>Email</h3><p><a href="{{contact.email_href}}">{{contact.email}}</a></p></div>{{/contact.email}}
   </div></div>{{/contact.has_any}}
   {{#has_features}}<section class="wrap" aria-labelledby="lp-items-h">{{#features_heading}}<h2 id="lp-items-h">{{features_heading}}</h2>{{/features_heading}}{{^features_heading}}<h2 id="lp-items-h">Featured</h2>{{/features_heading}}
-    <div class="lp-features">{{#features}}<article class="lp-feature">{{#image_url}}<img src="{{image_url}}" alt="" loading="lazy" width="600" height="750">{{/image_url}}<h3>{{title}}</h3>{{{body_html}}}</article>{{/features}}</div>
+    <div class="lp-features">{{#features}}<article class="lp-feature">{{#image_url}}{{#link}}<a href="{{link}}">{{/link}}<img src="{{image_url}}" alt="" loading="lazy" width="600" height="750">{{#link}}</a>{{/link}}{{/image_url}}<h3>{{#link}}<a href="{{link}}">{{title}}</a>{{/link}}{{^link}}{{title}}{{/link}}</h3>{{{body_html}}}</article>{{/features}}</div>
   </section>{{/has_features}}
   {{#intro_html}}<section class="wrap" aria-labelledby="lp-story-h">{{#intro_heading}}<h2 id="lp-story-h">{{intro_heading}}</h2>{{/intro_heading}}{{^intro_heading}}<h2 id="lp-story-h">Our story</h2>{{/intro_heading}}<div class="lp-intro">{{{intro_html}}}</div></section>{{/intro_html}}
   {{#has_posts}}<section class="wrap lp-posts" aria-labelledby="lp-posts-h">{{#posts_heading}}<h2 id="lp-posts-h">{{posts_heading}}</h2>{{/posts_heading}}{{^posts_heading}}<h2 id="lp-posts-h">From the journal</h2>{{/posts_heading}}

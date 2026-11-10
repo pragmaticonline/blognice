@@ -248,3 +248,32 @@ test("safeLandingHref allows only safe schemes and same-site paths", () => {
   for (const bad of ["javascript:alert(1)", "//evil.example", "/\\evil.example", "data:text/html,x", "vbscript:x"])
     assert.equal(safeLandingHref(bad), "", bad);
 });
+
+// --- Feature links -----------------------------------------------------------
+
+test("feature links keep safe URLs and drop unsafe ones", () => {
+  const c = parseLandingContent({ features: [
+    { title: "A", link: "https://www.youtube.com/channel/x" },
+    { title: "B", link: "/pages/book" },
+    { title: "C", link: "javascript:alert(1)" },
+    { title: "D" },
+  ] });
+  assert.equal(c.features[0].link, "https://www.youtube.com/channel/x");
+  assert.equal(c.features[1].link, "/pages/book");
+  assert.equal(c.features[2].link, "");
+  assert.equal(c.features[3].link, "");
+});
+
+for (const id of ["hero", "business", "shop"]) {
+  test(`[${id}] linked features link image and title; unlinked stay plain`, () => {
+    const design = LANDING_DESIGNS.find((d) => d.id === id);
+    const linked = render(design, { features: [
+      { title: "Watch things", body_md: "words", image_key: "t/v.png", link: "https://www.youtube.com/channel/x" },
+    ] }, {});
+    assert.match(linked, /<a href="https:\/\/www\.youtube\.com\/channel\/x">/);
+    assert.match(linked, /<h3><a href="https:\/\/www\.youtube\.com\/channel\/x">Watch things<\/a><\/h3>/);
+    const plain = render(design, { features: [{ title: "Plain", body_md: "words" }] }, {});
+    assert.match(plain, /<h3>Plain<\/h3>/);
+    assert.doesNotMatch(plain, /<a href=""/);
+  });
+}

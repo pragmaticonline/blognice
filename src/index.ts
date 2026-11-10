@@ -4106,6 +4106,7 @@ function landingContentFromForm(form: FormData) {
     title: get(`feature${i + 1}_title`),
     body_md: get(`feature${i + 1}_body`),
     image_key: get(`feature${i + 1}_image_key`) || null,
+    link: get(`feature${i + 1}_link`),
   }));
   return {
     hero: { headline: get("headline"), subheadline: get("subheadline"), image_key: get("hero_image_key") || null },

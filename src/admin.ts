@@ -1167,6 +1167,7 @@ export function landingEditorPage(
     const f = content.features[i];
     return `<fieldset class="settings-card"><legend>Feature ${i + 1} (optional)</legend>
       <label>Title <input name="feature${i + 1}_title" type="text" maxlength="80" value="${esc(f?.title ?? "")}"></label>
+      <label>Link (optional — makes the image and title clickable) <input name="feature${i + 1}_link" type="text" value="${esc((f as any)?.link ?? "")}" placeholder="https://… or /pages/…"></label>
       <label>Text (Markdown) <textarea name="feature${i + 1}_body" rows="3" maxlength="600">${esc(f?.body_md ?? "")}</textarea></label>
       <label>Image ${lpImageField(`feature${i + 1}_image_key`, f?.image_key ?? "")}</label></fieldset>`;
   }).join("");
