@@ -39,3 +39,9 @@ test("the pull-quote giant-mark style exists in the prose theme", () => {
   assert.match(css, /\.prose blockquote\.pull-quote/);
   assert.match(css, /\.prose blockquote\.pull-quote::before/);
 });
+
+test("the pull-quote style also covers pages, which render in .page-prose", () => {
+  const css = readFileSync(new URL("../src/render.ts", import.meta.url), "utf8");
+  assert.match(css, /\.page-prose blockquote\.pull-quote/);
+  assert.match(css, /\.page-prose blockquote\.pull-quote::before/);
+});

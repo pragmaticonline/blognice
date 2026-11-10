@@ -121,7 +121,7 @@ curl -X POST https://www.blognice.com/api/v1/blogs/ggh6gvgsgj4h/posts \
   -d '{"title":"Hello from the API","body_md":"# Hello\n\nWritten via Markdown.","tags":["api"],"author_name":"Fred & Bob AI","author_visible":true,"featured_image_key":"ggh6gvgsgj4h/image.jpg","meta_description":"Short summary","published":true}'
 ```
 
-Body: `title` (required), `body_md` (required), `slug` (auto from title, ≤80, unique), `published` (default true), `scheduled_at` (ISO-8601 with explicit timezone offset, must be future; implies a draft), `tags` ≤20, `author_name` ≤120 (null clears), `author_visible` bool, `featured_image_key` (must exist in media, validated via `checkedFeaturedImage`), `meta_description` ≤155.
+Body: `title` (required), `body_md` (required), `slug` (auto from title, ≤80, unique), `published` (default true), `scheduled_at` (ISO-8601 with explicit timezone offset, must be future; implies a draft), `published_at` (ISO-8601 with explicit timezone offset, must not be future; backdates the display date, cannot combine with `scheduled_at`), `tags` ≤20, `author_name` ≤120 (null clears), `author_visible` bool, `featured_image_key` (must exist in media, validated via `checkedFeaturedImage`), `meta_description` ≤155.
 
 - `published: true` purges `/:slug`, `/sitemap.xml`, queues IndexNow, queues subscriber + browser-push notifications.
 - Draft `published:false` skips notifications.
@@ -129,7 +129,7 @@ Body: `title` (required), `body_md` (required), `slug` (auto from title, ≤80, 
 
 ### `PATCH /api/v1/blogs/:blogId/posts/:id` — update (requires `posts.edit.any`/`own`, `posts.publish` to publish)
 
-Any of `title, body_md, slug, published, scheduled_at, tags, author_name, author_visible, featured_image_key, meta_description`. `scheduled_at` follows the POST rules; `scheduled_at:null` clears the schedule back to a plain draft, and publishing clears it. Scheduling a live post is a 400 — set `published:false` first.
+Any of `title, body_md, slug, published, scheduled_at, published_at, tags, author_name, author_visible, featured_image_key, meta_description`. `scheduled_at` follows the POST rules; `scheduled_at:null` clears the schedule back to a plain draft, and publishing clears it. Scheduling a live post is a 400 — set `published:false` first. `published_at` follows the POST rules and rewrites the display date (`created_at`); it never triggers subscriber or push notifications.
 
 ### `DELETE /api/v1/blogs/:blogId/posts/:id` — delete (requires `posts.delete`)
 

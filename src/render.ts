@@ -910,8 +910,10 @@ export const STYLES = /* css */ `
     margin: 1rem 0; font-size: 0.92em;
     border-left-color: var(--rule);
   }
-  /* Opt-in giant-quote pull quotes via a leading "[!pull]" marker in Markdown. */
-  .prose blockquote.pull-quote {
+  /* Opt-in giant-quote pull quotes via a leading "[!pull]" marker in Markdown.
+     Pages render Markdown inside .page-prose rather than .prose, so both
+     containers are covered. */
+  .prose blockquote.pull-quote, .page-prose blockquote.pull-quote {
     position: relative;
     margin: 2.5rem 0;
     padding: 0.4rem 0 0.4rem 4.2rem;
@@ -921,7 +923,7 @@ export const STYLES = /* css */ `
     line-height: 1.45;
     color: var(--ink);
   }
-  .prose blockquote.pull-quote::before {
+  .prose blockquote.pull-quote::before, .page-prose blockquote.pull-quote::before {
     content: "\\201C";
     position: absolute;
     left: 0; top: -1.4rem;

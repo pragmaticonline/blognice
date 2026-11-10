@@ -1409,6 +1409,21 @@ function parseApiScheduledAt(value: unknown, now: number): { present: boolean; s
   return { present: true, scheduledAt: epoch };
 }
 
+// Backdating helper for the published_at post field. Mirrors the scheduled_at
+// input rules (ISO-8601 with an explicit timezone offset) but requires a time
+// at or before now; future dating stays on scheduled_at.
+function parseApiPublishedAt(value: unknown, now: number): { present: boolean; publishedAt: number | null; error?: string } {
+  if (value === undefined) return { present: false, publishedAt: null };
+  if (value === null) return { present: true, publishedAt: null, error: "published_at cannot be null; omit it to keep the current date" };
+  const text = String(value).trim();
+  if (!/([zZ]|[+-]\d{2}:?\d{2})$/.test(text)) return { present: true, publishedAt: null, error: "published_at must be ISO-8601 with an explicit timezone offset" };
+  const ms = Date.parse(text);
+  if (!Number.isFinite(ms)) return { present: true, publishedAt: null, error: "published_at must be ISO-8601 with an explicit timezone offset" };
+  const epoch = Math.floor(ms / 1000);
+  if (epoch > now) return { present: true, publishedAt: null, error: "published_at must not be in the future; use scheduled_at to schedule" };
+  return { present: true, publishedAt: epoch };
+}
+
 function storedPostTags(value: unknown): string[] {
   try {
     const parsed = JSON.parse(String(value || "[]"));
@@ -1988,7 +2003,7 @@ app.get("/api/v1/blogs/:blogId/posts/:id", async (c) => {
   } });
 });
 
-// Create a post. Body (JSON): { title, body_md, slug?, published?, scheduled_at?, tags?: string[], author_name?: string, author_visible?: boolean, featured_image_key?: string }
+// Create a post. Body (JSON): { title, body_md, slug?, published?, scheduled_at?, published_at?, tags?: string[], author_name?: string, author_visible?: boolean, featured_image_key?: string }
 app.post("/api/v1/blogs/:blogId/posts", async (c) => {
   const account = await apiAccount(c);
   if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
@@ -2016,8 +2031,14 @@ app.post("/api/v1/blogs/:blogId/posts", async (c) => {
   // A schedule time implies a draft; explicitly publishing at the same time is contradictory.
   if (scheduledAt !== null && body?.published !== undefined && body.published !== false)
     return c.json({ error: "cannot combine published:true with scheduled_at" }, 400);
+  const dating = parseApiPublishedAt(body?.published_at, now);
+  if (dating.error) return c.json({ error: dating.error }, 400);
+  const publishedAt = dating.present ? dating.publishedAt : null;
+  if (publishedAt !== null && scheduledAt !== null)
+    return c.json({ error: "cannot combine published_at with scheduled_at" }, 400);
   const published = body?.published === false || scheduledAt !== null ? 0 : 1;
   if ((published || scheduledAt !== null) && !can(role, "posts.publish")) return c.json({ error: "publishing is not permitted for this role" }, 403);
+  const createdAt = publishedAt ?? now;
   let featuredImageKey: string | null;
   try {
     featuredImageKey = await checkedFeaturedImage(c.env, tenant.id, body?.featured_image_key);
@@ -2047,7 +2068,7 @@ app.post("/api/v1/blogs/:blogId/posts", async (c) => {
         `INSERT INTO posts (tenant_id, slug, title, featured_image_key, body_md, tags_json, published, created_at, updated_at, author_account_id, author_name, author_visible, meta_description, scheduled_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-        .bind(tenant.id, slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, now, now, account.id, authorName, authorVisible, metaDescription, scheduledAt)
+        .bind(tenant.id, slug, title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), published, createdAt, now, account.id, authorName, authorVisible, metaDescription, scheduledAt)
         .run();
       break;
     } catch (e: any) {
@@ -2070,7 +2091,7 @@ app.post("/api/v1/blogs/:blogId/posts", async (c) => {
   return c.json({ post: { id: res.meta.last_row_id, slug, title, featured_image_key: featuredImageKey, tags: normalizedTags.tags, author_name: authorName, author_visible: !!authorVisible, published: !!published, scheduled_at: scheduledAt } }, 201);
 });
 
-// Update a post. Body (JSON): any of { title, body_md, slug, published, scheduled_at, tags, author_name, author_visible, featured_image_key }
+// Update a post. Body (JSON): any of { title, body_md, slug, published, scheduled_at, published_at, tags, author_name, author_visible, featured_image_key }
 app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
   const account = await apiAccount(c);
   if (!account) return c.json({ error: "unauthorized" }, 401, { "www-authenticate": oauthBearerChallenge(c), "access-control-allow-origin": "*" } as any);
@@ -2136,6 +2157,9 @@ app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
   if (published) scheduledAt = null;
   else if (schedule.present) scheduledAt = schedule.scheduledAt;
   if (schedule.present && schedule.scheduledAt !== null && !can(role, "posts.publish")) return c.json({ error: "publishing is not permitted for this role" }, 403);
+  const dating = parseApiPublishedAt(body?.published_at, now);
+  if (dating.error) return c.json({ error: dating.error }, 400);
+  const createdAt = dating.present && dating.publishedAt !== null ? dating.publishedAt : post.created_at;
 
   if (slug !== post.slug && await homepageBlocksBlogSlug(c.env, tenant, slug)) return c.json({ error: "The slug 'blog' is reserved while a landing page is your homepage (your post index lives at /blog). Choose a different slug." }, 400);
   if (slug !== post.slug) {
@@ -2146,10 +2170,10 @@ app.patch("/api/v1/blogs/:blogId/posts/:id", async (c) => {
   while (true) {
     try {
       await pdb.prepare(
-        `UPDATE posts SET title = ?, featured_image_key = ?, body_md = ?, tags_json = ?, slug = ?, published = ?, scheduled_at = ?, updated_at = ?, author_name = ?, author_visible = ?, meta_description = ?
+        `UPDATE posts SET title = ?, featured_image_key = ?, body_md = ?, tags_json = ?, slug = ?, published = ?, scheduled_at = ?, updated_at = ?, author_name = ?, author_visible = ?, meta_description = ?, created_at = ?
       WHERE id = ? AND tenant_id = ?`
       )
-        .bind(title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), slug, published, scheduledAt, now, authorName, authorVisible, metaDescription, post.id, tenant.id)
+        .bind(title, featuredImageKey, body_md, JSON.stringify(normalizedTags.tags), slug, published, scheduledAt, now, authorName, authorVisible, metaDescription, createdAt, post.id, tenant.id)
         .run();
       break;
     } catch (e: any) {
