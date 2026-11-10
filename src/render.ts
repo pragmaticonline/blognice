@@ -910,6 +910,26 @@ export const STYLES = /* css */ `
     margin: 1rem 0; font-size: 0.92em;
     border-left-color: var(--rule);
   }
+  /* Opt-in giant-quote pull quotes via a leading "[!pull]" marker in Markdown. */
+  .prose blockquote.pull-quote {
+    position: relative;
+    margin: 2.5rem 0;
+    padding: 0.4rem 0 0.4rem 4.2rem;
+    border-left: none;
+    font-style: normal;
+    font-size: 1.35rem;
+    line-height: 1.45;
+    color: var(--ink);
+  }
+  .prose blockquote.pull-quote::before {
+    content: "\\201C";
+    position: absolute;
+    left: 0; top: -1.4rem;
+    font-size: 4.5rem;
+    line-height: 1;
+    font-family: Georgia, "Times New Roman", serif;
+    color: var(--accent);
+  }
   .prose code {
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     font-size: 0.88em;
