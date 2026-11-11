@@ -284,6 +284,25 @@ test("off-site links open in a new tab; same-site links open normally", () => {
   assert.doesNotMatch(html, /href="\/pages\/book" target="_blank"/);
 });
 
+test("same-site absolute URLs open in the same tab", () => {
+  const hero = LANDING_DESIGNS.find((d) => d.id === "hero");
+  const origin = "https://thedavecullenshow.blognice.com";
+  const html = render(hero, {
+    ctas: [
+      { label: "Visit the blog", href: "https://thedavecullenshow.blognice.com/blog" },
+      { label: "Book", href: "/pages/deus-v-machina" },
+    ],
+    features: [
+      { title: "Same-site absolute", body_md: "w", link: "https://thedavecullenshow.blognice.com/pages/book" },
+      { title: "Off-site", body_md: "w", link: "https://www.youtube.com/channel/x" },
+    ],
+  }, { origin, site_hosts: ["thedavecullenshow.blognice.com"] });
+  assert.doesNotMatch(html, /href="https:\/\/thedavecullenshow\.blognice\.com\/blog" target="_blank"/);
+  assert.match(html, /<a class="lp-cta lp-cta--primary" href="https:\/\/thedavecullenshow\.blognice\.com\/blog">Visit the blog<\/a>/);
+  assert.doesNotMatch(html, /href="https:\/\/thedavecullenshow\.blognice\.com\/pages\/book" target="_blank"/);
+  assert.match(html, /<a href="https:\/\/www\.youtube\.com\/channel\/x" target="_blank" rel="noopener">/);
+});
+
 for (const id of ["hero", "business", "shop"]) {
   test(`[${id}] linked features link image and title; unlinked stay plain`, () => {
     const design = LANDING_DESIGNS.find((d) => d.id === id);
