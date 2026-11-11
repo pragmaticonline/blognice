@@ -71,13 +71,13 @@ h2{font:700 1.8rem/1.2 var(--serif);margin:0 0 1.75rem}
     {{#hero.headline}}<h1>{{hero.headline}}</h1>{{/hero.headline}}
     {{^hero.headline}}<h1>{{site.title}}</h1>{{/hero.headline}}
     {{#hero.subheadline}}<p>{{hero.subheadline}}</p>{{/hero.subheadline}}
-    {{#has_ctas}}<div class="lp-ctas">{{#ctas}}<a class="lp-cta {{#primary}}lp-cta--primary{{/primary}}{{#secondary}}lp-cta--secondary{{/secondary}}" href="{{href}}">{{label}}</a>{{/ctas}}</div>{{/has_ctas}}
+    {{#has_ctas}}<div class="lp-ctas">{{#ctas}}<a class="lp-cta {{#primary}}lp-cta--primary{{/primary}}{{#secondary}}lp-cta--secondary{{/secondary}}" href="{{href}}"{{#external}} target="_blank" rel="noopener"{{/external}}>{{label}}</a>{{/ctas}}</div>{{/has_ctas}}
   </div>
 </header>
 <main>
   {{#intro_html}}<section class="wrap">{{#intro_heading}}<h2>{{intro_heading}}</h2>{{/intro_heading}}<div class="lp-intro">{{{intro_html}}}</div></section>{{/intro_html}}
   {{#has_features}}<section class="wrap">{{#features_heading}}<h2>{{features_heading}}</h2>{{/features_heading}}<div class="lp-features">{{#features}}
-    <article class="lp-feature">{{#image_url}}{{#link}}<a href="{{link}}">{{/link}}<img src="{{image_url}}" alt="" loading="lazy" width="800" height="600">{{#link}}</a>{{/link}}{{/image_url}}<div><h3>{{#link}}<a href="{{link}}">{{title}}</a>{{/link}}{{^link}}{{title}}{{/link}}</h3>{{{body_html}}}</div></article>{{/features}}
+    <article class="lp-feature">{{#image_url}}{{#link}}<a href="{{link}}"{{#link_external}} target="_blank" rel="noopener"{{/link_external}}>{{/link}}<img src="{{image_url}}" alt="" loading="lazy" width="800" height="600">{{#link}}</a>{{/link}}{{/image_url}}<div><h3>{{#link}}<a href="{{link}}"{{#link_external}} target="_blank" rel="noopener"{{/link_external}}>{{title}}</a>{{/link}}{{^link}}{{title}}{{/link}}</h3>{{{body_html}}}</div></article>{{/features}}
   </div></section>{{/has_features}}
   {{#has_posts}}<section class="wrap lp-posts" aria-labelledby="lp-posts-h">{{#posts_heading}}<h2 id="lp-posts-h">{{posts_heading}}</h2>{{/posts_heading}}{{^posts_heading}}<h2 id="lp-posts-h">From the blog</h2>{{/posts_heading}}
     <div class="post-list">{{#posts}}<a href="{{url}}">{{#image_url}}<img src="{{image_url}}" alt="" loading="lazy" width="640" height="360">{{/image_url}}<time>{{date}}</time><h3>{{title}}</h3></a>{{/posts}}</div>

@@ -756,6 +756,12 @@ async function renderLandingHtml(
   const description = (page.meta_description || content.hero.subheadline || tenant.description || tenant.title).slice(0, 300);
   const heroImage = content.hero.image_key ? `${opts.origin}/media/${content.hero.image_key}` : undefined;
   const promoHtml = !opts.preview && opts.isHomepage ? promoForPage(tenant, "home") : "";
+  const rootDomain = String(c.env?.ROOT_DOMAIN || "blognice.com").trim().toLowerCase();
+  const siteHosts = [...new Set([
+    (() => { try { return new URL(opts.origin).host.toLowerCase(); } catch { return ""; } })(),
+    (tenant.custom_domain || "").trim().toLowerCase(),
+    tenant.slug ? `${tenant.slug.toLowerCase()}.${rootDomain}` : "",
+  ].filter(Boolean))];
   const site: LandingSite = {
     design_id: page.design,
     title: tenant.title,
@@ -765,6 +771,8 @@ async function renderLandingHtml(
     nav: [...(content.show_blog_link ? [{ label: "Blog", href: blogUrl }] : []), ...navItems.map((i) => ({ label: i.label, href: i.href, new_tab: i.newTab }))],
     social: socialLinksFor(tenant),
     posts: postRows.results.map((r: any) => ({ title: r.title, url: "/" + r.slug, date: formatDate(r.created_at), image_key: r.featured_image_key ?? null })),
+    origin: opts.origin,
+    site_hosts: siteHosts,
     head_html: blogHeadHtml({
       tenant,
       pageTitle: page.title || tenant.title,
