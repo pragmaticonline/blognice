@@ -109,24 +109,56 @@ export type LandingSite = {
   body_end_html: string;                             // consent banner + metrics scripts, built by the caller ("" if none)
   media_url: (key: string) => string;                // e.g. key => `/media/${key}`
   year?: number;
+  origin?: string;                                   // e.g. "https://example.blognice.com" (current request origin)
+  site_hosts?: string[];                             // all hosts that count as same-site (subdomain + custom domain)
 };
 
 const NAV_INLINE = 1; // phones: brand + 1 link + Menu
 
-function isExternalHref(href: string): boolean {
-  return /^https?:\/\//i.test(href.trim());
+function hostOf(value: string): string | null {
+  try {
+    return new URL(value).host.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function sameSiteHosts(site?: Pick<LandingSite, "origin" | "site_hosts">): Set<string> {
+  const hosts = new Set<string>();
+  if (!site) return hosts;
+  const fromUrl = site.origin ? hostOf(site.origin) : null;
+  if (fromUrl) hosts.add(fromUrl);
+  for (const entry of site.site_hosts ?? []) {
+    const text = String(entry ?? "").trim();
+    if (!text) continue;
+    const host = text.includes("://") ? hostOf(text) : text.toLowerCase();
+    if (host) hosts.add(host);
+  }
+  return hosts;
+}
+
+function isExternalHref(href: string, site?: Pick<LandingSite, "origin" | "site_hosts">): boolean {
+  const trimmed = href.trim();
+  if (!/^https?:\/\//i.test(trimmed)) return false;
+  const host = hostOf(trimmed);
+  if (!host) return true;
+  const known = sameSiteHosts(site);
+  // No site context (previews, older callers): preserve the old
+  // any-absolute-URL-is-external behavior.
+  if (known.size === 0) return true;
+  return !known.has(host);
 }
 
 export function buildLandingView(content: LandingContent, site: LandingSite): TemplateView {
   const md = (s: string) => (s ? renderMarkdown(s) : "");
   const img = (key: string | null) => (key ? site.media_url(key) : null);
-  const ctas = content.ctas.map((c, i) => ({ ...c, primary: i === 0, secondary: i > 0, external: isExternalHref(c.href) }));
+  const ctas = content.ctas.map((c, i) => ({ ...c, primary: i === 0, secondary: i > 0, external: isExternalHref(c.href, site) }));
   const features = content.features.map((f, i) => ({
     title: f.title,
     body_html: md(f.body_md),
     image_url: img(f.image_key),
     link: f.link || null,
-    link_external: !!f.link && isExternalHref(f.link),
+    link_external: !!f.link && isExternalHref(f.link, site),
     number: String(i + 1).padStart(2, "0"),
   }));
   const c = content.contact;
