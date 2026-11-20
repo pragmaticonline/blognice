@@ -147,10 +147,9 @@ const SPOKEN_FORMS: Array<[RegExp, string]> = [
   [/\bDr\.(?=\s+[A-Z])/g, "Doctor"],
   [/\bMr\.(?=\s+[A-Z])/g, "Mister"],
   [/\bMrs\.(?=\s+[A-Z])/g, "Missus"],
-  // MeloTTS blended spaced initials back into one word, so this used the
-  // phonetic spelling "aiye eye"; Aura reads that as "eye A eye". Plain
-  // spaced letters are what Aura renders correctly, as for UI/API below.
-  [/\bAI\b/gi, "A I"],
+  // AI gets no spoken form: MeloTTS needed "aiye eye" (which Aura read as
+  // "eye A eye") and spaced "A I" leaves a ~300ms pause between letters.
+  // Aura reads the raw acronym fluidly, so it passes through untouched.
   [/\bPBKDF2-HMAC-SHA256\b/gi, "P B K D F two H M A C S H A two five six"],
   [/\bSHA256\b/gi, "S H A two five six"],
   [/\bOWASP\b/gi, "O Wasp"],
@@ -658,6 +657,10 @@ export function pronunciationReplacements(output: string, source: string): Pronu
     // the language model from "correcting" words such as plugins into nonsense.
     if (/^[a-z]+(?:[-\s][a-z]+)*$/.test(original)) continue;
     if (!spoken || spoken.length > 120 || !/^[\p{L} .,'’\-]+$/u.test(spoken)) continue;
+    // Never re-space an all-caps acronym into spaced initials ("AI" ->
+    // "A I"): Aura reads the raw acronym fluidly, while spaced letters
+    // get a long pause between them.
+    if (/^[A-Z]{2,}$/.test(original) && spoken.replace(/[\s.]/g, "").toUpperCase() === original) continue;
     if (original === spoken || !source.includes(original) || seen.has(original)) continue;
     seen.add(original);
     accepted.push({ original, spoken });
