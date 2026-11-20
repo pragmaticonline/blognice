@@ -27,7 +27,7 @@
   },
   "dependencies": {
     "fflate": "^0.8.3",
-    "hono": "^4.13.13",
+    "hono": "^4.13.16",
     "rehype-sanitize": "^6.0.0",
     "rehype-stringify": "^10.0.1",
     "remark-gfm": "^4.0.1",
