@@ -5085,8 +5085,8 @@ async function processAudioJob(env: Bindings, jobKey: string): Promise<void> {
       await writeAudioJob(env, jobKey, job);
     }
 
-    // Segments are already sped up; scale the inserted pauses the same way
-    // so the finished file is uniformly TTS_PLAYBACK_SPEED faster.
+    // Pauses scale with TTS_PLAYBACK_SPEED so any future speed change
+    // applies uniformly; at 1x this leaves them at their authored length.
     const assembly = wavAssembly(parts, job.prompts.map((prompt) => prompt.pauseAfter / TTS_PLAYBACK_SPEED));
     if (!assembly.size) throw new Error("The model returned no audio.");
     const audioKey = `${tenant.id}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}-tts.wav`;

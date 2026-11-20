@@ -147,9 +147,10 @@ const SPOKEN_FORMS: Array<[RegExp, string]> = [
   [/\bDr\.(?=\s+[A-Z])/g, "Doctor"],
   [/\bMr\.(?=\s+[A-Z])/g, "Mister"],
   [/\bMrs\.(?=\s+[A-Z])/g, "Missus"],
-  // MeloTTS often blends spaced initials back into one word. A phonetic
-  // spelling keeps the two letters distinct in the rendered narration.
-  [/\bAI\b/gi, "aiye eye"],
+  // MeloTTS blended spaced initials back into one word, so this used the
+  // phonetic spelling "aiye eye"; Aura reads that as "eye A eye". Plain
+  // spaced letters are what Aura renders correctly, as for UI/API below.
+  [/\bAI\b/gi, "A I"],
   [/\bPBKDF2-HMAC-SHA256\b/gi, "P B K D F two H M A C S H A two five six"],
   [/\bSHA256\b/gi, "S H A two five six"],
   [/\bOWASP\b/gi, "O Wasp"],
@@ -867,11 +868,11 @@ export function validWavAudio(bytes: Uint8Array): boolean {
   }
 }
 
-// Narration plays back 10% faster than the engine renders it: Aura has no
-// speed control, so each finished segment is resampled to 1/1.1 of its
-// frames at the same sample rate. Pauses inserted at assembly are scaled by
-// the same factor, keeping the whole file uniformly faster.
-export const TTS_PLAYBACK_SPEED = 1.1 as const;
+// Narration plays at the engine's own speed (1x). spedUpWav is kept so a
+// future speed change is one constant: at 1.1 each segment was resampled
+// to 1/1.1 of its frames and assembly pauses scaled by the same factor;
+// at 1 every stage passes audio through untouched.
+export const TTS_PLAYBACK_SPEED = 1 as const;
 
 export function spedUpWav(bytes: Uint8Array, factor: number = TTS_PLAYBACK_SPEED): Uint8Array {
   if (!Number.isFinite(factor) || factor <= 0 || factor === 1) return bytes;

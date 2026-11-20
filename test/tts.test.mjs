@@ -106,7 +106,7 @@ test("narration adds structural pauses and conservative spoken forms", () => {
     "AI and the UK",
     "Dr. Jones compared the API vs. the old URL.\n\n## Results\n\n- Faster HTTP requests\n- Clearer HTML output"
   ).replaceAll(TTS_HARD_PAUSE, "\n\n").replaceAll(TTS_SOFT_PAUSE, " ");
-  assert.match(text, /^aiye eye and the U K\./);
+  assert.match(text, /^A I and the U K\./);
   assert.match(text, /Doctor Jones compared the A P I versus the old U R L\./);
   assert.match(text, /Results\.\n\nFaster/);
   assert.match(text, /Faster H T T P requests\.\n\nClearer H T M L output\./);
@@ -131,7 +131,7 @@ test("technical security terms use explicit spoken forms", () => {
     "AI, SHA256, OWASP, and CPU are discussed."
   );
   assert.match(sections.title, /P B K D F two H M A C S H A two five six/);
-  assert.match(sections.body, /aiye eye, S H A two five six, O Wasp, and C P U/);
+  assert.match(sections.body, /A I, S H A two five six, O Wasp, and C P U/);
 });
 
 test("PNG is spelled out letter by letter", () => {
@@ -311,7 +311,7 @@ test("audio removal invalidates queued narration before it can attach", () => {
 
 test("title is a standalone neutral statement before the article body", () => {
   const sections = narrationSections("AI and the UK", "## Opening\n\nThe article begins.");
-  assert.equal(sections.title, "aiye eye and the U K.");
+  assert.equal(sections.title, "A I and the U K.");
   assert.equal(sections.body.replaceAll(TTS_HARD_PAUSE, "\n\n"), "\n\nOpening.\n\nThe article begins.");
   assert.equal(TTS_TITLE_PAUSE_SECONDS, 1.5);
 });
@@ -838,21 +838,23 @@ test("audio jobs record the selected engine and render on it (source checks)", (
   assert.match(src, /checkpointHash = await sha256hex\(`\$\{[^`]*jobVoice[^`]*\}`\)/);
 });
 
-test("narration WAV is resampled 10 percent faster at the same sample rate", () => {
-  assert.equal(TTS_PLAYBACK_SPEED, 1.1);
+test("narration plays at engine speed (1x) and the resampler still works if re-enabled", () => {
+  assert.equal(TTS_PLAYBACK_SPEED, 1);
   const frames = 2_400;
   const pcm = new Uint8Array(frames * 2);
   const pcmView = new DataView(pcm.buffer);
   for (let i = 0; i < frames; i++) pcmView.setInt16(i * 2, Math.round(10_000 * Math.sin((2 * Math.PI * 440 * i) / 24_000)), true);
   const input = wav(pcm);
-  const out = spedUpWav(input);
+  // At 1x the shipped pipeline passes audio through untouched.
+  assert.deepEqual([...spedUpWav(input)], [...input]);
+  // An explicit factor still resamples at the same sample rate.
+  const out = spedUpWav(input, 1.1);
   const outView = new DataView(out.buffer, out.byteOffset, out.byteLength);
   assert.equal(validWavAudio(out), true);
   assert.equal(outView.getUint32(24, true), 24_000, "sample rate is unchanged, so playback is faster");
-  assert.equal(outView.getUint32(40, true), Math.round(frames / TTS_PLAYBACK_SPEED) * 2);
-  assert.equal(out.length, 44 + Math.round(frames / TTS_PLAYBACK_SPEED) * 2);
+  assert.equal(outView.getUint32(40, true), Math.round(frames / 1.1) * 2);
+  assert.equal(out.length, 44 + Math.round(frames / 1.1) * 2);
   assert.equal(outView.getUint32(4, true), out.length - 8);
-  // First sample sits on the same waveform point; factor 1 and non-WAV pass through.
   assert.equal(outView.getInt16(44, true), 0);
   assert.deepEqual([...spedUpWav(input, 1)], [...input]);
   assert.deepEqual([...spedUpWav(new Uint8Array([1, 2, 3]))], [1, 2, 3]);
