@@ -3,7 +3,7 @@ import staffFaviconSvg from "../staff-favicon.svg";
 import { esc } from "./render";
 import { sendEmailDetailed, registrationWelcomeEmail, subscriptionActiveEmail, subscriberConfirmationEmail, passwordResetEmail, subscriberWelcomeEmail, postNotificationEmail, appealApprovedEmail, appealDeniedEmail } from "./email";
 import { generateResetToken, sha256hex } from "./auth";
-import { classifyTtsError, narrationSample, readPronunciationOverrides, ttsBytes, ttsStreamToBytes, readTtsEngineSetting, readTtsVoiceSetting, selectTtsEngine, selectTtsVoice, validWavAudio, AURA_VOICES, TTS_DEFAULT_VOICE, TTS_ENGINE_AURA, TTS_ENGINE_MELOTTS, TTS_ENGINE_SETTING_KEY, TTS_FALLBACK_MODEL, TTS_MODEL, TTS_RETRY_DELAYS, TTS_VOICE_SETTING_KEY } from "./tts";
+import { auraVoicesForModel, classifyTtsError, narrationSample, readPronunciationOverrides, ttsStreamToBytes, readTtsEngineSetting, readTtsVoiceSetting, selectTtsEngine, selectTtsVoice, validWavAudio, TTS_DEPRECATED_MODEL, TTS_ENGINE_AURA, TTS_ENGINE_AURA2, TTS_ENGINE_MELOTTS, TTS_ENGINE_SETTING_KEY, TTS_FALLBACK_MODEL, TTS_MODEL, TTS_RETRY_DELAYS, TTS_VOICE_SETTING_KEY } from "./tts";
 import { getAffiliatePayoutQueueInDb, getAffiliateSupportActivityInDb, getAffiliateSupportSummaryInDb } from "./affiliate-support";
 import { approveAffiliatePayoutInDb, hasIndependentPayoutApprovalInDb, loadStripePayoutDispatchInDb, parseAffiliateStripeConnectCountries, parsePayoutDualControlThreshold, reconcilePayoutInDb, recordAffiliateAccountRelationshipInDb, recordManualAffiliateAdjustmentInDb, recordPayoutDispatchResultInDb } from "./affiliate";
 import { createAffiliateTransfer } from "./stripe";
@@ -200,9 +200,8 @@ async function ttsTestWithRetry(ai: Ai, prompt: string, model: string = TTS_MODE
   const retries: Array<{ attempt: number; category: string; code: string | null; delayMs: number }> = [];
   for (let attempt = 0; attempt <= TTS_RETRY_DELAYS.length; attempt++) {
     try {
-      const generated = model === TTS_FALLBACK_MODEL
-        ? await ttsStreamToBytes(await (ai as any).run(model, voice ? { text: prompt, speaker: voice, encoding: "linear16", container: "wav" } : { text: prompt, encoding: "linear16", container: "wav" }))
-        : ttsBytes(await ai.run(TTS_MODEL, { prompt, lang: "en" }) as Uint8Array | { audio: string });
+      const effectiveModel = model === TTS_DEPRECATED_MODEL ? TTS_MODEL : model;
+      const generated = await ttsStreamToBytes(await (ai as any).run(effectiveModel, voice ? { text: prompt, speaker: voice, encoding: "linear16", container: "wav" } : { text: prompt, encoding: "linear16", container: "wav" }));
       if (!generated.length) throw Object.assign(new Error("The model returned no audio."), { code: "EMPTY_AUDIO" });
       if (!validWavAudio(generated)) throw new Error("The speech model returned truncated WAV audio.");
       const bytes = generated;
@@ -1106,11 +1105,12 @@ app.get("/pronunciations", async (c) => {
 
 app.get("/tts-test", async (c) => {
   const staff = c.get("staff") as StaffIdentity;
-  const engine = selectTtsEngine(await readTtsEngineSetting(c.env.DB)) === TTS_FALLBACK_MODEL ? TTS_ENGINE_AURA : TTS_ENGINE_MELOTTS;
-  const enginePanel = `<div class="card"><h2>Narration engine</h2><p class="muted">Blog narration currently renders on <strong id="tts-engine-status">${engine}</strong>. Aura-1 costs roughly 100× per narration — switch only while MeloTTS is unhealthy.</p>${canMutate(staff) ? `<form id="tts-engine-form"><label>Engine <select name="engine"><option value="melotts"${engine === TTS_ENGINE_MELOTTS ? " selected" : ""}>melotts</option><option value="aura-1"${engine === TTS_ENGINE_AURA ? " selected" : ""}>aura-1</option></select></label> <button class="btn" type="submit">Switch engine</button></form><p id="tts-engine-message" class="muted" aria-live="polite"></p><script>(function(){var form=document.getElementById('tts-engine-form');if(!form)return;var status=document.getElementById('tts-engine-status');var message=document.getElementById('tts-engine-message');form.addEventListener('submit',async function(event){event.preventDefault();var button=form.querySelector('button');button.disabled=true;message.textContent='Switching…';try{var response=await fetch('/api/tts-engine',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({engine:form.elements.engine.value})});var data=await response.json().catch(function(){return {};});if(!response.ok)throw new Error(data.error||'Could not switch engine.');status.textContent=data.engine;message.textContent='Active engine: '+data.engine+'.';}catch(error){message.textContent=error.message||'Could not switch engine.';}finally{button.disabled=false;}});})();</script>` : ""}</div>`;
-  const voice = selectTtsVoice(await readTtsVoiceSetting(c.env.DB));
-  const voiceOptions = (AURA_VOICES as readonly string[]).map((v) => `<option value="${v}"${voice === v ? " selected" : ""}>${v}</option>`).join("");
-  const voicePanel = `<div class="card"><h2>Aura voice</h2><p class="muted">Aura-1 narrations speak as <strong id="tts-voice-status">${voice}</strong>. Applies to future jobs; existing audio is unchanged. Test below renders samples in this voice.</p>${canMutate(staff) ? `<form id="tts-voice-form"><label>Voice <select name="voice">${voiceOptions}</select></label> <button class="btn" type="submit">Switch voice</button></form><p id="tts-voice-message" class="muted" aria-live="polite"></p><script>(function(){var form=document.getElementById('tts-voice-form');if(!form)return;var status=document.getElementById('tts-voice-status');var message=document.getElementById('tts-voice-message');form.addEventListener('submit',async function(event){event.preventDefault();var button=form.querySelector('button');button.disabled=true;message.textContent='Switching…';try{var response=await fetch('/api/tts-voice',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({voice:form.elements.voice.value})});var data=await response.json().catch(function(){return {};});if(!response.ok)throw new Error(data.error||'Could not switch voice.');status.textContent=data.voice;message.textContent='Active voice: '+data.voice+'.';}catch(error){message.textContent=error.message||'Could not switch voice.';}finally{button.disabled=false;}});})();</script>` : ""}</div>`;
+  const engineModel = selectTtsEngine(await readTtsEngineSetting(c.env.DB));
+  const engine = engineModel === TTS_FALLBACK_MODEL ? TTS_ENGINE_AURA : TTS_ENGINE_AURA2;
+  const enginePanel = `<div class="card"><h2>Narration engine</h2><p class="muted">Blog narration currently renders on <strong id="tts-engine-status">${engine}</strong>. MeloTTS was deprecated on 2026-11-20; Aura-2 is the default replacement and Aura-1 is the cheaper fallback (half the per-character price).</p>${canMutate(staff) ? `<form id="tts-engine-form"><label>Engine <select name="engine"><option value="aura-2-en"${engine === TTS_ENGINE_AURA2 ? " selected" : ""}>aura-2-en</option><option value="aura-1"${engine === TTS_ENGINE_AURA ? " selected" : ""}>aura-1</option></select></label> <button class="btn" type="submit">Switch engine</button></form><p id="tts-engine-message" class="muted" aria-live="polite"></p><script>(function(){var form=document.getElementById('tts-engine-form');if(!form)return;var status=document.getElementById('tts-engine-status');var message=document.getElementById('tts-engine-message');form.addEventListener('submit',async function(event){event.preventDefault();var button=form.querySelector('button');button.disabled=true;message.textContent='Switching…';try{var response=await fetch('/api/tts-engine',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({engine:form.elements.engine.value})});var data=await response.json().catch(function(){return {};});if(!response.ok)throw new Error(data.error||'Could not switch engine.');status.textContent=data.engine;message.textContent='Active engine: '+data.engine+'.';}catch(error){message.textContent=error.message||'Could not switch engine.';}finally{button.disabled=false;}});})();</script>` : ""}</div>`;
+  const voice = selectTtsVoice(await readTtsVoiceSetting(c.env.DB), engineModel);
+  const voiceOptions = auraVoicesForModel(engineModel).map((v) => `<option value="${v}"${voice === v ? " selected" : ""}>${v}</option>`).join("");
+  const voicePanel = `<div class="card"><h2>Aura voice</h2><p class="muted">Narrations on the active engine speak as <strong id="tts-voice-status">${voice}</strong>. Applies to future jobs; existing audio is unchanged. Test below renders samples in this voice.</p>${canMutate(staff) ? `<form id="tts-voice-form"><label>Voice <select name="voice">${voiceOptions}</select></label> <button class="btn" type="submit">Switch voice</button></form><p id="tts-voice-message" class="muted" aria-live="polite"></p><script>(function(){var form=document.getElementById('tts-voice-form');if(!form)return;var status=document.getElementById('tts-voice-status');var message=document.getElementById('tts-voice-message');form.addEventListener('submit',async function(event){event.preventDefault();var button=form.querySelector('button');button.disabled=true;message.textContent='Switching…';try{var response=await fetch('/api/tts-voice',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({voice:form.elements.voice.value})});var data=await response.json().catch(function(){return {};});if(!response.ok)throw new Error(data.error||'Could not switch voice.');status.textContent=data.voice;message.textContent='Active voice: '+data.voice+'.';}catch(error){message.textContent=error.message||'Could not switch voice.';}finally{button.disabled=false;}});})();</script>` : ""}</div>`;
   const editor = canMutate(staff)
     ? `<div class="card"><h2>Short TTS test</h2><p class="muted">Hear what a post will sound like: samples run the same narration preparation as articles, on the active engine, without creating a post or consuming a customer’s AI allowance. Try variants such as <code>ay eye</code>, <code>eigh eye</code>, or <code>A, I</code>.</p><form id="tts-test-form"><label>Text <input name="text" required maxlength="240" value="AI is useful." style="padding:9px;border:1px solid var(--rule);border-radius:5px;min-width:360px"></label> <button class="btn" type="submit">Generate sample</button></form><p id="tts-test-status" class="muted" aria-live="polite"></p><audio id="tts-test-audio" controls hidden style="width:min(100%,520px)"></audio></div><script>(function(){var form=document.getElementById('tts-test-form');var status=document.getElementById('tts-test-status');var audio=document.getElementById('tts-test-audio');form.addEventListener('submit',async function(event){event.preventDefault();var button=form.querySelector('button');button.disabled=true;audio.hidden=true;status.textContent='Generating…';try{var response=await fetch('/api/tts-test',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:form.elements.text.value})});if(!response.ok){var data=await response.json().catch(function(){return {}});throw new Error(data.error||'Could not generate sample.');}var blob=await response.blob();if(audio.dataset.url)URL.revokeObjectURL(audio.dataset.url);audio.dataset.url=URL.createObjectURL(blob);audio.src=audio.dataset.url;audio.hidden=false;status.textContent='Sample ready.';await audio.play().catch(function(){});}catch(error){status.textContent=error.message||'Could not generate sample.';}finally{button.disabled=false;}});})();</script>`
     : `<div class="notice">Your role is read-only. TTS testing requires support or admin access.</div>`;
@@ -1132,7 +1132,7 @@ app.post("/api/tts-test", async (c) => {
   const prepared = narrationSample(text, await readPronunciationOverrides(c.env.DB));
   if (!prepared) return c.json({ error: "Enter a short phrase first." }, 400);
   const model = selectTtsEngine(await readTtsEngineSetting(c.env.DB));
-  const voice = selectTtsVoice(await readTtsVoiceSetting(c.env.DB));
+  const voice = selectTtsVoice(await readTtsVoiceSetting(c.env.DB), model);
   try {
     const generated = await ttsTestWithRetry(c.env.AI, prepared, model, voice);
     await audit(c, staff, { action: "tts-test", targetType: "tts", targetId: model, reason: "Generate short pronunciation sample", result: "success", after: { characters: prepared.length, attempts: generated.attempts, retries: generated.retries } });
@@ -1233,7 +1233,7 @@ app.post("/api/accounts/:id/landing-override", async (c) => {
 });
 
 app.get("/api/tts-engine", async (c) => {
-  const engine = selectTtsEngine(await readTtsEngineSetting(c.env.DB)) === TTS_FALLBACK_MODEL ? TTS_ENGINE_AURA : TTS_ENGINE_MELOTTS;
+  const engine = selectTtsEngine(await readTtsEngineSetting(c.env.DB)) === TTS_FALLBACK_MODEL ? TTS_ENGINE_AURA : TTS_ENGINE_AURA2;
   return c.json({ engine });
 });
 
@@ -1242,9 +1242,11 @@ app.post("/api/tts-engine", async (c) => {
   if (!canMutate(staff)) return c.json({ error: "staff role cannot change the TTS engine" }, 403);
   if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
   const input = await c.req.json().catch(() => ({})) as { engine?: unknown };
-  const engine = String(input.engine || "").trim();
-  if (engine !== TTS_ENGINE_MELOTTS && engine !== TTS_ENGINE_AURA) return c.json({ error: "engine must be melotts or aura-1" }, 400);
-  const before = selectTtsEngine(await readTtsEngineSetting(c.env.DB)) === TTS_FALLBACK_MODEL ? TTS_ENGINE_AURA : TTS_ENGINE_MELOTTS;
+  // Legacy "melotts" is accepted as an alias for the current default engine.
+  const requested = String(input.engine || "").trim();
+  const engine = requested === TTS_ENGINE_MELOTTS ? TTS_ENGINE_AURA2 : requested;
+  if (engine !== TTS_ENGINE_AURA2 && engine !== TTS_ENGINE_AURA) return c.json({ error: "engine must be aura-2-en or aura-1" }, 400);
+  const before = selectTtsEngine(await readTtsEngineSetting(c.env.DB)) === TTS_FALLBACK_MODEL ? TTS_ENGINE_AURA : TTS_ENGINE_AURA2;
   try {
     await c.env.DB.prepare("INSERT INTO platform_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at").bind(TTS_ENGINE_SETTING_KEY, engine, Math.floor(Date.now() / 1000)).run();
   } catch { return c.json({ error: "settings table not available — run migration 068" }, 500); }
@@ -1252,11 +1254,12 @@ app.post("/api/tts-engine", async (c) => {
   return c.json({ engine });
 });
 
-// Aura voice switch: which speaker renders Aura-1 narration. Any
-// authenticated staff role may read; changing requires a mutating role.
-// Unset or unknown values fail closed to the default voice.
+// Aura voice switch: which speaker renders narration on the active engine.
+// Any authenticated staff role may read; changing requires a mutating role.
+// Unset or unknown-for-the-engine values fail closed to the default voice.
 app.get("/api/tts-voice", async (c) => {
-  const voice = selectTtsVoice(await readTtsVoiceSetting(c.env.DB));
+  const model = selectTtsEngine(await readTtsEngineSetting(c.env.DB));
+  const voice = selectTtsVoice(await readTtsVoiceSetting(c.env.DB), model);
   return c.json({ voice });
 });
 
@@ -1266,8 +1269,9 @@ app.post("/api/tts-voice", async (c) => {
   if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
   const input = await c.req.json().catch(() => ({})) as { voice?: unknown };
   const voice = String(input.voice || "").trim().toLowerCase();
-  if (!(AURA_VOICES as readonly string[]).includes(voice)) return c.json({ error: "unknown Aura voice" }, 400);
-  const before = selectTtsVoice(await readTtsVoiceSetting(c.env.DB));
+  const model = selectTtsEngine(await readTtsEngineSetting(c.env.DB));
+  if (!auraVoicesForModel(model).includes(voice)) return c.json({ error: "unknown Aura voice" }, 400);
+  const before = selectTtsVoice(await readTtsVoiceSetting(c.env.DB), model);
   try {
     await c.env.DB.prepare("INSERT INTO platform_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at").bind(TTS_VOICE_SETTING_KEY, voice, Math.floor(Date.now() / 1000)).run();
   } catch { return c.json({ error: "settings table not available — run migration 068" }, 500); }
