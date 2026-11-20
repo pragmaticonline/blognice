@@ -4084,12 +4084,28 @@ app.get("/admin/b/:blogId", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
   if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
-  const { results } = await tenantDb(c.env, ctx.tenant).prepare(
-    "SELECT * FROM posts WHERE tenant_id = ? ORDER BY created_at DESC"
-  )
-    .bind(ctx.tenant.id)
-    .all<Post>();
-  return c.html(postListPage(ctx.account, ctx.tenant, results, c.env.ROOT_DOMAIN));
+  const raw = String(c.req.query("page") || "1");
+  const parsed = Number(raw);
+  const page = Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 10_000_000 ? parsed : 1;
+  const limit = 50;
+  const offset = (page - 1) * limit;
+  const pdb = tenantDb(c.env, ctx.tenant);
+  const [paged, counted] = await Promise.all([
+    pdb.prepare(
+      "SELECT * FROM posts WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    )
+      .bind(ctx.tenant.id, limit + 1, offset)
+      .all<Post>(),
+    pdb.prepare(
+      "SELECT COUNT(*) as count FROM posts WHERE tenant_id = ?"
+    )
+      .bind(ctx.tenant.id)
+      .first<{ count: number }>(),
+  ]);
+  const hasMore = paged.results.length > limit;
+  const results = hasMore ? paged.results.slice(0, limit) : paged.results;
+  const total = Number(counted?.count ?? results.length);
+  return c.html(postListPage(ctx.account, ctx.tenant, results, c.env.ROOT_DOMAIN, { page, hasMore, total }));
 });
 
 // --- Blog-scoped evergreen pages ------------------------------------------
@@ -4847,7 +4863,16 @@ app.get("/admin/b/:blogId/media", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
   if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
-  return c.html(mediaPage(ctx.account, ctx.tenant, await listMedia(c.env, ctx.tenant.id)));
+  const raw = String(c.req.query("page") || "1");
+  const parsed = Number(raw);
+  const page = Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 10_000_000 ? parsed : 1;
+  const limit = 50;
+  const offset = (page - 1) * limit;
+  const all = await listMedia(c.env, ctx.tenant.id);
+  const total = all.length;
+  const hasMore = offset + limit < total;
+  const items = all.slice(offset, offset + limit);
+  return c.html(mediaPage(ctx.account, ctx.tenant, items, { page, hasMore, total }));
 });
 
 app.get("/admin/b/:blogId/media.json", async (c) => {

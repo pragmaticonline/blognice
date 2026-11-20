@@ -1016,14 +1016,22 @@ export function postListPage(
   account: Account,
   tenant: Tenant,
   posts: Post[],
-  rootDomain: string
+  rootDomain: string,
+  opts?: { page?: number; hasMore?: boolean; total?: number }
 ): string {
   const base = `/admin/b/${tenant.public_id}`;
   const publicHost = tenant.custom_domain || `${tenant.slug}.${rootDomain}`;
+  const page = Number.isSafeInteger(opts?.page as number) && (opts?.page as number) >= 1 ? (opts!.page as number) : 1;
+  const hasMore = !!opts?.hasMore;
+  const total = typeof opts?.total === "number" ? opts!.total as number : posts.length;
+  const pagination = `<nav class="pagination" style="display:flex;align-items:center;gap:10px;justify-content:flex-end;margin-top:12px"><span>Page ${page}</span>${page > 1 ? `<a class="btn" href="${base}?page=${page - 1}">← Previous</a>` : ""}${hasMore ? `<a class="btn" href="${base}?page=${page + 1}">Next →</a>` : ""}</nav>`;
+  const showPagination = posts.length > 0 || page > 1 || hasMore;
   const rows =
-    posts.length === 0
+    posts.length === 0 && page === 1
       ? `<p style="color:var(--muted)">No posts yet. Write your first one.</p>`
-      : `<ul class="posts">${posts
+      : posts.length === 0
+        ? `<p style="color:var(--muted)">No posts on this page.</p>`
+        : `<ul class="posts">${posts
           .map(
             (p) => `<li>
               <div class="post-summary">
@@ -1057,10 +1065,11 @@ export function postListPage(
     `Posts — ${tenant.title}`,
     `<div class="page">
       <div class="row">
-        <h1 style="margin:0">Posts</h1>
+        <h1 style="margin:0">Posts <span style="color:var(--muted);font-weight:400">(${total})</span></h1>
         <a class="btn" href="${base}/new">New post</a>
       </div>
       ${rows}
+      ${showPagination ? pagination : ""}
     </div>
     <script>(function(){document.querySelectorAll("[data-preview-open]").forEach(function(btn){btn.addEventListener("click",function(){if(btn.disabled)return;btn.disabled=true;fetch(btn.getAttribute("data-preview-open"),{method:"POST",headers:{"accept":"application/json"}}).then(function(r){if(!r.ok)throw new Error();return r.json();}).then(function(d){btn.disabled=false;window.open(d.url,"_blank","noopener");}).catch(function(){btn.disabled=false;});});});})();</script>`,
     account,
@@ -1515,15 +1524,26 @@ function mediaCards(items: MediaItem[], selectable = false): string {
   }).join("")}</div>`;
 }
 
-export function mediaPage(account: Account, tenant: Tenant, items: MediaItem[]): string {
+export function mediaPage(account: Account, tenant: Tenant, items: MediaItem[], opts?: { page?: number; hasMore?: boolean; total?: number }): string {
   const base = `/admin/b/${tenant.public_id}`;
+  const page = Number.isSafeInteger(opts?.page as number) && (opts?.page as number) >= 1 ? (opts!.page as number) : 1;
+  const hasMore = !!opts?.hasMore;
+  const total = typeof opts?.total === "number" ? opts!.total as number : items.length;
+  const pagination = `<nav class="pagination" style="display:flex;align-items:center;gap:10px;justify-content:flex-end;margin-top:12px"><span>Page ${page}</span>${page > 1 ? `<a class="btn" href="${base}/media?page=${page - 1}">← Previous</a>` : ""}${hasMore ? `<a class="btn" href="${base}/media?page=${page + 1}">Next →</a>` : ""}</nav>`;
+  const showPagination = items.length > 0 || page > 1 || hasMore;
+  const list = items.length
+    ? mediaCards(items)
+    : page === 1
+      ? `<p style="color:var(--muted)">No images or audio uploaded yet.</p>`
+      : `<p style="color:var(--muted)">No media on this page.</p>`;
   return shell(
     `Media — ${tenant.title}`,
     `<div class="page">
-      <div class="row"><div><h1 style="margin:0">Media</h1><div style="color:var(--muted);font-size:.85rem">Upload once and reuse images and audio in any post.</div></div><button class="btn" type="button" id="media-upload">Upload</button></div>
+      <div class="row"><div><h1 style="margin:0">Media <span style="color:var(--muted);font-weight:400">(${total})</span></h1><div style="color:var(--muted);font-size:.85rem">Upload once and reuse images and audio in any post.</div></div><button class="btn" type="button" id="media-upload">Upload</button></div>
       <input id="media-input" type="file" accept="image/*,audio/mpeg,.mp3" multiple hidden>
       <div id="media-status" class="notice" hidden></div>
-      <div id="media-list">${mediaCards(items)}</div>
+      <div id="media-list">${list}</div>
+      ${showPagination ? pagination : ""}
     </div>
     <script>
       (function () {
