@@ -184,7 +184,7 @@ import {
   type ImageContextMode,
   type ImageStyle,
 } from "./ai-image";
-import { applyPronunciations, assertEnglishText, buildAudioPrompts, classifyTtsError, mergeWav, narrationSections, pronunciationReplacements, readTtsEngineSetting, readTtsVoiceSetting, selectTtsEngine, selectTtsVoice, ttsBytes, ttsChunkMax, ttsStreamToBytes, validWavAudio, wavAssembly, TTS_FALLBACK_MODEL, TTS_HARD_PAUSE, TTS_MODEL, TTS_RETRY_DELAYS, TTS_TRUNCATED_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_TEXT_MAX } from "./tts";
+import { applyPronunciations, assertEnglishText, buildAudioPrompts, classifyTtsError, mergeWav, narrationSections, pronunciationReplacements, readTtsEngineSetting, readTtsVoiceSetting, selectTtsEngine, selectTtsVoice, ttsChunkMax, ttsStreamToBytes, validWavAudio, wavAssembly, TTS_DEPRECATED_MODEL, TTS_HARD_PAUSE, TTS_MODEL, TTS_RETRY_DELAYS, TTS_TRUNCATED_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_TEXT_MAX } from "./tts";
 import {
   archivePreviousDay,
   archivePreviousDayAffiliateEvents,
@@ -4084,12 +4084,28 @@ app.get("/admin/b/:blogId", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
   if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
-  const { results } = await tenantDb(c.env, ctx.tenant).prepare(
-    "SELECT * FROM posts WHERE tenant_id = ? ORDER BY created_at DESC"
-  )
-    .bind(ctx.tenant.id)
-    .all<Post>();
-  return c.html(postListPage(ctx.account, ctx.tenant, results, c.env.ROOT_DOMAIN));
+  const raw = String(c.req.query("page") || "1");
+  const parsed = Number(raw);
+  const page = Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 10_000_000 ? parsed : 1;
+  const limit = 50;
+  const offset = (page - 1) * limit;
+  const pdb = tenantDb(c.env, ctx.tenant);
+  const [paged, counted] = await Promise.all([
+    pdb.prepare(
+      "SELECT * FROM posts WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    )
+      .bind(ctx.tenant.id, limit + 1, offset)
+      .all<Post>(),
+    pdb.prepare(
+      "SELECT COUNT(*) as count FROM posts WHERE tenant_id = ?"
+    )
+      .bind(ctx.tenant.id)
+      .first<{ count: number }>(),
+  ]);
+  const hasMore = paged.results.length > limit;
+  const results = hasMore ? paged.results.slice(0, limit) : paged.results;
+  const total = Number(counted?.count ?? results.length);
+  return c.html(postListPage(ctx.account, ctx.tenant, results, c.env.ROOT_DOMAIN, { page, hasMore, total }));
 });
 
 // --- Blog-scoped evergreen pages ------------------------------------------
@@ -4847,7 +4863,16 @@ app.get("/admin/b/:blogId/media", async (c) => {
   const ctx = await blogContext(c);
   if ("redirect" in ctx) return c.redirect(ctx.redirect);
   if ("suspended" in ctx) return suspendedResponse(c, ctx.account);
-  return c.html(mediaPage(ctx.account, ctx.tenant, await listMedia(c.env, ctx.tenant.id)));
+  const raw = String(c.req.query("page") || "1");
+  const parsed = Number(raw);
+  const page = Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 10_000_000 ? parsed : 1;
+  const limit = 50;
+  const offset = (page - 1) * limit;
+  const all = await listMedia(c.env, ctx.tenant.id);
+  const total = all.length;
+  const hasMore = offset + limit < total;
+  const items = all.slice(offset, offset + limit);
+  return c.html(mediaPage(ctx.account, ctx.tenant, items, { page, hasMore, total }));
 });
 
 app.get("/admin/b/:blogId/media.json", async (c) => {
@@ -4903,16 +4928,16 @@ app.post("/admin/b/:blogId/upload", async (c) => {
   return c.json({ key, url, markdown: `![](${url})` });
 });
 
-// One speech segment on a chosen engine. MeloTTS answers with WAV bytes;
-// Aura-1 is requested as linear16-in-wav so its segments stay WAV-shaped and
-// merge with the same pipeline (one engine per job, so formats never mix).
-// A null voice keeps the provider default speaker; job builds always resolve
-// one through selectTtsVoice.
+// One speech segment on a chosen engine. Both Aura engines are requested
+// as linear16-in-wav so segments stay WAV-shaped and merge with the same
+// pipeline (one engine per job, so formats never mix). Job manifests created
+// before the MeloTTS deprecation name that model; remap them to the current
+// engine instead of failing on error 5028. A null voice keeps the provider
+// default speaker; job builds always resolve one through selectTtsVoice.
 export async function generateSpeechForModel(ai: Ai, model: string, prompt: string, voice: string | null = null): Promise<Uint8Array> {
-  const generated = model === TTS_FALLBACK_MODEL
-    ? await (ai as any).run(model, voice ? { text: prompt, speaker: voice, encoding: "linear16", container: "wav" } : { text: prompt, encoding: "linear16", container: "wav" })
-    : await ai.run(TTS_MODEL, { prompt, lang: "en" });
-  const bytes = model === TTS_FALLBACK_MODEL ? await ttsStreamToBytes(generated) : ttsBytes(generated);
+  const effectiveModel = model === TTS_DEPRECATED_MODEL ? TTS_MODEL : model;
+  const generated = await (ai as any).run(effectiveModel, voice ? { text: prompt, speaker: voice, encoding: "linear16", container: "wav" } : { text: prompt, encoding: "linear16", container: "wav" });
+  const bytes = await ttsStreamToBytes(generated);
   if (!bytes.byteLength) throw new Error("The model returned no audio.");
   // Validate inside the retry window: cut bytes must throw here so the
   // segment is retried and split, instead of surfacing only at final
@@ -5172,7 +5197,7 @@ async function createAudioJob(env: Bindings, tenant: Tenant, post: Pick<Post, "i
   // over 2000 characters, so engine-sized segments must be fixed here, not
   // discovered one failed segment at a time by the queue consumer.
   const jobModel = selectTtsEngine(await readTtsEngineSetting(env.DB));
-  const jobVoice = selectTtsVoice(await readTtsVoiceSetting(env.DB));
+  const jobVoice = selectTtsVoice(await readTtsVoiceSetting(env.DB), jobModel);
   const prompts = buildAudioPrompts(preparedTitle, preparedBody, ttsChunkMax(jobModel));
   const jobId = crypto.randomUUID();
   const jobKey = `${tenant.id}/.audio-jobs/${jobId}.json`;
@@ -5247,7 +5272,7 @@ app.post("/admin/b/:blogId/audio/:id", async (c) => {
     const preparedBody = applyPronunciations(sections.body, replacements);
     // Chunk for the engine that will render this job (see createAudioJob).
     const jobModel = selectTtsEngine(await readTtsEngineSetting(c.env.DB));
-    const jobVoice = selectTtsVoice(await readTtsVoiceSetting(c.env.DB));
+    const jobVoice = selectTtsVoice(await readTtsVoiceSetting(c.env.DB), jobModel);
     const prompts = buildAudioPrompts(preparedTitle, preparedBody, ttsChunkMax(jobModel));
     jobId = crypto.randomUUID();
     const jobKey = `${ctx.tenant.id}/.audio-jobs/${jobId}.json`;
@@ -6345,8 +6370,8 @@ app.get("/marketing-ai/:file", async (c) => {
   return response;
 });
 
-// The marketing voice sample uses the same MeloTTS model, language, retry
-// policy, and audio conversion as customer narration. Cache the fixed phrase
+// The marketing voice sample uses the same TTS model, retry policy, and
+// audio conversion as customer narration. Cache the fixed phrase
 // so repeated visitors do not trigger a new AI request at every edge.
 app.get("/marketing-audio", async (c) => {
   const cacheKey = new Request(`https://${c.env.ROOT_DOMAIN}/marketing-audio`, { method: "GET" });

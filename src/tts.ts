@@ -1,6 +1,11 @@
-export const TTS_MODEL = "@cf/myshell-ai/melotts" as const;
+export const TTS_MODEL = "@cf/deepgram/aura-2-en" as const;
 export const TTS_FALLBACK_MODEL = "@cf/deepgram/aura-1" as const;
+// Deprecated 2026-11-20 (error 5028); kept only so in-flight job manifests
+// naming it can be remapped to TTS_MODEL instead of failing terminally.
+export const TTS_DEPRECATED_MODEL = "@cf/myshell-ai/melotts" as const;
 export const TTS_ENGINE_AURA = "aura-1" as const;
+export const TTS_ENGINE_AURA2 = "aura-2-en" as const;
+// Legacy stored staff-switch value; selectTtsEngine maps it to TTS_MODEL.
 export const TTS_ENGINE_MELOTTS = "melotts" as const;
 export const TTS_ENGINE_SETTING_KEY = "tts.engine" as const;
 
@@ -24,11 +29,16 @@ export function selectTtsEngine(stored: string | null | undefined): typeof TTS_M
 
 export const TTS_VOICE_SETTING_KEY = "tts.voice" as const;
 // Aura-1 English voices (Deepgram catalog). Anything unset or unrecognized
-// fails closed to luna.
+// for the active engine fails closed to luna (valid on both engines).
 export const AURA_VOICES = ["angus", "arcas", "asteria", "athena", "helios", "hera", "luna", "orpheus", "orion", "perseus", "stella", "zeus"] as const;
+// Aura-2 English voices (Deepgram aura-2-en catalog).
+export const AURA2_VOICES = ["amalthea", "andromeda", "apollo", "arcas", "aries", "asteria", "athena", "atlas", "aurora", "callista", "cora", "cordelia", "delia", "draco", "electra", "harmonia", "helena", "hera", "hermes", "hyperion", "iris", "janus", "juno", "jupiter", "luna", "mars", "minerva", "neptune", "odysseus", "ophelia", "orion", "orpheus", "pandora", "phoebe", "pluto", "saturn", "thalia", "theia", "vesta", "zeus"] as const;
 export const TTS_DEFAULT_VOICE = "luna" as const;
-export function selectTtsVoice(stored: string | null | undefined): string {
-  return (AURA_VOICES as readonly string[]).includes(stored ?? "") ? (stored as string) : TTS_DEFAULT_VOICE;
+export function auraVoicesForModel(model: string): readonly string[] {
+  return model === TTS_FALLBACK_MODEL ? AURA_VOICES : AURA2_VOICES;
+}
+export function selectTtsVoice(stored: string | null | undefined, model: string = TTS_MODEL): string {
+  return auraVoicesForModel(model).includes(stored ?? "") ? (stored as string) : TTS_DEFAULT_VOICE;
 }
 export async function readTtsVoiceSetting(db: D1Database): Promise<string | null> {
   try {
@@ -57,11 +67,11 @@ export const TTS_RETRY_DELAYS = [250, 500, 1_000, 1_500, 2_000, 2_000, 2_000, 2_
 // outlasts it; anything still failing after that goes to split-recovery.
 export const TTS_TRUNCATED_RETRY_DELAYS = [2_000, 5_000, 10_000, 15_000, 20_000, 30_000] as const;
 export const TTS_CHUNK_MAX = 3_500;
-// Deepgram Aura-1 rejects inputs over 2000 characters (error 8007), so jobs
-// on the fallback engine must pack smaller segments than MeloTTS jobs.
+// Deepgram Aura rejects inputs over 2000 characters (error 8007), so jobs
+// on either Aura engine must pack smaller segments than MeloTTS jobs did.
 export const TTS_AURA_CHUNK_MAX = 2_000;
 export function ttsChunkMax(model: string): number {
-  return model === TTS_FALLBACK_MODEL ? TTS_AURA_CHUNK_MAX : TTS_CHUNK_MAX;
+  return model === TTS_FALLBACK_MODEL || model === TTS_MODEL ? TTS_AURA_CHUNK_MAX : TTS_CHUNK_MAX;
 }
 export const TTS_TEXT_MAX = 20_000;
 export const TTS_TITLE_PAUSE_SECONDS = 1.5;
@@ -92,8 +102,10 @@ export function classifyTtsError(error: unknown, emptyAudio = false): TtsErrorIn
   const value = error as { message?: unknown; code?: unknown; status?: unknown; cause?: unknown } | null;
   const message = value && typeof value.message === "string" ? value.message : String(error ?? "");
   const details = [message, value && value.code, value && value.status, value && value.cause].map((part) => String(part ?? "")).join(" ");
-  const code = details.match(/\b(3036|3040|3043)\b/)?.[1] ?? null;
+  const code = details.match(/\b(3036|3040|3043|5028)\b/)?.[1] ?? null;
   if (code === "3036") return { transient: false, category: "quota", code };
+  // 5028 is a deprecated/removed model (HTTP 410): retrying can never succeed.
+  if (code === "5028") return { transient: false, category: "unknown", code };
   // A cut stream is worth retrying (and, through generateSpeechWithRecovery,
   // splitting): flaky cuts succeed on retry, and a per-request output cap
   // converges as segments halve. A streamed 0xFFFFFFFF size never reaches
