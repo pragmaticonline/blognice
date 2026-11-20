@@ -184,7 +184,7 @@ import {
   type ImageContextMode,
   type ImageStyle,
 } from "./ai-image";
-import { applyPronunciations, assertEnglishText, buildAudioPrompts, classifyTtsError, mergeWav, narrationSections, pronunciationReplacements, readTtsEngineSetting, readTtsVoiceSetting, selectTtsEngine, selectTtsVoice, ttsChunkMax, ttsStreamToBytes, validWavAudio, wavAssembly, TTS_DEPRECATED_MODEL, TTS_HARD_PAUSE, TTS_MODEL, TTS_RETRY_DELAYS, TTS_TRUNCATED_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_TEXT_MAX } from "./tts";
+import { applyPronunciations, assertEnglishText, buildAudioPrompts, classifyTtsError, mergeWav, narrationSections, pronunciationReplacements, readTtsEngineSetting, readTtsVoiceSetting, selectTtsEngine, selectTtsVoice, spedUpWav, ttsChunkMax, ttsStreamToBytes, validWavAudio, wavAssembly, TTS_DEPRECATED_MODEL, TTS_HARD_PAUSE, TTS_MODEL, TTS_PLAYBACK_SPEED, TTS_RETRY_DELAYS, TTS_TRUNCATED_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_TEXT_MAX } from "./tts";
 import {
   archivePreviousDay,
   archivePreviousDayAffiliateEvents,
@@ -4937,7 +4937,7 @@ app.post("/admin/b/:blogId/upload", async (c) => {
 export async function generateSpeechForModel(ai: Ai, model: string, prompt: string, voice: string | null = null): Promise<Uint8Array> {
   const effectiveModel = model === TTS_DEPRECATED_MODEL ? TTS_MODEL : model;
   const generated = await (ai as any).run(effectiveModel, voice ? { text: prompt, speaker: voice, encoding: "linear16", container: "wav" } : { text: prompt, encoding: "linear16", container: "wav" });
-  const bytes = await ttsStreamToBytes(generated);
+  const bytes = spedUpWav(await ttsStreamToBytes(generated));
   if (!bytes.byteLength) throw new Error("The model returned no audio.");
   // Validate inside the retry window: cut bytes must throw here so the
   // segment is retried and split, instead of surfacing only at final
@@ -5085,7 +5085,9 @@ async function processAudioJob(env: Bindings, jobKey: string): Promise<void> {
       await writeAudioJob(env, jobKey, job);
     }
 
-    const assembly = wavAssembly(parts, job.prompts.map((prompt) => prompt.pauseAfter));
+    // Segments are already sped up; scale the inserted pauses the same way
+    // so the finished file is uniformly TTS_PLAYBACK_SPEED faster.
+    const assembly = wavAssembly(parts, job.prompts.map((prompt) => prompt.pauseAfter / TTS_PLAYBACK_SPEED));
     if (!assembly.size) throw new Error("The model returned no audio.");
     const audioKey = `${tenant.id}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}-tts.wav`;
     const fixed = new FixedLengthStream(assembly.size);
@@ -5201,7 +5203,7 @@ async function createAudioJob(env: Bindings, tenant: Tenant, post: Pick<Post, "i
   const prompts = buildAudioPrompts(preparedTitle, preparedBody, ttsChunkMax(jobModel));
   const jobId = crypto.randomUUID();
   const jobKey = `${tenant.id}/.audio-jobs/${jobId}.json`;
-  const checkpointHash = await sha256hex(`${jobModel}\n${jobVoice}\n${preparedTitle}\n${preparedBody}`);
+  const checkpointHash = await sha256hex(`${jobModel}\n${jobVoice}\n${TTS_PLAYBACK_SPEED}\n${preparedTitle}\n${preparedBody}`);
   const checkpointPrefix = `${tenant.id}/.audio-checkpoints/${post.id}-${checkpointHash}`;
   const job: AudioJobManifest = { jobId, tenantId: tenant.id, postId: post.id, postSlug: post.slug, prompts, checkpointKeys: prompts.map((_, index) => `${checkpointPrefix}/${index}.wav`), status: "queued", completed: 0, creditCost: audioCost, creditAccountId: audioReservation.accountId, creditPeriod: audioReservation.period, model: jobModel, voice: jobVoice };
   try {
@@ -5276,7 +5278,7 @@ app.post("/admin/b/:blogId/audio/:id", async (c) => {
     const prompts = buildAudioPrompts(preparedTitle, preparedBody, ttsChunkMax(jobModel));
     jobId = crypto.randomUUID();
     const jobKey = `${ctx.tenant.id}/.audio-jobs/${jobId}.json`;
-    const checkpointHash = await sha256hex(`${jobModel}\n${jobVoice}\n${preparedTitle}\n${preparedBody}`);
+    const checkpointHash = await sha256hex(`${jobModel}\n${jobVoice}\n${TTS_PLAYBACK_SPEED}\n${preparedTitle}\n${preparedBody}`);
     const checkpointPrefix = `${ctx.tenant.id}/.audio-checkpoints/${post.id}-${checkpointHash}`;
     const job: AudioJobManifest = {
       jobId, tenantId: ctx.tenant.id, postId: post.id, postSlug: post.slug, prompts,
