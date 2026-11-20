@@ -493,7 +493,7 @@ test("staff TTS engine switch persists and gates by role", async () => {
     });
     let res = await staffApp.request(authed(adminAccess), undefined, env);
     assert.equal(res.status, 200);
-    assert.deepEqual(await res.json(), { engine: "melotts" });
+    assert.deepEqual(await res.json(), { engine: "aura-2-en" });
     res = await staffApp.request(authed(readerAccess), undefined, env);
     assert.equal(res.status, 200);
     res = await staffApp.request(authed(adminAccess, { method: "POST", body: JSON.stringify({ engine: "bogus" }) }), undefined, env);
@@ -532,7 +532,7 @@ test("staff TTS test page shows the active narration engine", async () => {
     const env = { DB: db, ACCESS_TEAM_DOMAIN: "team.cloudflareaccess.com", ACCESS_AUD: "staff-audience" };
     const page = (access) => staffApp.request(new Request("https://staff.blognice.test/tts-test", { headers: { "Cf-Access-Jwt-Assertion": access.token } }), undefined, env);
     let html = await (await page(adminAccess)).text();
-    assert.match(html, /<strong id="tts-engine-status">melotts<\/strong>/);
+    assert.match(html, /<strong id="tts-engine-status">aura-2-en<\/strong>/);
     assert.match(html, /id="tts-engine-form"/);
     html = await (await page(readerAccess)).text();
     assert.match(html, /id="tts-engine-status"/);
@@ -593,9 +593,10 @@ test("staff TTS samples render on the active narration engine", async () => {
       body: JSON.stringify({ text: "AI is useful." }),
     }), undefined, { DB: db, AI: ai, ACCESS_TEAM_DOMAIN: "team.cloudflareaccess.com", ACCESS_AUD: "staff-audience" });
     let res = await sample(aiStub("ok"));
-    assert.equal(res.status, 200, "melotts sample serves by default");
+    assert.equal(res.status, 200, "aura-2 sample serves by default");
     assert.match(res.headers.get("content-type") || "", /audio\/wav/);
-    assert.equal(calls[0].model, "@cf/myshell-ai/melotts");
+    assert.equal(calls[0].model, "@cf/deepgram/aura-2-en");
+    assert.equal(calls[0].input.encoding, "linear16");
     assert.deepEqual((await res.arrayBuffer()).byteLength > 0, true);
     await db.prepare("INSERT INTO platform_settings (key, value, updated_at) VALUES ('tts.engine', 'aura-1', ?)").bind(now).run();
     res = await sample(aiStub("ok"));
@@ -650,8 +651,8 @@ test("staff TTS samples run article narration preparation", async () => {
       body: JSON.stringify({ text: "It got 20% faster." }),
     }), undefined, { DB: db, AI: ai, ACCESS_TEAM_DOMAIN: "team.cloudflareaccess.com", ACCESS_AUD: "staff-audience" });
     assert.equal(res.status, 200);
-    assert.match(calls[0].input.prompt, /20 percent/);
-    assert.doesNotMatch(calls[0].input.prompt, /%/);
+    assert.match(calls[0].input.text, /20 percent/);
+    assert.doesNotMatch(calls[0].input.text, /%/);
   } finally {
     globalThis.fetch = originalFetch;
     await mf.dispose();
