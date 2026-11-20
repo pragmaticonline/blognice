@@ -184,7 +184,7 @@ import {
   type ImageContextMode,
   type ImageStyle,
 } from "./ai-image";
-import { applyPronunciations, assertEnglishText, buildAudioPrompts, classifyTtsError, mergeWav, narrationSections, pronunciationReplacements, readTtsEngineSetting, readTtsVoiceSetting, selectTtsEngine, selectTtsVoice, spedUpWav, ttsChunkMax, ttsStreamToBytes, validWavAudio, wavAssembly, TTS_DEPRECATED_MODEL, TTS_HARD_PAUSE, TTS_MODEL, TTS_PLAYBACK_SPEED, TTS_RETRY_DELAYS, TTS_TRUNCATED_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_TEXT_MAX } from "./tts";
+import { applyPronunciations, assertEnglishText, buildAudioPrompts, classifyTtsError, mergeWav, narrationSections, pronunciationReplacements, readTtsEngineSetting, readTtsSpeedSetting, readTtsVoiceSetting, selectTtsEngine, selectTtsSpeed, selectTtsVoice, spedUpWav, ttsChunkMax, ttsStreamToBytes, validWavAudio, wavAssembly, TTS_DEPRECATED_MODEL, TTS_HARD_PAUSE, TTS_MODEL, TTS_PLAYBACK_SPEED, TTS_RETRY_DELAYS, TTS_TRUNCATED_RETRY_DELAYS, TTS_SOFT_PAUSE, TTS_TEXT_MAX } from "./tts";
 import {
   archivePreviousDay,
   archivePreviousDayAffiliateEvents,
@@ -4934,10 +4934,10 @@ app.post("/admin/b/:blogId/upload", async (c) => {
 // before the MeloTTS deprecation name that model; remap them to the current
 // engine instead of failing on error 5028. A null voice keeps the provider
 // default speaker; job builds always resolve one through selectTtsVoice.
-export async function generateSpeechForModel(ai: Ai, model: string, prompt: string, voice: string | null = null): Promise<Uint8Array> {
+export async function generateSpeechForModel(ai: Ai, model: string, prompt: string, voice: string | null = null, speed: number = TTS_PLAYBACK_SPEED): Promise<Uint8Array> {
   const effectiveModel = model === TTS_DEPRECATED_MODEL ? TTS_MODEL : model;
   const generated = await (ai as any).run(effectiveModel, voice ? { text: prompt, speaker: voice, encoding: "linear16", container: "wav" } : { text: prompt, encoding: "linear16", container: "wav" });
-  const bytes = spedUpWav(await ttsStreamToBytes(generated));
+  const bytes = spedUpWav(await ttsStreamToBytes(generated), selectTtsSpeed(speed));
   if (!bytes.byteLength) throw new Error("The model returned no audio.");
   // Validate inside the retry window: cut bytes must throw here so the
   // segment is retried and split, instead of surfacing only at final
@@ -4949,7 +4949,7 @@ export async function generateSpeechForModel(ai: Ai, model: string, prompt: stri
 // Generate narration once, persist it to R2, and attach it to a saved post.
 // Regeneration is deliberately a remove-then-generate flow, preventing an
 // accidental click from replacing approved narration or consuming AI usage.
-async function generateSpeechWithRetry(ai: Ai, prompt: string, model: string = TTS_MODEL, voice: string | null = null): Promise<Uint8Array> {
+async function generateSpeechWithRetry(ai: Ai, prompt: string, model: string = TTS_MODEL, voice: string | null = null, speed: number = TTS_PLAYBACK_SPEED): Promise<Uint8Array> {
   // Longer spacing helps a retry escape the same temporarily unhealthy model
   // instance instead of exhausting every attempt in one short burst.
   // 3043 is an intermittent upstream failure. Keep the retry window focused
@@ -4958,7 +4958,7 @@ async function generateSpeechWithRetry(ai: Ai, prompt: string, model: string = T
   let secondWind = false;
   for (let attempt = 0; ; attempt++) {
     try {
-      return await generateSpeechForModel(ai, model, prompt, voice);
+      return await generateSpeechForModel(ai, model, prompt, voice, speed);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (classifyTtsError(error).category === "quota") throw new Error("Workers AI narration quota reached (3036). Please try again after the daily limit resets or upgrade your Workers AI plan.");
@@ -5001,17 +5001,17 @@ function splitSpeechPrompt(prompt: string): [string, string] | null {
 // after normal retries, split that segment at a natural boundary and assemble
 // the two successful WAV responses. This is deliberately bounded to avoid
 // hiding permanent model failures or creating unbounded recursive work.
-async function generateSpeechWithRecovery(ai: Ai, prompt: string, depth = 0, model: string = TTS_MODEL, voice: string | null = null): Promise<Uint8Array> {
+async function generateSpeechWithRecovery(ai: Ai, prompt: string, depth = 0, model: string = TTS_MODEL, voice: string | null = null, speed: number = TTS_PLAYBACK_SPEED): Promise<Uint8Array> {
   try {
-    return await generateSpeechWithRetry(ai, prompt, model, voice);
+    return await generateSpeechWithRetry(ai, prompt, model, voice, speed);
   } catch (error) {
     const parts = depth < 3 && prompt.length >= 120 && classifyTtsError(error).transient
       ? splitSpeechPrompt(prompt)
       : null;
     if (!parts) throw error;
-    const first = await generateSpeechWithRecovery(ai, parts[0], depth + 1, model, voice);
+    const first = await generateSpeechWithRecovery(ai, parts[0], depth + 1, model, voice, speed);
     await new Promise((resolve) => setTimeout(resolve, 350));
-    const second = await generateSpeechWithRecovery(ai, parts[1], depth + 1, model, voice);
+    const second = await generateSpeechWithRecovery(ai, parts[1], depth + 1, model, voice, speed);
     return mergeWav([first, second]);
   }
 }
@@ -5051,6 +5051,7 @@ async function processAudioJob(env: Bindings, jobKey: string): Promise<void> {
 
   job.status = "generating";
   await writeAudioJob(env, jobKey, job);
+  const jobSpeed = selectTtsSpeed(job.speed);
   const parts: Uint8Array[] = [];
   try {
     for (let index = 0; index < job.prompts.length; index++) {
@@ -5061,7 +5062,7 @@ async function processAudioJob(env: Bindings, jobKey: string): Promise<void> {
       });
       const synthesize = async () => {
         if (index > 0) await new Promise((resolve) => setTimeout(resolve, 350));
-        const fresh = await generateSpeechWithRecovery(env.AI, job.prompts[index].text, 0, job.model ?? TTS_MODEL, job.voice ?? null);
+        const fresh = await generateSpeechWithRecovery(env.AI, job.prompts[index].text, 0, job.model ?? TTS_MODEL, job.voice ?? null, jobSpeed);
         // Fail fast on cut audio: inside the retry/split window the segment
         // is retried and split, and poison never reaches the checkpoint.
         if (!validWavAudio(fresh)) throw new Error("The speech model returned truncated WAV audio.");
@@ -5085,9 +5086,9 @@ async function processAudioJob(env: Bindings, jobKey: string): Promise<void> {
       await writeAudioJob(env, jobKey, job);
     }
 
-    // Pauses scale with TTS_PLAYBACK_SPEED so any future speed change
-    // applies uniformly; at 1x this leaves them at their authored length.
-    const assembly = wavAssembly(parts, job.prompts.map((prompt) => prompt.pauseAfter / TTS_PLAYBACK_SPEED));
+    // Pauses scale with the job's speed so the finished file is uniformly
+    // faster or slower than the engine rendered it.
+    const assembly = wavAssembly(parts, job.prompts.map((prompt) => prompt.pauseAfter / jobSpeed));
     if (!assembly.size) throw new Error("The model returned no audio.");
     const audioKey = `${tenant.id}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}-tts.wav`;
     const fixed = new FixedLengthStream(assembly.size);
@@ -5200,12 +5201,13 @@ async function createAudioJob(env: Bindings, tenant: Tenant, post: Pick<Post, "i
   // discovered one failed segment at a time by the queue consumer.
   const jobModel = selectTtsEngine(await readTtsEngineSetting(env.DB));
   const jobVoice = selectTtsVoice(await readTtsVoiceSetting(env.DB), jobModel);
+  const jobSpeed = selectTtsSpeed(await readTtsSpeedSetting(env.DB));
   const prompts = buildAudioPrompts(preparedTitle, preparedBody, ttsChunkMax(jobModel));
   const jobId = crypto.randomUUID();
   const jobKey = `${tenant.id}/.audio-jobs/${jobId}.json`;
-  const checkpointHash = await sha256hex(`${jobModel}\n${jobVoice}\n${TTS_PLAYBACK_SPEED}\n${preparedTitle}\n${preparedBody}`);
+  const checkpointHash = await sha256hex(`${jobModel}\n${jobVoice}\n${jobSpeed}\n${preparedTitle}\n${preparedBody}`);
   const checkpointPrefix = `${tenant.id}/.audio-checkpoints/${post.id}-${checkpointHash}`;
-  const job: AudioJobManifest = { jobId, tenantId: tenant.id, postId: post.id, postSlug: post.slug, prompts, checkpointKeys: prompts.map((_, index) => `${checkpointPrefix}/${index}.wav`), status: "queued", completed: 0, creditCost: audioCost, creditAccountId: audioReservation.accountId, creditPeriod: audioReservation.period, model: jobModel, voice: jobVoice };
+  const job: AudioJobManifest = { jobId, tenantId: tenant.id, postId: post.id, postSlug: post.slug, prompts, checkpointKeys: prompts.map((_, index) => `${checkpointPrefix}/${index}.wav`), status: "queued", completed: 0, creditCost: audioCost, creditAccountId: audioReservation.accountId, creditPeriod: audioReservation.period, model: jobModel, voice: jobVoice, speed: jobSpeed };
   try {
     const claimed = await tenantDb(env, tenant).prepare("UPDATE posts SET audio_generation_id = ?, updated_at = ? WHERE id = ? AND tenant_id = ? AND audio_key IS NULL AND audio_generation_id IS NULL")
       .bind(jobId, Math.floor(Date.now() / 1000), post.id, tenant.id).run();
@@ -5275,17 +5277,18 @@ app.post("/admin/b/:blogId/audio/:id", async (c) => {
     // Chunk for the engine that will render this job (see createAudioJob).
     const jobModel = selectTtsEngine(await readTtsEngineSetting(c.env.DB));
     const jobVoice = selectTtsVoice(await readTtsVoiceSetting(c.env.DB), jobModel);
+    const jobSpeed = selectTtsSpeed(await readTtsSpeedSetting(c.env.DB));
     const prompts = buildAudioPrompts(preparedTitle, preparedBody, ttsChunkMax(jobModel));
     jobId = crypto.randomUUID();
     const jobKey = `${ctx.tenant.id}/.audio-jobs/${jobId}.json`;
-    const checkpointHash = await sha256hex(`${jobModel}\n${jobVoice}\n${TTS_PLAYBACK_SPEED}\n${preparedTitle}\n${preparedBody}`);
+    const checkpointHash = await sha256hex(`${jobModel}\n${jobVoice}\n${jobSpeed}\n${preparedTitle}\n${preparedBody}`);
     const checkpointPrefix = `${ctx.tenant.id}/.audio-checkpoints/${post.id}-${checkpointHash}`;
     const job: AudioJobManifest = {
       jobId, tenantId: ctx.tenant.id, postId: post.id, postSlug: post.slug, prompts,
       checkpointKeys: prompts.map((_, index) => `${checkpointPrefix}/${index}.wav`),
       status: "queued", completed: 0,
       creditCost: audioCost, creditAccountId: audioReservation.accountId, creditPeriod: audioReservation.period,
-      model: jobModel, voice: jobVoice,
+      model: jobModel, voice: jobVoice, speed: jobSpeed,
     };
     const claimed = await pdb.prepare("UPDATE posts SET audio_generation_id = ?, updated_at = ? WHERE id = ? AND tenant_id = ? AND audio_key IS NULL AND audio_generation_id IS NULL")
       .bind(jobId, Math.floor(Date.now() / 1000), post.id, ctx.tenant.id).run();
@@ -5553,6 +5556,7 @@ type AudioJobManifest = {
   creditsRefunded?: boolean;
   model?: string;
   voice?: string | null;
+  speed?: number;
   failedTerminal?: boolean;
 };
 type ImageJobManifest = {
@@ -6397,7 +6401,8 @@ app.get("/marketing-audio", async (c) => {
     if (!reclaimed.meta.changes) return c.json({ error: "The voice sample is being prepared. Please try again shortly." }, 503);
   }
   try {
-    const bytes = await generateSpeechWithRecovery(c.env.AI, "Welcome to blognice. A nicer way to blog.");
+    const speed = selectTtsSpeed(await readTtsSpeedSetting(c.env.DB));
+    const bytes = await generateSpeechWithRecovery(c.env.AI, "Welcome to blognice. A nicer way to blog.", 0, TTS_MODEL, null, speed);
     await c.env.MEDIA.put(assetKey, bytes, { httpMetadata: { contentType: "audio/wav", cacheControl: "public, max-age=31536000, immutable" } });
     await c.env.DB.prepare("DELETE FROM marketing_audio_state WHERE asset_key = ?").bind(assetKey).run();
     const response = new Response(bytes, {

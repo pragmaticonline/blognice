@@ -49,6 +49,23 @@ export async function readTtsVoiceSetting(db: D1Database): Promise<string | null
   }
 }
 
+export const TTS_SPEED_SETTING_KEY = "tts.speed" as const;
+// Staff-selectable narration speeds. Anything unset or unrecognized fails
+// closed to TTS_PLAYBACK_SPEED (1.1, defined with the resampler below).
+export const TTS_SPEED_OPTIONS = [0.9, 1, 1.1, 1.2] as const;
+export function selectTtsSpeed(stored: string | number | null | undefined): number {
+  const parsed = typeof stored === "number" ? stored : Number(String(stored ?? "").trim());
+  return (TTS_SPEED_OPTIONS as readonly number[]).includes(parsed) ? parsed : TTS_PLAYBACK_SPEED;
+}
+export async function readTtsSpeedSetting(db: D1Database): Promise<string | null> {
+  try {
+    const row = await db.prepare("SELECT value FROM platform_settings WHERE key = ?").bind(TTS_SPEED_SETTING_KEY).first<{ value: string }>();
+    return row?.value ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // Staff pronunciation dictionary entries for narration preparation. Fails
 // closed to no overrides when the optional migration has not been applied.
 export async function readPronunciationOverrides(db: D1Database): Promise<PronunciationReplacement[]> {
@@ -147,10 +164,9 @@ const SPOKEN_FORMS: Array<[RegExp, string]> = [
   [/\bDr\.(?=\s+[A-Z])/g, "Doctor"],
   [/\bMr\.(?=\s+[A-Z])/g, "Mister"],
   [/\bMrs\.(?=\s+[A-Z])/g, "Missus"],
-  // MeloTTS blended spaced initials back into one word, so this used the
-  // phonetic spelling "aiye eye"; Aura reads that as "eye A eye". Plain
-  // spaced letters are what Aura renders correctly, as for UI/API below.
-  [/\bAI\b/gi, "A I"],
+  // AI gets no spoken form: MeloTTS needed "aiye eye" (which Aura read as
+  // "eye A eye") and spaced "A I" leaves a ~300ms pause between letters.
+  // Aura reads the raw acronym fluidly, so it passes through untouched.
   [/\bPBKDF2-HMAC-SHA256\b/gi, "P B K D F two H M A C S H A two five six"],
   [/\bSHA256\b/gi, "S H A two five six"],
   [/\bOWASP\b/gi, "O Wasp"],
@@ -658,6 +674,10 @@ export function pronunciationReplacements(output: string, source: string): Pronu
     // the language model from "correcting" words such as plugins into nonsense.
     if (/^[a-z]+(?:[-\s][a-z]+)*$/.test(original)) continue;
     if (!spoken || spoken.length > 120 || !/^[\p{L} .,'’\-]+$/u.test(spoken)) continue;
+    // Never re-space an all-caps acronym into spaced initials ("AI" ->
+    // "A I"): Aura reads the raw acronym fluidly, while spaced letters
+    // get a long pause between them.
+    if (/^[A-Z]{2,}$/.test(original) && spoken.replace(/[\s.]/g, "").toUpperCase() === original) continue;
     if (original === spoken || !source.includes(original) || seen.has(original)) continue;
     seen.add(original);
     accepted.push({ original, spoken });
@@ -868,11 +888,11 @@ export function validWavAudio(bytes: Uint8Array): boolean {
   }
 }
 
-// Narration plays at the engine's own speed (1x). spedUpWav is kept so a
-// future speed change is one constant: at 1.1 each segment was resampled
-// to 1/1.1 of its frames and assembly pauses scaled by the same factor;
-// at 1 every stage passes audio through untouched.
-export const TTS_PLAYBACK_SPEED = 1 as const;
+// Narration plays back 10% faster than the engine renders it: Aura has no
+// speed control, so each finished segment is resampled to 1/1.1 of its
+// frames at the same sample rate. Pauses inserted at assembly are scaled by
+// the same factor, keeping the whole file uniformly faster.
+export const TTS_PLAYBACK_SPEED = 1.1 as const;
 
 export function spedUpWav(bytes: Uint8Array, factor: number = TTS_PLAYBACK_SPEED): Uint8Array {
   if (!Number.isFinite(factor) || factor <= 0 || factor === 1) return bytes;
