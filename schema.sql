@@ -809,7 +809,7 @@ CREATE INDEX idx_pronunciation_overrides_enabled ON pronunciation_overrides(enab
 
 INSERT OR IGNORE INTO pronunciation_overrides (term, spoken, enabled, created_at, updated_at)
 VALUES
-  ('AI', 'aiye eye', 1, strftime('%s', 'now'), strftime('%s', 'now')),
+  ('AI', 'A I', 1, strftime('%s', 'now'), strftime('%s', 'now')),
   ('UI', 'U I', 1, strftime('%s', 'now'), strftime('%s', 'now')),
   ('API', 'A P I', 1, strftime('%s', 'now'), strftime('%s', 'now')),
   ('PNG', 'P N G', 1, strftime('%s', 'now'), strftime('%s', 'now')),
