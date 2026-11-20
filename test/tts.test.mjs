@@ -9,7 +9,7 @@ for (const extension of [".html", ".svg"]) {
     module.exports = readFileSync(filename, "utf8");
   };
 }
-import { applyManagedSpokenForms, applyPronunciations, buildAudioPrompts, classifyTtsError, mergeWav, narrationChunks, narrationSections, narrationText, pronunciationReplacements, removeCitationClusters, splitSentences, ttsBytes, ttsChunkMax, validWavAudio, wavAssembly, TTS_AURA_CHUNK_MAX, TTS_CHUNK_MAX, TTS_FALLBACK_MODEL, TTS_HARD_PAUSE, TTS_MODEL, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_RETRY_DELAYS, TTS_TRUNCATED_RETRY_DELAYS, TTS_SENTENCE_PAUSE_SECONDS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "../src/tts.ts";
+import { applyManagedSpokenForms, applyPronunciations, buildAudioPrompts, classifyTtsError, mergeWav, narrationChunks, narrationSections, narrationText, pronunciationReplacements, removeCitationClusters, spedUpWav, splitSentences, ttsBytes, ttsChunkMax, validWavAudio, wavAssembly, TTS_AURA_CHUNK_MAX, TTS_CHUNK_MAX, TTS_FALLBACK_MODEL, TTS_HARD_PAUSE, TTS_MODEL, TTS_PLAYBACK_SPEED, TTS_PUNCTUATION_PAUSE_SECONDS, TTS_RETRY_DELAYS, TTS_TRUNCATED_RETRY_DELAYS, TTS_SENTENCE_PAUSE_SECONDS, TTS_SOFT_PAUSE, TTS_STRUCTURE_PAUSE_SECONDS, TTS_TEXT_MAX, TTS_TITLE_PAUSE_SECONDS } from "../src/tts.ts";
 
 function wav(samples) {
   const bytes = new Uint8Array(44 + samples.length);
@@ -836,6 +836,30 @@ test("audio jobs record the selected engine and render on it (source checks)", (
   assert.match(src, /selectTtsVoice\(await readTtsVoiceSetting\((c\.env\.DB|env\.DB)\), jobModel\)/);
   assert.match(src, /job\.model[^)]*job\.voice \?\? null/);
   assert.match(src, /checkpointHash = await sha256hex\(`\$\{[^`]*jobVoice[^`]*\}`\)/);
+});
+
+test("narration WAV is resampled 10 percent faster at the same sample rate", () => {
+  assert.equal(TTS_PLAYBACK_SPEED, 1.1);
+  const frames = 2_400;
+  const pcm = new Uint8Array(frames * 2);
+  const pcmView = new DataView(pcm.buffer);
+  for (let i = 0; i < frames; i++) pcmView.setInt16(i * 2, Math.round(10_000 * Math.sin((2 * Math.PI * 440 * i) / 24_000)), true);
+  const input = wav(pcm);
+  const out = spedUpWav(input);
+  const outView = new DataView(out.buffer, out.byteOffset, out.byteLength);
+  assert.equal(validWavAudio(out), true);
+  assert.equal(outView.getUint32(24, true), 24_000, "sample rate is unchanged, so playback is faster");
+  assert.equal(outView.getUint32(40, true), Math.round(frames / TTS_PLAYBACK_SPEED) * 2);
+  assert.equal(out.length, 44 + Math.round(frames / TTS_PLAYBACK_SPEED) * 2);
+  assert.equal(outView.getUint32(4, true), out.length - 8);
+  // First sample sits on the same waveform point; factor 1 and non-WAV pass through.
+  assert.equal(outView.getInt16(44, true), 0);
+  assert.deepEqual([...spedUpWav(input, 1)], [...input]);
+  assert.deepEqual([...spedUpWav(new Uint8Array([1, 2, 3]))], [1, 2, 3]);
+  // Assembly pauses shrink with the segments in the job pipeline.
+  const index = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
+  assert.match(index, /pauseAfter \/ TTS_PLAYBACK_SPEED/);
+  assert.match(index, /spedUpWav\(await ttsStreamToBytes/);
 });
 
 test("aura voice selection fails closed to luna and reaches the synthesis input", async () => {

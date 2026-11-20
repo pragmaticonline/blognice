@@ -3,7 +3,7 @@ import staffFaviconSvg from "../staff-favicon.svg";
 import { esc } from "./render";
 import { sendEmailDetailed, registrationWelcomeEmail, subscriptionActiveEmail, subscriberConfirmationEmail, passwordResetEmail, subscriberWelcomeEmail, postNotificationEmail, appealApprovedEmail, appealDeniedEmail } from "./email";
 import { generateResetToken, sha256hex } from "./auth";
-import { auraVoicesForModel, classifyTtsError, narrationSample, readPronunciationOverrides, ttsStreamToBytes, readTtsEngineSetting, readTtsVoiceSetting, selectTtsEngine, selectTtsVoice, validWavAudio, TTS_DEPRECATED_MODEL, TTS_ENGINE_AURA, TTS_ENGINE_AURA2, TTS_ENGINE_MELOTTS, TTS_ENGINE_SETTING_KEY, TTS_FALLBACK_MODEL, TTS_MODEL, TTS_RETRY_DELAYS, TTS_VOICE_SETTING_KEY } from "./tts";
+import { auraVoicesForModel, classifyTtsError, narrationSample, readPronunciationOverrides, spedUpWav, ttsStreamToBytes, readTtsEngineSetting, readTtsVoiceSetting, selectTtsEngine, selectTtsVoice, validWavAudio, TTS_DEPRECATED_MODEL, TTS_ENGINE_AURA, TTS_ENGINE_AURA2, TTS_ENGINE_MELOTTS, TTS_ENGINE_SETTING_KEY, TTS_FALLBACK_MODEL, TTS_MODEL, TTS_RETRY_DELAYS, TTS_VOICE_SETTING_KEY } from "./tts";
 import { getAffiliatePayoutQueueInDb, getAffiliateSupportActivityInDb, getAffiliateSupportSummaryInDb } from "./affiliate-support";
 import { approveAffiliatePayoutInDb, hasIndependentPayoutApprovalInDb, loadStripePayoutDispatchInDb, parseAffiliateStripeConnectCountries, parsePayoutDualControlThreshold, reconcilePayoutInDb, recordAffiliateAccountRelationshipInDb, recordManualAffiliateAdjustmentInDb, recordPayoutDispatchResultInDb } from "./affiliate";
 import { createAffiliateTransfer } from "./stripe";
@@ -204,7 +204,8 @@ async function ttsTestWithRetry(ai: Ai, prompt: string, model: string = TTS_MODE
       const generated = await ttsStreamToBytes(await (ai as any).run(effectiveModel, voice ? { text: prompt, speaker: voice, encoding: "linear16", container: "wav" } : { text: prompt, encoding: "linear16", container: "wav" }));
       if (!generated.length) throw Object.assign(new Error("The model returned no audio."), { code: "EMPTY_AUDIO" });
       if (!validWavAudio(generated)) throw new Error("The speech model returned truncated WAV audio.");
-      const bytes = generated;
+      // Samples preview the shipped pace, so speed them exactly as jobs do.
+      const bytes = spedUpWav(generated);
       return { bytes, attempts: attempt + 1, retries };
     } catch (error) {
       lastError = error;

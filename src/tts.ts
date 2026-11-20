@@ -867,6 +867,56 @@ export function validWavAudio(bytes: Uint8Array): boolean {
   }
 }
 
+// Narration plays back 10% faster than the engine renders it: Aura has no
+// speed control, so each finished segment is resampled to 1/1.1 of its
+// frames at the same sample rate. Pauses inserted at assembly are scaled by
+// the same factor, keeping the whole file uniformly faster.
+export const TTS_PLAYBACK_SPEED = 1.1 as const;
+
+export function spedUpWav(bytes: Uint8Array, factor: number = TTS_PLAYBACK_SPEED): Uint8Array {
+  if (!Number.isFinite(factor) || factor <= 0 || factor === 1) return bytes;
+  let part: WavPart;
+  try {
+    part = parseWav(bytes);
+  } catch {
+    return bytes;
+  }
+  const format = part.format;
+  if (format.length < 16) return bytes;
+  const formatView = new DataView(format.buffer, format.byteOffset, format.byteLength);
+  const audioFormat = formatView.getUint16(0, true);
+  const channels = formatView.getUint16(2, true);
+  const blockAlign = formatView.getUint16(12, true);
+  const bitsPerSample = formatView.getUint16(14, true);
+  // Only PCM16 is resampled; any other shape passes through untouched.
+  if (audioFormat !== 1 || bitsPerSample !== 16 || channels < 1 || blockAlign !== channels * 2) return bytes;
+  const frames = Math.floor(part.dataSize / blockAlign);
+  if (frames < 2) return bytes;
+  const outFrames = Math.max(1, Math.round(frames / factor));
+  const source = new DataView(bytes.buffer, bytes.byteOffset + part.dataOffset, frames * blockAlign);
+  const outData = new Uint8Array(outFrames * blockAlign);
+  const outView = new DataView(outData.buffer);
+  for (let frame = 0; frame < outFrames; frame++) {
+    const position = frame * factor;
+    const index = Math.floor(position);
+    const fraction = position - index;
+    const next = Math.min(index + 1, frames - 1);
+    for (let channel = 0; channel < channels; channel++) {
+      const a = source.getInt16((index * channels + channel) * 2, true);
+      const b = source.getInt16((next * channels + channel) * 2, true);
+      outView.setInt16((frame * channels + channel) * 2, Math.round(a + (b - a) * fraction), true);
+    }
+  }
+  const header = bytes.slice(0, part.dataOffset);
+  const headerView = new DataView(header.buffer, header.byteOffset, header.byteLength);
+  headerView.setUint32(4, header.length + outData.length - 8, true);
+  headerView.setUint32(part.dataSizeOffset, outData.length, true);
+  const output = new Uint8Array(header.length + outData.length);
+  output.set(header);
+  output.set(outData, header.length);
+  return output;
+}
+
 export function mergeWav(parts: Uint8Array[]): Uint8Array {
   if (!parts.length) return new Uint8Array();
   const assembly = wavAssembly(parts);
