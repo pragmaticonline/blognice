@@ -49,6 +49,23 @@ export async function readTtsVoiceSetting(db: D1Database): Promise<string | null
   }
 }
 
+export const TTS_SPEED_SETTING_KEY = "tts.speed" as const;
+// Staff-selectable narration speeds. Anything unset or unrecognized fails
+// closed to TTS_PLAYBACK_SPEED (1.1, defined with the resampler below).
+export const TTS_SPEED_OPTIONS = [0.9, 1, 1.1, 1.2] as const;
+export function selectTtsSpeed(stored: string | number | null | undefined): number {
+  const parsed = typeof stored === "number" ? stored : Number(String(stored ?? "").trim());
+  return (TTS_SPEED_OPTIONS as readonly number[]).includes(parsed) ? parsed : TTS_PLAYBACK_SPEED;
+}
+export async function readTtsSpeedSetting(db: D1Database): Promise<string | null> {
+  try {
+    const row = await db.prepare("SELECT value FROM platform_settings WHERE key = ?").bind(TTS_SPEED_SETTING_KEY).first<{ value: string }>();
+    return row?.value ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // Staff pronunciation dictionary entries for narration preparation. Fails
 // closed to no overrides when the optional migration has not been applied.
 export async function readPronunciationOverrides(db: D1Database): Promise<PronunciationReplacement[]> {
@@ -871,11 +888,11 @@ export function validWavAudio(bytes: Uint8Array): boolean {
   }
 }
 
-// Narration plays at the engine's own speed (1x). spedUpWav is kept so a
-// future speed change is one constant: at 1.1 each segment was resampled
-// to 1/1.1 of its frames and assembly pauses scaled by the same factor;
-// at 1 every stage passes audio through untouched.
-export const TTS_PLAYBACK_SPEED = 1 as const;
+// Narration plays back 10% faster than the engine renders it: Aura has no
+// speed control, so each finished segment is resampled to 1/1.1 of its
+// frames at the same sample rate. Pauses inserted at assembly are scaled by
+// the same factor, keeping the whole file uniformly faster.
+export const TTS_PLAYBACK_SPEED = 1.1 as const;
 
 export function spedUpWav(bytes: Uint8Array, factor: number = TTS_PLAYBACK_SPEED): Uint8Array {
   if (!Number.isFinite(factor) || factor <= 0 || factor === 1) return bytes;

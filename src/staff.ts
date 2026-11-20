@@ -3,7 +3,7 @@ import staffFaviconSvg from "../staff-favicon.svg";
 import { esc } from "./render";
 import { sendEmailDetailed, registrationWelcomeEmail, subscriptionActiveEmail, subscriberConfirmationEmail, passwordResetEmail, subscriberWelcomeEmail, postNotificationEmail, appealApprovedEmail, appealDeniedEmail } from "./email";
 import { generateResetToken, sha256hex } from "./auth";
-import { auraVoicesForModel, classifyTtsError, narrationSample, readPronunciationOverrides, spedUpWav, ttsStreamToBytes, readTtsEngineSetting, readTtsVoiceSetting, selectTtsEngine, selectTtsVoice, validWavAudio, TTS_DEPRECATED_MODEL, TTS_ENGINE_AURA, TTS_ENGINE_AURA2, TTS_ENGINE_MELOTTS, TTS_ENGINE_SETTING_KEY, TTS_FALLBACK_MODEL, TTS_MODEL, TTS_RETRY_DELAYS, TTS_VOICE_SETTING_KEY } from "./tts";
+import { auraVoicesForModel, classifyTtsError, narrationSample, readPronunciationOverrides, spedUpWav, ttsStreamToBytes, readTtsEngineSetting, readTtsSpeedSetting, readTtsVoiceSetting, selectTtsEngine, selectTtsSpeed, selectTtsVoice, validWavAudio, TTS_DEPRECATED_MODEL, TTS_ENGINE_AURA, TTS_ENGINE_AURA2, TTS_ENGINE_MELOTTS, TTS_ENGINE_SETTING_KEY, TTS_FALLBACK_MODEL, TTS_MODEL, TTS_PLAYBACK_SPEED, TTS_RETRY_DELAYS, TTS_SPEED_OPTIONS, TTS_SPEED_SETTING_KEY, TTS_VOICE_SETTING_KEY } from "./tts";
 import { getAffiliatePayoutQueueInDb, getAffiliateSupportActivityInDb, getAffiliateSupportSummaryInDb } from "./affiliate-support";
 import { approveAffiliatePayoutInDb, hasIndependentPayoutApprovalInDb, loadStripePayoutDispatchInDb, parseAffiliateStripeConnectCountries, parsePayoutDualControlThreshold, reconcilePayoutInDb, recordAffiliateAccountRelationshipInDb, recordManualAffiliateAdjustmentInDb, recordPayoutDispatchResultInDb } from "./affiliate";
 import { createAffiliateTransfer } from "./stripe";
@@ -195,7 +195,7 @@ function sameOrigin(c: any): boolean {
   }
 }
 
-async function ttsTestWithRetry(ai: Ai, prompt: string, model: string = TTS_MODEL, voice: string | null = null): Promise<{ bytes: Uint8Array; attempts: number; retries: Array<{ attempt: number; category: string; code: string | null; delayMs: number }> }> {
+async function ttsTestWithRetry(ai: Ai, prompt: string, model: string = TTS_MODEL, voice: string | null = null, speed: number = TTS_PLAYBACK_SPEED): Promise<{ bytes: Uint8Array; attempts: number; retries: Array<{ attempt: number; category: string; code: string | null; delayMs: number }> }> {
   let lastError: unknown;
   const retries: Array<{ attempt: number; category: string; code: string | null; delayMs: number }> = [];
   for (let attempt = 0; attempt <= TTS_RETRY_DELAYS.length; attempt++) {
@@ -205,7 +205,7 @@ async function ttsTestWithRetry(ai: Ai, prompt: string, model: string = TTS_MODE
       if (!generated.length) throw Object.assign(new Error("The model returned no audio."), { code: "EMPTY_AUDIO" });
       if (!validWavAudio(generated)) throw new Error("The speech model returned truncated WAV audio.");
       // Samples preview the shipped pace, so speed them exactly as jobs do.
-      const bytes = spedUpWav(generated);
+      const bytes = spedUpWav(generated, selectTtsSpeed(speed));
       return { bytes, attempts: attempt + 1, retries };
     } catch (error) {
       lastError = error;
@@ -1112,10 +1112,13 @@ app.get("/tts-test", async (c) => {
   const voice = selectTtsVoice(await readTtsVoiceSetting(c.env.DB), engineModel);
   const voiceOptions = auraVoicesForModel(engineModel).map((v) => `<option value="${v}"${voice === v ? " selected" : ""}>${v}</option>`).join("");
   const voicePanel = `<div class="card"><h2>Aura voice</h2><p class="muted">Narrations on the active engine speak as <strong id="tts-voice-status">${voice}</strong>. Applies to future jobs; existing audio is unchanged. Test below renders samples in this voice.</p>${canMutate(staff) ? `<form id="tts-voice-form"><label>Voice <select name="voice">${voiceOptions}</select></label> <button class="btn" type="submit">Switch voice</button></form><p id="tts-voice-message" class="muted" aria-live="polite"></p><script>(function(){var form=document.getElementById('tts-voice-form');if(!form)return;var status=document.getElementById('tts-voice-status');var message=document.getElementById('tts-voice-message');form.addEventListener('submit',async function(event){event.preventDefault();var button=form.querySelector('button');button.disabled=true;message.textContent='Switching…';try{var response=await fetch('/api/tts-voice',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({voice:form.elements.voice.value})});var data=await response.json().catch(function(){return {};});if(!response.ok)throw new Error(data.error||'Could not switch voice.');status.textContent=data.voice;message.textContent='Active voice: '+data.voice+'.';}catch(error){message.textContent=error.message||'Could not switch voice.';}finally{button.disabled=false;}});})();</script>` : ""}</div>`;
+  const speed = selectTtsSpeed(await readTtsSpeedSetting(c.env.DB));
+  const speedOptions = TTS_SPEED_OPTIONS.map((value) => `<option value="${value}"${speed === value ? " selected" : ""}>${value.toFixed(1)}x</option>`).join("");
+  const speedPanel = `<div class="card"><h2>Narration speed</h2><p class="muted">Narration plays at <strong id="tts-speed-status">${speed.toFixed(1)}x</strong>. Applies to future jobs; existing audio is unchanged. Test below renders samples at this speed.</p>${canMutate(staff) ? `<form id="tts-speed-form"><label>Speed <select name="speed">${speedOptions}</select></label> <button class="btn" type="submit">Switch speed</button></form><p id="tts-speed-message" class="muted" aria-live="polite"></p><script>(function(){var form=document.getElementById('tts-speed-form');if(!form)return;var status=document.getElementById('tts-speed-status');var message=document.getElementById('tts-speed-message');form.addEventListener('submit',async function(event){event.preventDefault();var button=form.querySelector('button');button.disabled=true;message.textContent='Switching…';try{var response=await fetch('/api/tts-speed',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({speed:form.elements.speed.value})});var data=await response.json().catch(function(){return {};});if(!response.ok)throw new Error(data.error||'Could not switch speed.');status.textContent=Number(data.speed).toFixed(1)+'x';message.textContent='Active speed: '+Number(data.speed).toFixed(1)+'x.';}catch(error){message.textContent=error.message||'Could not switch speed.';}finally{button.disabled=false;}});})();</script>` : ""}</div>`;
   const editor = canMutate(staff)
     ? `<div class="card"><h2>Short TTS test</h2><p class="muted">Hear what a post will sound like: samples run the same narration preparation as articles, on the active engine, without creating a post or consuming a customer’s AI allowance. Try variants such as <code>ay eye</code>, <code>eigh eye</code>, or <code>A, I</code>.</p><form id="tts-test-form"><label>Text <input name="text" required maxlength="240" value="AI is useful." style="padding:9px;border:1px solid var(--rule);border-radius:5px;min-width:360px"></label> <button class="btn" type="submit">Generate sample</button></form><p id="tts-test-status" class="muted" aria-live="polite"></p><audio id="tts-test-audio" controls hidden style="width:min(100%,520px)"></audio></div><script>(function(){var form=document.getElementById('tts-test-form');var status=document.getElementById('tts-test-status');var audio=document.getElementById('tts-test-audio');form.addEventListener('submit',async function(event){event.preventDefault();var button=form.querySelector('button');button.disabled=true;audio.hidden=true;status.textContent='Generating…';try{var response=await fetch('/api/tts-test',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:form.elements.text.value})});if(!response.ok){var data=await response.json().catch(function(){return {}});throw new Error(data.error||'Could not generate sample.');}var blob=await response.blob();if(audio.dataset.url)URL.revokeObjectURL(audio.dataset.url);audio.dataset.url=URL.createObjectURL(blob);audio.src=audio.dataset.url;audio.hidden=false;status.textContent='Sample ready.';await audio.play().catch(function(){});}catch(error){status.textContent=error.message||'Could not generate sample.';}finally{button.disabled=false;}});})();</script>`
     : `<div class="notice">Your role is read-only. TTS testing requires support or admin access.</div>`;
-  return c.html(staffPage("TTS test", `${staffHeader(staff)}<h2>TTS test</h2><p class="muted">Use this for quick pronunciation experiments before regenerating a full article.</p>${enginePanel}${voicePanel}${editor}`));
+  return c.html(staffPage("TTS test", `${staffHeader(staff)}<h2>TTS test</h2><p class="muted">Use this for quick pronunciation experiments before regenerating a full article.</p>${enginePanel}${voicePanel}${speedPanel}${editor}`));
 });
 
 app.post("/api/tts-test", async (c) => {
@@ -1134,14 +1137,15 @@ app.post("/api/tts-test", async (c) => {
   if (!prepared) return c.json({ error: "Enter a short phrase first." }, 400);
   const model = selectTtsEngine(await readTtsEngineSetting(c.env.DB));
   const voice = selectTtsVoice(await readTtsVoiceSetting(c.env.DB), model);
+  const speed = selectTtsSpeed(await readTtsSpeedSetting(c.env.DB));
   try {
-    const generated = await ttsTestWithRetry(c.env.AI, prepared, model, voice);
-    await audit(c, staff, { action: "tts-test", targetType: "tts", targetId: model, reason: "Generate short pronunciation sample", result: "success", after: { characters: prepared.length, attempts: generated.attempts, retries: generated.retries } });
+    const generated = await ttsTestWithRetry(c.env.AI, prepared, model, voice, speed);
+    await audit(c, staff, { action: "tts-test", targetType: "tts", targetId: model, reason: "Generate short pronunciation sample", result: "success", after: { characters: prepared.length, attempts: generated.attempts, retries: generated.retries, speed } });
     return new Response(generated.bytes, { headers: { "content-type": "audio/wav", "cache-control": "no-store", "x-content-type-options": "nosniff" } });
   } catch (error) {
     const info = (error as { ttsErrorInfo?: ReturnType<typeof classifyTtsError> })?.ttsErrorInfo || classifyTtsError(error);
     const retries = (error as { ttsRetries?: unknown })?.ttsRetries;
-    await audit(c, staff, { action: "tts-test", targetType: "tts", targetId: model, reason: "Generate short pronunciation sample", result: "failure", after: { characters: prepared.length, error: info.category, code: info.code, transient: info.transient, retries: Array.isArray(retries) ? retries : [] } });
+    await audit(c, staff, { action: "tts-test", targetType: "tts", targetId: model, reason: "Generate short pronunciation sample", result: "failure", after: { characters: prepared.length, error: info.category, code: info.code, transient: info.transient, retries: Array.isArray(retries) ? retries : [], speed } });
     return c.json({ error: "TTS sample generation failed." }, 502);
   }
 });
@@ -1278,6 +1282,30 @@ app.post("/api/tts-voice", async (c) => {
   } catch { return c.json({ error: "settings table not available — run migration 068" }, 500); }
   await audit(c, staff, { action: "tts-voice-change", targetType: "tts", targetId: TTS_VOICE_SETTING_KEY, result: "success", before: { voice: before }, after: { voice } });
   return c.json({ voice });
+});
+
+// Narration speed switch: playback pace for future jobs. Any authenticated
+// staff role may read; changing requires a mutating role. Unset or unknown
+// values fail closed to the 1.1x default.
+app.get("/api/tts-speed", async (c) => {
+  const speed = selectTtsSpeed(await readTtsSpeedSetting(c.env.DB));
+  return c.json({ speed });
+});
+
+app.post("/api/tts-speed", async (c) => {
+  const staff = c.get("staff") as StaffIdentity;
+  if (!canMutate(staff)) return c.json({ error: "staff role cannot change the TTS speed" }, 403);
+  if (!sameOrigin(c)) return c.json({ error: "same-origin request required" }, 403);
+  const input = await c.req.json().catch(() => ({})) as { speed?: unknown };
+  const requested = typeof input.speed === "number" ? input.speed : Number(String(input.speed ?? "").trim().replace(/x$/i, ""));
+  if (!(TTS_SPEED_OPTIONS as readonly number[]).includes(requested)) return c.json({ error: "speed must be one of 0.9, 1.0, 1.1, 1.2" }, 400);
+  const speed = requested;
+  const before = selectTtsSpeed(await readTtsSpeedSetting(c.env.DB));
+  try {
+    await c.env.DB.prepare("INSERT INTO platform_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at").bind(TTS_SPEED_SETTING_KEY, String(speed), Math.floor(Date.now() / 1000)).run();
+  } catch { return c.json({ error: "settings table not available — run migration 068" }, 500); }
+  await audit(c, staff, { action: "tts-speed-change", targetType: "tts", targetId: TTS_SPEED_SETTING_KEY, result: "success", before: { speed: before }, after: { speed } });
+  return c.json({ speed });
 });
 
 app.post("/api/pronunciations", async (c) => {

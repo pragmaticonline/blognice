@@ -543,6 +543,9 @@ test("staff TTS test page shows the active narration engine", async () => {
     assert.match(html, /<strong id="tts-voice-status">luna<\/strong>/);
     assert.match(html, /id="tts-voice-form"/);
     assert.match(html, /<option value="luna" selected>luna<\/option>/);
+    assert.match(html, /<strong id="tts-speed-status">1.1x<\/strong>/);
+    assert.match(html, /id="tts-speed-form"/);
+    assert.match(html, /<option value="1.1" selected>1.1x<\/option>/);
   } finally {
     globalThis.fetch = originalFetch;
     await mf.dispose();
@@ -695,6 +698,48 @@ test("staff TTS voice switch persists and gates by role", async () => {
     assert.deepEqual(await res.json(), { voice: "asteria" });
     const stored = await db.prepare("SELECT value FROM platform_settings WHERE key = 'tts.voice'").first();
     assert.equal(stored.value, "asteria");
+  } finally {
+    globalThis.fetch = originalFetch;
+    await mf.dispose();
+  }
+});
+
+test("staff TTS speed switch persists and gates by role", async () => {
+  const staffApp = typeof staffModule.request === "function" ? staffModule : staffModule.default;
+  const mf = new Miniflare({ modules: true, script: "export default { fetch() { return new Response('ok') } }", d1Databases: { DB: "staff-tts-speed" } });
+  const originalFetch = globalThis.fetch;
+  try {
+    const db = await mf.getD1Database("DB");
+    const baseSchema = readFileSync(new URL("../schema.sql", import.meta.url), "utf8");
+    for (const s of baseSchema.replace(/^[ \t]*--.*(?:\r?\n|$)/gm, "").split(/;\s*(?=\r?\n|$)/).map((v) => v.trim()).filter(Boolean)) await db.prepare(s).run();
+    const now = Math.floor(Date.now() / 1000);
+    const adminAccess = await accessFixture("staff|speedadmin", "speedadmin@blognice.com");
+    const readerAccess = await accessFixture("staff|speedreader", "speedreader@blognice.com");
+    await db.prepare("INSERT INTO staff_users (subject, email, role, active, created_at, updated_at) VALUES ('staff|speedadmin','speedadmin@blognice.com','admin',1,?,?),('staff|speedreader','speedreader@blognice.com','read_only',1,?,?)").bind(now, now, now, now).run();
+    globalThis.fetch = async (url) => {
+      if (String(url).endsWith("/cdn-cgi/access/certs")) return new Response(JSON.stringify({ keys: [adminAccess.publicJwk, readerAccess.publicJwk] }), { status: 200 });
+      throw new Error("unexpected " + url);
+    };
+    const env = { DB: db, ACCESS_TEAM_DOMAIN: "team.cloudflareaccess.com", ACCESS_AUD: "staff-audience" };
+    const authed = (access, init = {}) => new Request("https://staff.blognice.test/api/tts-speed", {
+      headers: { "Cf-Access-Jwt-Assertion": access.token, Origin: "https://staff.blognice.test", "content-type": "application/json" },
+      ...init,
+    });
+    // Unset speeds fail closed to 1.1x.
+    let res = await staffApp.request(authed(adminAccess), undefined, env);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { speed: 1.1 });
+    res = await staffApp.request(authed(adminAccess, { method: "POST", body: JSON.stringify({ speed: 1.15 }) }), undefined, env);
+    assert.equal(res.status, 400);
+    res = await staffApp.request(authed(readerAccess, { method: "POST", body: JSON.stringify({ speed: 1 }) }), undefined, env);
+    assert.equal(res.status, 403);
+    res = await staffApp.request(authed(adminAccess, { method: "POST", body: JSON.stringify({ speed: "1.0" }) }), undefined, env);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { speed: 1 });
+    res = await staffApp.request(authed(adminAccess), undefined, env);
+    assert.deepEqual(await res.json(), { speed: 1 });
+    const stored = await db.prepare("SELECT value FROM platform_settings WHERE key = 'tts.speed'").first();
+    assert.equal(stored.value, "1");
   } finally {
     globalThis.fetch = originalFetch;
     await mf.dispose();
