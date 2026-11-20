@@ -509,8 +509,8 @@ test("colons and semicolons receive guaranteed structural pauses", () => {
   assert.match(sections.body, new RegExp(`Options include:${TTS_SOFT_PAUSE}\\s*${TTS_HARD_PAUSE}\\s*A first option\\.`));
 });
 
-test("MeloTTS output supports both binary and base64 binding responses", () => {
-  assert.equal(TTS_MODEL, "@cf/myshell-ai/melotts");
+test("TTS output supports both binary and base64 binding responses", () => {
+  assert.equal(TTS_MODEL, "@cf/deepgram/aura-2-en");
   assert.deepEqual([...ttsBytes(new Uint8Array([1, 2, 3]))], [1, 2, 3]);
   assert.deepEqual([...ttsBytes({ audio: btoa("mp3") })], [109, 112, 51]);
 });
@@ -519,6 +519,7 @@ test("TTS errors classify known transient upstream failures without storing raw 
   assert.deepEqual(classifyTtsError(new Error("3043: Internal server error")), { transient: true, category: "upstream", code: "3043" });
   assert.deepEqual(classifyTtsError({ code: 3040 }), { transient: true, category: "upstream", code: "3040" });
   assert.deepEqual(classifyTtsError(new Error("quota reached 3036")), { transient: false, category: "quota", code: "3036" });
+  assert.deepEqual(classifyTtsError(new Error("5028: @cf/myshell-ai/melotts-v2 was deprecated on 2026-11-20")), { transient: false, category: "unknown", code: "5028" });
   assert.deepEqual(classifyTtsError(new Error("The model returned no audio."), true), { transient: false, category: "empty_audio", code: "EMPTY_AUDIO" });
   assert.equal(TTS_RETRY_DELAYS.length, 12);
 });
@@ -577,7 +578,7 @@ test("engine-sized chunks fit the active TTS engine input cap", () => {
   // Regression: with Aura-1 active, 3500-char chunks hit its 2000-char input
   // cap (error 8007) and fail the whole job. Chunking follows the engine.
   assert.equal(ttsChunkMax(TTS_FALLBACK_MODEL), TTS_AURA_CHUNK_MAX);
-  assert.equal(ttsChunkMax(TTS_MODEL), TTS_CHUNK_MAX);
+  assert.equal(ttsChunkMax(TTS_MODEL), TTS_AURA_CHUNK_MAX);
   const text = "A complete sentence for narration. ".repeat(220).trim();
   const chunks = narrationChunks(text, ttsChunkMax(TTS_FALLBACK_MODEL));
   assert.ok(chunks.length > 1);
@@ -770,12 +771,15 @@ test("audio editor parses responses defensively instead of blind json() (source 
   assert.ok(audioFetches.length >= 3, `expected 3 audio fetches via readJsonResponse, got ${audioFetches.length}`);
 });
 
-test("engine switch selects MeloTTS by default and Aura-1 only when set", async () => {
+test("engine switch selects Aura-2 by default and Aura-1 only when set", async () => {
   const { selectTtsEngine, TTS_MODEL, TTS_FALLBACK_MODEL } = await import("../src/tts.ts");
+  assert.equal(TTS_MODEL, "@cf/deepgram/aura-2-en");
   assert.equal(TTS_FALLBACK_MODEL, "@cf/deepgram/aura-1");
   assert.equal(selectTtsEngine(undefined), TTS_MODEL);
   assert.equal(selectTtsEngine(null), TTS_MODEL);
   assert.equal(selectTtsEngine(""), TTS_MODEL);
+  assert.equal(selectTtsEngine("aura-2-en"), TTS_MODEL);
+  // Stored values from the MeloTTS era migrate to the current default.
   assert.equal(selectTtsEngine("melotts"), TTS_MODEL);
   assert.equal(selectTtsEngine("aura-1"), TTS_FALLBACK_MODEL);
   assert.equal(selectTtsEngine("bogus"), TTS_MODEL);
@@ -796,15 +800,22 @@ test("speech generation routes by engine model and consumes Aura streams", async
       return meloWav;
     },
   };
-  const melo = await generateSpeechForModel(fakeAi, TTS_MODEL, "hello");
-  assert.deepEqual([...melo], [...meloWav]);
+  const primary = await generateSpeechForModel(fakeAi, TTS_MODEL, "hello");
+  assert.deepEqual([...primary], [...auraWav]);
   assert.equal(calls[0].model, TTS_MODEL);
-  assert.deepEqual(calls[0].input, { prompt: "hello", lang: "en" });
+  assert.equal(calls[0].input.text, "hello");
+  assert.equal(calls[0].input.encoding, "linear16");
+  assert.equal(calls[0].input.container, "wav");
   const aura = await generateSpeechForModel(fakeAi, TTS_FALLBACK_MODEL, "hello");
   assert.deepEqual([...aura], [...auraWav]);
   assert.equal(calls[1].model, TTS_FALLBACK_MODEL);
   assert.equal(calls[1].input.encoding, "linear16");
   assert.equal(calls[1].input.container, "wav");
+  // A job manifest naming the deprecated MeloTTS model remaps to Aura-2.
+  const legacy = await generateSpeechForModel(fakeAi, "@cf/myshell-ai/melotts", "hello");
+  assert.deepEqual([...legacy], [...auraWav]);
+  assert.equal(calls[2].model, TTS_MODEL);
+  assert.equal(calls[2].input.text, "hello");
   await assert.rejects(generateSpeechForModel({ run: async () => new Uint8Array() }, TTS_FALLBACK_MODEL, "x"), /no audio/);
   const cut = wav(new Uint8Array([1, 2]));
   new DataView(cut.buffer).setUint32(40, 100, true);
@@ -822,17 +833,22 @@ test("audio jobs record the selected engine and render on it (source checks)", (
   assert.match(src, /checkpointHash = await sha256hex\(`\$\{[^`]*jobModel[^`]*\}`\)/);
   assert.match(src, /generatedBy: job\.model \?\? TTS_MODEL/);
   assert.match(src, /voice\?: string \| null;/);
-  assert.match(src, /selectTtsVoice\(await readTtsVoiceSetting\((c\.env\.DB|env\.DB)\)\)/);
+  assert.match(src, /selectTtsVoice\(await readTtsVoiceSetting\((c\.env\.DB|env\.DB)\), jobModel\)/);
   assert.match(src, /job\.model[^)]*job\.voice \?\? null/);
   assert.match(src, /checkpointHash = await sha256hex\(`\$\{[^`]*jobVoice[^`]*\}`\)/);
 });
 
 test("aura voice selection fails closed to luna and reaches the synthesis input", async () => {
-  const { selectTtsVoice, TTS_FALLBACK_MODEL } = await import("../src/tts.ts");
+  const { selectTtsVoice, TTS_MODEL, TTS_FALLBACK_MODEL } = await import("../src/tts.ts");
   assert.equal(selectTtsVoice("asteria"), "asteria");
   assert.equal(selectTtsVoice("luna"), "luna");
   assert.equal(selectTtsVoice(null), "luna");
   assert.equal(selectTtsVoice("bogus-voice"), "luna");
+  // Voices are validated against the active engine's catalog.
+  assert.equal(selectTtsVoice("amalthea", TTS_MODEL), "amalthea");
+  assert.equal(selectTtsVoice("amalthea", TTS_FALLBACK_MODEL), "luna");
+  assert.equal(selectTtsVoice("angus", TTS_FALLBACK_MODEL), "angus");
+  assert.equal(selectTtsVoice("angus", TTS_MODEL), "luna");
   const { generateSpeechForModel } = await import("../src/index.ts");
   const seen = [];
   const ok = wav(new Uint8Array([1, 2, 3]));

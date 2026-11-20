@@ -411,7 +411,9 @@ account's Workers AI usage.
 ## Audio narration
 
 On a saved post, authors can select **Generate audio** to create English audio
-with Cloudflare Workers AI's MeloTTS model, or **Upload MP3** to attach a
+with Cloudflare Workers AI's Deepgram Aura-2 model (`@cf/deepgram/aura-2-en`;
+Aura-1 remains available as a staff-switchable fallback after MeloTTS was
+deprecated on 2026-11-20), or **Upload MP3** to attach a
 hand-recorded narration instead (MP3 frame-validated, 15 MB max, any plan —
 uploading a file is not an AI entitlement). Generation uses the last saved title
 and post body, strips Markdown syntax and code blocks, stores the result in the
@@ -426,24 +428,24 @@ in this initial version.
 Before generation, deterministic preprocessing adds pauses at headings and
 paragraphs, completes list-item punctuation, and expands a conservative set of
 common abbreviations without rewriting the article through another AI model.
-A small deterministic dictionary corrects known MeloTTS quirks (currently
+A small deterministic dictionary corrects known TTS quirks (currently
 `plugins` is sent as `plug inns`) and takes precedence over AI suggestions.
 Pause hints are sent as paragraph breaks rather than ellipses, which avoids
-MeloTTS occasionally vocalizing a pause as a hesitation sound.
+the TTS engine occasionally vocalizing a pause as a hesitation sound.
 Emoji are removed rather than spoken, and ordinary sentence-ending full stops
 receive a slightly longer pause.
 Headings always receive an explicit pause. Numbered Markdown list markers are
 spoken as words (for example, `1.` becomes `one`) and followed by a pause before
 the item text; those spoken forms also pass through pronunciation preprocessing.
 Pauses before and after headings, and pauses after numbered markers, are encoded as 0.65 seconds of PCM silence,
-so they do not depend on MeloTTS interpreting punctuation.
-Before MeloTTS runs, Granite Micro identifies only likely pronunciation problems
+so they do not depend on the TTS engine interpreting punctuation.
+Before narration runs, Granite Micro identifies only likely pronunciation problems
 and returns exact, validated phonetic replacements. It cannot rewrite the post;
 invalid output is ignored, and narration continues unchanged if the text model
 is unavailable.
 The title is generated as its own short, neutral statement, followed by 1.5
 seconds of silence encoded into the WAV before the article body begins.
-MeloTTS usage is billed through the existing `AI` binding and requires no
+Narration usage is billed through the existing `AI` binding and requires no
 additional API key. A short cooldown separates segment requests. Transient model
 failures, including Cloudflare error 3043, are retried up to four times with
 increasing delays before generation fails.
