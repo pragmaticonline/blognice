@@ -150,6 +150,7 @@ async function ensureImportRecordsTable(db: D1Database): Promise<void> {
   } catch {}
 }
 import { checkLoginRateLimit, clearFailedLoginForEmail, recordFailedLogin } from "./login-rate-limit";
+import { checkSubscribeRateLimit } from "./subscribe-rate-limit";
 import { pushConfigured, sendBrowserPush, validBrowserPushSubscription, type BrowserPushSubscription, type PushPayload } from "./push";
 import { classifyPushDelivery } from "./push-state";
 import homepage from "../homepage.html";
@@ -7657,6 +7658,24 @@ app.post("/subscribe", async (c) => {
       ? c.html(renderSimplePage(tenant, "Subscribe", `<p>Please enter a valid email address.</p>`), 400)
       : c.json({ error: "Please enter a valid email address." }, 400);
 
+  // Abuse guard: per-IP and per-tenant buckets in signup_rate_limits. Runs
+  // before any DB read/write or mail send, and never keys on the email
+  // address (attacker-controlled cardinality). Stale buckets are pruned by
+  // the scheduled cleanup, not in this hot path.
+  const subscribeLimit = await checkSubscribeRateLimit(c, getClientIp(c), tenant.id);
+  if (!subscribeLimit.allowed) {
+    const retryAfter = String(subscribeLimit.retryAfter ?? 3600);
+    if (navigate) {
+      const response = c.html(
+        renderSimplePage(tenant, "Too many requests", `<p>Too many subscription attempts. Please try again later.</p>`),
+        429
+      );
+      response.headers.set("Retry-After", retryAfter);
+      return response;
+    }
+    return c.json({ error: "Too many subscription attempts. Please try again later." }, 429, { "Retry-After": retryAfter });
+  }
+
   const existing = await c.env.DB.prepare(
     "SELECT 1 FROM subscribers WHERE tenant_id = ? AND email = ? AND confirmed_at IS NOT NULL"
   )
@@ -8099,6 +8118,10 @@ async function cleanupPushState(env: Bindings): Promise<void> {
     env.DB.prepare("DELETE FROM push_subscription_limits WHERE window_start < ?").bind(now - 172800),
     env.DB.prepare("DELETE FROM push_deliveries WHERE sent_at IS NOT NULL AND sent_at < ?").bind(now - 2592000),
     env.DB.prepare("DELETE FROM push_subscriptions WHERE (last_success_at IS NOT NULL AND last_success_at < ?) OR (last_success_at IS NULL AND updated_at < ?) OR (tenant_id IN (SELECT id FROM tenants WHERE browser_push_enabled = 0) AND updated_at < ?)").bind(now - 7776000, now - 7776000, now - 2592000),
+    // Rate-limit buckets (signup, login, subscribe) roll over in place via
+    // window_start; this drops buckets idle for over a day so the hot paths
+    // never pay for a full-table scan per request.
+    env.DB.prepare("DELETE FROM signup_rate_limits WHERE window_start < ?").bind(now - 86400),
   ]);
 }
 
